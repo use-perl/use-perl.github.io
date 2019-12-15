@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Arador: Casting magic against segfaults</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Casting magic against segfaults</h1>
+<h2><a href="/user/Arador/">Arador</a> on 2009-02-06T21:33:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><strong>The problem</strong></p>
+<p>For years, there has been the <a href="http://search.cpan.org/perldoc?Sys::Mmap">Sys::Mmap</a> module, however, it has a few issues. For example, let's take this piece of code:</p>
+
+<p><code>use Sys::Mmap;<br>
+open my $fd, '+&gt;', 'filename';<br>
+mmap my $var, -s $fd, PROT_READ|PROT_WRITE, MAP_SHARED, $fd, 0;<br>
+$var = 'Foobar';<br>
+munmap $var;</code></p>
+
+<p>First of all, it's simply not user-friendly. mmap takes 6 arguments in a weird order, and uses weird constants. Also munmap shouldn't be necessary: variables should dispose of themselves when they run out of scope.</p>
+
+<p>But more importantly, this program does not do what you think it does, though the only hint of that is an <i>Invalid argument</i> exception when doing munmap. During the assignment, the link between the mapping and the variable is lost, so nothing is written to the file. Worse yet, this can even lead to a segfault in some circumstances.</p>
+
+<p>Ouch!</p>
+
+<p><strong>Tying things up?</strong></p>
+<p>The documentation clearly says that you shouldn't do this (or anything else that changes the length of the variable), but IMHO this hole shouldn't be left open in the first place, if only because it is extremely counterintuitive (and thus a maintenance nightmare). Modules should fail more gracefully than this.</p>
+
+<p>Sys::Mmap offers a tied interface as compensation, but this didn't work out. The tied interface indeed is safe, but it creates another problem.</p>
+
+<p>Every time it is read, it copies the <em>whole</em> file into the variable. Every time the variable is modified, it writes the whole new value to the file, even if the change only affects a single byte.</p>
+
+<p>Ouch!</p>
+
+<p>Obviously, that doesn't scale at all. One user of the module reported a 10-20 times slowdown of his program after converting to ties. That's not a workable solution.</p>
+
+<p><strong>The solution</strong></p>
+<p>Perl has a powerful but rarely used feature called magic. (It's rare use by module authors is indicated by the fact that the prototypes of the magic virtual table as documented in <a href="http://perldoc.perl.org/perlguts.html#Magic-Virtual-Tables">perlguts</a> aren't even complete: they lack <code>pTHX_</code>'s). They are used by the perl core to implement magic variables such as <code>$!</code> and ties (surprise, surprise). It offers 8 hooks into different stages of handling a variable, the three most important being fetching(<code>svt_get</code>), storing(<code>svt_set</code>) and destruction(<code>svt_free</code>).</p>
+
+<p>In my case, I didn't need <i>get</i> magic, but I did use <i>set</i> and <i>free</i> magic. Freeing the variable is not that interesting (simply unmapping the variable), but setting it is. This function is called just after every write to the variable:</p>
+
+<p><code>static int mmap_write(pTHX_ SV* var, MAGIC* magic) {<br>
+&nbsp; &nbsp; struct mmap_info* info = (struct mmap_info*) magic-&gt;mg_ptr;<br>
+&nbsp; &nbsp; if (SvPVX(var) != info-&gt;address) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; if (ckWARN(WARN_SUBSTR))<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; warn("Writing directly to a to a memory mapped file is not recommended");<br>
+<br>
+&nbsp; &nbsp; &nbsp; &nbsp; Copy(SvPVX(var), info-&gt;address, MIN(SvLEN(var) - 1, info-&gt;length), char);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; SvPV_free(var);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; reset_var(var, info);<br>
+&nbsp; &nbsp; }<br>
+&nbsp; &nbsp; return 0;<br>
+}</code></p>
+
+<p>This function is called after every write to the variable to check if the variable is still linked to the map. If it isn't, it copies the new value into the map, frees the old value and restores the link. As copying is potentially expensive, it will issue a warning if <code>warnings</code> (or actually, <i>'substr'</i> warnings) is in effect.</p>
+
+<p>There is no perfect solution to this problem, but getting a friendly warning is undeniably better than getting a segmentation fault or data loss.</p>
+
+<p>Anyway, you can find Sys::Mmap::Simple <a href="http://search.cpan.org/user/leont/Sys-Mmap-Simple/">here</a>. It offers more goodies, such as portability to Windows, a greatly simplified interface, and built-in thread synchronization.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of mugwumpjism: Database - Slave or Master?  3 of 3 - Integration</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Database - Slave or Master?  3 of 3 - Integration</h1>
+<h2><a href="/user/mugwumpjism/">mugwumpjism</a> on 2006-08-23T12:27:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>This story begins with an effort to store <a
+href="http://search.cpan.org/dist/Moose">Moose</a> classes in a
+Tangram store.  Specifically, converting from
+<tt>Moose::Meta::Class</tt> objects to a <tt>Tangram::Schema</tt>
+structure.
+
+<p>The structures are already quite similar.  In the Tangram schema,
+you have a per-class map of <code>(type, name, (details...))</code>.
+In Moose::Meta::Class, you have a map of <code>(attribute,
+(details...))</code>, where the <code>details</code> includes a type
+constraint.  Based on the type constraint, you can guess a reasonable
+<tt>type</tt>.  Well, not quite.  The next thing you really need is
+<em>Higher Order Types</em> on your type constraints (called
+<em>parametric roles</em> in the Perl 6 Cannon).  In a nutshell,
+that's not just saying there's an <tt>Array</tt> somewhere, but saying
+there's an <tt>Array of</tt> <em>something</em>.  Then you can make
+sure that you put an actual <em>foreign key</em> or <em>link
+table</em> in that point in the schema, rather than the
+<tt>oid+type</tt> pair that you get with <tt>Tangram</tt> when you use
+a <tt>ref</tt> column (and, in recent versions, without specifying a
+<tt>class</tt>).  Getting parametric roles working in Moose is still
+an open question, but certainly one I hope to find time for.
+
+<p>So, during this deep contemplation, I thought, well, what would
+Tangram be adding?  I mean, other than the obvious elitism and other
+associated baggage?  Why not just tie the schema to the Moose
+meta-model, and start a new persistence system from scratch?  Or use
+<tt>DBIx::Class</tt> for all the bits I couldn't be bothered
+re-writing?
+
+<p>In principle, there are reasons why you might want the storage
+schema and the object metamodel to differ.  You might not want to map
+all object properties to database columns, for instance.  Or you might
+want to use your own special mapping for them - not just the default.
+
+<p>Then I thought, how often did I do that?  I added a
+<tt>transient</tt> type in <tt>Class::Tangram</tt> for columns that
+were not mapped, but only rarely used it, and never for data that I
+couldn't derive from the formal columns or some other truly transient
+source.  I only used the <tt>idbif</tt> mapping type for classes when
+I didn't have the time to describe their entire model.  So, perhaps a
+storage system that just ties these two things together would be
+enough of a good start that the rest wouldn't matter.
+
+<p><strong>The Evil Plan to NOT refactor Tangram using
+<tt>DBIx::Class</tt></strong>
+
+<p>Ok, so the plan is basically this.  Take the Tangram API, and make
+the core bits that I remember using into thin wrappers around
+<tt>DBIx::Class</tt> and friends.  Then, all of the stuff under the
+hood that was a headache working with, I'll conveniently forget to
+port.  That way, it won't be a source compatible refactoring, just
+enough to let people who liked the Tangram API do similar sorts of
+things with <tt>DBIx::Class</tt>.
+
+<p>The first thing I remember using is a schema object for the
+connection, if only because of acme's reaction when I say "schema".
+In a talk I'd use a UML diagram at this point, but given
+<tt>&lt;img&gt;</tt> tags are banned, instead let's use Moose code.
+
+<pre>
+ package DBIx::Moose::Schema;
+ use Moose;
+ has '$.classes' => (is => 'ro',
+                     isa => 'Set of Moose::Meta::Class',
+                     );
+</pre>
+
+<p>Alright.  So, we have a schema which is composed of Moose Classes.
+The next thing we need is a Storage object that has the bits we want;
+
+<pre>
+ package DBIx::Moose::Storage;
+ use Moose;
+ use Set::Object qw(weak_set);
+ has '$:db' => (is => 'ro', isa => "DBIx::Class::Schema");
+ has '$:objects' => (is => 'rw', isa => "Set::Object",
+                     default => sub { weak_set() } );
+ has '$.schema' => (is => 'ro',
+                    isa => "DBIx::Moose::Schema");
+</pre>
+
+<p>That <tt>weak_set</tt> is a little bit of magic I cooked up for
+nothingmuch recently.  All we're doing is keeping references to the
+objects we've already loaded from the database, primarily for
+transactional consistency.  Actually, Tangram uses there a hash from
+an <tt>oid</tt> to a weak reference to the member with that
+<tt>oid</tt>, but I think that <tt>oids</tt> suck.  In Perl memory,
+the <tt>refaddr</tt> can be the <tt>oid</tt>.
+
+<p>And we'd need an overloaded query interface;
+
+<pre>
+ package DBIx::Moose::Remote;
+ use Moose;
+ has '$._storage' => (is => 'ro', weak => 1,
+                     isa => "DBIx::Moose::Storage");
+ has '$._class' => (is => 'ro',
+                   isa => "Moose::Meta::Class");
+ has '$._resultset' => (is => 'ro',
+                       isa => "DBIx::Class::ResultSet",
+                       default => \&_rs_default,
+                       );
+ sub _rs_default {
+     my $self = shift;
+     $self->_storage->resultset($self->_class);
+ }
+</pre>
+
+<p>So, hopefully, the <tt>DBIx::Class::ResultSet</tt> API will be rich
+enough to be able to deal with all the things I did with
+<tt>Tangram</tt>, or at least it will given enough TH^HLC.
+
+<p>There will be a bit of double-handling of objects involved.
+Basically, the objects that we get back from <tt>DBIx::Class</tt> will
+be freed very soon after loading, their values passed to a
+schema-specified constructor (probably just <tt>Class-&gt;new</tt>),
+and then their slots that contain collections that are not already
+loaded set up to lazy load the referant collections on access.  This
+happens already in Tangram; the intermediate rows are the arrayrefs
+returned by <code>DBI::fetchrow_arrayref()</code>.  So there will be
+lots of classes, perhaps under <tt>DBIx::Moose::DB::</tt>, that mirror
+the objects in the schema.  Perhaps we don't need that, but it should
+be a good enough starting point, and if it can be eliminated entirely
+later on, then all the better.  (<b>Update:</b> Matt has kindly pointed me to the part of the API that deals with this; this shouldn't be a problem at all)
+
+<p><strong>Mapping the Index from the Class</strong>
+
+<p>One of the nice things about a database index is that it's
+basically a performance 'hack' only (because databases are too dumb to
+know what to index themselves), and do not actually affect the
+operation of the database.  So, for the most part, we can ignore
+mapping indices and claim we are doing the 'correct' thing
+<tt>;)</tt>.
+
+<p>That is, unless the index happens to be a <em>unique index</em> or
+a <em>primary key</em>.  What those add is a <em>uniqueness
+constraint</em>, which <em>does</em> affect the way that the object
+behaves.  So, what of that?
+
+<p>Interestingly, Perl 6 has the concept of a special <tt>.id</tt>
+property.  If two object references have the same <tt>.id</tt>
+property, then they are considered to be <em>the same object</em>.
+This has some interesting implications.
+
+<p>After all, isn't this;
+
+<pre> class Book;
+ has Str $.isbn where { .chars < 255 };
+ method id {
+     $.isbn;
+ }</pre>
+
+<p>The same thing as this?
+
+<pre>CREATE TABLE Book (
+    isbn VARCHAR(255);
+    UNIQUE PRIMARY KEY (isbn);
+);
+</pre>
+
+<p>So, we can perhaps map this in Perl 6 code, at least map one
+uniqueness constraint per type.  Generalising this to multiple
+uniqueness constraints is probably something left best to our Great
+Benevolant Navel-Gazers.  In the short term, we'll need to come up
+with some other kind of way of specifying this per-class; probably a
+<tt>Moose::Util::UniquenessConstraint</tt> or somesuch.
+
+<p><strong>Mapping Inheritance</strong>
+
+<p>Alright, so we still have inheritance to deal with.  But wait!
+We've got a bigger, brighter picture with Moose.  We've now got roles.
+
+<p>Fortunately, this is OK.  The Tangram <tt>type</tt> column was only
+ever used (conceptually, anyway) to derive a <em>bitmap</em> of
+associated (ie, sharing a primary key) tables that we expect to find
+rows in for a particular tuple.  So, if we map the role's properties
+to columns, then we only have to "duplicate" columns for particular
+roles, if those roles are composed into classes that don't share a
+common primary key.
+
+<p><strong>The other features</strong>
+
+<p>Well, there may be other important features that I'll remember when
+the time comes, but for now I think there's enough ideas here to form
+a core roadmap, or at least provide a starting point for discussion.
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>SSS SSSSSS SSSSSSS SSSSSSS!</h2>
+<h3><a href="/user/acme/">acme</a> on 2006-08-23T14:57:48</h3>
+*JUMP* You said the S word! Multiple times!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

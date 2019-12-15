@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of potyl: From YAML to XML through a DTD</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>From YAML to XML through a DTD</h1>
+<h2><a href="/user/potyl/">potyl</a> on 2008-10-07T21:39:10</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>The <a href="http://bratislava.pm.org/">Bratislava PM</a> web site has now an RSS feed. This feed is currently generated from a custom made <a href="http://search.cpan.org/perldoc?YAML">YAML</a> file that's transformed to RSS thanks to <a href="http://search.cpan.org/perldoc?XML::RSS">XML::RSS</a>. This approach is simple and quite flexible but has some quirks.</p>
+
+<p>First, it's almost impossible to verify that the format of the YAML file is following the default template without writing our own validation. For instance, if a feed entry is missing the title, the link or the date there's no built-in mechanism to inform us of this errors.</p>
+
+<p>Secondly, the main content of each feed element is allowed to have HTML. In fact, all feed items that we have include HTML. Mixing HTML inside of a YAML file doesn't make the input file too nice since it has now two markup languages. Of course, one can argue that YAML Ain't Markup Language (tm), nevertheless it is weird to embed HTML in YAML.</p>
+
+<p>Finally, converting YAML to XML seems strange. YAML is mainly used to provide data structures, configuration files or data serialization. Using it for content manipulation might be pushing it too far.</p>
+
+<p>For this particular context XML seems more appropriated. Some of its advantages are that it's possible to validate through a DTD, an XML Schema or RELAX NG. HTML and XML can coexist without problems, specially if XHTML is used. And transforming an XML file into another an RSS feed can be <i>easily</i> done through XSLT.</p>
+
+<p>Using XML as the input file provided some interesting advantages. First, thanks to a DTD not only can we validate each feed entry in the input file, but we can also validate the HTML that's embedded in the feed's description.</p>
+
+<p>By using some clever XML and DTD hacks it's possible to create a custom made feed that can be validated without too much effort. Let's we assume that an RSS feed contains an events and that each event has:
+<ul>
+	<li>title</li>
+	<li>link</li>
+	<li>description (can contain HTML)</li>
+	<li>subject</li>
+	<li>creator</li>
+	<li>date</li>
+	<li>id</li>
+</ul>
+</p>
+
+<p>The following DTD describes and validates a feed input file:</p>
+<pre>
+<!ELEMENT ba:events      (ba:event*)>
+<!ATTLIST ba:events
+	xmlns:ba  CDATA   #FIXED "http://bratislava.pm.org/dtd/events-1.0.dtd"
+>
+
+<!ELEMENT ba:event       (ba:title, ba:link, ba:description, ba:subject, ba:creator, ba:date, ba:id)>
+
+<!ELEMENT ba:title       (#PCDATA)>
+<!ELEMENT ba:link        (#PCDATA)>
+<!ELEMENT ba:description (#PCDATA)>
+<!ELEMENT ba:subject     (#PCDATA)>
+<!ELEMENT ba:creator     (#PCDATA)>
+<!ELEMENT ba:date        (#PCDATA)>
+<!ELEMENT ba:id          (#PCDATA)>
+</pre>
+
+<p>Although this DTD can be used for simple feed elements it has a problem: it doesn't allow any HTML inside the element <i>ba:description</i>! Does defeating the purpose of replacing YAML by XML. But all is not lost as this can be easily fixed by importing the XHTML DTD within our DTD and by redefining the element <i>ba:description</i> in order to accept any HTML tag that a <i>div</i> accepts:</p>
+<pre>
+<!-- Import that XHTML DTD -->
+<!ENTITY % xhtml PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+%xhtml;
+
+<!ELEMENT ba:events      (ba:event*)>
+<!ATTLIST ba:events
+	xmlns:ba  CDATA   #FIXED "http://bratislava.pm.org/dtd/events-1.0.dtd"
+>
+
+<!ELEMENT ba:event       (ba:title, ba:link, ba:description, ba:subject, ba:creator, ba:date, ba:id)>
+
+<!ELEMENT ba:title       (#PCDATA)>
+<!ELEMENT ba:link        (#PCDATA)>
+<!ELEMENT ba:subject     (#PCDATA)>
+<!ELEMENT ba:creator     (#PCDATA)>
+<!ELEMENT ba:date        (#PCDATA)>
+<!ELEMENT ba:id          (#PCDATA)>
+
+<!-- The definiton of 'ba:description' is the same as a 'div' -->
+<!ELEMENT ba:description %Flow;>
+<!ATTLIST ba:description
+	xmlns     CDATA   #FIXED  "http://www.w3.org/1999/xhtml"
+>
+</pre>
+
+<p>Thanks to this new DTD the element <i>ba:description</i> can include any HTML element that's allowed within a <i>div</i> element. The DTD will make the validation and will ensure that valid HTML is inside the element. For instance, adding the element <i>body</i> to the element <i>ba:description</i> will be rejected by the DTD even though it's a valid HTML element it's not allowed to be within a <i>div</i>.
+</p>
+
+<p>The element <i>ba:description</i> is declared in our DTD the same way that the element <i>div</i> is in the XHTML DTD. Furthermore, the element is allowed to set the default namespace to XHTML. Thus, making all child elements of <i>ba:description</i> to belong to the XHTML elements, this is very handy when processing the XML file latter on.</p>
+
+<p>It's is not difficult to see that the new version of the feed will be generated from an XML file as using XML is quite advantageous here.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Kwalify &amp;amp; Data::Rx</h2>
+<h3><a href="/user/srezic/">srezic</a> on 2008-10-07T22:05:37</h3>
+Are you aware of <a href="http://search.cpan.org/dist/Kwalify/" title="cpan.org">Kwalify</a cpan.org>
+and <a href="http://search.cpan.org/dist/Data-Rx/" title="cpan.org">Data::Rx</a cpan.org>, both schema languages for data structures?
+
+
+
+<blockquote>
+
+<h2>Re:Kwalify &amp;amp; Data::Rx</h2>
+<h3><a href="/user/potyl/">potyl</a> on 2008-10-08T06:09:39</h3>
+<p>No I wasn't aware that they existed, thanks for the pointers. I went quickly over the documentation and they look quite nice.</p><p>Although, in our case the main goal was to mix the validation of our own elements and the ones provided by XHTML. Using Kwalify or Data::Rx would require us to transform (or worse to rewrite) the XHTML DTD in some other language.</p><p>Also, using XML and XHTML has some other advantages that I will describe in future posts.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

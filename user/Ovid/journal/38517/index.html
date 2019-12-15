@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Moose!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Moose!</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-02-20T15:04:26</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>We've started to use <a href="http://search.cpan.org/dist/Moose/">Moose</a> pretty heavily at work, but until today, I've not had the chance to write any Moose classes myself.  Today, I wrote my first two Moose classes:</p>
+
+<pre>package PIPs::QueryParams::Param;
+
+use Moose;
+
+has name => (is => 'ro', isa => 'Str', required => 1);
+
+has method =>
+        (is => 'ro', isa => 'Str', lazy => 1, default => sub { $_[0]->name });
+has required   => (is => 'ro', isa => 'Bool', default => 0);
+has repeatable => (is => 'ro', isa => 'Bool', default => 0);
+has datatype   => (is => 'ro', isa => 'Str',  default => 'xsd:string');
+has rel        => (is => 'ro', isa => 'Str',  default => '');
+
+__PACKAGE__->meta->make_immutable;
+no Moose;
+
+1;</pre>
+
+<p>And ...</p>
+
+<pre>package PIPs::QueryParams;
+
+use Moose;
+use Carp ();
+use PIPs::QueryParams::Param;
+
+has params => (
+    is  => 'ro',
+    isa => 'ArrayRef[PIPs::QueryParams::Param]',
+);
+
+sub BUILDARGS {
+    my ($class, %args) = @_;
+    my @params;
+    my $controller           = $args{controller};
+    my $allowed_query_params = $controller->allowed_query_params;
+    foreach my $name ( sort keys  %$allowed_query_params) {
+        my $args = $allowed_query_params->{$name};
+        $args->{name} = $name;
+        push @params => PIPs::QueryParams::Param->new(%$args);
+    }
+    $class->SUPER::BUILDARGS(
+        params => \@params,
+    );
+}
+
+__PACKAGE__->meta->make_immutable;
+no Moose;
+
+1;</pre>
+
+<p>And I can now just do this:</p>
+
+<pre>my $params = PIPs::QueryParams->new( controller => $controller );
+my $list   = $params->params;
+say $_->name foreach @$list;</pre>
+
+<p>I'm sure those can be written better, but those were soooo much easier to write than typical Perl classes.  Ultimately, this is going to be used to auto-generate documentation for our REST API.</p>
+
+<p>And note, because of the annoying sort of guy that I am (and preferring immutable objects), everything is read-only.</p>
+
+<P><strong>Update</strong>: Fixed the code per autarch's suggestion below. His comment now won't make much sense, but I didn't want an example of bad Moose code here.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Curious...</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2009-02-20T15:27:12</h3>
+<p>.... why the trailing "no Moose"?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Curious...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-20T15:37:17</h3>
+<p>It removed the functions that Moose exports into your package.  It would be annoying if someone tried to call <tt>$object-&gt;has</tt><nobr> <wbr></nobr>:)</p>
+
+
+
+<h2>Re:Curious...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-20T15:39:42</h3>
+<p>The lovely <a href="http://search.cpan.org/dist/MooseX-Declare/" title="cpan.org">MooseX::Declare</a cpan.org> lets you avoid even that (and it's an incredible module), but unfortunately, it's very alpha and has plenty of bugs.  Still, look what it buys you:</p><blockquote><div><p> <tt>use MooseX::Declare;<br> <br>class BankAccount {<br>&nbsp; &nbsp; has 'balance' =&gt; ( isa =&gt; 'Num', is =&gt; 'rw', default =&gt; 0 );<br> <br>&nbsp; &nbsp; method deposit (Num $amount) {<br>&nbsp; &nbsp; &nbsp; &nbsp; $self-&gt;balance( $self-&gt;balance + $amount );<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; method withdraw (Num $amount) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $current_balance = $self-&gt;balance();<br>&nbsp; &nbsp; &nbsp; &nbsp; ( $current_balance &gt;= $amount )<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; || confess "Account overdrawn";<br>&nbsp; &nbsp; &nbsp; &nbsp; $self-&gt;balance( $current_balance - $amount );<br>&nbsp; &nbsp; }<br>}</tt></p></div> </blockquote><p>I can't wait until that's production ready.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Curious...</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2009-02-20T15:44:17</h3>
+<p>&gt; I can't wait until that's production ready.</p><p>Ohhh. Shiny!<nobr> <wbr></nobr>:-)</p>
+
+
+
+<h2>Re:Curious...</h2>
+<h3><a href="/user/rafl/">rafl</a> on 2009-02-20T18:31:10</h3>
+<p>All MooseX::Declare does to not require you to unimport all Moose keywords (and possibly other imports) is</p><p>
+
+<code>  use namespace::clean -except =&gt; 'meta';</code>
+
+</p><p>to remove all previously defined and imported functions (except for the 'meta' method Moose gives you) at the end of compile time. No need to wait for anything.</p>
+
+
+
+<h2>Re:Curious...</h2>
+<h3><a href="/user/draegtun/">draegtun</a> on 2009-02-20T23:04:48</h3>
+<p><div class="quote"><p>I can't wait until that's production ready.</p></div><p>I think everyone who left the London Perl tech talk last night felt &amp; thought the exactly same thing.</p><p>Patience is a virtue!</p><p>/I3az/</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>What about ''?</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2009-02-20T16:29:31</h3>
+<p>I don't understand the bit about the final '' in your comment. I think a better way to do that is make method lazy and have the default be:<br><code><br>sub { $_[0]-&gt;name }<br></code></p>
+
+
+
+<blockquote>
+
+<h2>Re:What about ''?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-20T16:51:52</h3>
+<p>The reason for the final '' is that it put a string in the <tt>method</tt>, thus ensuring it would pass type validation.  Your solution is much nicer.  Thanks<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Ohh, Moose Golf!</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2009-02-20T18:36:41</h3>
+<p>
+So, in the interest of TIMTOWTDI, here is another approach that uses coercion to extract the params list from the controller object.
+</p><blockquote><div><p> <tt>package PIPs::QueryParams;<br>use Moose;<br>use Moose::Util::TypeContraints;<br>use PIPs::QueryParams::Param;<br> <br># I am assuming this is the name<br># of your controller class and<br># it is a non-Moose class, if it is<br># a Moose class, you can remove this<br># (assuming the class is already loaded)<br># because Moose does this for you<br>class_type 'PIPs::Controller';<br> <br>subtype 'PIPs::ListOfParams'<br>&nbsp; &nbsp; =&gt; as 'ArrayRef[PIPs::QueryParams::Param]';<br> <br>coerce 'PIPs::ListOfParams'<br>&nbsp; &nbsp; =&gt; from 'PIPs::Controller'<br>&nbsp; &nbsp; =&gt; via {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $controller = $_;<br>&nbsp; &nbsp; &nbsp; &nbsp; my @params;<br>&nbsp; &nbsp; &nbsp; &nbsp; my $allowed_query_params = $controller-&gt;allowed_query_params;<br>&nbsp; &nbsp; &nbsp; &nbsp; foreach my $name ( sort keys&nbsp; %$allowed_query_params) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $args = $allowed_query_params-&gt;{$name};<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $args-&gt;{name} = $name;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; push @params =&gt; PIPs::QueryParams::Param-&gt;new(%$args);<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; return \@params;<br>&nbsp; &nbsp; };<br> <br>has params =&gt; (<br>&nbsp; &nbsp; is&nbsp; &nbsp; &nbsp;=&gt; 'ro',<br>&nbsp; &nbsp; isa&nbsp; &nbsp; =&gt; 'PIPs::ListOfParams',<br>&nbsp; &nbsp; coerce =&gt; 1,<br>);<br> <br>__PACKAGE__-&gt;meta-&gt;make_immutable;<br> <br>no Moose; 1;</tt></p></div> </blockquote><p>
+And then your code would look like this<nobr> <wbr></nobr>...
+</p><blockquote><div><p> <tt>my $params = PIPs::QueryParams-&gt;new( params =&gt; $controller );<br>my $list&nbsp; &nbsp;= $params-&gt;params;<br>say $_-&gt;name foreach @$list;</tt></p></div> </blockquote><p>
+Now, passing a controller where your supposed to pass params does seem a little odd, so perhaps this isnt the best example. However you could just as easily pass in the <code>$controller-&gt;allowed_query_params</code> and do the coercion on the <code>HashRef[HashRef]</code> type (or better yet, use MooseX::Types::Structured to define a stricter Dictionary type).
+</p><p>
+One of the benefits I see with using types and coercion is that since types are global, this promotes cross cutting re-use since now any class that needs a list of PIPs::QueryParams::Param objects and happens to have easy access to a $controller object can use this coercion.
+</p><p>
+Anyway, glad your enjoying the Moose<nobr> <wbr></nobr>:)
+</p><p>
+- Stevan
+</p>
+
+
+
+<h2>A code smell</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2009-02-20T21:54:21</h3>
+<p>Thinking about this example, there's a code smell in general with your use of BUILDARGS.</p><p>BUILDARGS is really _not_ for munging arguments, it's there to allow for a constructor which doesn't take named argument, like<br><code><br>my $user = User-&gt;new($user_id);<br></code></p><p>If you're using it to add extra arguments, consider using lazy default/builder, per my suggestion. If you're using it to coerce, use a coercion per Stevan's example.</p>
+
+
+
+<blockquote>
+
+<h2>Re:A code smell</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-20T22:32:05</h3>
+<p>OK, I'll buy the code smell argument because you have more experience with this than I do, but I don't understand.  I like the lazy/default example, but Stevan's example is longer than mine and doesn't seem to buy me anything.  Plus, as Stevan pointed out, it has the drawback of an apparently misnamed constructor pair.  What am I missing?</p>
+
+
+
+<blockquote>
+
+<h2>Re:A code smell</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2009-02-20T23:27:34</h3>
+<p>The advantage of coercion is exactly what Stevan says, it lets you reuse that bit of logic across classes.</p><p>The name mismatch is weird, but I'd probably just have people call the constructor like this:<br><code><br>PIPs::QueryParams-&gt;new( params =&gt; $controller-&gt;allowed_query_params );<br></code></p><p>I honestly don't like _any_ of these options much myself, but I don't understand your APIs or problem domain well enough to come up with a better solution.</p><p>There's just something about using BUILDARGS to do what coercion can do that strikes me as weird.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

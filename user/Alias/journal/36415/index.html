@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: When declarative isn't really declarative</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>When declarative isn't really declarative</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2008-05-14T11:09:18</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'm a huge fan of <a href="http://search.cpan.org/perldoc?File::Find::Rule">File::Find::Rule</a> and the elegant compactness with which you can declaratively set up a file search and the ease with which you could extend it.<br/><br/>I even wrote three plugins for it, <a href="http://search.cpan.org/perldoc?File::Find::Rule::VCS">File::Find::Rule::VCS</a> for skipping CVS/.svn/.bzr directories, <a href="http://search.cpan.org/perldoc?File::Find::Rule::Perl">File::Find::Rule::Perl</a> for searching for Perl files/scripts/modules/tests/etc, and <a href="http://search.cpan.org/perldoc?File::Find::Rule::PPI">File::Find::Rule::PPI</a> for integrating <a href="http://search.cpan.org/perldoc?PPI">PPI</a>-based content searching.<br/><br/>And yet in the 5-10 years I've been using F:F:R, I've been completely seduced by the elegant layout into not just using it with declarative syntax, but THINKING about it declaratively.<br/><br/>And the thing is, it's NOT declarative at all.<br/><br/>This mistake is so common it has even been made by the author himself, and is encoded directly in the canonical SYNOPSIS examples. Like so many others, I probably cut and pasted the SYNOPSIS the first time I used it, and I've been clueless ever since.<br/><br/>Now I've told you that a problem exists, have a look at this snippit from the docs, and the problem should be obvious.
+<code>
+# Find all the .pm files in @INC
+my @files = File::Find::Rule->file
+              ->name( '*.pm' )
+              ->in( @INC );
+</code>
+This is the obvious way to write that sort of search, because it reads extremely clearly. <i>"Find the files named .pm in somewhere"</i>. And because it reads in human terms, we tend to think of it in human terms.<br/><br/>But just look at the order of the rules there.<br/><br/>What this search REALLY says is <i>"Find every single file in all these trees, then do an slow IO stat call to the operating system on every single one to work out which ones are files, and only then do a quick regex match on the file names to keep the 5% that have the ending we want and throw away the 95% that don't"</i>.<br/><br/>The result is that even in fairly tame cases we're probably doing 10 or 20 or 100 or even 1000 times as many file system calls to the operating system as we need to.<br/><br/>And I'd be willing to bet that this mistake is endemic in code that uses File::Find::Rule.<br/><br/>There is an IMMENSE performance difference between <i>->file->name</i> and <i>->name->file</i>.<br/><br/>Looking through my own repository, I've already found 5-10 places where I've made this mistake, including in two of the three plugins I wrote.<br/><br/>File::Find::Rule::VCS has the appalling behaviour of checking all your files to see if they are a directory, before checking it has the relatively rare name ".svn" or ".bzr".<br/><br/>And those 5-10 are just the obvious ones I could find with a simple string search. I'm sure there's more of them if I look a bit more carefully.<br/><br/>I'm actually wondering if the situation is bad enough to warrant putting an optimization hack directly into File::Find::Rule itself, so that it will bubble up a name rule above any stat-based rules immediately above it, but that makes me a little nervous since this code is so universally used.<br/><br/>Are there any cases where moving a name match before a stat match could go horribly horribly wrong?</p>
+
+
+<hr/>
+
+
+
+<h2>Thanks for posting</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2008-05-14T14:19:01</h3>
+Excellent points, Adam.  I'm looking at making sure that <a href="http://search.cpan.org/dist/File-Next/" title="cpan.org">File::Next</a cpan.org> is doing regexes before start.
+
+
+
+<h2>short circuit ops</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2008-05-14T14:29:11</h3>
+Basically the rules are a bunch of "ands" or short circuit operators right? So the order doesn't matter for anything but execution speed. So if you have<br><br>
+&nbsp; &nbsp; <code>common_but_lengthy() &amp;&amp; rare_but_short()</code><br><br>It should be re-written as<br><br>
+&nbsp; &nbsp; <code>rare_but_short() &amp;&amp; common_but_lengthy()</code><br><br>Not because it's any more correct, but because as you point out it saves time. So switching the order of how F::F::R does things shouldn't affect the correctness right?
+
+
+
+<blockquote>
+
+<h2>Re:short circuit ops</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-05-15T02:47:15</h3>
+There are some subtleties involved for pruning, purging, boolean combinations etc.<br><br>But I _THINK_ that if you have a simple state rule, immediately followed by a simple name rule, that case can always be swapped.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org story by brian_d_foy: Web::Scraper with filters, and thought about Text filters</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Web::Scraper with filters, and thought about Text filters</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2007-10-04T20:37:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a href="http://search.cpan.org/dist/Web-Scraper-0.21_01/">A developer release of Web::Scraper</a> is pushed to CPAN, with "filters" support. Let me explain how this filters stuff is useful for a bit.<br> <br>Since an early version, Web::Scraper has been having a callback mechanism which is pretty neat, so you can extract "data" out of HTML, not limited to the string.<br> <br>For instance, if you have an HTML<p><blockquote> <div> <tt>&lt;span class=".entry-date"&gt;2007-10-04T01:09:44-0800&lt;/span&gt;</tt> </div> </blockquote> you can get the DateTime object that the string represents, like:<p><blockquote> <div> <tt>&nbsp; process ".entry-date", "date" =&gt; sub {<br>&nbsp; &nbsp; DateTime::Format::W3CDTF-&gt;parse_string(shift-&gt;as_text);<br>&nbsp; };</tt> </div> </blockquote></p>
+<p>and with 'filters' you can make this reusable and stackable, like:<p><blockquote> <div> <tt>package Web::Scraper::Filter::W3CDTFDate;<br>use base qw( Web::Scraper::Filter );<br>use DateTime::Format::W3CDTF;<br>
+&nbsp; <br>sub filter {<br>&nbsp; &nbsp; DateTime::Format::W3CDTF-&gt;parse_string($_[1]);<br>}<br>1;</tt> </div> </blockquote> and then:<p><blockquote> <div> <tt>&nbsp; process ".entry-date", date =&gt; [ 'TEXT', 'W3CDTFDate' ];</tt> </div> </blockquote> If the .entry-date text contains errorneous spaces, you can do:<p><blockquote> <div> <tt>&nbsp; process ".entry-date", date =&gt; [ 'TEXT', sub { s/^ *| *$//g }, 'W3CDTFDate' ];</tt> </div> </blockquote> This explains how powerful this Web::Scraper filter mechanism could be. It's stackable, extensible, reusable (by making it a module) and also scriptable with inline callbacks.<br> <br>So the next step would be to add bunch of Web::Scraper::Filter::* modules. I think I'll create a separate distribution Web::Scraper::Filters and give everyone a commit access so you can add your own text filters that you can share.<br> <br>However I have another, more ideal solution in my mind.<br> <br>The problem is: there are already lots of text filters on CPAN. URI::Escape, HTML::Entities, MIME::Base64, Crypt::CBC, LOLCatz, Kwiki::Formatter... name a few.<br> <br>And there are also text processing framework that has filter mechanism: Template-Toolkit, Web::Scraper, Plagger, Kwiki, Test::Base ... name a few. Obviously the combination of a new text filter engine and these text processing system goes exponential.<br> <br>For instance, TT has gadzillion of Template::Filter plugins on CPAN that are only useful for TT. If you want to use that text filter in other text processing system (e.g. Web::Scraper, Kwiki, Plagger etc.), you need to port, or in other words, write an adapter interface for <i>each</i> individual text filter engine.<br> <br>Doesn't this suck?<br> <br>I want a common Text filter API that can take input as a string, and return output also as a string. For complex filters like wiki-to-text engine, this might better have a configuration option.<p><blockquote> <div> <tt>use Text::Filter::Common;<br>my $filter = Text::Filter::Common-&gt;new($name, $config);<br>my $output = $filter-&gt;filter($input, $option);</tt> </div> </blockquote> So Text::Filter::Common is a factory module and each text filter is a subclass of Text::Filter::Common::Base or something and implements <code>filter</code> function that probably takes <code>$self-&gt;config</code> to configure the filter object.<br> <br>Then we can write an adapter interface for existent text filter mechanisms like Web::Scraper or Tempalte::Toolkit, and we can avoid the duplicated efforts to re-port one text filters to bunch of different modules.<br> <br>Looks like Text::Filter namespace is taken and even though it seems close to what I want it to do, but it supports both read/write and that's more than what I want.<br> <br>Thoughts?</p>
+
+
+<hr/>
+
+
+
+<h2>Text::Pipe?</h2>
+<h3><a href="/user/hanekomu/">hanekomu</a> on 2007-10-04T08:48:38</h3>
+I like the "more ideal" solution of having separate text filters. Since Text::Filter is taken, how about Text::Pipe? After all, the factory method shouldn't be able to just give you one filter, but several filters, piped together.<br><br>And I wouldn't put the factory in a<nobr> <wbr></nobr>::Common module; just call it Text::Pipe::Factory. It generates "pipe segments" that are Text::Pipe::* objects, all of which are derived from Text::Pipe::Base.<br><br>Several pipe segments, piped together, could themselves be pipe segments.<br><br>Text::Pipe::* objects could have '|' overloaded so you can combine them in a TT-like syntax.<br><br>Then again, maybe you don't want to limit yourself to piping text; how about arbitrary data structures? E.g., one pipe segment could take an array and reduce(). But maybe that's going too far. (I've had such an idea many years ago but didn't follow up on it.) Piping text is fine.<br><br>Your example regex that deals with erroneous spaces would itself by a pipe segment, something like Text::Pipe::Trim.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Text::Pipe?</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2007-10-04T09:02:55</h3>
+I don't care much about names, but I disagree letting Text::Pipe itself have the stackable several filters becasue all filters have the same single <code>filter</code> interface, you don't need to.<br><br>Creating a stacked pipe is easy by creating a new Pipe stacker object, like:<p><blockquote> <div><tt>use Text::Pipe::Stackable;<br>use Text::Pipe;<br>
+&nbsp; <br>my $pipe1 = Text::Pipe-&gt;new('foo');<br>my $pipe2 = Text::Pipe-&gt;new('bar');<br>my $pipe3 = Text::Pipe-&gt;new('baz');<br>
+&nbsp; <br>my $stacked_pipe = Text::Pipe::Stackable-&gt;new($pipe1, $pipe2, $pipe3);<br>
+&nbsp; <br>my $output = $stacked_pipe-&gt;filter($input);</tt></div> </blockquote> And I also don't care much about the class structure as well, but it needs to be easy and less code enough for more developers to be able to write a new adapter for a new text filtering engine.<br><br>But well, it seems like a bike-shed discussion to me. The detailed API could be improved anytime once the development starts. The important thing is to know if it's a good thing or completely useless.<br><br>I'm also interested in writing a pipe for arbitrary data structure like reduce() or trim() that works on array ref. Go look at Test::Base::Filter module that INGY created a while ago. It has several filter function that operates both on string and array.
+
+
+
+<blockquote>
+
+<h2>Re:Text::Pipe?</h2>
+<h3><a href="/user/hanekomu/">hanekomu</a> on 2007-10-04T09:13:35</h3>
+Agreed re bike-shed discussion; one more point though:<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $stacked_pipe = Text::Pipe::Stackable-&gt;new($pipe1, $pipe2, $pipe3);<br><br>Yes, that's a better design pattern. In that case, Text::Pipe::Stackable-&gt;new() should be able to take both individual segments as well as Text::Pipe::Stackable objects as well (for a kind of recursive construction).<br><br>That is, stacked pipes should - to the user - be indistinguishable from individual pipe segments. It's just some black hole that has an input and an output.<br><br>Or, in the case of multiplexers, several outputs. Or with reductors, several inputs. Whatever.<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Text::Pipe?</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2007-10-04T09:17:00</h3>
+Yeah, it's caled Composite design pattern and also a Decorator.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>You mean like Formatter</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2007-10-06T10:06:31</h3>
+Kjetil has this same issue several years ago with his Wiki software. His solution was <a href="http://search.cpan.org/user/kjetilk/Formatter-0.95/" title="cpan.org">http://search.cpan.org/user/kjetilk/Formatter-0.95/</a cpan.org>
+
+
+
+<h2>I think its a good idea</h2>
+<h3><a href="/user/draven/">draven</a> on 2007-10-08T21:48:00</h3>
+I've been thinking similar thoughts while working on the formatter chain of mojomojo. I think there might be two distinct types of formatters tho, formatters that can work on streams, and formatters that work on distinct pieces of content.<br><br>I also think there might be some benefit to providing some  more pluggable basic formatters, like html or other text markup, where other formatters can hook into the apropriate place. I guess Web::Scraper is already like that in a way.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

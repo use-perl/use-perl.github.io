@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of mpeters: Help needed on a new 5.10 warning</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Help needed on a new 5.10 warning</h1>
+<h2><a href="/user/mpeters/">mpeters</a> on 2009-09-15T21:48:20</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'm trying to run an existing application on 5.10 for the first time (5.10.0 for right now) and am getting a warning that is not making it easy for me to track down. Any help from the lazy web would be appreciated.<br><br><br/><br/>It goes like this:
+<br><br><br/><br/><pre>
+  Variable "$x" is not available at (re_eval 1070) line 1.
+</pre><br/><br/>I'm assuming this is pretty deep inside some dependency I'm using (of which my application probably has an old version which doesn't play nicely with 5.10). Google is no help here as it returns a lot of CPAN testers results with the same warning for various modules (<a href="http://www.mail-archive.com/cpan-testers@perl.org/msg652326.html">http://www.mail-archive.com/cpan-testers@perl.org/msg652326.html</a>, <a href="http://trouchelle.com/perl/ppmrepview.pl?id=33577&v=10">http://trouchelle.com/perl/ppmrepview.pl?id=33577&v=10</a>).<br><br><br/><br/>My normal trick of using<br/><br/><pre>
+  $SIG{__WARN__} = \*Carp::cluck;
+</pre><br/><br/>to get a nice stack trace of where the warning is coming from is not actually giving me a stack trace. Anyone have any extra ideas?</p>
+
+
+<hr/>
+
+
+
+<h2>The code knows</h2>
+<h3><a href="/user/speters/">speters</a> on 2009-09-16T13:01:08</h3>
+The code that throws that warning is in pad.c.  Below is the code.  I think the comment explains why the warning is being thrown.<nobr> <wbr></nobr>/* trying to capture from an anon prototype? */
+                if (CvCOMPILED(cv)
+                        ? CvANON(cv) &amp;&amp; CvCLONE(cv) &amp;&amp; !CvCLONED(cv)
+                        : *out_flags &amp; PAD_FAKELEX_ANON)
+                {
+                    if (warn &amp;&amp; ckWARN(WARN_CLOSURE))
+                        Perl_warner(aTHX_ packWARN(WARN_CLOSURE),
+                            "Variable \"%s\" is not available", name);
+                    *out_capture = NULL;
+                }
+
+
+
+<blockquote>
+
+<h2>Re:The code knows</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2009-09-16T13:52:10</h3>
+<p>Yeah, I was also able to trace where in the *perl* code the warning was coming from, but I'm trying to figure out which *module* in the huge tree of modules being used is using a construct that is causing the warning to be thrown.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re: Help needed on a new 5.10 warning</h2>
+<h3><a href="/user/kid51/">kid51</a> on 2009-09-17T03:06:05</h3>
+All I can offer is that during some recent attempts to refactor ExtUtils::ParseXS, I encountered this warning when attempting to make that module work under 'use strict'.  IIRC, I got it in a part of the code that was using the "deferred regex evaluation" feature -- ??{ $some_variable } -- inside of itself.
+<p>
+<code>
+    $bal = qr[(?:(?&gt;[^()]+)|\((??{ $bal })\))*]; # ()-balanced
+</code></p><p><code>
+    $cast = qr[(?:\(\s*SV\s*\*\s*\)\s*)?]; # Optional (SV*) cast
+</code></p><p><code>
+    $size = qr[,\s* (??{ $bal }) ]x; # Third arg (to setpvn)
+</code>
+</p><p>
+Again, IIRC, my temporary workaround was to declare $bal as 'our' rather than 'my'.  But since my work on this module has stalled, I can't offer any better insight.  Note that 'perldoc perldiag' hints at this being a closure-related problem<nobr> <wbr></nobr>... but I didn't encounter it in a closure-related situation at all.
+</p><p>
+Thank you very much.
+</p><p>
+kid51</p>
+
+
+
+<blockquote>
+
+<h2>Re: Help needed on a new 5.10 warning</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2009-09-17T13:03:57</h3>
+<p>Thanks for the advice. I eventually tracked it down to Regexp::Common and was able to remove the warning if I just imported the number specific regexes:</p><blockquote><div><p> <tt>&nbsp; use Regexp::Common qw(number);</tt></p></div> </blockquote>
+
+
+
+
+
+</blockquote>
+
+
+<h2>try Carp::Always module</h2>
+<h3><a href="/user/duncand/">duncand</a> on 2009-09-17T06:41:01</h3>
+<p>I've found success with the Carp::Always module.  All I have to do is say "use Carp::Always" at the top of my program, and any time an exception is thrown it includes a stack trace, which is great for diagnosing all the exceptions from 'use strict' or 'use warnings fatal'.  That said it<nobr> <wbr></nobr>/may/ not be compatible with other attempts to override the signal handlers.  I now make it common practice to put "use Carp::Always" at the top of all my module t/*.t files.</p>
+
+
+
+<blockquote>
+
+<h2>Re:try Carp::Always module</h2>
+<h3><a href="/user/bart/">bart</a> on 2009-09-17T17:41:29</h3>
+I hope using
+<code>-MCarp::Always</code> on the command line has the same effect as editing <code>use Carp::Always;</code> into the code?
+
+
+
+<blockquote>
+
+<h2>Re:try Carp::Always module</h2>
+<h3><a href="/user/duncand/">duncand</a> on 2009-09-17T18:17:55</h3>
+<p>I found that the effects of 'use Carp::Always' are global in scope, so I assume that loading it with -M on the command line will work as well as placement into code.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

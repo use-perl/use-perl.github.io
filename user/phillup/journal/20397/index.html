@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of phillup: cheap profiler</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>cheap profiler</h1>
+<h2><a href="/user/phillup/">phillup</a> on 2004-08-13T18:29:57</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Well, there was an interesting side effect of parsing my web logs to identify all the places where I'm throwing warnings.<br/><br/>I've got a relative count of how many times the code is being called. Of course, it is only the code that causes warnings that is being counted...<br/><br/>Anyways, this is my most troublesome snippet, accounting for 80 percent of the current warnings.<br/><br/><pre>
+  $form .= $args->{'hidden'};
+  $form .= '</form>';
+</pre><br/><br/>This code builds forms, and has an optional parameter for hidden fields. If there are any hidden fields, they are added right before we close off the form.<br/><br/>It seems a bit much to have to say
+<pre>
+  $form .= $args->{'hidden'} if $args->{'hidden'};
+</pre><br/><br/>When the original code "Does The Right Thing".<br/><br/>Also, 100% of the errors have to do with string concatenation, or comparison operators where I expect that values may be 'undef'.<br/><br/>So... I'm about to spend a lot of time eleminating warnings that are "harmless". Because, even with all my bitching... I know that there will be a payoff... eventually.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Re: cheap profiler</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2004-08-13T20:33:12</h3>
+For clarity and brevity you can rewrite<blockquote><div> <tt>$form<nobr> <wbr></nobr>.= $args-&gt;{'hidden'} if $args-&gt;{'hidden'};</tt> </div></blockquote>as<blockquote><div> <tt>$form<nobr> <wbr></nobr>.= $args{'hidden'} || "";</tt> </div></blockquote>If the value of $args{'hidden'} evaluates to false, "" is used instead, and the undef value isn't used for concatenation.<br> <br>But note that 0 evaluates to false, so if you expect that as a legit value of $args{'hidden'}, this won't work.<br> <br>The new defined-or (<nobr> <wbr></nobr>// instead of || ) operator will take care of this in Perl 5.10 (right?)<br>
+
+
+
+<blockquote>
+
+<h2>Re: cheap profiler</h2>
+<h3><a href="/user/phillup/">phillup</a> on 2004-08-13T23:19:44</h3>
+<i>But note that 0 evaluates to false, so if you expect that as a legit value of $args{'hidden'}, this won't work.</i> <br> <br>Hm... now that you mention it, mine won't either if the string is '0'.<br> <br>It isn't a problem in this specific instance... but I may need to actually use 'exists' on the value as a more 'generic' solution.<br>
+
+
+
+<blockquote>
+
+<h2>Re: cheap profiler</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2004-08-14T12:23:29</h3>
+You could always create a small utility function to keep things nice and tidy.<blockquote><div> <tt>sub definedOrEmpty {<br>&nbsp; &nbsp; defined($_[0]) ? $_[0] : "";<br>}</tt> </div></blockquote>or something like that.<blockquote><div> <tt>$form<nobr> <wbr></nobr>.= definedOrEmtpy( $args-&gt;{'hidden'} );</tt> </div></blockquote>Maybe a shorter name would be better. orEmpty perhaps. Whatever's clear in your situation.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>No such thing as a harmless warning.</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2004-09-29T09:44:05</h3>
+<blockquote><div> <tt>Also, 100% of the errors have to do with string concatenation, or comparison operators where I expect that values may be 'undef'.</tt> </div></blockquote> <p>Classic mistake:  Some of my code expects undef values so I ignore uninit warnings.
+
+</p><p>Problem is the rest of your code <i>doesn't</i> expect undef warnings, in those spots getting an undef indicates a possible mistake.  By ignoring uninit warnings for one part of the code you ignore problems in the rest.  If a certain part of your code expects undefs write it so it handles them quietly (more below).</p><blockquote><div> <tt>So... I'm about to spend a lot of time eleminating warnings that are "harmless". Because, even with all my bitching... I know that there will be a payoff... eventually.</tt> </div></blockquote> <p>Classic mistake:  This warning isn't really indicating a problem so I'll ignore it.
+
+</p><p>Folks have found that <a href="http://www.pragmaticprogrammer.com/ppbook/extracts/no_broken_windows.html" title="pragmaticprogrammer.com">one broken window</a pragmaticprogrammer.com> can lead to an entire building being trashed.  Minor damage leads to a sense of abandonment and people figure if one window is broken nobody will care if another one is and so on.  A smaller scale version of this is your kitchen sink.  Think about how much easier it is to leave a pile of dirty dishes in a sink if the kitchen is already a little messy.
+
+</p><p>Once you have one "expected" warning you'll have two.  Then three, four... until you can no longer tell the expected warnings from the unexpected ones and warnings are completely ignored.  Don't start down that road.
+
+</p><p>Enough theory.  Here's a bunch of ways to handle your problem.
+
+</p><p>The various ways already talked about to check for definedness at the point where you use the data.  Problem is you have to sprinkle these checks all over the place which gets tedious and is prone to mistakes.  This we want to avoid.
+
+</p><p> <b>Initialize $args-&gt;{hidden}.</b>  Its generally easier to initialize values you expect to be blank than play with expected undefs.  You only have to do it once at the start rather than every time you use it.
+
+</p><p> <b>Put it in a function.</b>  If you're literally writing </p><blockquote><div> <tt>$form<nobr> <wbr></nobr>.= $args-&gt;{hidden}</tt> </div></blockquote> you're repeating yourself.  Something as basic as <blockquote><div> <tt>add_hidden_fields($form, $args-&gt;{hidden});</tt> </div></blockquote> will eliminate the duplicate code.  Then, since you're only writing it once, its less bother to account for possible undefs.
+
+<p> <b>Use a module.</b>  If a lot of what you're doing is creating forms there's a whole bunch of modules out there to do it for you.  You might not think its worth while, after all you're just concatinating a bunch of simple HTML.  But complexity creeps in, like undef warnings, and you'll find ad hoc string concatination rapidly becomes inadequate.
+
+</p><p> <b>Tie it.</b>  In some cases, such as HTML form input, there is a possible set of keys you expect in a hash but they won't always be there and its ok if they're not.  So you represent your form input with a tied hash.  Any attempt to fetch a valid key that has no data results in '', but using exists() on the same key returns false.  A simpler solution is to use a tied hash which returns '' instead of undef for anything which does not exist.  Not as good since it hides typos but a good place to start.</p>
+
+
+
+<blockquote>
+
+<h2>Re:No such thing as a harmless warning.</h2>
+<h3><a href="/user/phillup/">phillup</a> on 2004-09-29T20:32:32</h3>
+<i>Classic mistake: Some of my code expects undef values so I ignore uninit warnings.</i> <br> <br>Actually, I am not ignoring any warnings. I added the use warnings pragma and it did what it was supposed to do... flagged possible problems.<br> <br>Then, I looked at each and every case and saw that they were all the same class of errors (concatenation of undefined variables or comparison with undefined data) and inspected each and every one and determined that none of them was a bug causing issue.<br> <br> <i>Classic mistake: This warning isn't really indicating a problem so I'll ignore it.</i> <br> <br>Then, for each and every one of the warnings that I inspected and determined not to be a problem... I corrected the code so that it would not issue a warning.<br> <br>I did not ignore it.<br> <br>Instead, I read every single thing written by you and Andy that I could find... and took it all to heart.<br> <br>Which is/was part of the problem. I could not go back in time and start writing all of this code the "correct" way. So, I have to retrofit testing onto the existing code.<br> <br>As I write the tests and find bugs, including warnings, I fix them.<br> <br>But, the code must stay in production. And, warnings are not emmitted until the code is actually run. So, there is code running that I have not (still!) got tests written for.<br> <br>When that code runs, the warnings are emitted and placed in the log file of the server. So, every day I've been monitoring those files for warnings from code that is not yet covered by a test script.<br> <br>Then, I inspect and fix the code so that no warning is generated.<br> <br>My point of the post was that starting the process of writing test code, and the use of the 'warnings' pragma was causing the warnings in the log file *because* my test do not yet cover all of the code. (IOW, the warnings come from code not yet covered by the test suite.)<br> <br>And, the point was, that no matter the source of the warnings... just because they did not show in my test suite... they still should be addressed.<br> <br>Not ignored.<br> <br>This post was actually a follow-up to <a href="http://use.perl.org/user/phillup/journal/20395" title="perl.org">a  previous post</a perl.org> where I tried to explain that the errors should not (and would not) be ignored. It probably doesn't stand well on its own... hard to get context.<br> <br> <i>Put it in a function.</i> <br> <br>I found it a bit interesting that you advocate replacing concatenation with a function. While I would only have to change the one function (if there was an error), I don't see how it would eleminate duplication. I would simply be replacing the use of the dot operator with a function call. (And, the function would end up using the dot operator anyway.)<br> <br><nobr> <wbr></nobr><i>...and you'll find ad hoc string concatination rapidly becomes inadequate.</i> <br> <br>Actually, that is why I didn't use a module. Because I needed more flexibility (ad hoc) than most of the modules I've seen offer. (Remember, I started this over two years ago.)<br> <br>BTW... this is in a Mason environment. With that in mind, I'm really open to suggestions if you have a module in mind for me to look at.<br> <br>Advice is always welcome here!<br> <br> <i>A simpler solution is to use a tied hash which returns '' instead of undef for anything which does not exist.</i> <br> <br>Hm... that is a very intersting thought... thanks!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

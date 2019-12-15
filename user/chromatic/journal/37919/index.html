@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of chromatic: Automatic Variables in a GCd Language</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Automatic Variables in a GCd Language</h1>
+<h2><a href="/user/chromatic/">chromatic</a> on 2008-11-21T08:22:36</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>One of the persistent bottlenecks in Parrot is that its naive, simple-to-describe stop-the-world mark-and-sweep garbage collector can be expensive.  Even though it's mostly <code>O(2n)</code>, there's one characteristic of almost every program which makes <em>n</em> far larger than you might want it to be: most GCable elements have short-to-very-short lifespans.  That's even true in Perl.</p>
+
+<p>Cleverer GCs use tricks such as memory partitioning or generations to handle this problem.  When you need more memory, you first try to reclaim the youngest GCable elements, on the theory that most of them have very short lifespans.  Everything that survives that collection gets promoted to an older generation or copied to an older partition which you sweep less frequently.  Mark and sweep, at least as currently implemented in Parrot, always walks the entire live set of GCable elements every time the GC runs to completion.  Even if a PMC anchored in the root set has survived the last thousand GC runs, it still gets marked during every run.</p>
+
+<p>We haven't fixed that yet.  (Replacing a garbage collector in a running system not exactly designed for pluggability of garbage collectors is not an easy task.)  Andrew Whitworth's proof of concept for Google's Summer of Code 2008 gave us a lot of good information to improve our GC, but that task is still ahead of us.</p>
+
+<p>If you've programmed in C or C++, you're familiar with automatic variables.  These get allocated on the stack -- <code>int x; char y;</code>.  If you've ever returned a pointer to a stack-allocated value, you've had fun debugging the results.  (<a href="http://www.parrotvm.org/svn/parrot/revision?rev=32065">Parrot r32065</a> fixed an amusing bug related to this in Parrot.)</p>
+
+<p>Heap variables you allocate yourself with <code>malloc/calloc</code> and must explicitly <code>free</code> yourself.  The advantage here is that you can pass pointers to them with impunity, no matter where you are in the call graph with regard to the stack location where you allocated them.</p>
+
+<p>The memory characteristics of individual programs vary, but it's likely that a program uses many more stack variables than it does heap variables.  (I use the terms in a metaphorical sense.  What I really mean is "Variables that don't escape the current compilation unit versus variables that do", but I don't want to talk about escape analysis.)</p>
+
+<p>I don't know of many garbage collectors which can distinguish between stack-style GCables and heap-style GCables -- again, not without doing clever tricks with escape analysis.  This is one place where I do wish sometimes we had a tiny kernel with the VM bootstrapped atop; the semantics of C just don't let you express or analyze the memory characteristics of the program in any way that lends itself to automatic lifetime tracking.</p>
+
+<p>It's also difficult to reason from the code <em>in general</em> about the expected lifetime of a GCable element.  Every PMC or STRING returned from a C function has effectively escaped, and we can't predict what any future consumer of that API will do with the results.</p>
+
+<p>Like many problems which are unsolveable <em>in general</em>, there are specific exceptions.  Sometimes you can read the code and verify that you have what would be in C a stack variable -- even if it's a GCable entity.</p>
+
+<p>I added a pair of functions in <a href="http://www.parrotvm.org/svn/parrot/revision?rev=32313">Parrot r32313</a> called <code>temporary_pmc_new</code> and <code>temporary_pmc_free</code>.  The documentation has quite a few caveats that I won't explain (figuring that they're scary enough that anyone who doesn't understand their implications should not use them).  Basically, they're a way of creating a new PMC for the singular case where you <em>know</em> it's specific and entire lifespan.</p>
+
+<p>I mention this to say that I teased a nice 5.14% speedup out of our multidispatch algorithm today by turning two PMCs into temporary PMCs.  <a href="http://www.parrotvm.org/svn/parrot/revision?rev=32963">Parrot r32963</a> shows how easy the patch was to write, once I had identified the hotspot and verified that this was an appropriate optimization.</p>
+
+<p>The ultimate solution is to improve our garbage collector so that it can recycle lots of young garbage very quickly, but I'll take a 5% optimization for now if I can spend two or three minutes coding and ten minutes reviewing profiling runs.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Re: Automatic Variables in a GCd Language</h2>
+<h3><a href="/user/kjs/">kjs</a> on 2008-11-21T11:50:36</h3>
+Somehow, this reminds me of C++'s auto_ptr. But I guess having a "auto_ptr"-like PMC doesn't improve matters, as that itself would be a GCable entity.
+
+
+
+<blockquote>
+
+<h2>Re: Automatic Variables in a GCd Language</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-11-21T18:43:50</h3>
+<p>Too much refcounting and you're back to Perl5...</p><p>Instead, I imagine an upgrade-on-assign feature where the VM turns stack PMCs into heap PMCs the first time they're assigned to a field of another heap PMC.  If they never get assigned, then you know it's safe to free them when the stack is unwound.  That would be really hard to implement, I suspect.</p>
+
+
+
+<blockquote>
+
+<h2>Re: Automatic Variables in a GCd Language</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-11-21T19:52:46</h3>
+<p>Yes and no.  To make that work correctly, we'd need some sort of macro for assignment, where if you're not using it, it's obvious you're doing something wrong.  (I wonder how much work it would be to teach extension writers how to use it correctly.)</p><p>That doesn't necessarily solve the "What if I return this from a C function?" question.</p><p>That also requires us to figure out some way to move PMC headers, where we can allocate a new header from a heap-style pool and copy the contents of the old header into the new header.  That gets tricky because multiple locations can hold a pointer to the existing header.  Of course, if we want to use copying or compacting in the GC, we need to figure this out anyway.</p><p>Life gets a lot trickier when you consider the question "What does it mean to have a stack-style aggregate PMC?", especially as the current temporary PMC approach means that you can't make temporary PMCs if they're going to contain other non-temporary PMCs.</p>
+
+
+
+<blockquote>
+
+<h2>Re: Automatic Variables in a GCd Language</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-11-21T20:09:04</h3>
+<p>To answer your last question, your assignment macro would have to look at both source and destination.  If one is stack and one is heap, upgrade the stack one to heap.  Even uglier, and a performance hit on every assignment to boot...</p><p>So never mind.<nobr> <wbr></nobr>:-)</p>
+
+
+
+<h2>Re: Automatic Variables in a GCd Language</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-12-01T08:22:56</h3>
+<blockquote><div><p>To make that work correctly, we'd need some sort of macro for assignment</p></div></blockquote><p>Or STM.</p>
+
+
+
+<blockquote>
+
+<h2>Re: Automatic Variables in a GCd Language</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-12-01T18:12:23</h3>
+<p>It's Monday morning after a four day weekend here, so I might not be at full brainpower, but I can't immediately see how that would work.  (I don't doubt that it could; I'd just like a description, if you have the time.)  Thanks!</p>
+
+
+
+<blockquote>
+
+<h2>Re: Automatic Variables in a GCd Language</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-12-02T03:21:23</h3>
+<p>Well, you would know what memory had changed during a transaction, right? You could just look at it and check any pointers to find out whether anything needs to be promoted from stack to heap.</p><p>It&#8217;s almost certainly not practical. It just struck me that STM could solve the problem in a 100% reliable way (since no special incantation such as an assignment macro would be required). That would push the GC up a whole bunch of layers from the metal of the VM, which might not even be workable. I dunno. It just seemed like an interesting interdisciplinary association.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>yay</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-11-21T13:31:03</h3>
+<p>Nice work. I always enjoy reading about your adventures.</p><p>It seems like it might be straightforward to add a flag to PIR to let authors mark stack variables. But that seems a little riskier because we'd need to be sure the free happened in all exit paths, including exception handling.</p>
+
+
+
+<blockquote>
+
+<h2>Re:yay</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-11-21T18:10:13</h3>
+<p>It's riskier than that, because it's very difficult in PIR to be sure that the stack variable doesn't get stashed or cached somewhere any time you use it with an opcode.</p><p> <em>I</em> can know that for medium-sized programs, because I'm familiar with PIR, with the opcodes, and with the Parrot backing code, but I don't want to add features that are easy to misuse even if you've read and understood the internals.</p>
+
+
+
+<blockquote>
+
+<h2>Re:yay</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-11-21T18:34:32</h3>
+<p>Good point. I tend to think of PIR as analogous to machine code, but it's obviously much higher level than that.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

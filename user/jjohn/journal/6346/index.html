@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjohn: A case for -w</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>A case for -w</h1>
+<h2><a href="/user/jjohn/">jjohn</a> on 2002-07-14T21:03:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I confess that I don't use the '-w' flag much in Perl except when I do syntax checking like:
+<pre>
+$ perl -wc <script>
+</pre>
+<p>For the most part, the only warning perl issued during runtime for my programs 'Use of uninitialized value ...', which is a pretty lame warning since Perl defines new created variables to be, er, undefined. In C, you sure as heck don't want to be counting on any uninitialed variable values. Perl does the right thing, however, and that's why we use it.
+<p>Today, I found a Perl "feature" that I nearly reported as a bug. Take a look at this code:
+<pre>
+use strict;
+
+bar("value");
+print "end\n";
+
+sub bar {
+  for ($_[0]) {
+
+    /[a-z]/ && do {
+      print "Plunging into foo()\n";
+      foo();
+      print "You got me!\n";
+      return 1;
+    };
+
+  }
+
+  print "fall through\n";
+
+  return 1;
+}
+
+sub foo {
+
+  my $ans = '';
+  print "type 'q' to quit\n";
+  do{
+    last if lc (substr($ans, 0, 1)) eq 'q';
+    print "\nstill in loop\n";
+  } while( $ans = <> );
+
+  return;
+}
+</pre>
+<p>Earlier today, I would have expected this program to print:
+<pre>
+Plunging into foo()
+type 'q' to quit
+
+You got me
+end
+</pre>
+
+<p>This expectation would have also gone unfulfilled, since the real output is more like:
+
+<pre>
+Plunging into foo()
+type 'q' to quit
+
+still in loop
+
+fall through
+end
+</pre>
+
+<p>What's going on here? It looks like the 'last' in foo() is jumping back to the loop in bar(). In 
+fact, this is the case and -w provides some insight:
+<pre>
+Exiting subroutine via last at ...
+</pre>
+<p>Kudos to p5p for adding this warning! I 
+suspect the problem lies with the infrequently-seen-in-Perl-but-useful-Pascal construction 'do{}while()'. Since I haven't run into this behavior before and I rarely use 'do{}while(),' I'm pointing fingers at it. Still
+this behavior seems a little bold to me. What do you think?</p>
+
+
+<hr/>
+
+
+
+<h2>Uhhm, yeah, but</h2>
+<h3><a href="/user/jordan/">jordan</a> on 2002-07-15T01:43:06</h3>
+<ul><li><i>For the most part, the only warning perl issued during runtime for my programs 'Use of uninitialized value<nobr> <wbr></nobr>...', which is a pretty lame warning since Perl defines new created variables to be, er, undefined.</i></li></ul>  <br> <p>I always use 'perl -w'.  I almost always find that 'Use of unitialized value' inicates a mistake that I need to correct.  Sure, if you are testing for defined(), then the code can catch this and do something intelligent, but that's not usually the case in my code.<br> </p><p>Most typically, the use of an unitialized value in my code is a variable name typo, splitting into a list with fewer elements than I expected, a hash value that I assumed had to be there, etc.<br> </p><p>Maybe I don't understand what you're getting at or maybe our coding styles are radically different, but I pretty much always want to be warned that I'm using an unitialized value.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Uhhm, yeah, but</h2>
+<h3><a href="/user/jjohn/">jjohn</a> on 2002-07-15T02:28:47</h3>
+<p> <i>Maybe I don't understand what you're getting at or maybe our coding styles are radically different, but I pretty much always want to be warned that I'm using an unitialized value.</i>
+</p><p>I do 'use strict,' so don't take me for a total slacker. I haven't seen many situations in my code that the 'uninitialize' warning is helpful. With 'use strict' and a -wc check, I can catch typos at compile time. After that, I normally *depend* on values being uninitialized. For instance:</p><blockquote><div> <tt>my $tmp;<br>while(&lt;&gt;){<br>&nbsp; &nbsp;$tmp<nobr> <wbr></nobr>.= $_;<br>}</tt> </div></blockquote> <p>The first time through the loop, $tmp is undef so the concatentation op will generate that infernal warning. I do stuff like that all the time. Sure I could init $tmp to an empty string, but why bother? The language guarantees the behavior I desire.
+</p><p>I'm also very aware of Perl's notion of truth, so I'm (frequently) careful to check defined() when I can get a false value that I need to inspect. Please post some code where -w at runtime
+has produced a helpful 'use of uninitialized value' message. I am interested to learn what other Perlers understand that I do not.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Uhhm, yeah, but</h2>
+<h3><a href="/user/vsergu/">vsergu</a> on 2002-07-15T20:02:56</h3>
+But -w is smart enough that it doesn't generate "that infernal warning" with<nobr> <wbr></nobr><code>.=</code> or <code>+=</code> (or <code>|=</code>, for that matter).  I think it did in some older versions of Perl.<br> <br>Can you give an example of code where the "uninitialized" warning gets in your way?
+
+
+
+<blockquote>
+
+<h2>Re:Uhhm, yeah, but</h2>
+<h3><a href="/user/jjohn/">jjohn</a> on 2002-07-15T20:17:46</h3>
+Jeez, I don't think I can. I got disgusted with -w back in the days of perl 5.004 and never looked back.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Uhhm, yeah, but</h2>
+<h3><a href="/user/gav/">gav</a> on 2002-07-15T21:19:55</h3>
+I use perl -w but also <tt>no warnings 'uninitialized'</tt> as I do stuff like:
+<blockquote><div> <tt>
+my $x = something_that_might_return_undef();
+<br>if ($x eq 'blah') {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;    # i know 'blah' ne undef
+<br>}
+</tt> </div></blockquote>
+and hate:
+<blockquote><div> <tt>
+if ($x &amp;&amp; $x eq 'blah') {}
+</tt> </div></blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Uhhm, yeah, but</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-07-17T00:55:13</h3>
+That's a great tip.  In Slash (which works on perl 5.005 and up, which doesn't have the warninngs pragma), we have a __WARN__ handler that only warns if the warning doesn't match<nobr> <wbr></nobr>/Use of uninitialized/ or whatever.<br> <br>Yes, it is lame, but IMO, so is the warning itself.
+
+
+
+<h2>Re:Uhhm, yeah, but</h2>
+<h3><a href="/user/jordan/">jordan</a> on 2002-07-31T12:52:26</h3>
+I don't get it.  Seems like only half the time when I get unitialized warnings it's completely harmless.  The rest of the times, something_that_might_return_undef() is returning undef and I'm not expecting it to and I end up propagating an undef down into the code, with it being a problem far from the site of the original crime.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>do is not a sub</h2>
+<h3><a href="/user/koschei/">koschei</a> on 2002-07-15T03:24:52</h3>
+Basically, as far as I know at least from the last time I looked, one has trouble if <br>one tries to treat <tt>do</tt> like <tt>sub</tt>. You can't return from a <tt>do</tt>,<br>or other such things (or at least I couldn't). I tend to set the<br>return value of a do just by having the value as the last expression.<br> <br>As it says in perldoc, really.
+
+
+
+<h2>Yessir</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2002-07-15T04:43:20</h3>
+do {} while isn't a loop from which you can last, etc..  The relevant part of perlsyn(1) is:
+
+<blockquote><div> <i>Note also that
+       the loop control statements described later will NOT work
+       in this construct, because modifiers don't take loop
+       labels. </i> </div></blockquote>
+
+The standard trick solution is to double-up the curlies, creating a block from which you can exit:
+
+<blockquote><div> <blockquote><div> <tt>do {{<br>&nbsp; #<nobr> <wbr></nobr>...<br>}} while (...);</tt> </div></blockquote> </div></blockquote>
+
+Uuuuugly.  That's the price you pay for having trailing modifiers.  In perl5 at least<nobr> <wbr></nobr>...<p>
+
+<i>--Nat</i></p>
+
+
+
+<blockquote>
+
+<h2>Re:Yessir</h2>
+<h3><a href="/user/jjohn/">jjohn</a> on 2002-07-15T12:17:33</h3>
+<p>Thanks for the tip, yet I confess that this behavior violates the design principle of least astonishment. Perhaps I'm letting my Pascal heritage show a bit too much. The other wacky behavior is that the last jumps out of foo() back into bar(). I realize that next, last and redo are different spellings for goto. Still, I was surprised. In any case, I'm happy that someone had the foresight to recognize that this behavior might startle some users and to provide a warning to clue us in.
+</p><p>This is one of the dusty areas of Perl. This the first time I've run into this situation in seven years of Perling -- so I guess the sky isn't falling.<nobr> <wbr></nobr><code>:-)</code></p>
+
+
+
+<blockquote>
+
+<h2>Re:Yessir</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2002-07-15T15:20:28</h3>
+Welcome to the surprise of dynamic scope.  Loop control is dynamically scoped, not lexically.  When a last is encountered at runtime, the stack is popped until a scope in a last-able state is found.  If you name your block and say last NAME, similar magic occurs.<p>
+
+Yes, it is surprising.</p><p>
+
+This is a legacy from Rift Valley Perl, I believe.</p><p>
+
+<i>--Nat</i></p>
+
+
+
+<blockquote>
+
+<h2>Re:Yessir</h2>
+<h3><a href="/user/jordan/">jordan</a> on 2002-07-15T20:47:46</h3>
+Google turns up no hits whatsoever for "Rift Valley Perl".  There are a number of hits with "Rift Valley" and Perl in them, but nothing obvious.<br> <p>Can someone please enlighten me what "Rift Valley Perl" is?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Yessir</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2002-07-15T21:48:42</h3>
+It's a metaphor.  Mankind's earliest upright-walking ancestors are supposed to have originated from the Rift Valley in Africa.  Hence "Rift Valley Perl" was an allusion to the primitive ur-Perl around version 1.<p>
+
+Yeah, I know, Dennis Miller's show was cancelled.  Get a life, Torkington<nobr> <wbr></nobr>:-)</p><p>
+
+<i>--Nat</i></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of geoff: CV in @INC</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>CV in @INC</h1>
+<h2><a href="/user/geoff/">geoff</a> on 2002-01-16T16:31:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>did you know that you can store a coderef in @INC?<br><br>
+so, I went to dinner with my friend <a href="http://www.smashing.org/">jeff</a> so that we can have our semi-regular gripe session about the pains of authorship (he's working on a sysadmin book).  anyway, we start talking about <a href="http://www.smashing.org/apps/extproc_perl.tar.gz">extproc_perl</a> and he mentions that he is trying to solve some performance issues.  apparently, the holy grail of extproc_perl is to be able to create indexes in Oracle using perl regular expressions (wow).  anyway, apparently, through some coverstations with Tim Bunce, it was suggested that perhaps using the coderef-in-@INC hack might be able to help.<br><br>
+now, I'm not sure what the two of them were talking about, but jeff sent me <a href="http://www.xray.mpe.mpg.de/mailing-lists/perl5-porters/2001-02/msg01780.html">this link</a> and I poked around the threads some.  now my mind is racing.  this is sooooo cool.<br><br>
+seems like, among other things, you could have all pure-perl modules on some website and *poof* no more distribution problems.  damn, that's cool.  barrie slaymaker mentioned on #axkit the possibility of a CPAN.pm plug-in that installed a library if it couldn't be require()d.  ok, so it's a bit crazy, but I'm a firm believer in the "if you build it, they will come" approach to programming.<br><br>hmph.  wonder if I'll find the time to play with this...</p>
+
+
+<hr/>
+
+
+
+<h2>It's Been Done</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2002-01-16T18:30:16</h3>
+Abigail demonstrated <a href="http://perlmonks.org/index.pl?node_id=92473" title="perlmonks.org">this</a perlmonks.org> on Perlmonks a while back.  You can find The::Net in Abigail's CPAN directory, too.  It does exactly what you suggest.
+
+
+
+<blockquote>
+
+<h2>Re:It's Been Done</h2>
+<h3><a href="/user/geoff/">geoff</a> on 2002-01-16T19:05:32</h3>
+excellent!<br> <br> thanks for the link.  I just can't keep up these days.
+
+
+
+<h2>Re:It's Been Done</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-01-16T22:19:51</h3>
+Bah.  I just found a bug of sorts.  In pp_ctl.c, there is this:
+
+<p><p> <tt>&nbsp; &nbsp; if (PERL_FILE_IS_ABSOLUTE(name)
+<br>&nbsp; &nbsp; || (*name == '.' &amp;&amp; (name[1] == '/' ||
+<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;(name[1] == '.' &amp;&amp; name[2] == '/'))))
+<br>&nbsp; &nbsp; {
+<br>&nbsp; &nbsp; tryname = name;
+<br>&nbsp; &nbsp; tryrsfp = doopen_pmc(name,PERL_SCRIPT_MODE);
+<br>&nbsp; &nbsp; }
+<br>&nbsp; &nbsp; else {</tt> </p>
+
+Now, the code to call the coderef only happens in the else.  So if the file is determined to be absolute, but it is *not* able to be opened, then the coderef is never called.  Try requiring something like "/foo" or "./foo", your coderef won't get called.
+
+<p>I ran into this because the Mac OS equivalent treats "http://foo/bar.pm" as an absolute path, so PERL_FILE_IS_ABSOLUTE(name) returns true, so the coderef is never called.
+
+</p><p>Bah, I say!  Any thoughts?</p>
+
+
+
+<blockquote>
+
+<h2>Re:It's Been Done</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2002-01-17T01:47:53</h3>
+There are a couple of possibilities.  Paths with leading protocol designations obviously don't mean the same thing with regard to "absolute" or "relative" paths.  There could be another conditional to see if it looks like a local filesystem filepath -- if not, it punts to a coderef.
+<p>
+Another option is to say that URIs obviously aren't absolute in any sense that matters, though that conflates two slightly-different uses of the word.  (The Mac behavior you describe seems wrong to me, but I've been known to be wrong at times.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:It's Been Done</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-01-17T02:19:36</h3>
+The Mac behavior's not wrong; if you have a volume "http" you could have a file "//foo/bar.pm", and it would be "http://foo/bar.pm".
+<br>
+<br>But I think it would be Wrong to try to special-case URIs; having coderefs in @INC shouldn't be purpose-specific.  What if I want to remove all the actual paths in @INC and handle everything via some custom handler?  e.g., maybe if it is a Slash module I'll try to get it from my<nobr> <wbr></nobr>/usr/local/src/slash/ directory, otherwise look in<nobr> <wbr></nobr>/usr/local/lib/.
+<br>
+<br>And if that is the case, if the right thing to do is to call the coderef if that is the only thing in @INC<nobr> <wbr></nobr>... then the check for absolute paths should be skipped altogether.  Yow.
+<br>
+<br>This thing is really a hack, and it shouldn't be.  I think it might be time to bring it to p5p for a bit of discussion.
+
+
+
+<blockquote>
+
+<h2>Re:It's Been Done</h2>
+<h3><a href="/user/geoff/">geoff</a> on 2002-01-17T14:57:46</h3>
+heh, so these journals really are good for something<nobr> <wbr></nobr>:)
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Other uses of coderef in @INC</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-01-16T19:53:50</h3>
+I use the coderef-in-@INC trick, along with various nasty things involving <tt>local $INC{$package}</tt>, closures and evaling stuff with the expectation that it'll fail to get at package scoped lexicals in the refactoring engine I've been working on.
+<br>
+<br>It's one of those hacks that seems at once utterly fantastic whilst at the same time being totally bloody evil.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Recursive Runtime Role Reapplication Really Rebounds</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Recursive Runtime Role Reapplication Really Rebounds</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-03-09T09:31:25</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>An email I wrote to the Perl 6 language list.</p>
+
+<p>(OK, the subject sucked, but I tried :)</p>
+
+<p>From <a href="http://perlcabal.org/syn/S14.html">Synopsis 14, the Perl 6 Role Spec</a>:</p>
+
+<quote>You can, however, say
+
+<pre>$fido does Sentry;
+$fido does Tricks;
+$fido does TailChasing;
+$fido does Scratch;</pre>
+  ...
+<p>Unlike the compile-time role composition, each of these layers on a new mixin with a new level of inheritance, creating a new anonymous class for dear old <tt>Fido</tt>, so that a <tt>.chase</tt> method from <tt>TailChasing</tt> hides a <tt>.chase</tt> method from <tt>Sentry</tt>.</quote>
+
+<p>Recently I reported <a href="
+  http://rt.cpan.org/Public/Bug/Display.html?id=43904">a bug in Moose's runtime role application</a>.  The bug was caused by repeated runtime role application causing recursive inheritance warnings.  The problem was very hard to track down because I was effectively doing something like this:</p>
+
+<pre>$object->meta->apply('Some::Role') while 1;</pre>
+
+<p>(The reality is that we had a singleton with a role applied to it multiple times).</p>
+
+<p>Eventually, the code broke and this was <em>real fun</em> to debug, but I can imagine a scenario for this being natural.  Imagine that tour REST interface returns XML, but sometimes someone wants YAML.  So you have:</p>
+
+<pre>$resultset does Role::Serializable::XML;</pre>
+
+<p>But sometimes:</p>
+
+<pre>$resultset does Role::Serializable::YAML;</pre>
+
+<p>Since you cache resultsets if they've not changed, you could easily have the XML and YAML roles getting reapplied at runtime multiple times.</p>
+
+<p>I don't see anything in the spec addressing this.  Aside from "don't do that", is this something which can be addressed in perl instead of Perl?  This problem is closely related to the "ordering problem" with mixins and multiple inheritance that roles were designed to avoid!</p>
+
+<p>I think this issue could be mitigated by allowing runtime role application to be lexically scoped:</p>
+
+<pre>{
+    temp $resultset does Role::Serializable::YAML;
+    print $resultset.as_string;
+}</pre>
+
+<p>I <em>think</em> that would work, but I'm unsure.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Incorrect Usage</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2009-03-14T18:19:34</h3>
+<p>
+I really think that doing anything that is equivalent the following is an incorrect usage of the feature more then it is a bug.
+</p><blockquote><div><p> <tt>Some::Role-&gt;meta-&gt;apply($object) while 1;</tt></p></div> </blockquote><p>
+You can simply modify this line slightly and avoid <b>all</b> your warnings by doing this<nobr> <wbr></nobr>...
+</p><blockquote><div><p> <tt>while (1) {<br>&nbsp; &nbsp; Some::Role-&gt;meta-&gt;apply($object) unless $object-&gt;does('Some::Role');<br>}</tt></p></div> </blockquote><p>
+Sure it would be nice if Moose prevented you from shooting yourself in the foot like this, but what if you <b>really</b> wanted to shoot yourself in the foot? Who is Moose to say you can't? I think this type of thing is more a case of "your probably doing something stupid, but in case your not, and it is actually something clever, we will allow it" then it is a case of "your doing something stupid and we wont let you".
+</p><blockquote><div><p> <i>
+This problem is closely related to the "ordering problem" with mixins and multiple inheritance that roles were designed to avoid!
+</i></p></div> </blockquote><p>
+Yes, this is true, but that is because you are re-applying the role at different times. The ordering problem is only solved when you apply all your roles at once and they can be merged. For instance<nobr> <wbr></nobr>..
+</p><blockquote><div><p> <tt>package Foo;<br>with 'Bar', 'Baz';</tt></p></div> </blockquote><p>... is not the same as<nobr> <wbr></nobr>...</p><blockquote><div><p> <tt>package Foo;<br>with 'Bar';<br>with 'Baz';</tt></p></div> </blockquote><p>
+They can potentially create two very different classes because the former merges the Bar and Baz roles first (doing all the conflict detection and role merging goodness), whereas the later will first apply the Bar role, then apply the Baz role and not do any conflict detection between the two roles.
+</p><p>
+- Stevan
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Incorrect Usage</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-03-15T17:25:13</h3>
+<p>I do see your point and I think you're right (I've some issues with implementation, but that's OK<nobr> <wbr></nobr>:).  At the very least, though, I would like to see <tt>Moose::Role</tt> be able to generate a sane error message to make it easier to track bugs like this down.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Incorrect Usage</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2009-03-17T22:08:22</h3>
+<p>
+The problem is that we are not considering it an error. The particular errors you were getting were tricky not because of something Moose::Role did as much as your repeated application of the role to the class caused really odd side effects to happen. How would I tell the difference between a error borne from side-effects and one that I could directly trace back to a mis-use of the feature?
+</p><p>
+- Stevan
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Incorrect Usage</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-03-18T12:20:14</h3>
+<p>I'm not saying that Moose::Role is behaving in error here.  I'm saying there's a detectable error condition and a better error message would help.</p><p><div class="quote"><p>How would I tell the difference between a error borne from side-effects and one that I could directly trace back to a mis-use of the feature?</p></div><p>When applying a role at runtime, by noting Perl's recursive inheritance limit (98 role applications on my Solaris box) and issuing a reasonable error reporting the package/file/line number of role application, it would have been trivial for me to find the source error.  Currently this error wins my personal "most obscure error message" award<nobr> <wbr></nobr>:)</p><blockquote><div><p> <tt>Deep recursion on subroutine "MRO::Compat::__get_linear_isa_dfs" at<nobr> <wbr></nobr>/home/poec01/branches/tagging/deps/lib/perl5/MRO/Compat.pm line 123.<br>Deep recursion on subroutine "Class::MOP::Class::class_precedence_list" at<nobr> <wbr></nobr>/home/poec01/branches/tagging/deps/lib/perl5/i86pc-solaris-thread-multi/Class/M<nobr>O<wbr></nobr>  P/Class.pm line 602.<br>Deep recursion on subroutine "MRO::Compat::__get_linear_isa_dfs" at<nobr> <wbr></nobr>/home/poec01/branches/tagging/deps/lib/perl5/MRO/Compat.pm line 123.<br>Deep recursion on subroutine "MRO::Compat::__get_linear_isa_dfs" at<nobr> <wbr></nobr>/home/poec01/branches/tagging/deps/lib/perl5/MRO/Compat.pm line 123.<br>Deep recursion on subroutine "MRO::Compat::__get_linear_isa_dfs" at<nobr> <wbr></nobr>/home/poec01/branches/tagging/deps/lib/perl5/MRO/Compat.pm line 123.<br>Deep recursion on subroutine "MRO::Compat::__get_linear_isa_dfs" at<nobr> <wbr></nobr>/home/poec01/branches/tagging/deps/lib/perl5/MRO/Compat.pm line 123.<br>Deep recursion on subroutine "Class::MOP::Class::class_precedence_list" at<nobr> <wbr></nobr>/home/poec01/branches/tagging/deps/lib/perl5/i86pc-solaris-thread-multi/Class/M<nobr>O<wbr></nobr>  P/Class.pm line 602.<br>Deep recursion on subroutine "MRO::Compat::__get_linear_isa_dfs" at<nobr> <wbr></nobr>/home/poec01/branches/tagging/deps/lib/perl5/MRO/Compat.pm line 123.<br>Recursive inheritance detected while looking for method '()' in package 'Moose::Object' at<nobr> <wbr></nobr>/home/poec01/branches/tagging/deps/lib/perl5/i86pc-solaris-thread-multi/Class/M<nobr>O<wbr></nobr>  P/Instance.pm line 157.<br>Recursive inheritance detected while looking for method '()' in package 'Moose::Object'.</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Incorrect Usage</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2009-03-20T00:47:40</h3>
+<p>
+Okay, I will agree that is <i>could</i> be detected, but how simple it is to do is another thing entirely. You are always invited to fork the Moose git repo and patch this if you like.
+</p><p>
+- Stevan
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

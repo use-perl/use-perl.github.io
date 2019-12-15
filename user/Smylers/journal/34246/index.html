@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Smylers: When MySQL Bites: Quirks to Watch Out For</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>When MySQL Bites: Quirks to Watch Out For</h1>
+<h2><a href="/user/Smylers/">Smylers</a> on 2007-08-28T12:19:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><em>This is the paper that accompanies the talk I gave at Yapc::EU in Vienna
+this morning.  It's a draft &mdash; there are a few things I plan to tidy up
+shortly, and some more references to be added.</em></p>
+
+<p>If you're using MySQL, or considering using it, here are some things you
+probably should be aware of.</p>
+
+<strong><a name="dealing_with_invalid_data">Dealing with Invalid
+  Data</a></strong>
+<p>MySQL lets you specify restict what can be stored in fields, for example the
+number of characters in a string.  If you try to insert data that doesn't meet
+the restrictions then MySQL tries really hard to insert <em>someting</em> anyway --
+such as by truncating the string:</p>
+
+<pre>
+mysql> CREATE TABLE creature (name VARCHAR(3) NOT NULL);
+Query OK, 0 rows affected (0.25 sec)
+
+mysql> INSERT INTO creature SET name = 'caterpillar';
+Query OK, 1 row affected, 1 warning (0.02 sec)
+
+mysql> SELECT * FROM creature;
++------+
+| name |
++------+
+| cat  | 
++------+</pre>
+
+<p>Though you can often spot when text has been truncated; noticing numbers
+changing can be trickier:</p>
+
+<pre>
+mysql> CREATE TABLE exam (mark TINYINT(2) NOT NULL);
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> INSERT INTO exam SET mark = 172;
+Query OK, 1 row affected, 1 warning (0.00 sec)
+
+mysql> SELECT * FROM exam;
++------+
+| mark |
++------+
+|  127 | 
++------+
+1 row in set (0.00 sec)</pre>
+
+<p>At least with strings and numbers those cases the value that gets stored is
+plausible for the field type, if wrong.  With an <code>ENUM</code> field it can be
+surprising to find the empty string being stored there at all:</p>
+
+<pre>
+mysql> CREATE TABLE game (shape ENUM('scissors', 'paper', 'stone') NOT NULL);
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> INSERT INTO game SET shape = 'rock';
+Query OK, 1 row affected, 1 warning (0.01 sec)
+
+mysql> SELECT * FROM game;
++-------+
+| shape |
++-------+
+|       | 
++-------+
+1 row in set (0.00 sec)</pre>
+
+<p>If you're using the interactive MySQL client then you do get notified when data
+has been tweaked on insertion like this: the warning count.  Use <code>SHOW
+WARNINGS</code> to see what it's done:</p>
+
+<pre>
+mysql> INSERT INTO game SET shape = 'rock';
+Query OK, 1 row affected, 1 warning (0.01 sec)
+
+mysql> SHOW WARNINGS;
++---------+------+--------------------------------------------+
+| Level   | Code | Message                                    |
++---------+------+--------------------------------------------+
+| Warning | 1265 | Data truncated for column 'shape' at row 1 | 
++---------+------+--------------------------------------------+
+1 row in set (0.00 sec)</pre>
+
+<p>Putting this into <i>~/.my.cnf</i>:</p>
+
+<pre>
+[client]
+show-warnings</pre>
+
+<p>makes it less tedious to see the warnings, and more obvious when you have
+some:</p>
+
+<pre>
+mysql> INSERT INTO game SET shape = 'rock';
+Query OK, 1 row affected, 1 warning (0.02 sec)
+
+Warning (Code 1265): Data truncated for column 'shape' at row 1</pre>
+
+<p>But you'd have much less chance of discovering corrupt data in your database
+if MySQL wouldn't let it be inserted in the first place.  You can achieve this
+by putting the server into <strong>strict mode</strong>: add this to the
+server's config file (<em>/etc/mysql/my.cnf</em> or similar):</p>
+
+<pre>
+[mysqld]
+sql-mode = STRICT_ALL_TABLES</pre>
+
+<p>and restart the server (merely reloading it isn't sufficient), with something
+like:</p>
+
+<pre>
+$ sudo /etc/init.d/mysql restart</pre>
+
+<p>Then it refuses to insert any invalid data:</p>
+
+<pre>
+mysql> INSERT INTO game SET shape = 'rock';
+ERROR 1265 (01000): Data truncated for column 'shape' at row 1</pre>
+
+<p>That <em>should</em> stop you inadvertently inserting any bad data.  It
+doesn't however prevent anybody from sticking some bad data in there if they
+really want to.  Firstly, the SQL modes are per-connection, so somebody could
+simply turn off strict mode:</p>
+
+<pre>
+mysql> INSERT INTO game SET shape = 'rock';
+ERROR 1265 (01000): Data truncated for column 'shape' at row 1
+
+mysql> SET sql_mode = '';
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> INSERT INTO game SET shape = 'rock';
+Query OK, 1 row affected, 1 warning (0.00 sec)</pre>
+
+<p>And even with strict mode on MySQL helpfully provides the
+<code>IGNORE</code> keyword for circumventing it:</p>
+
+<pre>
+mysql> INSERT INTO game SET shape = 'rock';
+ERROR 1265 (01000): Data truncated for column 'shape' at row 1
+
+mysql> INSERT IGNORE INTO game SET shape = 'rock';
+Query OK, 1 row affected, 1 warning (0.05 sec)</pre>
+
+<p>So far as I can tell it's impossible to guarantee that an <code>ENUM</code>
+field can't contain the empty string.  But it's pretty hard to code something
+which does that accidentally, which is probably good enough.</p>
+
+<strong><a name="mysql_server_upgrades">MySQL Server Upgrades</a></strong>
+<p>Except that strict mode requires MySQL 5.0, which is less than 2 years old
+and so isn't being used yet in many production systems.</p>
+
+<p>For software 2 years might seem quite old; certainly many people try to keep
+their systems more up to date than that, especially desktop applications such
+as web browsers or even workstation operating systems.  So it's easy to be
+unsympathetic to somebody who hasn't upgraded.</p>
+
+<p>But production database servers are things you want to be the most conservative
+about upgrading; they are running continuously and are critical to many
+functions, so stability is important.  Upgrades need serious planning and
+aren't to be undertaken on a whim; if the database is currently running fine
+then upgrading it merely to get new features may not be a priority, or
+something your sys-admins want to do often.</p>
+
+<p>As such, a cycle of only upgrading your MySQL servers every couple of years
+sounds quite reasonable.</p>
+
+<p>It's also reasonable to wish to stick with the stable version of MySQL provided
+in your operating system; this introduces a lag after a new MySQL release
+before there's an OS release with it.  And you probably don't want to risk
+putting a new OS version on to your production DB servers the day it's
+released, instead waiting for user reaction to it.  Then you might want to do
+some testing, trying out the upgrade on a staging server and running it there
+for a while before committing it to the live one.</p>
+
+<p>Together these factors can mean that somebody who's been making entirely
+reasonable choices is running a MySQL version that's 3 year's old.</p>
+
+<p>For example, consider somebody currently running version 4.1 and who doesn't
+want to upgrade more often than once every 2 years.  Should she upgrade now?
+That would give her version 5.0, but means she'd still be running 5.0 in 2
+years' time.  Or should she hold on for version 5.1 to be released &mdash;
+meaning she continues with 4.1 currently?</p>
+
+<strong><a name="lusting_after_the_next_mysql_version">Lusting After the Next
+    MySQL Version</a></strong>
+<p>What makes this particularly frustrating with MySQL is how many issues with it
+can be resolved by using version 'n + 1', one higher than you're currently
+using &mdash; and what's particularly disturbing is that this seems to be
+perpetually true, no matter how many years pass or how many upgrades you do.</p>
+
+<p>In the days of version 3.22 we were keen to upgrade to 3.23, yet when we got
+there we found ourselves frustrated by the lack of things like foreign keys and
+subselects.  4.0 brought foreign keys, but subselects were put back to 4.1,
+still leaving us wanting.  Then once we had subselects we found ourselves
+continually hitting up against problems that could only be solved by strict
+mode, or a view, or a trigger, and so on.</p>
+
+<p>Often these things conspire in groups: you can think of a workaround for an
+'n + 1' feature, but only by using another feature that's also 'n + 1'!  For
+example, the above problem with invalid <code>ENUM</code>s inserting empty
+strings is solved by strict mode, which requires 5.0; you could get avoid it
+with a trigger, but that's also 5.0; and then you realize that
+<a href="http://use.perl.org/comments.pl?sid=34758&amp;cid=53488">you're only
+  using an <code>ENUM</code> in the first place because you don't have
+  views</a>, which are also 5.0:</p>
+
+<p>Initially we thought we just wanted one upgrade; the 'new' version of MySQL
+we'd read about sounded like it had finally become a 'proper' DBMS and would
+remedy the major frustrations we'd found with it.  Tantalizingly, many years
+later that's still the case.</p>
+
+<strong><a name="mysql_warnings_in_perl">MySQL Warnings in Perl</a></strong>
+<p>If you aren't running a recent enough version of MySQL to have strict mode,
+you can at least get the same warnings in Perl that you do interactively.
+Consider the query:</p>
+
+<pre>
+$db->do(q[INSERT INTO game SET shape = 'rock']);</pre>
+
+<p>You can see if there are any warnings with the
+<code>{mysql_warning_count}</code> attribute on a statement handle, and then do
+<code>SHOW WARNINGS</code> to get them, perhaps turning the above into:</p>
+
+<pre>
+use Lingua::EN::Inflect qw&lt;inflect>;
+
+my $insert = $db->prepare(q[INSERT INTO game SET shape = 'rock']);
+$insert->execute;
+if ($insert->{mysql_warning_count})
+{
+  warn inflect "NUM($insert->{mysql_warning_count}) PL_N(warning):\n";
+  my $warning_query = $db->prepare(q[SHOW WARNINGS]);
+  $warning_query->execute;
+  while (my $warning = $warning_query->fetchrow_hashref)
+  {
+    warn "$warning->{Message}\n";
+  }
+}</pre>
+
+<p>which yields this output:</p>
+
+<pre>
+1 warning:
+Data truncated for column 'shape' at row 1</pre>
+
+<p>You'd probably want to abstract the warning-checking into a routine used by
+all your queries.  Rather than just printing the warnings it could abort the
+program or rollback the current transaction, emulating the behaviour you get
+with strict mode.</p>
+
+<p>Something like the above could also be useful even if you do have strict
+mode, for ensuring that other MySQL warnings aren't ignored.</p>
+
+<strong><a name="dates">Dates</a></strong>
+<p>Strict mode dissuades MySQL from treating nonsense as dates:</p>
+
+<pre>
+mysql> CREATE TABLE log (noted DATE NOT NULL);
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> INSERT INTO log SET noted = 'kapow';
+ERROR 1292 (22007): Incorrect date value: 'kapow' for column 'noted' at row 1</pre>
+
+<p>But it still thinks that a bunch of zeros is a cromulent date, without even so
+much as a warning:</p>
+
+<pre>
+mysql> INSERT INTO log SET noted = '0000-00-00';
+Query OK, 1 row affected (0.00 sec)</pre>
+
+<p>What's particularly special is that MySQL treats these zeros as being
+<code>NULL</code>:</p>
+
+<pre>
+mysql> SELECT * FROM log WHERE noted IS NULL;
++------------+
+| noted      |
++------------+
+| 0000-00-00 | 
++------------+
+1 row in set (0.02 sec)</pre>
+
+<p>And remember that that's in a field declared <code>NOT NULL</code>!  That
+zero value is still <code>NOT NULL</code> as well of course:</p>
+
+<pre>
+mysql> SELECT * FROM log WHERE noted IS NOT NULL;
++------------+
+| noted      |
++------------+
+| 0000-00-00 | 
++------------+
+1 row in set (0.00 sec)</pre>
+
+<p>In fact it is both <code>NULL</code> and <code>NOT NULL</code> at the same
+time:</p>
+
+<pre>
+mysql> SELECT * FROM log WHERE noted IS NULL AND noted IS NOT NULL;
++------------+
+| noted      |
++------------+
+| 0000-00-00 | 
++------------+
+1 row in set (0.00 sec)</pre>
+
+<p>That's probably not a date you want in your database.  Even through strict
+mode permits it there's another SQL mode, <code>NO_ZERO_DATE</code>, which
+stops it being inserted:</p>
+
+<pre>
+mysql> SET sql_mode = 'STRICT_ALL_TABLES,NO_ZERO_DATE';
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> INSERT INTO log SET noted = '0000-00-00';
+ERROR 1292 (22007): Incorrect date value: '0000-00-00' for column 'noted' at row 1</pre>
+
+<p>But even with that, dates with zeroes in a <em>part</em> of them can still
+get into your database:</p>
+
+<pre>
+mysql> INSERT INTO log SET noted = '2007-07-00';
+Query OK, 1 row affected (0.00 sec)</pre>
+
+<p>To prevent that there's yet another SQL mode, <code>NO_ZERO_IN_DATE</code>!  No, really:</p>
+
+<pre>
+mysql> SET sql_mode = 'STRICT_ALL_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE';
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> INSERT INTO log SET noted = '2007-07-00';
+ERROR 1292 (22007): Incorrect date value: '2007-07-00' for column 'noted' at row 1</pre>
+
+<strong><a name="sql_modes">SQL Modes</a></strong>
+<p>All these modes are getting a bit tedious.  Fortunately it isn't necessary
+to remember them all individually: MySQL kindly provides a single 'shorthand'
+mode for turning on all these various sorts of strictures.  It's called
+<code>TRADITIONAL</code>, and that's probably what you want in your server
+config:</p>
+
+<pre>
+[mysqld]
+sql-mode = TRADITIONAL</pre>
+
+<p>Yup &mdash; MySQL considers all this checking to be something traditionally
+people have wanted to do with databases; perhaps they think it's even a little
+quaint or old-fashioned, given that it all defaults to being off.</p>
+
+<strong><a name="timezones">Timezones</a></strong>
+<p>Back to dates, beware that <code>TIMESTAMP</code> values are returned
+(compared, manipulated, etc) in the server's local timezone.  Often this is
+convenient, but since no timezone is returned it can pose problems with
+daylight-saving time.</p>
+
+<p>When the clocks are turned back in the autumn there are two consecutive
+hours which have the same local time, and you have no way of distinguishing
+them in the database.</p>
+
+<p>One way of dealing wtih this would be to <a
+  href="http://dev.mysql.com/doc/refman/5.1/en/time-zone-support.html">tell
+  MySQL to operate in UTC</a>.</p>
+
+<p>But after all the above my preferred option is simply not to let MySQL get
+anywhere near my dates, storing everything as epoch seconds in integer fields,
+which can be stored and retrieved reasonably sanely and without giving MySQL a
+chance to fiddle with them &mdash; it can't even tell they <em>are</em>
+dates!</p>
+
+<p>The Perl <em>DateTime</em> module makes writing and reading epoch times easy
+(as well as generally being excellent at dealing with dates in Perl), and if
+interactively you ever need to peek into a date field you can use the MySQL
+functions <code>From_UnixTime()</code> and <code>Unix_Timestamp()</code> to
+convert between epoch times and something readable.</p>
+
+<strong><a name="foreign_keys">Foreign Keys</a></strong>
+<p>MySQL has often been accused at being poor at referential integrity.  This
+requires foreign keys, introduced in MySQL 4.0.  They work fine, just so long
+as you use the correct syntax.</p>
+
+<p>Just as MySQL by default really tries hard to insert data it's given, even
+if it has to tweak some values, it wants to be accommodating of valid SQL
+&mdash; to such an extent that if passed something it recognizes as being an
+SQL construct it doesn't support, it will quietly ignore it and just get on
+with processing the rest of the statement.  So MySQL has a background of
+happily ignoring foreign key references it can't do anything with.</p>
+
+<p>With InnoDB though it can do something with them, and indeed this does what
+you want:</p>
+
+<pre>
+mysql> CREATE TABLE supplier
+       (
+         id INTEGER AUTO_INCREMENT PRIMARY KEY,
+         name TINYTEXT NOT NULL
+       ) ENGINE=InnoDB;
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> CREATE TABLE product
+       (
+         id INTEGER AUTO_INCREMENT PRIMARY KEY,
+         supplier_id INTEGER NOT NULL,
+         name TINYTEXT NOT NULL,
+         FOREIGN KEY (supplier_id) REFERENCES supplier(id)
+       ) ENGINE=InnoDB;
+Query OK, 0 rows affected (0.01 sec)</pre>
+
+<p>This alternative syntax for specifying the foreign key is also valid SQL,
+and possibly a little more convenient:</p>
+
+<pre>
+mysql> CREATE TABLE product
+       (
+         id INTEGER AUTO_INCREMENT PRIMARY KEY,
+         supplier_id INTEGER NOT NULL REFERENCES supplier(id),
+         name TINYTEXT NOT NULL
+       ) ENGINE=InnoDB;
+Query OK, 0 rows affected (0.01 sec)</pre>
+
+<p>There's only one problem with it: it doesn't do anything.  For reasons that
+currently remain mysterious, MySQL continues to treat the above
+<code>REFERENCES</code> as something which it knows about but doesn't do
+anything with &mdash; despite this being a situation in which it can do
+something with it!  And note the lack of a warning in response to it: it
+doesn't even admit to having ignored a crucial part of what you typed in.</p>
+
+<p>Unfortunately there doesn't appear to be a way round this.  The best you can
+hope for is finding the situation so horrendous that it embeds itself deep in
+your psyche such that you'll always remember its existence and to check very
+carefully whenever adding foreign keys.</p>
+
+<strong><a name="mysql_features_and_table_types">MySQL Features and Table
+    Types</a></strong>
+<p>To get foreign key support you need to use InnoDB tables.  Unfortunately
+that prevents you from using some of MySQL's widely touted features: full-text
+search only works with MyIsam tables, and clustering uses its own table type,
+NDB.</p>
+
+<p>Or to put it the other way round, if your system requires either full-text
+searching or clustering (and you can only pick one) then you can't have
+enforced referential integrity &mdash; though a future release may improve the
+situation.</p>
+
+<p>Something else MySQL has a reputation for is its speed, though again that's
+usually using MyIsam tables, and therefore without foreign keys.</p>
+
+<strong><a name="fulltext_searching">Full-Text Searching</a></strong>
+<p>The full-text searching is quite nice, the only tricky bit being coaxing
+MySQL into actually indexing all of your text.  The first issue is that by
+default it only indexes words of 4 or more letters &mdash; which can be
+irritating when you're trying to search your wiki for ``FTP'' (and of course
+when you search for a word too short to have been indexed it merely returns no
+results; there's no error).</p> <p>The minimum word length can be reduced in
+<em>my.cnf</em>:</p>
+
+<pre>
+[mysqld]
+ft_min_word_len=3
+[myisamchk]
+ft_min_word_len=3</pre>
+
+<p>If you've already indexed some content before lowering this value then
+'repairing' the relevant tables will activate the change:</p>
+
+<pre>
+mysql> REPAIR TABLE archive QUICK;</pre>
+
+<p>The other part of MySQL's default set-up which clobbers your indexing attempts
+is its extensive list of stop-words.  It often makes sense not to index
+occurrences of really common words with little semantic value, such as ``the'',
+``of'', and ``and''; but it's far from clear that you'd want to avoid words such as
+``immediate'', ``appropriate'', ``sensible'', and ``unfortunately'' from bothering your
+index, yet they are among
+<a href="http://dev.mysql.com/doc/refman/5.1/en/fulltext-stopwords.html">dozens
+  of default stop-words</a>.</p>
+
+<p>(For some reason the stop-words are displayed in the manual with lines round
+them, making them look like those fridge magnets which can be used for spelling
+out phrases.  Perhaps we should have a competition for creating the longest
+valid paragraph entirely out of MySQL stop-words?)</p>
+
+<p>You can remedy the situation by creating a file containing only the
+stop-words you want and
+<a href="http://dev.mysql.com/doc/refman/5.1/en/fulltext-fine-tuning.html">setting
+  <code>ft_stopword_file</code> to its path</a>.</p>
+
+<strong><a name="alternatives_to_mysql">Alternatives to MySQL</a></strong>
+<p>If you don't have a particular need to use MySQL, then you could consider
+avoiding the quirks highlighted by picking a different DMBS.</p>
+
+<p>Postgres seems to get referential integrity right and is suitable for many
+situations where you want a &#8216;proper&#8217; database; it's a plausible
+alternative to MySQL if you'd only be using MySQL <code>InnoDB</code> tables.
+SQLite is good for the niche of wanting something small and low-hassle.</p>
+
+<p>Of course other software has other issues, and it may be that on balance
+MySQL is the best DBMS to use for your situation.</p>
+
+<p>A common reason for this is because you're already using MySQL, and it'd be
+awkward to switch.  I'd be interested to see any case studies of non-trivial
+live systems which have switched from MySQL to Postgres &mdash; how much effort it
+was, and whether it was felt to be worth it.</p>
+
+<strong><a name="conclusion">Conclusion</a></strong>
+<p>MySQL has a few surprises.  If you're going to use it then it's better to be
+aware of them.  How much they affect you depends on your circumstances, but in
+many cases merely knowing about the potential issues is a big help in avoiding
+being hurt by them.  MySQL is widely deployed and many people use it
+successfully despite all the above.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Wow.</h2>
+<h3><a href="/user/stu42j/">stu42j</a> on 2007-08-28T14:36:30</h3>
+It is pretty interesting to see all those quirks together like that.  Particularly the date handling.<br><br>One of the things I actually like about MySQL is the idea of having different Storage Engines tuned for different purposes.  I've often thought it would be interesting to some how use Postgres as a MySQL Storage Engine.  I think Falcon will be close to that goal.  I am looking forward to seeing how 6.0 turns out.
+
+
+
+<blockquote>
+
+<h2>Been there, done that</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2007-08-28T16:02:09</h3>
+<a href="http://krow.net/index.pl?node_id=3039" title="krow.net">PostgreSQL as a MySQL storage engine</a krow.net>.  A bit like inserting an entire Hummer as the "engine" for your Kia.
+
+
+
+<blockquote>
+
+<h2>Re:Been there, done that</h2>
+<h3><a href="/user/stu42j/">stu42j</a> on 2007-08-28T16:16:42</h3>
+I think of it more like having a car with <a href="http://en.wikipedia.org/wiki/Variable_displacement" title="wikipedia.org">Variable displacement</a wikipedia.org> where some cylinders in the engine can be disabled to save fuel, depending on the driving conditions.<br><br>I can imagine, however, that the MySQL frontend may create limitations that prevent more advanced storage engines from being as useful.
+
+
+
+<h2>Re:Been there, done that</h2>
+<h3><a href="/user/vek/">vek</a> on 2007-08-29T12:44:54</h3>
+PostgreSQL in MySQL?  So <b>that's</b> how they get decent replication in PostgreSQL.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Thanks!</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2007-08-30T01:29:45</h3>
+Excellent article, thank you!<br><br>With regard to MySQL ignoring the REFERENCES field, I found it preferable to write my schema using REFERENCES and then convert it with <a href="http://search.cpan.org/dist/SQL-Translator/" title="cpan.org">SQL::Translator</a cpan.org> to the FOREIGN KEY style like so:<p><blockquote> <div><tt>sqlt --from MySQL --to MySQL schema.sql &gt; schema.mysql</tt></div> </blockquote>
+
+
+
+<h2>MySQL gotchas</h2>
+<h3><a href="/user/Ianb/">Ianb</a> on 2007-10-10T07:17:03</h3>
+A little dated, but the <a href="http://sql-info.de/mysql/gotchas.html" title="sql-info.de">MySQL gotchas</a sql-info.de> cover similar ground.
+
+
+
+<h2>longer than 2 years</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2008-03-28T20:23:41</h3>
+Saying MySQL 5 has only been available for 2 years is a bit questionable.  It's been out in production for 2.5 and in (widely-used) beta for 3.  It's standard on any modern Linux distro at this point.
+<p>You seem to be implying that InnoDB tables are slower than MyISAM.  For my workload it's been quite the opposite: InnoDB tables have been significantly faster.
+</p><p>The right way to do ENUMs with enforcement is to use a lookup table with foreign keys, just like you would in many other databases.  You made a really big deal about the syntax for specifying foreign keys here, almost making it sound as if they don't work.  They work just fine, and have since way before MySQL 5.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

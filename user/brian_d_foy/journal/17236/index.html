@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: A tale of two orders</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>A tale of two orders</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2004-02-05T22:09:45</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I have been developing Mac::iTunes on a Mac---no surprise there---but I meant for parts of it to work anywhere. Perl is mostly architecture independent, but I got bit with one of the bits it cannot help.<br/><br/>As part of the parser that reads the binary iTunes database file, I read two or four bytes and then unpack them into shorts or longs, which, in Perl, are just numbers.<br/><br/>Now, on a PowerPC, the big bits show up on the left just like our thousands place show up on the left of the hundreds place.  This is not true on all processors though.  Some mix up the bytes so the bits end up all over the place.  Ick!<br/><br/>On the Mac, my parsing stuff worked because I do not have to worry about byte ordering, and the binary file has the bytes in the right order.  When I tested the module on another unix account yesterday, everything exploded, sending goofy characters all over the screen and messing up my terminal (a windows client that is far inferior to Terminal).  Somewhere the parser read something wrong, got confused, and starting slurping bytes it should not have slurped.  Things that were not strings became strings with wierd characters.<br/><br/>At first I suspected a unicode boo-boo, since I had started to muck around with the unicode strings that iTunes uses, but "use bytes" did not do anything to help.<br/><br/>Now, since this explosion messed up my terminal, I had a hard time getting output I could read.  I tried to redirect stderr to stdout and then stdout to a file (in BASH), but that did not work.  I found a little BASH trick that did, though, and I still do not know why it worked and the other did not.<br/><br/><pre>
+# does not work
+% perl script 2>&1 > test.out<br/><br/>#works
+% perl script &> test.out
+</pre><br/><br/>I took the output back to my computer and stared at it for a bit.  Really, just looked at it while I ate some Spaghettios I heated in my canteen cup.
+I wondered how many bytes the first string was, for some reason.  I counted 1280.  That number does not look special to me, but I knew is was supposed to be 5.<br/><br/>I thought for a moment.  I wondered "What is 5 if the byte order is reversed?", figuring I would get some other strange number.  If I have the string "\000\005", and I turn it into a short with unpack, I get 5 on my PowerPC.  If I turn it into a short on an Intel, I get...yep, I get 1280.<br/><br/>Huzzah.<br/><br/>I now have to deal with this in my code.  I know unpack can figure this out because there is network order and VAX order formats, although I always get them mixed up. I need to turn this unpack into something that give the same answer on both architectures.<br/><br/><pre>
+unpack( "S", $data );
+</pre><br/><br/>With a two options, either the network or VAX order, I get it on the second try.<br/><br/><pre>
+unpack( "n", $data );
+</pre><br/><br/>Thus, with this fix, *BSD folks (and, if they play nicely, maybe the Linux folks) can parse the iTunes database format too. They will even find a spiffy new Makefile.PL that does not bother them with all the Mac specific bits.</p>
+
+
+<hr/>
+
+
+
+<h2>Bash stuph</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-02-05T22:32:11</h3>
+<blockquote><div> <tt>&nbsp; &nbsp;# does not work<br>&nbsp; &nbsp; % perl script 2&gt;&amp;1 &gt; test.out</tt> </div></blockquote> <p>I'm not entirely certain why, but when you do that, only what would originally have been sent to STDOUT is redirected to test.out and your warnings will go to STDOUT.  Change that to:</p> <blockquote><div> <tt>%perl script &gt; test.out 2&gt;&amp;1</tt> </div></blockquote> <blockquote><div> <tt>&nbsp; &nbsp; #works<br>&nbsp; &nbsp; % perl script &amp;&gt; test.out </tt> </div></blockquote> <p>Never seen that before, but then, I still don't understand Linux terribly well.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Bash stuph</h2>
+<h3><a href="/user/vsergu/">vsergu</a> on 2004-02-05T22:35:59</h3>
+<p>From <code>man bash</code>:</p>
+
+<blockquote><div>
+<p> Note  that  the order of redirections is significant.  For example, the command</p> <blockquote><div> <tt>ls &gt; dirlist 2&gt;&amp;1</tt> </div></blockquote> <p>directs both standard output and standard error to  the  file  <code>dirlist</code>, while the command</p> <blockquote><div> <tt>ls 2&gt;&amp;1 &gt; dirlist</tt> </div></blockquote> <p>directs  only the standard output to file <code>dirlist</code>, because the standard
+error was duplicated as standard output before the standard output  was redirected to <code>dirlist</code>.</p>
+</div></blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Bash stuph</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-02-05T22:43:26</h3>
+<p> <tt>man bash</tt>:  directions for using the feminist shell<nobr> <wbr></nobr>:)</p>
+
+
+
+<h2>Re:Bash stuph</h2>
+<h3><a href="/user/iburrell/">iburrell</a> on 2004-02-06T18:49:19</h3>
+It is easy to figure out if you remeber that bash does the redirections in the order specified.  And that it uses dup to do the redirections, making a copy of the current file descriptor.  You will get the same behavior from Perl code.
+
+<code>
+open(STDERR, "&gt;&amp;STDOUT");
+open(STDOUT, "&gt;dirlist");
+</code>
+
+<code>
+open(STDOUT, "&gt;dirlist");
+open(STDERR, "&gt;&amp;STDOUT");
+</code>
+
+<p>
+BTW, bash has a shorthand for redirectiny stdin and stderr together.
+
+<code>
+ls &amp;&gt; file
+</code></p>
+
+
+
+<blockquote>
+
+<h2>Re:Bash stuph</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2004-02-06T20:19:07</h3>
+It only seems easy to remember, but in my mind it does not work properly.  If I redirect something to stdout, then redirect stdout, in my mind anything in stdout should go to the new place.  Alas, that is not the case.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>ah-ha!</h2>
+<h3><a href="/user/LTjake/">LTjake</a> on 2004-02-06T14:33:07</h3>
+<p>Your post got me thinking...</p>
+<p>In my <a href="http://search.cpan.org/dist/File-SAUCE/" title="cpan.org">File::SAUCE module</a cpan.org> I have a pack template. A <a href="http://nntp.x.perl.org/group/perl.cpan.testers/115072" title="perl.org">test on a solaris machine</a perl.org> was giving me messages like this:
+</p> <blockquote><div> <tt>t/20-read.........#&nbsp; &nbsp; &nbsp;Failed test (t/20-read.t at line 65)<br>#&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; got: '256'<br>#&nbsp; &nbsp; &nbsp;expected: '1'</tt> </div></blockquote> <p>I was using 'S' in my template. So, on my win32 box, i plug in 'n' just to see what it would do. It was giving me the same errors as above.</p>
+<p>So, as per <a href="http://www.perldoc.com/perl5.8.0/pod/perlport.html#Numbers-endianness-and-Width" title="perldoc.com">perl-port</a perldoc.com>, i now do an endian-ness check and use 'n' or 'S' when needed.</p>
+<p>I think I'm closer to having my tests pass! Thanks!</p>
+
+
+
+<h2>Big endian, little endian</h2>
+<h3><a href="/user/iburrell/">iburrell</a> on 2004-02-06T19:02:23</h3>
+I thought it was pretty interesting how you puzzled out that byte orders were different on different platforms and how to work around it.  I thought all programmers knew about little endian and big endian byte orders.
+
+<p>
+Then I realized that Perl does an excellent job of hiding byte order.  With Perl, it is much less common to read binary structures than in C.  Since pack does a good job of handling the differences, byte order just becomes part of the specification of the format.
+
+</p><p>
+Basically, there are two different orders for the bytes of integers in binary form.  Big endian puts the most significant byte first.  Little endian puts the least significant byte first.  x86 is little endian, 68000 is big endian, PowerPC can do both but Macs are big endian for compatibility.  Network order is big endian.
+
+</p><p>
+Wikipedia has an excellent article on <a href="http://www.wikipedia.org/wiki/Endianness" title="wikipedia.org">Endianness</a wikipedia.org>.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Big endian, little endian</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2004-02-06T20:12:29</h3>
+I do know about byte orders.  I just have not had to deal with it for a long time, so I was not thinking about it. All I knew when I started was that the function was reading too many bytes, and, as usual, I started by looking at changes to the code I had made recently.<br> <br>My first battle with endianness was moving a couple of gigabytes of data from an intel machine to a motorola based one.  To make the analysis of this data easier, I needed to flip around the byte order of the longs.  C was taking too long, so I learned 68k assembly, which has some nice operations to do just that, and dropped the processing time down from hours to a couple of minutes.
+
+
+
+<blockquote>
+
+<h2>Re:Big endian, little endian</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-02-11T03:28:16</h3>
+I've had a little more experience than most people with byte order and Perl, primarily because of MacPerl work.  But it also came into play with stuff like Storable and DB_File output when going from SPARCs or PPCs to Intels, or vice versa.  Hurray for Storable's nstore()!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

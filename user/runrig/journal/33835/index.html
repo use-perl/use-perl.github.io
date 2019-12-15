@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of runrig: Adventures in functional idiocy</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Adventures in functional idiocy</h1>
+<h2><a href="/user/runrig/">runrig</a> on 2007-07-18T06:20:21</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I'm no functional guru (but that doesn't stop me from trying),
+and I was curious about the hamming numbers (numbers with only 2, 3, and/or 5 as prime factors) and the code from MJD's book, and after a
+brief digression into <a href="http://en.wikipedia.org/wiki/Regular_number">
+Wikipedia</a> (mental note to self...must work
+<a href="http://en.wikipedia.org/wiki/Syntonic_comma">syntonic comma</a> into
+casual conversation), I started thinking about
+MJD's code (
+Fair use license verbage: from Higher-Order Perl by Mark Dominus, published by Morgan Kaufmann Publishers, Copyright 2005 by Elsevier Inc):</p>
+<pre>
+sub scale {
+  my ($s, $c) = @_;
+  transform { $_[0]*$c } $s;
+}
+my $hamming;
+$hamming = node(1,
+                promise {
+                  merge(scale($hamming, 2),
+                  merge(scale($hamming, 3),
+                        scale($hamming, 5),
+                       ))
+                }
+               );
+</pre>
+I thought hmmm, I wonder (just for fun) if I can get rid of that 
+cyclical reference. So I pull everyone's favorite combinator out
+of <a href="http://search.cpan.org/dist/Moose-Autobox/">Moose::Autobox::Code</a>
+(and modify it to make it non-OO) and try this:
+<pre>
+sub u {
+    my $f = shift;
+    sub { $f->($f, @_) };
+}
+
+sub Y {
+    my $f = shift;
+    u(sub { my $h = shift; sub { $f->(u($h)->())->(@_) } })->();
+}
+
+my $hamming = Y( sub {
+  my $h = shift;
+  sub {
+    node(1,
+      promise {
+      merge(scale($h, 2),
+      merge(scale($h, 3),
+      scale($h, 5),
+    ))})
+  }
+});
+
+</pre>
+And get:<pre>
+Not an ARRAY reference at C:/Perl/site/lib/HOP/Stream.pm line 127.
+</pre>
+<p>Oh crap, I forgot, a HOP::Stream isn't a function, stupid, it's
+an array reference (C'mon, can't I just make shit up and expect the computer
+to know what I mean?). Let's try something else:</p><pre>
+my $mk_hamm = Y( sub {
+  my $h = shift;
+  sub {
+    my $s = node(1, $h);
+    node(1,
+      promise {
+      merge(scale($s, 2),
+      merge(scale($s, 3),
+      scale($s, 5),
+    ))})
+  }
+});
+my $hamming = $mk_hamm->();
+</pre>
+And get this:<pre>
+1
+2
+2
+3
+3
+4
+4
+5
+5
+6
+6
+8
+8
+9
+9
+10
+10
+12
+12
+</pre>
+<p>Hey, that's close! Hmm, what happens if I try this (let's just make
+more shit up):<pre>
+my $mk_hamm = Y( sub {
+  my $h = shift;
+  sub {
+    my $s = node(0, $h);
+    node(1,
+      promise {
+      merge(scale($s, 2),
+      merge(scale($s, 3),
+      scale($s, 5),
+    ))})
+  }
+});
+</pre>
+And we get:<pre>
+1
+0
+2
+0
+3
+0
+4
+0
+5
+0
+6
+0
+8
+0
+9
+0
+10
+0
+12
+0
+15
+</pre>
+Hey, now all I have to do is change this line:<pre>
+#my $hamming = $mk_hamm->();
+my $hamming = filter { $_[0] > 0 } $mk_hamm->();
+</pre>
+<p>And we get the right output. But that's still not quite satisfying,
+due to the extra cruft that we have to filter out. The "node" 
+being assigned in the original is the same reference as in all 
+of the merge clauses, so let's try just skipping the original
+node and just merge all the other streams that do have the
+same node as a basis:</p><pre>
+my $mk_hamm = Y( sub {
+  my $h = shift;
+  sub {
+    my $s = node(1, $h);
+    merge(scale($s, 2),
+    merge(scale($s, 3),
+    scale($s, 5),
+    ))
+  }
+});
+my $hamming = $mk_hamm->();
+</pre>
+And all we're missing is the initial "1" in the stream:
+<pre>
+2
+3
+4
+5
+6
+8
+9
+10
+12
+</pre>
+So, let's just "unshift" the "1" back on after the fact by changing this line:<pre>
+#my $hamming = $mk_hamm->();
+my $hamming = node(1, $mk_hamm->());
+</pre>
+And it works!
+I'm still not altogether sure exactly what was going on with the previous
+versions, but I'm too tired now to figure it out. G'nite.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

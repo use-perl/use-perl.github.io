@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Phred: My New Year's bug find:  sprintf() breaks on $num  2**31-1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>My New Year's bug find:  sprintf() breaks on $num  2**31-1</h1>
+<h2><a href="/user/Phred/">Phred</a> on 2006-12-31T19:02:29</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I was getting ready to go see some music last night in preparation for the New Year when I got the call from work.  "Hey Fred, there's a problem with the mission critical application that keeps our business running."  Ugh.</p>
+<p>Logged in, checked out the issue.  Class::DBI was failing on a retrieve with id -2147483547.  Huh?  A negative object id?  I'm pretty good with numbers, and that number looked damn close to 2**32/2, probably comes from my days writing Assembler and C.  I got a sinking feeling in my gut that there was a serious problem in our codebase that I wouldn't be able to fix easily.  Was this a y2.007k-1 bug?</p>
+<p>I dug through the call stack and after some furious debugging found that the object id was being changed from 2147483749 to -2147483547 between two components.  Oh great, a 32 bit int bug in our application framework.  Fun.</p>
+<p>After a few more minutes of hacking, I was at a loss.  Then I looked at the way the component was being called:<p>
+<pre>
+<% 'foo.cmp', obj_id => sprintf("OBJ_%d", $obj_id) %>
+</pre>
+<p>Hrm.  I'm not that familiar with the guts of perl, but... could it possibly be that sprintf was using a signed int?</p>
+<pre>
+phred@pooky ~ $ perl -e 'print sprintf("foo %d", 2147483749);'
+foo -2147483547
+</pre>
+<p>Phew!!  I gave ops the good news and replaced the sprintf with a more sane quoting operator.  I guess whoever wrote that sprintf didn't figure we'd ever process over 2 billion objects!</p>
+<p>My quest was not done yet.  I went into my copy of 5.8.8 source, hunted around a bit, and then found:</p>
+<pre>
+int PerlIO_sprintf(char *s, int n, const char *fmt, ...)
+
+/* quick definition of c int type added for the lazy rusty C reader */
+int    4      32   -2,147,483,648 -> +2,147,483,647   ( 2Gb)
+</pre>
+There it is.  Is it a bug?  Depends on your point of view I guess.  I would have to say no - we are using a 32 bit platform, so something like sprintf should be expected to behave that way.  All in all, things ended a lot better than I expected.  Looks like I'll be able to go see music tonight :)</p><p>&nbsp;</p>
+<p>Happy New Year!</p></p>
+
+
+<hr/>
+
+
+
+<h2>When the data set grows even more...</h2>
+<h3><a href="/user/bart/">bart</a> on 2007-01-01T10:47:22</h3>
+Doubling the number of items in a database is not a farfetched thought, so you should reconsider: what happens when you will get to the magic value of 4 billion (4*1024**3)? What will the database do? Class::DBI? And if it's a big issue, how will you fix it?
+<p>The problem might be far more serious then, than the easily fixed issue now. Now might be a good time to test that, now that the problem is still fresh in your mind.
+</p><p>I am guessing it'll take roughly the same amount of time to get to that point, as the app has been in use already. So, you have a reasonable estimate how much time you have left to fix it.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

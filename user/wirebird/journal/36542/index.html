@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of wirebird: Someday I should fix cpan</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Someday I should fix cpan</h1>
+<h2><a href="/user/wirebird/">wirebird</a> on 2008-05-29T16:13:12</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>No, not CPAN, cpan... the shell.  And just the installation on my server.<br/><br/>See, the server runs Debian, so to keep from stepping on package-managed libraries, we have /opt/perl/lib as an override.<br/><br/>However, for some reason, the cpan shell doesn't find /opt/perl/lib. That is, it quite cheerfully *puts* stuff there, but it won't *use* stuff from there. So when installing, just as a for-instance, Moose, it pops up and complains that I don't have Test::More. Okay, you can install it, I say, and it does.<br/><br/>And then it asks again. No, you can't install it, I say. And it does again anyway, probably because it finally notices that my CPAN::MyConfig says to do so without asking. That's an open bug in Module::Install, which I could live with except it proceeds to install Test::More oh, about a dozen times, sometimes asking, sometimes not.<br/><br/>And then I cuss, because the Moose install itself "fails" for lack of these dependencies, and now I have to do a force install, which is gonna reinstall Test::More and fail to find it ANOTHER dozen times. Yeesh, it's gonna wear a groove in the hard drive there.<br/><br/>Running it with 'perl -I/opt/perl/lib -MCPA..." doesn't help, which isn't too surprising since it's already in PERL5LIB and isn't picking it up from there.<br/><br/>I'm thinking the Perl programs probably wouldn't find Moose &c on their own either, but they all have explicit "use lib"s in there because they're run from users who may not have the appropriate environment set up. So it's probably not actually cpan-shell-specific. <br/><br/>But huh... explicitly editing /usr/bin/cpan to put in the same "use lib" doesn't help. What the heck is it using to (fail to) locate those prereq's?  Because makepl_arg is good, and mbuildpl_arg is good.<br/><br/>Is making me crazy.<br/><br/>[Edit: The solution came up via the comments. Turns out that PERL5LIB wasn't being passed, it only looked like it was. "sudo env PERL5LIB=$PERL5LIB cpan" brings it over. Yay! There are also some good and interesting ideas on administering Perl under Debian in there.]
+</p>
+
+
+<hr/>
+
+
+
+<h2>local::lib</h2>
+<h3><a href="/user/hdp/">hdp</a> on 2008-05-29T17:12:01</h3>
+if you don't mind changing your paths a bit, use local::lib '/opt/perl' and forget about it.<br><br>I'd say you're missing the arch-specific dirs (you probably are), but that can't be all, because that wouldn't explain Moose and Test::More.
+
+
+
+<blockquote>
+
+<h2>Re:local::lib</h2>
+<h3><a href="/user/wirebird/">wirebird</a> on 2008-05-29T17:57:05</h3>
+I don't mind changing my paths inside regular Perl stuff... works good lasts long time already there.<br><br>It's just when I'm sudo'd to run the cpan shell. I can't change root's paths (at least, not permanently) without defeating the purpose of having the libs separated. And even so, I'm doing a straight-up sudo, and PERL5LIB carries over.<br><br>So I'm not at all sure that's the actual problem... it seems like whatever's doing the installation (Module::Install, I think) is failing to locate it internally. Not a failed require, but a "can't find this file in the filesystem" sort of search. Which makes no sense: it knows where to *put* the stuff, why does it not try looking there?<br><br>I suppose the cpan shell doesn't use any non-core modules, so I can't really tell if it would successfully find them for actual use. Almost makes me want to move something essential to the<nobr> <wbr></nobr>/opt directory, except then the mail server or something would probably explode.<br>
+
+
+
+<blockquote>
+
+<h2>Re:local::lib</h2>
+<h3><a href="/user/phillup/">phillup</a> on 2008-05-29T19:39:56</h3>
+<p><div class="quote">And even so, I'm doing a straight-up sudo, and PERL5LIB carries over.</div> Are you sure? I believe that by default sudo will clear PERL5LIB because of a <a href="http://lists.debian.org/debian-security-announce/2006/msg00019.html" title="debian.org">security issue</a debian.org>.<br><br>So, you can either edit<nobr> <wbr></nobr>/etc/sudoers to keep the value (not recommended) or do something <a href="http://jwadmin.blogspot.com/2007/05/passing-environment-variables-to-sudo.html" title="blogspot.com">like this.</a blogspot.com>
+
+
+
+<blockquote>
+
+<h2>Re:local::lib</h2>
+<h3><a href="/user/wirebird/">wirebird</a> on 2008-05-29T20:15:46</h3>
+I Did Not Know That.<br><br>Neither did my sysadmin/husband (though when I mentioned it, he went off into talking-to-the-ceiling land: "Huh! Yeah, that would... oh, then you could... yeah, that could be a problem... but you could... no... ")<br><br>And hey, passing it on the command line works. Thanks!<br>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:local::lib</h2>
+<h3><a href="/user/hdp/">hdp</a> on 2008-05-29T21:18:15</h3>
+<p><div class="quote">I don't mind changing my paths inside regular Perl stuff... works good lasts long time already there.</div>  <p>I didn't mean inside Perl, I meant in your shell, like the local::lib examples give:<br>
+<code>
+eval `perl -Mlocal::lib=/opt/perl`
+</code> <br>
+(in<nobr> <wbr></nobr>.bashrc or similar)
+</p>
+<p>This will cover all the bases -- Module::Install, Module::Build, your arch-specific dirs, etc.</p>
+
+
+
+<blockquote>
+
+<h2>Re:local::lib</h2>
+<h3><a href="/user/wirebird/">wirebird</a> on 2008-05-29T22:08:09</h3>
+The problem is (was) that Module::Install and everybody all worked fine... *if* I installed manually. There didn't seem to be anything wrong with "my" configuration, I just couldn't figure out why the cpan shell, specifically, wasn't honoring it. So it didn't seem like local::lib would help.<br><br>The key, it turns out, was that by the time I reached "make install," the only bit done with sudo, my personal PERL5LIB had already set all the appropriate paths, so the fact that it wasn't being passed wasn't a concern anymore.<br><br>My bash-fu is weak, so I don't know if local::lib would get around that similarly... I'm fuzzy on when sudo actually switches users. (My CNFIGSSP-fu is strong, though. So there.)<br>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Have you tried dh-make-perl?</h2>
+<h3><a href="/user/grantm/">grantm</a> on 2008-05-29T20:58:20</h3>
+<p>I've been using Debian for quite a few years now and I've reached the position where I really don't like to install anything onto a machine that's not Debian packaged - if nothing else, it makes it easy to remove stuff<nobr> <wbr></nobr>:-)</p>
+
+<p>To build a Debian package from a CPAN distribution, just do something like this:</p> <p><blockquote> <div><tt>dh-make-perl --build --cpan JSON::XS</tt></div> </blockquote>  <p>This will download the latest tarball from CPAN, unpack it, throw together a skeleton 'debian' directory, and then build the<nobr> <wbr></nobr>.deb package using the normal CPAN make; make test; make install.  You can then install the<nobr> <wbr></nobr>.deb with 'dpkg -i'.</p>
+
+<p>It won't work for every CPAN distribution, but often you can 'cd' into the unpacked directory, resolve the obvious problem and then run:</p> <p><blockquote> <div><tt>dh-make-perl --build<nobr> <wbr></nobr>.</tt></div> </blockquote>  <p>The major advantage of all this is that if you build the package on your development environment then you know that deployments to staging and production enviornments will use the exact same version you devloped against.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Have you tried dh-make-perl?</h2>
+<h3><a href="/user/wirebird/">wirebird</a> on 2008-05-29T21:36:17</h3>
+I've done that a little, but I think part of keeping them separate is that then the versions Debian expects are there for Debian-related stuff. But I dunno, exactly. That part's not my bailiwick.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Have you tried dh-make-perl?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-05-30T03:31:09</h3>
+<p>In which case, if you are serious about that, you should compile your own Perl from source for use in your code; which would would also mean you wouldn&#8217;t have to configure any paths.</p>
+
+
+
+<blockquote>
+
+<h2>Maybe it's (shudder) something you've done?</h2>
+<h3><a href="/user/Ron Savage/">Ron Savage</a> on 2008-05-30T07:50:42</h3>
+I have debian (Linux zoe 2.6.24-1-686 #1 SMP Sat Apr 19 00:37:55 UTC 2008 i686 GNU/Linux) and I don't have that problem with cpan, so I've never needed those other manoeuvres either.
+
+
+
+<h2>Re:Have you tried dh-make-perl?</h2>
+<h3><a href="/user/wirebird/">wirebird</a> on 2008-05-30T12:42:15</h3>
+We've considered that, at least on the dev box.<br><br>I've also considered pretending it's a Windows box: chmod 0777 everything, run as root, and reinstall from scratch every couple of weeks... just so I could ignore OS details until the Perl is finished. And also (okay, mostly) because it's fun to suggest that to a security-conscious sysadmin.<br>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>So, no problem with cpan?</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2008-05-30T09:40:27</h3>
+Have you solved this issue?<br><br>I don't think there is anything wrong (at least for you) with the cpan script. It looks like you thought PERL5LIB was one thing but it wasn't, and that's why things failed. That's going to be a problem with any Perl script.
+
+
+
+<blockquote>
+
+<h2>Re:So, no problem with cpan?</h2>
+<h3><a href="/user/wirebird/">wirebird</a> on 2008-05-30T12:33:10</h3>
+Yup.  The cpan shell just happens to be the only thing I sudo to use, ergo it was the only place PERL5LIB was going away.<br><br>I had thought I had checked it, by su'ing to root and looking at it, and it's properly set there. I didn't realize sudo and su behaved differently in that respect, so I thought I'd eliminated that problem. The fact that that was the only solution I was coming across in Google probably should have told me something, I guess.<br><br>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Just a thought...</h2>
+<h3><a href="/user/kane/">kane</a> on 2008-05-31T02:16:11</h3>
+Have you looked at:<br><br><a href="http://debianpkgs.cpan.org/" title="cpan.org">http://debianpkgs.cpan.org/</a cpan.org><br><br>for both a mirror with pre-built packages of the most used distributions, as well as tools to build them yourself?<br><br>Integrates nicely with debian and doesn't mess with official packages as provided by the official debian repositories
+
+
+
+<blockquote>
+
+<h2>Re:Just a thought...</h2>
+<h3><a href="/user/wirebird/">wirebird</a> on 2008-05-31T02:27:57</h3>
+<a href="http://debian.pkgs.cpan.org/" title="cpan.org">http://debian.pkgs.cpan.org/</a cpan.org>, actually, and no, I hadn't.<br><br>Innnnnteresting. I'll throw that at my sysadmin. Thanks.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

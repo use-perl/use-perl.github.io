@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Rotten Ravioli Code</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Rotten Ravioli Code</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-12-01T10:23:19</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>In <a href="http://use.perl.org/user/Ovid/journal/37975">my last post</a>, I was talking about the tendency of OO programmers to develop overly complex systems.  Aristotle pointed out that I was talking about <a href="http://c2.com/cgi/wiki?RavioliCode">ravioli code</a>.  I've never heard the term before, but it seems perfectly appropriate, particularly given some code I'm trying to understand right now.  Before I get there, let's have a look at one of the comments in the "ravioli code" discussion:</p>
+
+<blockquote>Although it often does, I don't think RavioliCode always means that something needs fixing. In OO programming, there seems to be a trade-off between "easy to change" code and "easy to understand at first glance" code. You can try to maximize ease-of-change, then do your best to make the code understandable; or you can try to maximize understandability. I do the former. --StanSilver</blockquote>
+
+<p>Ease of change instead of understandability?  Pardon me for quibbling, but what we're looking for is the elusive "maintainability":  that combination of ease of change and understandability that hits the sweet spot we all argue over.  A blanket favoring of "ease of change" is a disaster.  If something is really easy to change but hard to understand, is it not, by definition, easy to misunderstand?  Thus, those easy changes might be dead wrong, a problem I've found in some code I'm working on right now.  I don't <em>think</em> this is what StanSilver is arguing for, but if we're go for ease of change and <em>then</em> understandability, we all know what happens to developers who say "yeah, I'll get around to that".</p>
+
+<pre>$ ack 'XXX|TODO'  lib/ t/ aggtests/ docs/ --all | wc -l
+     267</pre>
+
+<p>So, turning to the code I'm working on right now, I've decided to try and understand it.  Here's a (loose) inheritance heirarchy.</p>
+
+<pre>A         A
+|         |
+B    A    B
+|    |    |
+C    D    E
+ \   |   /
+   --F--
+</pre>
+
+<p>(use.perl is messing with that format a bit)</p>
+
+<p>Given that I need to instantiate F, notice anything problematic there?  And yes, B does override stuff in A, so you had better hope that:</p>
+
+<ul>
+  <li>You order your inheritance correctly</li>
+  <li>... based upon your MRO (method resolution order)</li>
+</ul>
+
+<p>And do C, D and E have any identically named methods?  We're not calling "next::method" much internally, but even if we did, this level of complexity helps to illustrate why some languages simply outlaw multiple inheritance:  it's too dangerous to abuse.</p>
+
+<p>By the way, it's worse than that diagram implies.  The hierarchy ignores that various <em>subroutines</em> are exported into some classes (subs, not methods) and we have three traits loaded into F.  After working like mad to understand the various classes involved, I ran some tests with an instance of "F".  I used the debugger to dump out the method and it identifies 144 methods on the F object.  These methods are from nine packages.  What it <em>doesn't</em> do is show you how the traits often "wrap" the methods to alter their behavior.  It also doesn't show which of those methods are documented as being overridden.  It also doesn't show which overriding methods should not have their parent called.  It also doesn't show which overriding methods <em>should</em> have their parents called.  It also doesn't show which methods just crept in there by accident just because the hierarchy is so complicated.</p>
+
+<p>Now if you'll excuse me, I need to go find some aspirin.</p></p>
+
+
+<hr/>
+
+
+
+<h2>I'll defend that comment</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-12-01T23:14:50</h3>
+<p>The choice that is being described I believe is the choice between code that is easy to modify, and code that is transparent to someone who is new to the code base.  For code to be easy to modify it must <b>also</b> be easy for the modifier to understand.  However it need not be easy for an uninitiated programmer to figure out.</p><p>As an example, my first experience of functional techniques lead to 20 minutes of head scratching until I finally found the section of code that did the work, and figured out how it worked.  Until I figured that out, I could understand nothing.  After I figured that out, I could make my modifications quite easily.</p><p>Now that was a simple example.  But it happens in far more complex systems as well.  Peter Naur's essay <i>Programming as Theory Building</i> gives a good explanation.  Unfortunately it is hard to track that down due to copyright issues.  Essentially what it says is that while building a well-designed software system, you're creating a theory of how that software system works.  A developer who understands that theory will generally know exactly where to look to figure out how something works, and where specific changes should be made.  However someone who lacks the theory will have extreme difficulty.</p><p>This phenomena is not to be confused with anti-patterns such as spaghetti code or the ravioli code that you're describing.  And the key difference is that when an experienced developer is asked to explain a change, it becomes evident fairly quickly that there is a fairly simple structure underlying the decisions that are being made.  With the anti-patterns there is no such structure evident.</p><p>In fact I really like the analogy between programming and theory building.  Because it illustrates both what is right and wrong about OO programming.  What OO programming does is give you specific building blocks to make the connection between your software theories and your code obvious.  However those building blocks have fairly severe limits.  If your software theories need to include ideas that don't fit within that framework, then you have problems.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

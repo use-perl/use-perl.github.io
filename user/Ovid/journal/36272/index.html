@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: OO Code and Conditionals</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>OO Code and Conditionals</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-04-29T10:39:13</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>A few weeks ago, we implemented a reporting system.  Since we're huge believers in agile methodologies, we threw things together fairly quickly, using TDD.  This exposed two problems.  First, the "class" we implemented was a sloppy mess of procedural code with a OO wrapper.  Second, the tests were a similarly sloppy mess of procedural code.</p>
+
+<p>The last few days, I've had to extend this and I found it very hard to do.  I've rewritten the tests to be data driven and I now iterate over a list of known states.  They're much easier to work with and understand, but they also make it clear that some of our code has needless duplication.</p>
+
+<p>The big win, though, was rewriting the "class" to actually be a class.  Instead of huge methods with a bunch of if/else statements, I relied on proper method dispatching.  The resulting code is shorter (278 lines of code are now 101 lines of code), easier to read, and exposed some confusion in the underlying thinking.  The big issue, though, was that I was left with a single "if" statement:</p>
+
+<pre>if ( 'yesterday' eq $time_period ) {
+    $date->subtract( days => 1 );
+}</pre>
+
+<p>I went from eight "if" statements to only one.  The previous "if" statements were all failures of our code to take advantage of the dispatching capabilities of OO.  The final "if" statement, however, was bugging the heck out of me.  I realize now that it means we've hobbled ourselves.  What if we want three days ago?  Nine days ago?  It turns out that we really can't do that.  Fixing this is easy but it does require a change in the API.  Once again, conditional checks in OO code prove themselves to be code smells.</p>
+
+<p>Legitimate conditional checks <em>should</em> (I'm not a purist) generally be on pure booleans, not calculated ones.  The condition above is faulty, but the following condition is reasonable:</p>
+
+<pre>if ( $debug ) {
+    $self->log($message);
+}</pre>
+
+<p>That's a pure boolean and is the sort of thing I don't really have an issue with.  Calculated booleans in OO code always give me pause.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Code smell heuristic</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2008-04-29T15:56:43</h3>
+<p><div class="quote">conditional checks in OO code prove themselves to be code smells.</div>  <p>Thanks for the heuristic!  I never realized that before!  I think this will help improve my coding.</p>
+
+<p>(If there's a larger source where you picked that up, I'd be benefitted by a pointer.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Code smell heuristic</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-04-29T16:09:59</h3>
+<p><div class="quote">(If there's a larger source where you picked that up, I'd be benefitted by a pointer.)</div>  <p>Thought I've later found that others point this out, I doubt <a href="http://use.perl.org/user/Ovid/journal/32537" title="perl.org">how I learned this</a perl.org> will help you<nobr> <wbr></nobr>:)</p>
+
+
+
+<h2>Re:Code smell heuristic</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-04-29T16:42:35</h3>
+<p>I figured a concrete example would help.  Imagine this awful method from some Catalyst code I was working on:</p> <p><blockquote> <div><tt>sub _set_group_by : Private {<br>&nbsp; &nbsp; my ( $self, $c ) = @_;<br>&nbsp; &nbsp; my $group_by = 'day';<br>&nbsp; &nbsp; my $period = $c-&gt;stash-&gt;{report_metadata}{period};<br> <br>&nbsp; &nbsp; my $report_range<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; = $c-&gt;stash-&gt;{report_metadata}{start}-&gt;day_month_year<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; . ' &amp;#8211; '<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; . $c-&gt;stash-&gt;{report_metadata}{end}-&gt;day_month_year;<br> <br>&nbsp; &nbsp; if ($period eq 'today' || $period eq 'yesterday') {<br>&nbsp; &nbsp; &nbsp; &nbsp; $group_by&nbsp; &nbsp; &nbsp;= 'hour';<br>&nbsp; &nbsp; &nbsp; &nbsp; $report_range = $c-&gt;stash-&gt;{report_metadata}{start}-&gt;day_month_year;<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; $c-&gt;stash-&gt;{group_by}&nbsp; &nbsp; &nbsp;= $group_by;<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{report_range} = $report_range;<br>&nbsp; &nbsp; return;<br>}</tt></div> </blockquote>  <p>As you can see, we have a nasty conditional which basically throws away the work previously done.  We could turn that into an if/else block and at least ensure that the assignments are only done once, but as it turns out, the core problem was this:</p> <p><blockquote> <div><tt>sub report : Path {<br>&nbsp; &nbsp; my ( $self, $c, @args ) = @_;<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{report_metadata}{period} = $args[0];<br>&nbsp; &nbsp; $c-&gt;forward('_set_start_and_end_dates');<br>&nbsp; &nbsp; $c-&gt;forward('_set_group_by');<br>}</tt></div> </blockquote>  <p>First, we have the problem that the "period" can now be just about anything and we have to manually check it.  Second, because we do things manually, we have that nasty if/else block.  Instead, I wrote something like this:</p> <p><blockquote> <div><tt>sub report_day : LocalRegex('^(yesterday|today)/$') {<br>&nbsp; &nbsp; my ( $self, $c, @args ) = @_;<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{report_metadata}{period} = $c-&gt;req-&gt;captures-&gt;[0];<br>&nbsp; &nbsp; $c-&gt;forward('_set_start_and_end_dates');<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{group_by} = 'hour';<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{report_range}<br>&nbsp; &nbsp; &nbsp; = $c-&gt;stash-&gt;{report_metadata}{start}-&gt;day_month_year;<br>}<br> <br>sub report_month : LocalRegex('^(last7days|month)/$') {<br>&nbsp; &nbsp; my ( $self, $c, @args ) = @_;<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{report_metadata}{period} = $c-&gt;req-&gt;captures-&gt;[0];<br>&nbsp; &nbsp; $c-&gt;forward('_set_start_and_end_dates');<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{group_by} = 'day';<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{report_range}<br>&nbsp; &nbsp; &nbsp; = $c-&gt;stash-&gt;{report_metadata}{start}-&gt;day_month_year<br>&nbsp; &nbsp; &nbsp; &nbsp; . ' &amp;#8211; '<br>&nbsp; &nbsp; &nbsp; &nbsp; . $c-&gt;stash-&gt;{report_metadata}{end}-&gt;day_month_year;<br>}</tt></div> </blockquote>  <p>That's still pretty ugly, but the '_set_group_by' method goes away and the conditionals are eliminated.  It also clarifies the code and groups the needed information together.  After a lot of this was done, the simplification was revealing all sorts of underlying problems that our complex code was masking.  The big win, though, is that we no longer need to check whether or not our 'period' is valid because that's handled by the method dispatching!  (This is obscured in this instance because it's Catalyst, but Catalyst really can save you a lot of pain here)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Code smell heuristic</h2>
+<h3><a href="/user/theguvnor/">theguvnor</a> on 2008-04-29T20:34:04</h3>
+Thanks for the example, but I'm still confused... take pity on this dim one, and explain why the conditional check hasn't just moved elsewhere in your code where you decide which method to call?  Or is that the entire point?
+
+
+
+<blockquote>
+
+<h2>Re:Code smell heuristic</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-04-29T21:42:13</h3>
+<p>In this case, it's done via a customer selecting a URL, so it's up to the customer to decide what they want and we don't have to.</p>
+
+<p>A better example would be with Java:</p> <p><blockquote> <div><tt>public void setName(String name) {<br>&nbsp; &nbsp; this.name = name;<br>}<br> <br>public void setName(String first, String last) {<br>&nbsp; &nbsp; this.name = first + " " + last;<br>}</tt></div> </blockquote>  <p>In regular Perl (no modules), it sometimes gets mistakenly rewritten as this:</p> <p><blockquote> <div><tt>sub name {<br>&nbsp; &nbsp; my ( $self, $first, $last ) = @_;<br>&nbsp; &nbsp; $self-&gt;{name} = $last ? "$first $last" : $first;<br>}</tt></div> </blockquote>  <p>While that's a silly example, it means that you cannot set the last name to a value which evaluates as false.  Variants of this bug occur all the time because every conditional you embed has a great chance of adding bugs.  With Java, conditional argument handling bugs are much less common (but the methods bind at compile time instead of runtime, so it's a trade-off, but that's another rant<nobr> <wbr></nobr>:).</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Code smell heuristic</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2008-04-29T20:59:32</h3>
+Remove duplication. Name things. These things go together.<br><br>Look at the method names. Do they really focus on what the methods do? Where is the axis of duplication? (hint: group by)<br>
+
+
+
+<blockquote>
+
+<h2>Re:Code smell heuristic</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-04-29T21:35:02</h3>
+<p>This was a tiny example and merely a first-pass refactor.  If you look at the actual code I checked in, you'll see it's much cleaner.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Code smell heuristic</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-04-29T22:03:14</h3>
+<p><blockquote> <div><tt>sub report : Chained('somewhere?') PathPart('') CaptureArgs(0) {<br>&nbsp; &nbsp; my ( $self, $c, @args ) = @_;<br>&nbsp; &nbsp; $c-&gt;action-&gt;chain-&gt;[-1]-&gt;name =~<nobr> <wbr></nobr>/\Areport_for_(.*)\z/<br>&nbsp; &nbsp; &nbsp; &nbsp; or die 'Chain ends at action with malformed name';<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{report_metadata}{period} = $1;<br>&nbsp; &nbsp; $c-&gt;forward('_set_start_and_end_dates'); # inline this?<br>}<br> <br>sub report_day : Chained('report') PathPart('') CaptureArgs(0) {<br>&nbsp; &nbsp; my ( $self, $c, @args ) = @_;<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{group_by} = 'hour';<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{report_range}<br>&nbsp; &nbsp; &nbsp; = $c-&gt;stash-&gt;{report_metadata}{start}-&gt;day_month_year;<br>}<br> <br>sub report_month : Chained('report') PathPart('') CaptureArgs(0) {<br>&nbsp; &nbsp; my ( $self, $c, @args ) = @_;<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{group_by} = 'day';<br>&nbsp; &nbsp; $c-&gt;stash-&gt;{report_range}<br>&nbsp; &nbsp; &nbsp; = $c-&gt;stash-&gt;{report_metadata}{start}-&gt;day_month_year<br>&nbsp; &nbsp; &nbsp; &nbsp; . ' &amp;#8211; '<br>&nbsp; &nbsp; &nbsp; &nbsp; . $c-&gt;stash-&gt;{report_metadata}{end}-&gt;day_month_year;<br>}<br> <br>BEGIN {<br>&nbsp; &nbsp; my %report = (<br>&nbsp; &nbsp; &nbsp; &nbsp; today&nbsp; &nbsp; &nbsp;=&gt; 'day',<br>&nbsp; &nbsp; &nbsp; &nbsp; yesterday =&gt; 'day',<br>&nbsp; &nbsp; &nbsp; &nbsp; last7days =&gt; 'month',<br>&nbsp; &nbsp; &nbsp; &nbsp; month&nbsp; &nbsp; &nbsp;=&gt; 'month',<br>&nbsp; &nbsp; );<br> <br>&nbsp; &nbsp; while ( my ( $period, $type ) = each %report ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; eval(<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "sub report_for_$period<nobr> <wbr></nobr>:"<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; . " Chained('report_$type')"<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; . " PathPart('$period')"<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; . ' Args(0) {}'<br>&nbsp; &nbsp; &nbsp; &nbsp; );<br>&nbsp; &nbsp; }<br>}</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Code smell heuristic</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2008-04-30T18:42:56</h3>
+Ctrl-C  + Ctrl-V
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Too much work</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2008-04-30T06:02:30</h3>
+Shouldn't you get rid of the conditional with -&gt;log? Just let the method figure out what to do. And where did $debug come from? Shouldn't that be a method call?<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Too much work</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-04-30T07:03:59</h3>
+<p>The conditional is a point I make in <a href="http://www.perlmonks.org/?node_id=317520" title="perlmonks.org">my OO guidelines writeup</a perlmonks.org> on PM.  It's bad practice.  <a href="http://use.perl.org/user/Ovid/journal/31156" title="perl.org">I make the same point here, too</a perl.org>.  So yes, I do agree with you, but I plead mea culpa of posting a bad example to explain good code<nobr> <wbr></nobr>;)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Too much work</h2>
+<h3><a href="/user/hanekomu/">hanekomu</a> on 2008-04-30T17:07:33</h3>
+You could get rid of the "if ($debug) { $self-&gt;log(...) }" by using <a href="http://search.cpan.org/dist/Class-Null/" title="cpan.org">Class::Null</a cpan.org>. That is, the log object (assuming it's an object) should be Class::Null by default and a real logging object if $debug is set. Then just do "$self-&gt;log(...)" without the conditional, and if it's a Class::Null object, the call is more or less ignored. The documentation of Class::Null actually uses this example.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Whiteknight: Garbage Collectors are nasty</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Garbage Collectors are nasty</h1>
+<h2><a href="/user/Whiteknight/">Whiteknight</a> on 2008-06-09T22:52:04</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>i've heard it said before that Garbage Collectors are nasty pieces of code. I'm not sure I believed that until today when chromatic informed me that some answers to my questions about stack tracing were locating in src/cpu_dep.c, if I was brave enough to go searching for them.<br/><br/>Here's a piece of code that I found in that file that required a double-take from me:<br/><br/>#if defined(__sparc) /* Flush register windows */
+    static union {
+        unsigned int insns[4];
+        double align_hack[2];
+    } u = { {
+#  ifdef __sparcv9
+                            0x81580000, /* flushw */
+#  else
+                            0x91d02003, /* ta ST_FLUSH_WINDOWS */
+#  endif
+                            0x81c3e008, /* retl */
+                            0x01000000  /* nop */
+    } };<br/><br/>    static void (*fn_ptr)(void) = (void (*)(void))&u.align_hack[0];
+    fn_ptr();
+#endif<br/><br/>Any idea what this does? It took me a minute to figure out the nuances of it all myself. The goal of this snippet is to create a function using hand-coded assembly language instructions for a SPARC system. These instructions are stored into an array, which itself is part of a union. Why a union? That part is a little bit more tricky to understand, and adds to that nagging "you think you understand it except for that one little detail" feeling you get in the pit of your stomach. <br/><br/>The union forces the array of instruction code words to be compiled as if they were doubles. This means that the compiler will force the integer values to be aligned in memory in the same way that doubles are, at multiples of 8 instead of multiples of 4 (as plain-jane integer values would be). This is a requisite for function pointers.<br/><br/>The code above is, obviously, just the implementation of one particular function for SPARC, so what does it look like on everybody's favorite x86? Here it is, let's see who can figure out what this is doing:<br/><br/>    Parrot_jump_buff env;
+    memset(&env, 0, sizeof (env));
+    setjmp(env);
+    trace_system_stack(interp);<br/><br/>I have removed comments from this code here so that people can really read through it and try to figure out what is going on. The system calls a setjmp, which is one of the more esoteric parts of stdlib. After it calls setjmp, it calls a function to trace the stack without passing the env structure! What's the purpose of all this?<br/><br/>setjump creates, in almost the most primative way possible, a continuation. To do this at the system level, C must store the current value of all the processor registers into a data structure (env, in this example). Now, the function declares env to be a local variable, and in C local variables are typically stored on the system stack. The net effect? The values of all processor registers, some of which might contain pointers to PMCs, are stored on the system stack for tracing. Pretty handy code, although I have several doubts that this function is going to survive aggressive optimization since modern optimizers are able to detect (and remove) variables which are written to but never explicitly read from.<br/><br/>Much of the work that I've done today on the GC is refactoring and simplification work. </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of scrottie: GUI app retargeted from SDL to Web with just a little glue</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>GUI app retargeted from SDL to Web with just a little glue</h1>
+<h2><a href="/user/scrottie/">scrottie</a> on 2009-03-06T08:34:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I was doing some SDL stuff for work and wrote a little wrapper around SDL to make it a bit easier to use.  SDL's blit() function wants four arguments, two of which want four more arguments.  Really all it needs for the common case is the image to blit and the x, y coordinates to blit it to, called as a method in the target image.<br/><br/>I wrote this app for my own use.  I wanted to be able to visualize where the buses were (or rather, where they're supposed to be) when I'm standing at a corner.  That way, if I'm going north-west, for example, I know whether to expect a west bound bus first or a north bound bus, or whether I should just start walking.  The bus system in Phoenix isn't great.  A lot of the time, you'll get there sooner if you just walk a few miles.  A previous post talks more about this.  Short version is, I have an SDL based app that has a scrollable map with an adjustable "current time", that shows where all the buses are supposed to be at that time.  I scraped their website and did my own geocoding.  Bus locations are interpolated between stops on the time table.<br/><br/>Having that for myself, the next step was sharing it, and that meant Web, or possibly, an iPhone app or the like.<br/><br/>Turns out that it was easy to retarget it to the web, just by replacing my SDL wrapper.  Rather than using SDL, it uses GD.  I had to rework the original and the other wrapper a bit but the program is basically agnostic about which it works under.<br/><br/>The window gets output to the browser as one big inline, base64 encoded image with the ismap attribute set.  You may have forgotten about this attribute.  When an image is inside an anchor (a) tag, ismap causes the x, y location of the click on the image to be added to the URL in the a href.
+Eg:<br/><br/><pre><br/><br/>  <a href="foo.cgi"><img src="whatever" ismap"></a><br/><br/></pre><br/><br/>A click on that image might cause a hit to, for example, foo.cgi?10,20.<br/><br/>One of the handy things in the wrapper around SDL was a AWT 1.x-like click callback system.  Any time a graphic gets blitted, it optionally includes a coderef to be called if the region it gets blitted to gets clicked.  In the SDL version, mouse clicks were propogated to the correct callback.  In the web version, these ismap clicks are.  And of course, the thing was built on top of Continuity.  At the end of the request loop, it does this:<br/><br/><pre><br/><br/>        my $get_string = $request->request->url->as_string;<br/><br/>        if($get_string and $get_string =~ m/\?\d+,\d/) {
+            $graphics->hit($get_string =~ m/\?(\d+),(\d+)/) or $draw_playfield->();
+        } else {
+            $draw_playfield->();
+        }<br/><br/>        my $png = encode_base64($app->png, '');<br/><br/>        $request->print(qq{
+            <a href="/"><img src="data:image/png;base64,$png" ismap border="0"></a>
+    
+        });
+    
+        $request->next;<br/><br/></pre><br/><br/>That's inside of a while(1).<br/><br/>At first, I tried using the bmp dumping methods of SDL, but the images came up blank, and trying to call flip or anything like that made it coredump.<br/><br/>Actually, SDL has been a huge thorn in my side.  I'm trying to think how I could finagle using GD as a graphics toolkit for an X window.  Some X11::Protocol glue, maybe... or maybe I'll just pick Prima up again.<br/><br/>So, the thing is up at http://slowass.net:8445.  Or at least it is sometimes.<br/><br/>It needs a few more things... some the geocoding is wrong, and I need to get another font going for display bus info when individual buses are clicked.  It should default to the current time.  Buses should indicate which way they're going, which means I need another graphic for them than little balls.<br/><br/>I also made a movie:  slowass.net/user/scott/bus.mpg.<br/><br/>That was a bit ago, but I thought I'd finally write this up and share.<br/><br/>If there's interest, I might fix up my wrappers and release them as a pair of modules with the same API, one for web, one for desktop, but I'm still hung up on a few things, such as SDL refusing to render anti-aliased text because it wasn't built with SDL_mixer (wtf?) and taking all available CPU when the event loop is called (gah!).  And there's the temptation that if I'm going to release a GUI toolkit, it should be a bit more interesting than just smearing text and images around a pane with callbacks for clicks.  Right now, there's no provision at all for data entry fields.  The good, nice way to do this would be to add a Web backend to Prima.<br/><br/>-scott
+</p>
+
+
+<hr/>
+
+
+
+<h2>google map, Processing</h2>
+<h3><a href="/user/slanning/">slanning</a> on 2009-03-12T10:27:53</h3>
+<p>I know you're doing your own thing, that's cool, but maybe it'd be simpler as a google map app? (If possible.) I guess the problem would be updating the data.</p><p>What you're doing reminded me incidentally of using <a href="http://processing.org/" title="processing.org">Processing</a processing.org>. It's possible to export as either a Java app or as an applet for a browser. (The main problems for me with Processing are: 1) it's Java-based, 2) the IDE seems buggy in Linux (at least I had problems sketches, as it would freeze the IDE).)</p>
+
+
+
+<blockquote>
+
+<h2>Re:google map, Processing</h2>
+<h3><a href="/user/scrottie/">scrottie</a> on 2009-03-16T03:59:25</h3>
+<p>Yeah, this should have been a Google Maps app.  I looked at the API briefly but felt bogged down.  Also, I don't have GPRS/EDGE any more, so I wanted something that worked off-line with the on-line version being an after thought.  I have played with Processing a bit.  Where I got stuck with it was CPU usage and the Flash-like fps thing, where it tries to draw so many frames per second regardless of whether anything has changed on the screen.  It had some threads that were very CPU hungry that I really didn't know what were doing.  I was trying to re-build the MUD GUI in that.  I should have stuck to the raw Java.</p><p>But this is kind of an off-shoot of work, too.  I'm trying to find and learn some Perl graphical toolkit that doesn't suck donkey dong.  SDL is like a chose your own adventure where every pathway leads to coredump and I've wasted too much time navigating its various corridors already.  There's Ogre, a wrapper around the open source ogre engine, and PDL::Graphics::X, which lets you use raw PDL arrays as graphic buffers.  I need to refresh my memory, but slices in SDL should work fine as a blitter operation.  I need to figure out if there's something that would do alpha masking and blending.</p><p>I have to admit that I've been pondering how to go about doing a Processing-like thing in Perl.  There are quite a few things like Processing but they all seem to suffer from the wrong amounts of complexity in the wrong places, including too little complexity where there should be more.  They kind of suffer from the MVC framework problem, where it's really easy to get something up, but really hard to finish it, until you've learned your way around it well.</p><p>Wow, I didn't think it was possible, but they made use.perl.org suck even more.  I'm afraid this might be my last post here...</p><p>-scott</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

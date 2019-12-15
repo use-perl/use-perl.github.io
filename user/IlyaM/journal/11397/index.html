@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of IlyaM: Class::MethodMaker in XS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Class::MethodMaker in XS</h1>
+<h2><a href="/user/IlyaM/">IlyaM</a> on 2003-04-02T10:02:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I wonder why nobody yet tried to write something like <a href="http://search.cpan.org/search?query=Class::MethodMaker&mode=module">Class::MethodMaker</a> in XS? I tried to compare pure Perl accessor methods and their XS analogs and the latest was noticibly faster. It would be very nice if we had a CPAN module which provides basic constuctor, accessor and other common methods implemented in XS so everybody could benefit from these speed gains in their Perl OO code without resorting to writting XS themselves.</p>
+
+
+<hr/>
+
+
+
+<h2>Indeed...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-04-02T16:39:52</h3>
+I thought about doing this a while ago. Another advantage being that you could get around perl's crappy OO system by using proper structs.<br> <br>Unfortunately I stopped at the "thinking" stage<nobr> <wbr></nobr>:-/
+
+
+
+<h2>Interesting idea</h2>
+<h3><a href="/user/samtregar/">samtregar</a> on 2003-04-02T18:17:47</h3>
+So how would it work?  Let's say I do:
+<p><blockquote><div> <tt>&nbsp; use Class::XSMethodMaker<br>&nbsp; &nbsp; &nbsp;get_set =&gt; [qw(foo bar)];</tt> </div></blockquote> <p>
+Does this mean that XS code for foo() and bar() are generated and compiled on the fly?  Or does it just do what Class::MethodMaker does and generate closures bound to *foo and *bar?  Can you generate a closure in XS which closes around C code?
+</p><p>
+-sam</p>
+
+
+
+<blockquote>
+
+<h2>Re:Interesting idea</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2003-04-03T11:16:51</h3>
+Tough question. One possible solution is pregenerating XS code given a list of fields. Another even generating C code on fly what should not be very hard using Inline::C. Anyway it doesn't seem a proper way to me and I'd like to be able simulate closures in C code. No idea how though. Not sure that it is even possible.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Why are they faster?</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2003-04-02T22:40:08</h3>
+I was always under the impression that perl method dispatch was what caused things to take such a long time.  If that's the case, then surely having methods execute faster once they've been dispatched to, wouldn't help much.
+
+<p>Or am I missing the point (or should that be the profile?) here?
+
+</p><p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why are they faster?</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2003-04-03T11:08:09</h3>
+<p>Perl method dispatch is slow but perl code for accessors is not fast also. Here an example (one accessor is implemented in Perl and another in C with help of Inline::C):</p> <blockquote><div> <tt>use Benchmark;<br> <br>my $obj = A-&gt;new;<br>$obj-&gt;field1('test');<br>$obj-&gt;field2('test');<br> <br>timethese(1000000,<br>&amp;nb sp; &nbsp; &nbsp; &nbsp; &nbsp; { pure_perl =&gt; sub { $obj-&gt;field1($obj-&gt;field1) },<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; inline_c&nbsp; =&gt; sub { $obj-&gt;field2($obj-&gt;field2) }<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; });<br> <br>package A;<br> <br>sub new { bless {}, shift }<br> <br>sub field1 {<br>&nbsp; &nbsp; my $self = shift;<br> <br>&nbsp; &nbsp; if(@_) {<br>&nbsp; &nbsp; &nbsp; &nbsp; $self-&gt;{field1} = $_[0];<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; return $self-&gt;{field1};<br>}<br> <br>use Inline C =&gt; &lt;&lt;'END';<br> <br>SV* field2 (SV* self,<nobr> <wbr></nobr>...) {<br>&nbsp; &nbsp; SV** temp;<br>&nbsp; &nbsp; Inline_Stack_Vars;<br> <br>&nbsp; &nbsp; if(!(SvROK(self) &amp;&amp; SvTYPE(SvRV(self)) == SVt_PVHV))<br>&nbsp; &nbsp; &nbsp; &nbsp; croak("Not a hash reference");<br> <br>&nbsp; &nbsp; if(Inline_Stack_Items &gt; 1) {<br>&nbsp; &nbsp; &nbsp; &nbsp; SV* value = Inline_Stack_Item(1);<br> <br>&nbsp; &nbsp; &nbsp; &nbsp; if(! hv_store((HV*) SvRV(self), "field2", 6, SvREFCNT_inc(value), 0)) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SvREFCNT_dec(value);<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; croak("Cannot store in hash");<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; if(temp = hv_fetch((HV*) SvRV(self), "field2", 6, 0)) {<br>&nbsp; &nbsp; &nbsp; &nbsp; return SvREFCNT_inc(*temp);<br>&nbsp; &nbsp; } else {<br>&nbsp; &nbsp; &nbsp; &nbsp; return &amp;PL_sv_undef;<br>&nbsp; &nbsp; }<br>}<br> <br>END</tt> </div></blockquote> <p>Results on my computer:</p> <blockquote><div> <tt>Benchmark: timing 1000000 iterations of inline_c, pure_perl...<br>&nbsp; inline_c:&nbsp; 2 wallclock secs ( 2.25 usr +&nbsp; 0.00 sys =&nbsp; 2.25 CPU) @ 444444.44/s<br>(n=1000000)<br> pure_perl:&nbsp; 6 wallclock secs ( 6.67 usr +&nbsp; 0.05 sys =&nbsp; 6.72 CPU) @ 148809.52/s<br>(n=1000000)</tt> </div></blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

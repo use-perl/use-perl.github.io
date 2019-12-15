@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of kellan: Exceptions, Exception::Class, and a quick hack</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Exceptions, Exception::Class, and a quick hack</h1>
+<h2><a href="/user/kellan/">kellan</a> on 2002-01-29T04:15:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've just recently returned to the land of complex Perl applications after many years wandering in foreign climes.  And while it feels good to be back, I sorely miss some of elements of those exotic cultures.  For example, exceptions.
+<p>
+So, surpised, and very happy, was I to find Error.pm, clean of interface, with a nicely developed try/catch syntax.(plus an otherwise keyword, which I forcely ignored)
+<p>
+However it was not to be.  Dire were the warnings against Error.pm and its memory leaks.
+<p>
+So I've started playing with Exception::Class.  While it does not have the comfortable familiarity of an old friend that Error.pm had, it comes reccomended, and with some of its one pleasures.
+<p>
+But, I'm stuck using the <blockquote>eval {}; if ($@)</blockquote> syntax, which is, for all intents and purposes new to me.
+<p>
+And I hit a <b>snag.</b>
+<p>
+See, my code would be merrily executing along, and then throw some nice, explicitly named execption like:
+<blockquote>
+throw RW::Exception::App::BadPassword();
+</blockquote>
+Now I don't feel any need to pass an error message to this throw, the name of the exception makes clear what it does.(its self-documenting ;)
+<p>
+However when I go to catch it, with some code like:
+<blockquote>
+if ($@ and $@->isa('RW::Exception::App::BadPassword') )
+</blockquote>
+the first test fails.  And it fails because Exception::Class  overloads stringification.
+<p>
+Exception::Class's as_string method returns the error you passed to throw (nada in my case) and possibly the stack trace. (which I didn't have enabled)  So when I tested for the existence of an exception, I was testing the <b>truth value</b> of an <b>empty string.</b>
+<p>
+So after 30 frustrating minutes of wondering why my exceptions where disappearing into thin air, I overrode Exception::Class's as_string with my own:
+<blockquote>
+sub as_string {<br>
+<blockquote> 
+my $self = shift;<br>
+ my $str = Exception::Class::Base::as_string( $self );<br>
+	my $name = ref($self);<br>
+
+    return "$name: $str";<br>
+</blockquote>
+}
+</blockquote>
+Now all my exceptions test true.  Yeh.  30 minutes to debug, 5 minutes to code, and 20 minutes to write a usePerl journal entry, leaving 5 minutes to grab a cup of coffee, and make a well spent hour.</p>
+
+
+<hr/>
+
+
+
+<h2>Error.pm</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-01-29T12:09:04</h3>
+Error.pm had exactly the same bug. The *real* solution is to overload boolean context:
+<br>
+<br>{
+<br>
+&nbsp; package Exception::Class;
+<br>
+&nbsp; use overload 'bool' =&gt; sub { 1 };
+<br>}
+<br>
+<br>But you probably didn't want to know that right now<nobr> <wbr></nobr>;-)
+<br>
+<br>But interestingly I don't see why people can't just use Error.pm's class structure without the try/catch semantics. At least until I get around to writing Error::Filter so that there'll be no more closures.
+
+
+
+<blockquote>
+
+<h2>Re:Error.pm</h2>
+<h3><a href="/user/kellan/">kellan</a> on 2002-01-29T22:00:58</h3>
+<blockquote><div> <i>But you probably didn't want to know that right now<nobr> <wbr></nobr>;-) </i> </div></blockquote>
+No!  Thats great.  I think I'll leave my as_string overload because its useful for debugging purposes, but it was such an ugly kludge I was doubting my senses for returning to perl.
+<p>
+re: Error::Filter, yeah I remember reading about that in your journal months ago, so where is it?   Do you think we'll see it before Perl6 comes out and makes all this silly jiggering around obsolete?<nobr> <wbr></nobr>:)</p><p>
+Btw.  is the a reason to use Error.pm over Exception::Class?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Error.pm</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-01-29T22:18:08</h3>
+<i> re: Error::Filter, yeah I remember reading about that in your journal months ago, so where is it? Do you think we'll see it before Perl6 comes out and makes all this silly jiggering around obsolete?<nobr> <wbr></nobr>:)</i>
+<br>
+<br>Well I lost what I had in a hard disk crash. I guess if there's enough interest I'll try and put something together for my exceptions talk at TPC (assuming it gets accepted). But don't expect anything too soon - as soon as I know what talks get accepted I'll be in major head-down mode writing talks...
+<br>
+<br> <i>Btw. is the a reason to use Error.pm over Exception::Class?</i>
+<br>
+<br>It's shorter to type?<nobr> <wbr></nobr>;-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

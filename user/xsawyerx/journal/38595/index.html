@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of xsawyerx: Swiss Knife of the Servers - a short IT story</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Swiss Knife of the Servers - a short IT story</h1>
+<h2><a href="/user/xsawyerx/">xsawyerx</a> on 2009-03-05T08:58:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><address>I thought of "Pirates of the  Caribbeans" when I wrote the title</address>
+<p>Yesterday we noticed some slowness with HTTP on a machine at $work, and I checked the Apache log. It was - to say the least - larger than expected. <code> tail -f default.access_log </code> showed someone is accessing the machine (through IP, not website) quite often, producing 404 errors and using bad user agents. Stuff like googlebawt and the sort. So, we got an attack on the server through Apache, and they are trying to DDOS.</p>
+<p>Fortunately, I'm blessed (and I'm not being cynical about this) with an environment of highly skilled programmers. My boss is an OpenBSD and Gentoo fanatic (who could blame him, really?) to just stress the point.</p>
+<p>I started working on blocking the originating attack using <code>mod_rewrite</code> on Apache according to the user agent, when my boss said we should focus on <code>iptables</code> block because perhaps it's not coming from a large range of IPs. I wrote a short oneliner in Perl to put the IPs in a hash with a count of how many times they appear. Apparently we were dealing with roughly 100 or so different IPs generating 400Kbit transfer. We've handled more than 10000 times as much on more serious attacks. This was feather-weight.</p>
+<p>We created another chain in the iptables and I wrote a short Perl script (originally oneliner, but I wanted it structured in a file) that blocks with iptables anyone that generates more than $limit 404 errors, which I put in the <code>cron</code> and after 3 seconds, the attack was blocked, almost completely. I left it running all night and the log shows it blocked only an additional 22 IPs over the night.</p>
+<p>Here is the script, in case anyone's interested. For some odd reason <code>List::MoreUtils</code>'s <code>none</code> didn't work for me. Sometimes I get confused by it and it was just faster to do it without it, I know.</p>
+<address>I also created a hash of the IPs and counts according to count (yay for <code>reverse</code>)</address>
+<pre>
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use File::Slurp;
+
+# these next 3 should be absolute paths
+my $log        = 'default.access_log';
+my $dropped    = 'dropped';
+my $my_logfile = 'drop.log';
+my $limit      = 150;
+my $real       = 1;
+my $read_error = 0;
+my %by_ip      = ();
+my %by_count   = ();
+
+if ( $ARGV[0] ) {
+    $real = 0;
+}
+
+foreach my $filename ( $log, $dropped ) {
+    if ( ! -r $filename ) {
+        print "File '$filename' doesn't exist or is unreadable!\n";
+        $read_error++;
+    }
+}
+
+$read_error && die "We have file read errors\n";
+
+open my $fh, '<', $log or die "can't open file '$log': $!\n";
+foreach my $line ( <$fh> ) {
+    if ( $line =~ /HTTP\/1\.1\"\s404/ ) {
+        ( my $ip, undef ) = split /\s/, $line;
+        $ip && $by_ip{$ip}++;
+    }
+}
+close $fh;
+
+# not necessary, but useful to see best targets
+# %by_count = reverse %by_ip;
+
+while ( my ( $ip, $count ) = each %by_ip ) {
+    if ($count > $limit ) {
+        # cron does not have PATH variable set
+        my $cmd         = "/sbin/iptables -I ddos -s $ip -j DROP";
+        my $found       = 0;
+        my @dropped_ips = map { chomp; $_ } read_file($dropped);
+
+        foreach my $dropped_ip (@dropped_ips) {
+            if ( $dropped_ip eq $ip ) {
+                $found++;
+                last;
+            }
+        }
+
+        if ( !$found ) {
+            my $cur_time = scalar localtime time;
+            my $msg = "($cur_time) $cmd [number of times: $count]\n";
+            if ($real) {
+                append_file( $my_logfile, $msg );
+                system $cmd;
+                append_file( $dropped, "$ip\n" );
+            } else {
+                print $msg;
+            }
+        }
+    }
+}
+</pre>
+<p>Notes:
+<ul>
+<li>I should have used some IPC module for the system command, or an iptables module (I wouldn't be surprises to find one)</li>
+<li>I should have used <code>List::MoreUtils</code>'s <code>none</code></li>
+<li>I should have checked if <code>File::Slurp</code> slurps the entire file if I do <code>foreach my $line ( read_file($filename) )</code> and if not, use it</li>
+<li>I should have used <code>Getopt::Long</code></li>
+<li>I should have documented a bit in the code and provide a usage string</li>
+<li>I could have written this as a module and add a testing suite for it</li>
+<li>I should have compiled the regexp with qr// at start and then use the compiled version</li>
+<li>I should have put it in functions (or methods - if I do it as a module) so I could provide various checking mechanisms besides that specific one</li>
+<li>If I were to have different checking mechanisms, I could allow using a few, then also use <code>Regexp::Assemble</code> for multiple regexp tests</li>
+<li>What else am I missing?</li>
+</ul>
+</p></p>
+
+
+<hr/>
+
+
+
+<h2>qr not necessary</h2>
+<h3><a href="/user/fireartist/">fireartist</a> on 2009-03-05T14:55:54</h3>
+<p>&gt; I should have compiled the regexp with qr// at start and then use the compiled version</p><p>If you're referring to the "/HTTP\/1\.1\"\s404/" in the loop - perl is smart enough to only compile it once, as it doesn't contain any variables that would change it.</p><p>You can test this be running<br>$ perl -Mre=debug -le 'for (1..2) { $_ =~<nobr> <wbr></nobr>/a/ }'<br>and watching the output</p>
+
+
+
+<blockquote>
+
+<h2>Re:qr not necessary</h2>
+<h3><a href="/user/xsawyerx/">xsawyerx</a> on 2009-03-05T15:48:03</h3>
+<p>Interesting.</p><p>Thank you!</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>iptables module</h2>
+<h3><a href="/user/oliver/">oliver</a> on 2009-03-08T11:03:27</h3>
+<p>There is IPTables::libiptc which is a more modern replacement to IPTables::IPv4 (no longer maintained). The risk with these modules is that the kernel's interface to libiptc changes (as it's not a proper published API).
+
+</p><p>It's also a good idea to use some kind of privilege separation when needing to do operations as root. For example you watch the Apache logs as an unprivileged user, then to make a change to Netfilter, send an RPC command to another process using a defined and safe interface. The other process runs as root but has the minimal code required to do its job, i.e. few bugs. We use my RPC::Serialized module at work, to do this.</p>
+
+
+
+<h2>fail2ban</h2>
+<h3><a href="/user/huxtonr/">huxtonr</a> on 2009-03-20T09:12:04</h3>
+You might want to check out the fail2ban utility. You can set it to monitor log files for smtp, imap, ssh, apache failures and after a set number ban that IP for a set time. Patterns, durations, actions etc. are all configurable.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

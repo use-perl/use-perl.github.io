@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of gnat: Function Pointers</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Function Pointers</h1>
+<h2><a href="/user/gnat/">gnat</a> on 2004-03-17T09:48:48</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>When I taught references, part of the class was always how to do these types of fun things  Whether you're a C programmer or a Perl hacker using references, grokking <a href="http://www.function-pointer.org/">function pointers</a> ("code references" in the Perl world) will improve your coding.<p>
+
+For example, your basic (and I mean basic, though not BASIC) adventure game is just:
+
+<pre>
+%choices = ( "north" => \&go_north,
+                    "south" => \&go_south,
+                    "east" => \&go_east,
+                    "west" => \&go_west,
+                    "quit" => \&bail );
+while (<>) {
+  chomp;
+  if (exists $choices{$_}) {
+    $choices{$_}();   # call the function
+  } else {
+    print "I'm sorry, I don't know how to: $_\n";
+  }
+}
+
+sub go_north {
+  print "You trudge northward.\n";
+}
+# etc for go_east, go_west, go_south
+sub bail {
+  print "Goodbye!\n";
+  exit;
+}
+</pre>
+
+Those of you who took my Perl classes may remember that :-)  Keys of the hash are commands.  The value for a command is a reference to the function to run when the user types that command.  If I want to add aliases, I can just say:
+
+<pre>
+$choices{s} = $choices{south};
+$choices{widdershins} = $choices{east};
+</pre>
+
+Or generate a lot of aliases automatically:
+
+<pre>
+foreach my $cmd (keys %choices) {
+  $choices{substr($cmd, 0, 1)} = $choices{$cmd};
+}
+</pre>
+
+Try doing that with the "easy" approach:
+
+<pre>
+while (<>) {
+  chomp;
+  if ($_ eq "north") { 
+    print "You trudge northward.\n";
+  } elsif (...) {
+    ...
+  } elsif ($_ eq "quit") {
+    print "Goodbye!\n";
+    exit;
+  } else {
+    print "I'm sorry, I don't understand: $_\n";
+  }
+}
+</pre> 
+
+It's a real bugger to add aliases to <i>that</i>.<p>
+
+Callbacks:
+
+<pre>
+sub apply_to_lines {
+  my ($filename, $code) = @_;
+  local $_;
+
+  open my $fh, "<", $filename or die "Can't open $filename: $!";
+  while (<$fh>) {
+    $code->($_);
+  }
+  close $fh;
+}
+
+$line_count = 0;
+apply_to_lines( "/etc/passwd", sub { $line_count++ } );
+print "/etc/passwd has $line_count lines\n";
+$longest_line = '';
+apply_to_lines( "/etc/passwd", sub {
+  $line = shift;
+  $longest_line = $line if length($line) > length($longest_line);
+});
+print "The longest line is: $longest_line\n";
+</pre>
+
+The same subroutine, <tt>apply_to_lines</tt>, can be used to both count lines or find the longest line.  That's the fundamental idea of callbacks: customizing your code by letting the user supply an action, not just a value or variable to store a value into.<p>
+
+Of course, you can do cooler stuff in Perl with code refs than you can in C with function pointers.  For example, mess with the symbol table ...<p>
+
+<pre>
+foreach my $colour (qw(red green blue black nastybrown)) {
+  no strict 'refs';
+  *$colour = sub { print "<font color=$colour>@_</font>" };
+}
+</pre>
+
+<tt>*$colour</tt> means "the symbol table entry for the symbol whose name is in <tt>$colour</tt>".  So the first time through the loop it's "the symbol table for the symbol <tt>red</tt>", then it's "the symbol table entry for <tt>green</tt>", etc.  By assigning a code reference to that symbol table entry, you change what Perl thinks is the function called <tt>red</tt>, <tt>green</tt>, etc.  This kind of messing with Perl's head is what Damian and Dominus do five times before breakfast.<p>
+
+End result is that we define a bunch of subroutines, each of which prints some different HTML.  If you haven't thought of it, it's fun to realize that because <tt>$colour</tt> is a private (<tt>my</tt>) variable, it is allocated new memory each time through the loop and so each subroutine refers to a different value of <tt>$colour</tt>, whereas <tt>@_</tt> is a global variable and so the automatically generated <tt>red</tt>, <tt>green</tt> etc. subroutines use whatever value <tt>@_</tt> has when the subroutine is called.  Once you've figured out what <i>that</i> meant, figure out what happens when you take <tt>my</tt> out of the <tt>foreach</tt> loop.<p>
+
+And so on.  Lots more uses, no doubt explained in <a href="http://www.oreilly.com/catalog/lrnperlorm">the Alcapacapal</a>, but ENOSLEEP.  Jenine's written her epistles to her friends ("First Coloradoans, Chapter 2, Verse 3: Raley didst try me verily, and I didst want to smite her.  Vengeance will be mine, sayeth the Mommy, especially if you don't stop flipping those bloody light switches!") and it's bedtime.   Ninight.<p>
+
+<i>--Nat</i></p>
+
+
+<hr/>
+
+
+
+<h2>gcc nested functions</h2>
+<h3><a href="/user/mary.poppins/">mary.poppins</a> on 2004-03-17T20:42:42</h3>
+I think that gcc's nested functions are fun.  I wish they'd been<br>added to the C99 standard....<br> <br>A fun ML thing is partially applied functions:  If foo takes two<br>args, a and b, then (foo a) is the same as (fun b -&gt; foo a b).<br>Of course, to do this you need static typing.<br>
+
+
+
+<h2>Choices</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2004-03-18T02:59:02</h3>
+Or even more easily generated choices:<blockquote><div> <tt>foreach my $cmd (keys %choices) {<br>&nbsp; for my $i (1..length $cmd) {<br>&nbsp; &nbsp; $choices{substr($cmd, 0, $i)} = $choices{$cmd};<br>&nbsp; }<br>}</tt> </div></blockquote>N, NO, NOR, NORT, NORTH....
+
+
+
+<blockquote>
+
+<h2>Re:Choices</h2>
+<h3><a href="/user/htoug/">htoug</a> on 2004-03-18T06:26:28</h3>
+That will only work as long as the choices are unique on the first letter.<p>
+It would be much better to use the <code>Text::Abbrev</code> module (it's part of the core). It'll create unique abbreviations. Of course the code would be a little more convoluted:<br> </p><blockquote><div> <tt>use Text::Abbrev;<br>my %abbrev_choices;<br>my %abbrevs = abbrev(keys %choices);<br>foreach my $abbrev (keys %abbrevs) {<br>&nbsp; $abbrev_choices{$abbrev} = $choices{$abbrevs{$abbrev}};<br>}<br>%choices = %abbrev_choices;</tt> </div></blockquote>(or something like that - completely untested and of my hat)
+
+
+
+<h2>Re:Choices</h2>
+<h3><a href="/user/BooK/">BooK</a> on 2004-03-18T15:38:52</h3>
+<p>Or, rather than filling the hash with small keys, make a smarter dispatcher:</p> <blockquote><div> <tt># find those commands which could match<br>@cmd = grep {<nobr> <wbr></nobr>/^$cmd/ } keys %cmd;<br># die if none or several commands match<br>die "Ambiguous command $cmd (@cmd)" if @cmd != 1;<br># call the routine<br>$cmd{shift@cmd}(@args);</tt> </div></blockquote> <p>Mmm, <tt>$cmd</tt>, <tt>@cmd</tt> and <tt>%cmd</tt> used in 3 lines... That's one point
+in the Perl purity test.<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

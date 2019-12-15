@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of btilly: Why make classes you can't subclass?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Why make classes you can't subclass?</h1>
+<h2><a href="/user/btilly/">btilly</a> on 2008-01-23T05:57:36</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Let me give the background. I'm using Template Toolkit.  Because I want to be able to write things like [% cgi.popup_menu(...).scalar %] and get reasonable output, I am using Template::Stash::Context.  And then I decided that I'd like to also have it check to catch any use of unknown variables in the template.<br/><br/>If you look at the design then it is obvious that I need a different stash.  And there is no stash on CPAN that does what I want.  (Both strict checks and context.<br/><br/>Obviously I should just subclass it, right?  Wrong.  If you look in Template::Stash::Context you'll find checks in key places that check whether you're at the root by testing whether the reference type is __PACKAGE__.  Which a subclassed object is not.<br/><br/>OK, can I cut and paste?  I got that working, but then threw that solution away because I really don't like checking open source code with its licenses into proprietary codebases.  Sure, I know what is OK to do, but I don't want anyone else to lose track.  And I don't like giving lawyers heart attacks.<br/><br/>OK, let's just put a proxy class in front of it.<br/><br/>Nope.  Didn't work.  I didn't track it down, but I assume that it didn't work because it is sometimes passing stashes in calls to other stashes.  There is more wrapping/unwrapping needed than I wanted to figure out.<br/><br/>Final solution?
+<code>
+# I do this because I don't want to copy somoeone else's copyrighted
+# code into our codebase, and the class was not written to be easily
+# subclassed.
+no warnings 'redefine';
+my $old_get = \&Template::Stash::Context::get;
+*Template::Stash::Context::get = sub {
+  my ($self, $ident) = @_;<br/><br/>  my $variable = ref($ident) ? $ident->[0] : $ident;
+  if (UNIVERSAL::isa($self, "HASH")
+    and not exists $self->{$variable}
+    and $variable ne "component"
+    and $variable ne "results"
+  ) {
+    die "Variable $variable not found\n";
+  }<br/><br/>  return $old_get->(@_);
+};
+</code>
+I'm unhappy that I don't give more context, but I'm able to store that in another place in my code so that my debugging messages have all the context I could need.<br/><br/>That was far harder than it should have been.  And it took me longer to come up with that answer than it should have.  But that's what happens when I go back to thinking about Perl after spending all of my time writing SQL.</p>
+
+
+<hr/>
+
+
+
+<h2>Why Do You Hate Polymorphism?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-01-23T08:17:55</h3>
+<p>How ironic that you try to enable subclassing but you forbid polymorphism with that ghastly method-as-function silliness.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why Do You Hate Polymorphism?</h2>
+<h3><a href="/user/bart/">bart</a> on 2008-01-23T17:31:52</h3>
+You mean it can be both a hash and not a hash? Wow.
+
+
+
+<blockquote>
+
+<h2>Re:Why Do You Hate Polymorphism?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-01-23T18:28:32</h3>
+<p>I can think of two ways this is possible in Perl 5.  Both have been around for years.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Why Do You Hate Polymorphism?</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-01-24T02:36:17</h3>
+Read closer.  There is no irony.<br><br>Polymorphism is already forbidden unless I want to rewrite a significant section of the existing code.  I am therefore trying to find a way to get the behavior I want without doing that rewrite or else cutting and pasting.<br><br>The first two solutions that I tried (neither of which worked) tried to extend the existing code in such a way that they would not affect anyone else who wanted to extend the existing code using the same technique.  In other words I was trying to make my approach as polymorphic as possible given the existing code.<br><br>Only after those approaches both failed did I consider injecting my code directly into that module.  Given the structure of my application I am extremely confident that I only need one stash.  And this behavior is what I want for my stash.  So the non-polymorphism is not actually a problem.<br><br>However I <i>tried</i> to make it polymorphic.  Really.
+
+
+
+<blockquote>
+
+<h2>Re:Why Do You Hate Polymorphism?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-01-24T03:53:38</h3>
+<p><blockquote> <div><em>Given the structure of my application I am extremely confident that I only need one stash. And this behavior is what I want for my stash. So the non-polymorphism is not actually a problem.</em></div> </blockquote>
+
+<p>I'm sure that's the same rationale why the original code is difficult to subclass; the author figured that one one would ever want to subclass it, so non-subclassibility is not actually a problem.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why Do You Hate Polymorphism?</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-01-24T04:10:26</h3>
+There is a significant difference.  I'm working on a code-base with a specific purpose that I'm the only developer on.  This gives me a fair amount of insight into how it is likely to be modified in the future.<br><br>The module in question is used by a large number of people for many different things, and therefore the author should assume far less about how it is likely to be used in the future.<br><br>I also note that, even though I don't think polymorphism is important within my code base, I looked first for a solution that would preserve the possibility of polymorphism.  The decision to not be polymorphic was not a case of, "This doesn't matter" but rather, "I've wasted far too much time trying find a solution that allows polymorphism, what can I come up with that works and lets me move on?"  In other words that solution was a last choice, not a first choice.
+
+
+
+<blockquote>
+
+<h2>Re:Why Do You Hate Polymorphism?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-01-24T06:48:03</h3>
+<p><blockquote> <div><em>I looked first for a solution that would preserve the possibility of polymorphism.</em></div> </blockquote>
+
+<p>That solution is easy and it's shorter than what you have.</p> <p><blockquote> <div><tt>if (not eval { exists $self-&gt;{$variable} }<nobr> <wbr></nobr>... )</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Why Do You Hate Polymorphism?</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-01-24T20:38:44</h3>
+You're complaining about the UNIVERSAL::isa?<br><br>That idiom appears within other code within Template::Stash::Context.  Again, if you want to fix that, fixing it in my code is less important than changing it in the main module.  Doubly so because it already can't be readily subclassed, which makes any worries about the best way to be polymorphic completely irrelevant.<br><br>That said, your fix has its own issues.  Suppose that somewhere up the calling stack someone is using signals and a die handler.  If that signal happens to come in while within your eval, then you've just swallowed the exception and they won't find out about the signal.  You've just introduced a potential race condition.  By the time you add in code to take care of that you've got more code than I have, and a greater likelyhood of bugs.<br><br>That is <b>if</b> you add it back in.  As you just demonstrated, the odds of someone doing it correctly are fairly low.  And for this code, needing to not swallow a DIE handler for a signal is far more likely to be a real issue than are the odds of UNIVERSAL::isa not being the right thing to call.<br><br>Which brings me to my final point.  While I'm well aware of your quest to convince people to not call UNIVERSAL, and I'm aware of how you're willing to break working code to do so (I have sent you at least one patch in the past to avoid having you break other people's code), you have never convinced me that your goal is actually all that worthwhile.  Therefore if satisfying you interferes with virtually any other desirable code criteria, I will not bother trying to satisfy you.  Not because I particularly want to irritate you, but because I care about different things.
+
+
+
+<blockquote>
+
+<h2>Re:Why Do You Hate Polymorphism?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-01-25T00:18:52</h3>
+<p><blockquote> <div><em>Therefore if satisfying you interferes with virtually any other desirable code criteria, I will not bother trying to satisfy you. Not because I particularly want to irritate you, but because I care about different things.</em></div> </blockquote>
+
+<p>Glancing at the title of <em>your</em> journal entry here, one might reasonably assume that you care about things like Liskov substitution.  Best of luck to you playing the odds in reliable software development.</p>
+
+<p>(After all, it's not as if signal handling in Perl is at all reliable, whereas nothing in pure Perl requires breaking encapsulation, ever.)</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>How about a patch?</h2>
+<h3><a href="/user/stu42j/">stu42j</a> on 2008-01-23T16:13:22</h3>
+How about writing a patch to make it more subclassable and sending it to the TT mailing list?  Andy seems to be in an active-development, patch-accepting phase at the moment.
+
+
+
+<blockquote>
+
+<h2>Re:How about a patch?</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-01-24T02:47:02</h3>
+Good idea.<br><br>Here is the necessary patch.<br><br><code><br>---<nobr> <wbr></nobr>/usr/lib/perl5/site_perl/5.8.6/i386-linux-thread-multi/Template/Stash/Context.p<nobr>m<wbr></nobr>    2007-04-27 10:56:05.000000000 -0700<br>+++ Context.pm  2008-01-23 18:40:56.000000000 -0800<br>@@ -134,6 +134,7 @@<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; %$params,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; %$ROOT_OPS,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; '_PARENT' =&gt; undef,<br>+        '_CLASS' =&gt; $class,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; };<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; bless $self, $class;<br>@@ -422,7 +423,7 @@<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $rootref = 'ARRAY';<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $root = [$root];<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>-    if ($rootref eq __PACKAGE__ || $rootref eq 'HASH') {<br>+    if ($rootref eq $self-&gt;{_CLASS} || $rootref eq 'HASH') {<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # if $root is a regular HASH or a Template::Stash kinda HASH (the<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # *real* root of everything).  We first lookup the named key<br>@@ -607,7 +608,7 @@<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; return undef                                               ## RETURN<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; unless $root and defined $item and $item !~<nobr> <wbr></nobr>/^[\._]/;<br><br>-    if ($rootref eq 'HASH' || $rootref eq __PACKAGE__) {<br>+    if ($rootref eq 'HASH' || $rootref eq $self-&gt;{_CLASS}) {<br>
+&nbsp; #      if ($item eq 'IMPORT' &amp;&amp; UNIVERSAL::isa($value, 'HASH')) {<br>
+&nbsp; #          # import hash entries into root hash<br>
+&nbsp; #          @$root{ keys %$value } = values %$value;<br></code><br>I'll send it to Andy Wardley now.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

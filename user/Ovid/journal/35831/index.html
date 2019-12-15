@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Quick Test Hack of the Day</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Quick Test Hack of the Day</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-03-04T12:05:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>As part of our ongoing effort to maintain our test suite's performance, I've just added the following quick hack to source control (it needs a lot of work):</p>
+
+<pre>#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use App::Prove::State;
+use List::Util 'sum';
+use Lingua::EN::Numbers 'num2en';
+
+my $prove = '.prove';
+unless (-f $prove && -r _) {
+    die "Cannot find or read $prove file";
+}
+
+my $state      = App::Prove::State->new({ store => $prove });
+my $generation = $state->{_}{generation};
+my $tests      = $state->{_}{tests};
+
+my $total   = sum(map { $_->{elapsed} } values %$tests);
+my $minutes = int($total / 60);
+my $seconds = int($total % 60);
+
+my $num_tests = shift || 5;
+
+if ($num_tests > keys %$tests) {
+    $num_tests = keys %$tests;
+}
+
+my $num_word = num2en($num_tests);
+
+my %time_for;
+while (my ($test, $data) = each %$tests) {
+    $time_for{$test} = $data->{elapsed};
+}
+
+my @sorted_by_time_desc
+        = sort { $time_for{$b} <=> $time_for{$a} } keys %time_for;
+
+print "Generation $generation\n";
+print "Total runtime approximately $minutes minutes $seconds seconds\n";
+print "\u$num_word slowest tests:\n";
+for (0 .. $num_tests) {
+    my $test = $sorted_by_time_desc[$_];
+    print "\t$time_for{$test} seconds -> $test\n";
+}</pre>
+
+<p>Basically, if you use the '--state=save' option with <tt>prove</tt>, it will save the state of your tests in a <tt>.prove</tt> file.  This code reads the file, tells you which generation the file is, total test suite run time in minutes and seconds and your 5 slowest tests.  Pass it a number and it will tell you the X slowest tests.</p>
+
+<p><strong>Update</strong>.  Here's the output from the current branch I'm working on (a slightly updated version from above):</p>
+
+<pre>Generation 18
+Number of test programs: 58
+Total runtime approximately 17 minutes 35 seconds
+Five slowest tests:
+        482.732247114182 seconds -> t/acceptance.t
+        234.499103069305 seconds -> t/aggregate.t
+        96.313854932785 seconds -> t/standards/strict.t
+        66.6500070095062 seconds -> t/unit/db/migrations.t
+        56.7010760307312 seconds -> t/unit/piptest/pprove/testdb.t
+        13.5212490558624 seconds -> t/unit/api/builder/brand-promotions.t</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Magic!</h2>
+<h3><a href="/user/AndyArmstrong/">AndyArmstrong</a> on 2008-03-04T12:21:07</h3>
+<p>That's great. I've just dumped it in my ~/bin as <code>slowt</code>. Thanks<nobr> <wbr></nobr>;)</p>
+
+
+
+<h2>loop bug</h2>
+<h3><a href="/user/esobchenko/">esobchenko</a> on 2008-03-05T09:14:04</h3>
+actually last for() loop should start from 1, not from 0.
+
+
+
+<h2>I'm confused</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-03-05T12:19:57</h3>
+<p>I'm not sure I understand why.  Arrays in Perl are indexed from 0, not 1, so that would skip the longest running test.  Did I misunderstand you?</p>
+
+
+
+<blockquote>
+
+<h2>Re:I'm confused</h2>
+<h3><a href="/user/fireartist/">fireartist</a> on 2008-03-05T13:51:50</h3>
+It's currently printing 6 lines when `$num_tests = 5`<br><br>Should it maybe be `for (0<nobr> <wbr></nobr>.. $num_tests-1)` ?<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:I'm confused</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-03-05T13:56:51</h3>
+<p>Oh, duh<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

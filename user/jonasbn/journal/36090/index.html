@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jonasbn: Note on YAML config in Catalyst/DBIC context</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Note on YAML config in Catalyst/DBIC context</h1>
+<h2><a href="/user/jonasbn/">jonasbn</a> on 2008-04-07T09:21:12</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I am currently debugging a Catalyst application. I have run into several problems where I found the stacktrace practically useless.<br/><br/>The code uses <a href="http://search.cpan.org/user/zby/Catalyst-Example-InstantCRUD/"> InstantCRUD</a>, which I think requires a <b>word of warning</b>. I should write a constructive CPAN review of this distribution in addition to mentioning it here.<br/><br/>Anyway, it ended up with me writing a <i>work-around</i>, since I could not get it too work after several attempts and different solution scenarios.<br/><br/>DBIC was of course swell in the end when implementing the work-around (a work around InstantCRUD that was).<br/><br/>The problem is actually not that the code did not work, we can fix code if we can locate the bugs. But locating bugs in Catalyst/InstantCRUD apps is not trivial. Anyway if the transaction went bad (as it did) the whole server was rendered useless and nothing else could go on until the Apache server was restarted.<br/><br/>So the work-around would make the imminent problem go away, but not the actual problem. I am only treating the symptoms so to speak and as a programmer that feels VERY unsatisfying.<br/><br/>One of my attempts was to control auto-commits in DBI. Just getting this into the <code>connect_info</code> part of the YAML file was quite an adventure - I hate those, they make me stray from my original goal and distract me from my current focus, this might be fun for when experimenting and hacking around, but in a w0rk situation it is not always optimal.<br/><br/>So if you have a YAML configuration somewhat like this:<br/><br/><code>
+Model::FAIadmin:
+    schema_class: 'FAIadmin::DB'
+    connect_info:
+        - 'dbi:Pg:dbname=logicshop2faiadmin'
+        - username
+        - password
+        - pg_server_prepare: 0
+</code><br/><br/>And you want to add additional DBI parameters it can be done (according to <a href="http://search.cpan.org/user/jrobinson/DBIx-Class/lib/DBIx/Class/Storage/DBI.pm">the docs</a>), but nobody provides good examples of this.<br/><br/><code>
+Model::FAIadmin:
+    schema_class: 'FAIadmin::DB'
+    connect_info:
+        - 'dbi:Pg:dbname=logicshop2faiadmin'
+        - username
+        - password
+        - pg_server_prepare: 0
+        - AutoCommit: 1
+</code><br/><br/>Looks quite natural and feels intuitive and you can even get <code>ysh</code> to eat it, but <code>ysh</code> knows absolutely nothing about context, more on this later.<br/><br/>But this does however not work, no - you have to get the last parameters parsed to a hash (I found this hint in a mail archive <i>googling</i>).<br/><br/><code>
+Model::FAIadmin:
+    schema_class: 'FAIadmin::DB'
+    connect_info:
+        - 'dbi:Pg:dbname=logicshop2faiadmin'
+        - username
+        - password
+        - { pg_server_prepare: 0, AutoCommit: 0 }
+</code><br/><br/>Anyway, <code>ysh</code> can really provide useful.<br/><br/>From <a href="http://search.cpan.org/user/ingy/YAML/ysh">the POD</a>:
+<code>
+cat yaml.file | ysh | less
+</code><br/><br/>This can help you examine what goes on and it can help you get the right result, you still have to take context into consideration, so hints (or improved POD) can assist you here.<br/><br/>So now everything <i>seems</i> to work, but I have only made the symptoms go away - I know the problem still persists, but I do not have time to fix it now.<br/><br/>Anyway one of the other people involved in the application changed something in another YAML config file, and the server refused to start.<br/><br/>I had just introduced changes in several components late last night, so I thought I had broken something. I <i>googled</i> for the error message<br/><br/><cite>
+"->config->{schema_class} must be defined for this model 
+</cite><br/><br/>and again <a href="http://langs-tech-stuff.blogspot.com/2007/06/yaml-yaml-syck-catalyst.html">it pointed to YAML</a>.<br/><br/>I ran the YAML configs through my new toy <code>ysh</code> and <b>boom</b>. One if the files did not parse, I looked at it and I could not see any problems. Luckily the file was rather short and I remembered that my colleague had mentioned that he intended to change some values and this was the file containing the values.<br/><br/>Great!<br/><br/>So I deleted the contents and started to rebuild the file, line by line, running it though <code>ysh</code> after every addition and success, in the end my server would actually start.<br/><br/>Now I cannot remember what I fixed, I exchanged some <code>tabs</code> for <code>spaces</code> - so in order to find out I have requested the file, which might have been updated via SFTP from my colleague a hex editor comparison might be a good idea, so I know what to look for the next time this occurs, since I feel this is not the last time - perhaps we should change configuration file format?
+</p>
+
+
+<hr/>
+
+
+
+<h2>Config Formats...</h2>
+<h3><a href="/user/LTjake/">LTjake</a> on 2008-04-07T15:02:10</h3>
+You can use whatever formats Config::Any supports. This includes:<br><br>* Config::General (likely to be the new "standard")<br>* INI<br>* YAML<br>* JSON<br>* XML<br>* Perl<br><br>Also, more recent versions of Config::Any (&gt;= 0.10) will die() when a config file fails to parse correctly. This is especially helpful for YAML files as they are quite finicky.
+
+
+
+<h2>InstantCRUD</h2>
+<h3><a href="/user/zby/">zby</a> on 2009-03-19T17:21:05</h3>
+I am working on a newer version of InstanCRUD.  After reading this I'll consider switching to Config::General.  And I'll add Autocommit by default.  I've already cleaned the code somehow - and it is published at CPAN, but it is still work in progress (and the API changes all the time). I am sorry for your lost time.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

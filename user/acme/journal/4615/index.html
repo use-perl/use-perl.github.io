@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of acme: More parrot hackery</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>More parrot hackery</h1>
+<h2><a href="/user/acme/">acme</a> on 2002-05-02T15:48:33</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've been playing with <a href="http://www.parrotcode.org/">Parrot</a> some more recently, and thinking about converting Java bytecode to Parrot bytecode. My
+thoughts went something like this: Parrot is a register machine. The
+Java virtual machine is a stack machine. Parrot is also a stack
+machine (it's only a register machine for speed, there is still a stack). Instead of converting Java bytecode to Parrot bytecode, I can
+make Parrot into a JVM. I can achieve this by adding new JVM-like opcodes to Parrot (really quite trivial, all I coded up was a new 
+<a href="http://archive.develooper.com/perl6-internals@perl.org/msg09812.html"><tt>jvm.ops</tt></a> file and reconfigured and typed "make". The 14 new opcodes where generated, added to Parrot, and the assembler automagically supported them.)
+<p>
+Have I confused you already? Well, let me explain it. Here is a piece of Java source code:<p>
+<pre>
+public static void spin() {
+  int i;
+  for(i = 0, i < 12345678; i++);
+  System.out.print(i);
+}
+</pre>
+ <p>
+<tt>javac</tt> turns that into the following bytecode:
+</p>
+<pre>
+   0 iconst_0
+   1 istore_0
+   2 goto 8
+   5 iinc 0 1
+   8 iload_0
+   9 sipush 1000
+  12 if_icmplt 5
+  15 getstatic #3 <Field java.io.PrintStream out>
+  18 iload_0
+  19 invokevirtual #4 <Method void print(int)>
+  22 return
+</pre>
+<p>
+Now, after I've added my <tt>jvm.ops</tt> file to Parrot, I can code this in Parrot assembler as the following code:
+<p>
+<pre># This is Parrot assembler:
+      iconst_0
+      istore_0
+      goto	IN
+REDO: iinc      0, 1
+IN:   iload_0
+      sipush    12345678
+      if_icmplt REDO
+      iload_0
+      jvm_print
+      end
+</pre>
+<p>
+... and the usual <tt>./assemble.pl jvm.pasm &gt; jvm.pbc; ./parrot jvm.pbc</tt> will compile and run the JVM-like Parrot opcodes.
+<p>
+That is, I've implemented "iconst_0" (a JVM bytecode which pushes zero onto the stack) and so on in Parrot, and Parrot is running JVM-like bytecode as well as Parrot bytecode (of course, I've only implemented a couple of JVM opcodes). This shows how flexible Parrot is, and is the method that will be used when multiple language target Parrot I imagine.
+<p>So I posted the code to perl6-internals and got little response back, apart from the "you're crazy" and "wow". It's a cute idea and it leads on  to issues raised by Dan such as sharing objects between Java and other languages hosted on Parrot, or maybe doing wild JNI stuff. [Note: we can't go much further at the moment as Parrot doesn't have a symbol table, objects, methods, or method calls yet - but it will ;-]
+<p>
+This is all research for my <a href="http://conferences.oreillynet.com/cs/os2002/view/e_sess/2515">Targeting Parrot</a> talk at OSCON. Is there anything you'd like to know about targeting languages at Parrot? Ask away!
+<p>
+<i>Anyway, off to a London.pm social meeting. I'm wearing my <a href="http://www.kfs.org/user/abw/parrot/">Parrot</a> tshirt today...</i></p>
+
+
+<hr/>
+
+
+
+<h2>op code bloat</h2>
+<h3><a href="/user/2shortplanks/">2shortplanks</a> on 2002-05-03T10:56:48</h3>
+First up: Very Cool.  However, I'm getting a bit lost on the hand waving here.
+<p>
+What actually converts the JBC into PBC?  Are you doing this by hand atm (i.e. converting JBC to parrot assembler, then assembling it,) or is there some form of automated system?
+</p><p>
+As I understand it you're adding new op codes to the pvm so that you have a one to one translation for JBC and PBC.  Doesn't this add more operations to the VM?  Don't adding more operations slow down the VM implementation (because each operation takes longer to look things up?)</p>
+
+
+
+<blockquote>
+
+<h2>Re:op code bloat</h2>
+<h3><a href="/user/acme/">acme</a> on 2002-05-03T12:03:04</h3>
+Yes, there is a lot of handwaving<nobr> <wbr></nobr>;-)<br> <br>It was just weekend project, so I converted the JBC into PBC by hand. As I work on this more, I'll be using Java::JVM::Classfile to do it automatically.<br> <br>This does indeed mean adding more opcodes to Parrot. Parrot has around 600 opcodes already and I added 14. If I added all ~255 JVM opcodes, it would indeed increase the total number of Parrot opcodes, but the slowdown is pretty small. In fact, Parrot will have dynamically loadable opcode libraries, so in future this slowdown would be even less of a problem.<br> <br>Hope this help! Leon
+
+
+
+<blockquote>
+
+<h2>Re:op code bloat</h2>
+<h3><a href="/user/2shortplanks/">2shortplanks</a> on 2002-05-03T12:54:32</h3>
+Does this mean that you can have numerous different Parrot Byte Codes and a PBC file will have to say what encoding scheme (what opcodes mean what) it is?
+<p><nobr> <wbr></nobr>/me waves hands too</p>
+
+
+
+<blockquote>
+
+<h2>Re:op code bloat</h2>
+<h3><a href="/user/acme/">acme</a> on 2002-05-03T12:58:17</h3>
+Possibly. I think we're actually concentrating on getting Parrot working before doing all the magic clever stuff<nobr> <wbr></nobr>;-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

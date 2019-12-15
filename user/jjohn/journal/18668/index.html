@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjohn: Win32 fork() example with reaping</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Win32 fork() example with reaping</h1>
+<h2><a href="/user/jjohn/">jjohn</a> on 2004-05-07T14:41:48</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Here's the deal: you're on win32, you need to fork() and you're using Perl.  Since version 5.6, win32 Perl has had fork() emulation.  That's
+good.  It's emulation (accomplished at the interpreter level with threading), 
+so standard Unix tricks like using a signal handler to reap children and 
+control the number of child process don't work.  That's bad.
+<p>Here then is my Win32 Perl recipe for the week: Limiting forked child 
+"processes" under Win32 Perl (versions 5.6 and higher).
+<pre>
+use strict;
+use POSIX ":sys_wait_h";
+use constant MAX_KIDS => 4;
+ 
+my (%children, $quit) = ((), 0);
+print "[$$] Entering main loop\n";
+while (!$quit) {
+  reap(\%children);
+  
+  if ((keys %children) <= MAX_KIDS) {
+    print "[$$] Forking child $_\n";
+    if (my $pid = fork()) {
+      $children{$pid} = 1;
+    } else {
+      do_child();
+      exit;
+    }
+  } else {
+    $quit = 1;
+  }
+ 
+  sleep(1);
+}
+ 
+# reap existing kids
+while (keys %children) {
+  reap(\%children);
+  sleep(1);
+}
+ 
+print "All children reaped\n";
+ 
+#--------
+# sub 
+#--------
+sub reap {
+  my ($kids) = @_;
+  for (keys %{$kids}) {
+    print "[$$]    child '$_' reapable?\n";
+    next if waitpid($_,WNOHANG()) != -1;
+    print "[$$]      child '$_' reaped\n";
+    delete $kids->{$_};
+  }
+}
+  
+sub do_child {
+  sleep(1) for 0..10;
+  print "[$$] done\n";
+}
+</pre>
+<p>Note that you can do other work in the main reaping loop.  
+This is essential when that main loop is really the service state loop for 
+a Win32 service.  Also note that reaping the child "processes" isn't strictly
+necessary.  Not only are the children not real processes (they are interpreter
+threads), but also no zombies can be created if the parent process exits 
+without <code>wait()</code>ing for child exit codes.  All child "processes" 
+will be terminated with the parent.  So you've got that going for you.  
+<p>See <A href="http://www.roth.net/">David Roth's web site</a>, 
+books or articles for more excellent details on the devilish art of creating 
+Win32 services with Perl.
+</p>
+
+
+<hr/>
+
+
+
+<h2>You rock my world</h2>
+<h3><a href="/user/stinkingpig/">stinkingpig</a> on 2005-01-26T17:04:13</h3>
+I must have spent four hours STFW'ing through the circularly referential documentation for fork(), wait(), and waitpid() before I found this article...<br/><br/>Thanks!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

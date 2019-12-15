@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Whiteknight: Basic Allocators</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Basic Allocators</h1>
+<h2><a href="/user/Whiteknight/">Whiteknight</a> on 2008-05-31T01:22:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I had wanted to write a nice long blog post earlier, but I've run out of time and only have time for a short update. <br/><br/>I spent much of this morning working on the basic allocators for my GC. I borrowed heavily from the current GMS garbage collector to make these functions. I used the existing functions as prototypes because I know that they do all the tasks that they need to do: Initialize pools, create the necessary data structures, perform the necessary calculations, etc. I don't necessarily want to copy much from the GMS collector--mostly because of how much people complain about it's performance--but it does serve as a good simple template for how to set things up. In my work, however, I've developed a few questions, and a few ideas for changes that permeate the rest of the Parrot memory infrastructure.<br/><br/>The Arenas structure defines three function pointers that the GC must supply: A function to perform a GC run, a function to initialize a new memory pool, and a function to unload or "deinitialize" the GC. Where is the function to initialize the GC? The initialization function is hard-coded in, and selected via macro depending on which GC you are using. Because the initialization routine is hard-coded and not based on a function pointer, the GC is picked at compile-time and cannot be changed without rebuilding.This also means that if you want to write a new GC for parrot, you need to actually monkey around with the parrot internals to add it in: The GC is therefore not truely modular, and they are definitely not hot-swappable. I'm not going to venture to geuess whether it would even be desirable to hot-swap your GC core, but I see no reason why it shouldn't be a possibility. <br/><br/>Rather then hard-coding in the initialization routine in a long chain of #ifdef/#endif tests, it would make more sense to have a function pointer which could be loaded dynamically. There are two ways to do this: Add a fourth function pointer to the Arenas structure, or combine init/deinit routines together, but pass a flag: PARROT_GC_INIT/PARROT_GC_DEINIT to the function to determine whether it's a loader or an unloader. Current deinitialization routines appear to be so simple anyway, it should be very possible to expand them to be more functional. <br/><br/>GC GMS also has a behavior of allocating GC headers directly in the small object pools along with the object headers. Each allocation is (size + hdr_size), and the header is inserted in memory directly in front of the memory it manages. I propose a change where we allocate GC headers separate (either in their own pool, or in some other way that is lower-level and micromanaged by the GC). By making this change, we increase flexibility and make it so a GC can be unloaded and a new one loaded, without disrupting the entire memory system. On initialization, a GC could go through the memory system and add new headers to all existing objects, if needed. This would be an expensive operation, but I can't imagine that a GC swap would occur too often in normal operation.  Even Perl6, a pillar of radical dynamicism, doesn't have need to swap out GC models. I'm trying to look forward to situations where we need to do complex embedding, or sandboxing where different GC models are optimized for particular types of execution. Maybe it's a pipe dream, but I see no reason to artificially limit the capabilities of the GC system, especially if I am starting from the ground up. <br/><br/>We might need to differentiate between an initialization and a "reinitialization" routine, for when a GC needs to be instantiated AND it needs to assimilate existing memory objects into it's fold. Of course, a basic initialization could do a quick test to see if there are any existing unaccounted-for objects that need to be traced. I'm always hesitant to add more to system start-up because I know that Perl coders have an affinity for one-liners, or dirty once-and-dones. The faster we can get a small application running, the better. <br/><br/>Okay, so it turned into a long post, but that's what happens when I start rambling. I won't be doing any other work until sunday night or monday, so I'll post my next update then. </p>
+
+
+<hr/>
+
+
+
+<h2>700 words</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-06-02T21:14:13</h3>
+<p>If that is a <em>short</em> update, I don&#8217;t want to know what a long one is&#8230; 5,000?<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+<blockquote>
+
+<h2>Re:700 words</h2>
+<h3><a href="/user/Whiteknight/">Whiteknight</a> on 2008-06-02T21:29:58</h3>
+Well, I intended it to be short when I started, but I have a tendency to ramble.<nobr> <wbr></nobr>:)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

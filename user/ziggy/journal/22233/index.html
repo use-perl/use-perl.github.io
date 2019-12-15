@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: Java vs. Perl (with a side of tag soup)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Java vs. Perl (with a side of tag soup)</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2004-12-09T16:53:42</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'm looking into <a href="http://mercury.ccil.org/user/cowan/XML/tagsoup/">tagsoup</a> at the moment, writing a module that uses its HTML normalization algorithm on top of HTML::Parser.  The original code is written in Java, not exactly clear, and full of state transitions that are somewhat obscure.  For example, the list of open tags are maintained as a stack (fair enough), and when it's time to process a close tag, the first thing to know is whether we should process it or ignore it.  Here's the source, in Java:
+
+<pre>
+//...
+
+Element sp;
+for (sp = theStack; sp != null; sp = sp.next()) {
+    if (sp.name().equals(name)) break;
+}
+if (sp == null) return;    // unknown etag, do nothing
+//....
+</pre>
+
+Here is the same operation, expressed more naturally in Perl:
+<pre>
+## This end tag closes a tag that isn't open.  Ignore it.
+return unless grep m/$name/, @$stack;
+</pre>
+
+Granted, these are philosophical and sylistic differences.  My quibbles could be with the language, the generally accepted idioms for Java programming, or with the author of this code.  (Actually, I don't have any issues with the author; just being complete and highlighting the possibilities.  ;-)  
+<p>
+Regardless of my personal differences, this example highlights the benefit of writing clear, concise code.  Using the C-style for loop obscures the intent by micromanaging the problem and focusing on the mechanics.  The single statement Perl equivalent nearly hides the mechanics while emphasizing the intent (<i>return unless you find something</i>).
+<p>
+You may look at this and say <i>So what?  It's just a different style preference.</i>  In the small, you're somewhat correct.  However, I've been looking at this code for some time now, and these little differences accumulate to complexify a program from something that should be easy, and turning it into something hard to express and hard to understand.  
+<p>
+Not the best way to write something that people should understand, and only incidentally for a computer to execute...
+
+<p>
+&nbsp;
+<p>
+PS: Here's the tagsoup algorithm in a nutshell:
+<ul>
+<li>Use a very liberal scanner to read the input character by character; use a schema driven lexer to find tokens in broken markup</li>
+<li>Include a schema for HTML that describes what a tag can contain, and a nominal parent for every tag</li>
+<li>Convert the tokens from the lexer into SAX events, adding events as necessary to convert the input into well-formed output; ignore unnecessary tokens when they appear (non-HTML elements, extra close tags)</li>
+</ul>
+The real power is in the last bit: the algorithm to add extra events to produce well-formed output.  Here's how that works:
+<ol>
+<li>Maintain a stack of open tags</li>
+<li>For each open tag, look up the stack to find a tag that can contain this tag</li>
+<li>If this tag cannot be placed under any tags in the stack of open tags, look for a tag in the stack that contain this tag's nominal <i>parent</i>.  Remember this tag, and repeat the process with this tag's parent.  Repeat as necessary.</li>
+<li>Knowing which open tag <b>will</b> serve as the parent to this sequence of tags to open, unwind the stack (if necessary) to close all open tags until the parent tag is at the top of the tag stack.</li>
+<li>Open each tag in the list of tags to open (from step 3).  After each tag is opened, reopen any of the preserved tags (from step 4) that this tag can contain.</li>
+<li>Close tags as they are found; if close tags are missing, issue the necessary events to produce a well-formed document.  Ignore unnecessary close tags.</li>
+<li>(Optionally) Ignore all non-HTML tag events.</li>
+</ol>
+The algorithm is somewhat simple, can always succeed (or just ignore a tag in woefully broken HTML), and work in a streaming fashion.  Unfortunately, this streaming algorithm has no lookahead, so it will deform your input file to create something vaguely approximating your input in a well formed fashion, even if it does not render correctly.  For example, a sequence of <tt>table, tr, form, td</tt> will result a sequence of <tt>table, tr, /tr, /table, form, table, tr, td</tt> -- <i>not</i> what you started with, but that was broken anyway.</p>
+
+
+<hr/>
+
+
+
+<h2>every loop a method</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2004-12-09T18:16:50</h3>
+<p>In one of his talks (Enterprise Perl?) James Duncan discussed readable code and gives the excellent advice that every loop should be a method. I find myself doing this more with Java than Perl, probably because I hit the mental ceiling for method length with Java's verbosity. So I'd typically translate your example to a method like:</p> <blockquote><div> <tt>skipUnopenedTags(theStack);</tt> </div></blockquote> <p>One side-effect of Java's not having <tt>unless</tt> is that I tend to write both 'isSomething' and 'isNotSomething' for readability, especially because an '!' always gets lost:</p> <blockquote><div> <tt>if ( ! foo.isSomething() ) {<nobr> <wbr></nobr>... }<br>&nbsp; vs.<br>if ( foo.isNotSomething() ) {<nobr> <wbr></nobr>... }</tt> </div></blockquote> <p>The first example is particularly difficult to read when developers don't use sufficient whitespace, like:</p> <blockquote><div> <tt>if (! foo.isSomething() ) {<nobr> <wbr></nobr>... }</tt> </div></blockquote> <p>or even the painful:</p> <blockquote><div> <tt>if (!foo.isSomething()) {<nobr> <wbr></nobr>... }</tt> </div></blockquote> <p>I'm always surprised that I rarely see discussions of whitespace in code readability. Do people consider this a religious issue like where to put braces?</p>
+
+
+
+<blockquote>
+
+<h2>Whitespace</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2004-12-10T08:02:11</h3>
+I think that might be the case <em>sometimes</em>.  I also think that there are people that just don't care.  I've asked someone at work why they wrote this:<blockquote><div> <tt>my$x=$test&gt;5?'foo':'bar';</tt> </div></blockquote> <p>vs</p> <blockquote><div> <tt>my $x = $test &gt; 5 ? 'foo' : 'bar';</tt> </div></blockquote> <p>And they literally didn't see the difference.  It's quite depressing.
+
+</p><p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Whitespace</h2>
+<h3><a href="/user/TeeJay/">TeeJay</a> on 2004-12-16T11:15:52</h3>
+Ask them if they are a compiler or a programmer?
+<p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Hash</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2004-12-10T10:55:25</h3>
+In a similar application, I keep a hash of open tags along with a stack. This is a simple ++/-- thing, but it makes the given snippet even more readable:<blockquote><div> <tt>return unless $tags{$tag};</tt> </div></blockquote>(literal paste)
+
+
+
+<h2>Please elaborate</h2>
+<h3><a href="/user/bart/">bart</a> on 2004-12-11T22:12:10</h3>
+Can you please explain, maybe show an example, of what you mean with step 3? It's just a mystery to me now.
+<blockquote><div>If this tag cannot be placed under any tags in the stack of open tags, look for a tag in the stack that contain this tag's nominal parent. Remember this tag, and repeat the process with this tag's <em>parent</em>.</div></blockquote>
+<p>Do you mean to say that if you find a <tt>&lt;LI&gt; </tt> tag without an enclosing <tt>&lt;UL&gt; </tt> or <tt>&lt;OL&gt; </tt>, you insert one of those?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Please elaborate</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2004-12-12T14:57:49</h3>
+Right.
+<p>
+If <tt>&lt;LI&gt;</tt> cannot fit within the current open tag (such as <tt>&lt;A&gt;</tt>), walk up the stack of open tags until you can find a spot where you <i>can</i> open it.  If, for example, you find an open <tt>&lt;OL&gt;</tt>, close all open tags until the <tt>&lt;OL&gt;</tt>  is at the top of the stack.  (Presumably, that means you forgot a <tt>&lt;/LI&gt;</tt> somewhere, since they cannot nest.)
+</p><p>
+If there is no spot in the stack where you can deform it to open a <tt>&lt;LI&gt;</tt> tag, try to open the sequence <tt>&lt;OL&gt; &lt;LI&gt;</tt>, and find the closest spot that can handle an open <tt>&lt;OL&gt;</tt> tag. Repeat the process above until there's a spot to insert the <tt>&lt;OL&gt; &lt;LI&gt;</tt> sequence.
+</p><p>
+This algorithm, though surprisingly simple, generally works to fill in the missing bits of tag soup.  For example, when a bare <tt>&lt;TD&gt;</tt> is found, the sequence <tt>&lt;TABLE&gt; &lt;TBODY&gt; &lt;TR&gt; &lt;TD&gt;</tt>.  It also helps to fix up the infamous <tt>&lt;B&gt; &lt;I&gt; &lt;/B&gt; &lt;/I&gt;</tt>.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Please elaborate</h2>
+<h3><a href="/user/bart/">bart</a> on 2004-12-19T01:51:19</h3>
+I get it.
+<p>So, where do you get your hierarchy of allowable nesting of tags from? The data will probably originate in the HTML DTD, but how do you feed it into your code? What form does the data structure take?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Please elaborate</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2004-12-19T15:51:38</h3>
+The hierarchy of nestable tags ultimately originates from the HTML DTD.
+<p>
+John Cowan wrote two schema langagues for tag soup - one for the
+scanner, and one for the tag parser.  He has an XSLT stylesheet that
+converts the HTML Schema into a Java class.  I wrote a simpler
+stylesheet that converts this schema into a hash-of-hashes.<nobr> <wbr></nobr>;-)</p>
+
+
+
+<blockquote>
+
+<h2>wild</h2>
+<h3><a href="/user/inkdroid/">inkdroid</a> on 2004-12-20T17:04:43</h3>
+can we see the stylsheet?
+
+
+
+<blockquote>
+
+<h2>Re:wild</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2004-12-20T17:18:44</h3>
+Go grab the <a href="http://mercury.ccil.org/user/cowan/XML/tagsoup/" title="ccil.org">Tag
+Soup distribution</a ccil.org> and poke around.
+
+<p>
+
+My "tag soup schema -&gt; perl" stylesheet can be found at
+<a href="http://www.panix.com/user/ziggy/schema.xsl" title="panix.com">http://www.panix.com/user/ziggy/schema.xsl</a panix.com>.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Perl 6; also, Wither the code?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-10-12T16:06:34</h3>
+<blockquote> <div><p>The single statement Perl equivalent nearly hides the mechanics while emphasizing the intent (<i>return unless you find something</i>).</p></div> </blockquote>
+
+<p>In Perl 5.10 we get the smartmatch, so the mechanics will be completely hidden:</p> <blockquote> <div><tt>return unless $name ~~ @$stack;</tt></div> </blockquote> <p>In any case, did you ever finish porting the thing to Perl? If not, can I still have the code you have so far?</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

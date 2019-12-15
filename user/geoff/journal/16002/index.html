@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of geoff: $r-&amp;gt;finfo()</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>$r-&amp;gt;finfo()</h1>
+<h2><a href="/user/geoff/">geoff</a> on 2003-11-25T15:09:35</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>until recently, <code>$r->finfo()</code> was missing from the mod_perl 2.0 API.  while it had been on my list of things to do for a while, I finally managed to get around to it during ApacheCon.<br><br><br/><br/><code>$r->finfo()</code> was a pretty cool, but little used feature in mod_perl 1.0.  basically, when Apache ran the translation phase and determined the real file  corresponding to the URI (<code>$r->filename</code>), it would <code>stat</code> the file and stuff that data into the <code>finfo</code> slot in the <code>request_rec</code>.  mod_perl added some sugar, which allowed for some pretty interesting things, like
+<pre>
+if (-r $r->finfo && -s _) {
+  ...
+}
+</pre><br/><br/>behind the scenes, the call to <code>finfo()</code> populated the special filehandle <code>_</code> with data from Apache's <code>finfo</code> struct and returns it, giving you two speedups: first using Apache's cache (<code>finfo</code>) then perl's cache (<code>_</code>), in both cases avoiding a direct <code>stat</code> to the file on disk (save the first one, that is).  all in all, much more efficient than <code>stat $r->filename</code>.  (oh, and take the time to look up <code>_</code> if you don't know what it does - it's pretty cool)<br><br><br/><br/>well, in Apache 2.0 the <code>finfo</code> slot in the <code>request_rec</code> doesn't translate directly into the same thing perl stores in <code>_</code>, so the above trickery won't work anymore in mod_perl 2.0.  here's how it looks now:
+<pre>
+use APR::Finfo ();<br/><br/>use APR::Const -compile => qw(UREAD);<br/><br/>my $finfo = $r->finfo;<br/><br/>if ($finfo->protection & APR::UREAD && $finfo->size) {
+  ...
+}
+</pre><br/><br/>the thing to note is that now <code>$r->finfo()</code> returns an <code>APR::Finfo</code> object, through which file attributes are accessed.  also note that the permissions are determined using <code>APR</code> specific constants, not the typical <code>Fcntl</code> ones (though I haven't actually checked to see if they are the same).<br><br><br/><br/>while it's not nearly as svelte as they way it was in mod_perl 1.0, at least now it's possible to use Apache's cache and avoid multiple <code>stat</code> calls to the filesystem.  I suppose you could also do<br/><br/><pre>
+stat $r->filename;<br/><br/>if (-r _ && -s _) {
+  ...
+}
+</pre><br/><br/>but with the new <code>APR::Finfo</code> stuff you can avoid that initial trip back to disk.</p>
+
+
+<hr/>
+
+
+
+<h2>Faster?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-11-26T09:00:30</h3>
+It would be interesting to know if this is actually faster than a stat call. Is the perl method call overhead actually going to eat away at the time it might take to just do the stat in perl anyway?
+
+
+
+<blockquote>
+
+<h2>Re:Faster?</h2>
+<h3><a href="/user/geoff/">geoff</a> on 2003-11-26T13:34:38</h3>
+when I was implementing it I said to myself, "well, there is the overhead of the method call, but that <i>has</i> to be faster than going to disk."  my gut tells me it's true, but I have no real evidence.<br> <br><br/><br/>I suspect that what really makes the difference is not having <code>_</code> automatically populated when you need to make multiple <code>stat</code> calls - in that case, you might be better off using perl's <code>stat</code> on <code>$r-&gt;filename</code> and the special filehandle.  I really don't know.<br> <br><br/><br/>but at least now people have different approaches they can benchmark, where they didn't before<nobr> <wbr></nobr>:)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

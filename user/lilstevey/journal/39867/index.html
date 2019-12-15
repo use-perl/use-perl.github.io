@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of lilstevey: more tentative perl6 hacking</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>more tentative perl6 hacking</h1>
+<h2><a href="/user/lilstevey/">lilstevey</a> on 2009-11-09T23:28:57</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+A little more work. Following some <a href="http://use.perl.org/user/masak/journal/39513">wise words in masak's journal</a> about starting simple, I decided to take further tentative tiptoes
+ further towards my target of a transparent Role-As-Interface based RMI system
+by first of all just hacking together a call from client to server.
+Following a visit to the lovely people on #perl6 I got a pointer to the
+<a href="http://svn.pugscode.org/pugs/t/spec/">perl6 test suite</a> which, when
+read with the <a href="http://perlcabal.org/syn/">synopsis & apocalypse</a> documents, seems to give a reasonable set
+of reference documents.
+</p>
+<p>
+Anyway, squeezing this around other commitments, I hacked LWP::Simple and HTTP::Daemon
+around a little, and created the following files:
+</p>
+<dl>
+<dt>
+testclient.pl
+</dt>
+<dd>
+<tt>use v6;</tt><br/>
+<tt>use RmiClient;</tt><br/>
+<tt></tt><br/>
+<tt>my $r = RmiClient.new(url => "http://localhost:8888/");</tt><br/>
+<tt></tt><br/>
+<tt>say $r.proxy("Greet");</tt><br/>
+</dd>
+<dt>
+RmiClient.pm
+</dt>
+<dd>
+<tt>use v6;</tt><br/>
+<tt>use LWP::Simple;</tt><br/>
+<tt></tt><br/>
+<tt>class RmiClient</tt><br/>
+<tt>{</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;has $url;</tt><br/>
+<tt></tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;method proxy( $method )</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;{</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;my $s = LWP::Simple.get($url~$method); # "http://localhost:8080/"</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;my ($r1,@r2) = split(/\n\n/,$s);</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;my $r2 = join '\n\n',@r2;</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return $r2;</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;}</tt><br/>
+<tt>}</tt><br/>
+<tt></tt><br/>
+<tt>1;</tt><br/>
+</dd>
+</dl>
+<p>
+Thats the client side of this simple test, now onto the server side.
+</p>
+<dl>
+<dt>testserver.pl</dt>
+<dd>
+<tt>use v6;</tt><br/>
+<tt>use Adapter;</tt><br/>
+<tt>use TestClass;</tt><br/>
+<tt></tt><br/>
+<tt>my $tc = TestClass.new();</tt><br/>
+<tt>my $a = Adapter.new( clzz => $tc );</tt><br/>
+<tt></tt><br/>
+<tt>$a.startServer();</tt><br/>
+<tt></tt><br/>
+</dd>
+<dt>
+Adapter.pm
+</dt>
+<dd>
+<tt>use v6;</tt><br/>
+<tt>use HTTP::Daemon;</tt><br/>
+<tt>use TestClass;</tt><br/>
+<tt></tt><br/>
+<tt>class Adapter</tt><br/>
+<tt>{</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;has TestClass $clzz;</tt><br/>
+<tt></tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;method startServer()</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;{</tt><br/>
+<tt></tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;my HTTP::Daemon $d .= new;</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;say "see {$d.url}";</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;while my HTTP::Daemon::ClientConn $c = $d.accept {</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;while my HTTP::Request $r = $c.get_request {</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;if $r.method eq 'GET' {</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$c.send_response($clzz.Greet());</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;else {</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$c.send_error('RC_FORBIDDEN');</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;warn "{$r.method} {$r.url.path}";</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}</tt><br/>
+<tt></tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;}</tt><br/>
+<tt></tt><br/>
+<tt>}</tt><br/>
+</dd>
+<dt>
+TestClass.pm
+</dt>
+<dd>
+<tt>use v6;</tt><br/>
+<tt></tt><br/>
+<tt>class TestClass</tt><br/>
+<tt>{</tt><br/>
+<tt></tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;method Greet()</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;{</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return "Hello World";</tt><br/>
+<tt>&nbsp;&nbsp;&nbsp;}</tt><br/>
+<tt></tt><br/>
+<tt>}</tt><br/>
+</dd>
+</dl>
+<p>
+That is quite filthy, but a start. Next up is one of two things:
+</p>
+<ol>
+<li> trying to make implementing a client
+as simple as passing a Role-As-Interface into some manner of magical constructor/repository.</li>
+<li>
+Passing a Role-As-Interface and implementing class into some manner of thingy on the server
+that exposes methods defined in the Role-As-Interface and implements them using said class. 
+</li>
+</ol>
+<p>
+These &quot;simple&quot; steps may possibly include a tour round some other areas, including a look at serialisation, dependency injections, singletons... Still only one way to eat an elephant...
+</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

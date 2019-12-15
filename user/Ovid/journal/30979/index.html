@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Object Responsibilities</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Object Responsibilities</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-09-13T08:34:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Me know nuthin' 'bout objects.</p>
+
+<p>There are days when I feel really, really stupid.  Today's stupidity has actually been going on for several weeks, simmering in the back of my mind.  I just received a bug report for TAPx::Parser from Torsten Sch&ouml;nfeld.  Seems that my parser doesn't like blank lines in the output.  After some debugging, it became clear that the following is a big bucket of suck:</p>
+
+<pre>sub next {
+    my $self = shift;
+    if (@{$self->_m_tokens}) {
+        return shift @{$self->_m_tokens};
+    }
+    if ($self->_current_chunk) {
+        if ( $self->_stream_started ) {
+            $self->_start_tap(0);
+        }
+        else {
+            $self->_start_tap(1);
+            $self->_stream_started(1);
+        }
+    }
+    my $next_chunk = $self->_stream->next;
+    if (! $self->_current_chunk() && $next_chunk ) {
+        $self->_current_chunk($next_chunk);
+        return $self->next;
+    }
+    unless ( defined $next_chunk ) {
+        $self->_end_tap(1);
+    }
+    if ( defined $self->_current_chunk ) {
+        my @current_tokens = map {
+            my $result = TAPx::Parser::Results->new($_);
+            $self->_validate($result);
+            $result;
+        } $self->_lex($self->_current_chunk());
+        my $token = shift @current_tokens;
+        push @{$self->_m_tokens()} => @current_tokens;
+        $self->_current_chunk($next_chunk);
+        return $token;
+    }
+    $self->_finish;
+    return;
+}</pre>
+
+<p>What the hell is that?  I can barely follow it and I wrote it!  I hated writing it at the time and I hate it even worse, now.  But that's because I was really, really stupid and let a known design flaw remain in my parser.  I didn't have my responsibilities appropriately distributed.</p>
+
+<P>When I said at the beginning "me know nuthin'", though this is a bit of a slam on me, it's also sound advice about objects.  I shouldn't know a damn thing about 'em.  I should beg them for information and tell them what they want to know.  That's it.  I shouldn't know anything about their internals or, for that matter, their state.  However, in the above code, I was actually trying to track the state of an iterator or stream.  I wasn't reaching in, I was trying to track it externally.  That was stupid.</p>
+
+<p>If you really, really need to know the state of something and you can't ask it, you've probably got a design flaw.  In the iterator code, I copied it almost verbatim from Test::Harness::Iterator.  I'm sure that the Test::Harness code is fine for its needs, but it's completely innapropriate for mine.  In fact, my subconscious was even trying to tell me I was being a moron because prior to that method you find the following comment:</p>
+
+<pre># all of this annoying current and next chunk stuff is to ensure that we
+# really do know if we're at the beginning or end of a stream.</pre>
+
+<p>And that horror is all because I didn't implement <tt>first</tt> and <tt>last</tt> methods for my iterator.  Well, I've now finished rewriting the iterator, but it's on my computer at home and I'm at work, so I won't be able to upload right away.  While I haven't actually implemented it, a first pass at rewriting the <tt>next</tt> method would look something like this:</p>
+
+<pre>sub next {
+    my $self = shift;
+    my $stream = $self->_stream;
+    my $next = $stream->next;
+    $self->_start_tap( $stream->first ? 1 : 0 );
+    if ( $stream->last ) {
+        $self->_finish;
+        return;
+    }
+    
+    # this is a tiny oversimplification
+    my $token = TAPx::Parser::Results->new( $self->_lex($next) );
+    $self->_validate($token);
+    return $token;
+}</pre>
+
+<p>That's <em>much</em> cleaner.  If I had gone ahead and fixed this problem when I first knew about it, I wouldn't have had two serious bug reports about this method in the space of five days.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Naming</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-15T00:32:56</h3>
+<p>Those methods should probably be called <tt>is_first</tt> and <tt>is_last</tt> instead, though.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Naming</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-09-15T06:42:28</h3>
+<p>Agreed.  I'll go make that change.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

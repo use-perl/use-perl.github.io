@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of merlyn: Broken security advisory (again)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Broken security advisory (again)</h1>
+<h2><a href="/user/merlyn/">merlyn</a> on 2005-12-17T20:11:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>As found in <a href="http://secunia.com/advisories/17922/">this advisory</a> (as well as being picked up a few other dozen places on the net):
+<blockquote><i>
+The security issue is caused due to the Perl binary included with Mac OS X not correctly dropping privileges when a Perl application uses the "$&lt; = numeric_id;" statement to set its uid. The issue may be caused due to wrong compilation options being selected when compiling the Perl binary.</i></blockquote>
+<p>
+What are these nutheads smoking?  That variable doesn't control effective UID.  It controls real UID, which has nothing to do with the effective privileges.
+<p>
+How do people get that messed up?  I dunno.  Maybe we need better books. {grin}</p>
+
+
+<hr/>
+
+
+
+<h2>Confusing</h2>
+<h3><a href="/user/bart/">bart</a> on 2005-12-17T22:13:58</h3>
+I don't understand the technical background behind the variables <code>$&lt;</code>, <code>$&gt; </code>, <code>$(</code> and <code>$)</code>.<br><br>Perhaps an idea for a column?<br><br>Or perhaps you did one already, and I just don't know about it.<br><br>My current solution is to simply stay away from writing or touching code that requires that knowledge.<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Confusing</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2005-12-17T22:23:14</h3>
+There's some good background info in <a href="http://www.cs.berkeley.edu/user/daw/papers/setuid-usenix02.pdf" title="berkeley.edu">this paper</a berkeley.edu>.
+
+<p>-Dom</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Dropping privileges in Perl</h2>
+<h3><a href="/user/pjf/">pjf</a> on 2005-12-18T08:39:45</h3>
+<p>
+The advisory itself is rather vague and unhelpful.  I'm surprised it exists at all.  However it does provide an excellent opportunity to talk about Unix privileges and Perl.  Randal, I hope you don't mind me using your journal too much for this purpose.<nobr> <wbr></nobr>;)
+</p> <p>
+Dropping privileges in Perl is notoriously hard, and stems primarily from the fact that most unix systems provide at least three flavours of uid (real, effective, and saved), whereas Perl provides only two (real and effective).  The saved uid, the one you can't easily access from Perl, is the effective uid when the process started.  It exists so one can switch between real and saved uids throughout the course of a program.
+</p> <p>
+On many systems, the line:
+</p>
+<code>
+$&lt; = $&gt; = $NEW_UID;
+</code>
+<p>
+will permanently drop privileges to <tt>$NEW_UID</tt>, dropping the saved uid as well.  However this may only happen if you're running as root.  On most systems the lines:
+</p>
+<code>
+$&lt; = $NEW_UID;<br>
+$&gt; = $NEW_UID;
+</code>
+<p>
+will <i>not</i> permanently drop privileges, even though it does set the real and effective uids.  One can successfully regain privileges later in the program.
+</p> <p>
+Worse still, the values of <tt>$&lt;</tt> and <tt>$&gt;</tt> are <i>cached</i>, and may or may not actually have anything to do with the current process privileges.  This makes it particularly difficult if you're relying upon calls out to C/XS to perform privilege manipulation.
+</p> <p>
+<a href="http://search.cpan.org/user/pjf/Proc-UID-0.04/UID.pm" title="cpan.org">Proc::UID</a cpan.org> is one attempt to try and provide sensible privilege semantics to Perl without the programmer needing to worry about the idiosyncrasies of each particular operating system.  It makes available all three user-uids, without caching.
+</p><p>
+Unfortunately to make Proc::UID truly effective I <i>do</i> need to worry about all the idiosyncrasies, and also to find a few spare round tuits, which always seem in short supply.  Patches, particularly for non-Linux/BSD systems, are especially welcome.
+
+
+
+<blockquote>
+
+<h2>Re:Dropping privileges in Perl</h2>
+<h3><a href="/user/jmason/">jmason</a> on 2006-01-04T22:22:53</h3>
+<p> Perl on MacOS (and possibly other BSDish platforms) *does* indeed have some
+unportable wierdness regarding uid/euid handing, as we found in <a href="http://issues.apache.org/SpamAssassin/show_bug.cgi?id=3586#c10" title="apache.org">this
+SpamAssassin bug report</a apache.org>. </p>
+
+<p>
+It appeared that some perl versions required RUID==EUID==0 before $ = 100; $"
+would silently fail to drop RUID==0 privs, and instead leave it at 0.
+To quote the bug report:
+</p> <blockquote> <div><tt>Interestingly, the same exact issue occurs on my Mac OS X machine,<br>but not any of the other platforms I have access to...<br> <br>root# perl -e 'sub p {print "RUID: $&lt;, EUID: $&gt;\n";} p; $&gt;=1000; p; $&lt;=$&gt;; p;'<br>RUID: 0, EUID: 0<br>RUID: 0, EUID: 1000<br>RUID: 0, EUID: 1000<br> <br>The end line should read "RUID: 1000, EUID: 1000".<br> <br>Linux:<br> <br># perl -e 'sub p {print "RUID: $&lt;, EUID: $&gt;\n";} p; $&gt;=1000; p; $&lt;=$&gt;; p;'<br>RUID: 0, EUID: 0<br>RUID: 0, EUID: 1000<br>RUID: 1000, EUID: 1000<br> <br>Solaris:<br> <br># perl -e 'sub p {print "RUID: $&lt;, EUID: $&gt;\n";} p; $&gt;=1000; p; $&lt;=$&gt;; p;'<br>RUID: 0, EUID: 0<br>RUID: 0, EUID: 1000<br>RUID: 1000, EUID: 1000<br> <br>More interesting bits:<br> <br># perl -e 'sub p {print "RUID: $&lt;, EUID: $&gt;\n";} p; $&lt;=1000; p;'<br>RUID: 0, EUID: 0<br>RUID: 0, EUID: 0<br># perl -e 'sub p {print "RUID: $&lt;, EUID: $&gt;\n";} p; use POSIX; setuid(1000); p;'<br>RUID: 0, EUID: 0<br>RUID: 0, EUID: 0<br># cat - &gt; t.c<br>main() {<br>&nbsp; printf("RUID: %d, EUID: %d\n", getuid(), geteuid());<br>&nbsp; setuid(1000);<br>&nbsp; printf("RUID: %d, EUID: %d\n", getuid(), geteuid());<br>}<br># gcc t.c<br>#<nobr> <wbr></nobr>./a.out<br>RUID: 0, EUID: 0<br>RUID: 1000, EUID: 1000<br> <br>so setuid() obviously works.&nbsp; just not at all from perl.</tt></div> </blockquote> <p>
+Our workaround was to check $&lt; and $&gt; after the first (POSIX-ish) idiom,
+then use <code> $&gt; = $&lt;; $&lt; = 100; $&gt; = "100 100";</code>  <a href="http://issues.apache.org/SpamAssassin/attachment.cgi?id=2147" title="apache.org">This</a apache.org> is the patch we
+applied to SpamAssassin to do this.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Dropping privileges in Perl</h2>
+<h3><a href="/user/jmason/">jmason</a> on 2006-01-04T22:25:51</h3>
+'It appeared that some perl versions required RUID==EUID==0 before $ = 100; $" would silently fail to drop RUID==0 privs, and instead leave it at 0.'<br><br>well, that made no sense.  sorry; forgot to escape $&lt; and $&gt;.   anyway, read the pasted code; it's all pretty clear there.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of grinder: Calculating years (anniversaries) between dates in SQL</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Calculating years (anniversaries) between dates in SQL</h1>
+<h2><a href="/user/grinder/">grinder</a> on 2007-03-30T09:29:42</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>
+<p>Dear Lazyweb,</p>
+
+<p>I've just spent the better part of an hour searching the web and coming up blank, and finally coding up my own SQL statement to solve the following problem: given a two dates, how many years apart are they? I didn't want to use Oracle's date minus date equals number of days, because I wanted to avoid the hassle of dealing with leap years.</p>
+
+<pre>
+select
+    case
+    when (to_char(sysdate, 'MM'  ) - to_char(to_date(:dt), 'MM')) > 0
+        then (to_char(sysdate, 'YYYY') - to_char(to_date(:dt), 'YYYY'))
+    when (to_char(sysdate, 'MM'  ) - to_char(to_date(:dt), 'MM')) < 0
+        then (to_char(sysdate, 'YYYY') - to_char(to_date(:dt), 'YYYY')) - 1
+    else
+        case when (to_char(sysdate, 'DD'  ) - to_char(to_date(:dt), 'DD')) >= 0
+        then
+            (to_char(sysdate, 'YYYY') - to_char(to_date(:dt), 'YYYY'))
+        else
+            (to_char(sysdate, 'YYYY') - to_char(to_date(:dt), 'YYYY')) - 1
+        end
+    end as "y"    
+    -- ,(to_char(sysdate, 'MM'  ) - to_char(to_date(:dt), 'MM'))   as "m",
+    -- ,(to_char(sysdate, 'DD'  ) - to_char(to_date(:dt), 'DD'))   as "d"
+from dual
+</pre>
+
+<p>I've tested a number of boundary conditions and it seems correct to me.</p>
+
+<p>Now, after you stop sniggering, you may show me the function I overlooked that would have done this for me, or point out any obvious bugs.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Depends on your dialect</h2>
+<h3><a href="/user/VSarkiss/">VSarkiss</a> on 2007-03-30T13:53:13</h3>
+<p>Date functions aren't really standard in SQL, so it's a question of what RDBMS you're using.  For Sybase and SQL server, you could use <code>datediff(yy, @date1, @date2)</code>.</p>
+<p>Looks like you've got Oracle.  In which case I think if you used months, you wouldn't have to worry about leap years:</p><p><blockquote> <div><tt>months_between(date1, date2)/12</tt></div> </blockquote> But I haven't tested that.
+<p>As usual, Ask Tom has a nice answer: <a href="http://asktom.oracle.com/tkyte/Misc/DateDiff.html" title="oracle.com">an implementation of DateDiff in PL/SQL</a oracle.com>.  Looks nice and tidy too.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Depends on your dialect</h2>
+<h3><a href="/user/grinder/">grinder</a> on 2007-04-02T08:58:43</h3>
+<p>The trouble with <tt>months_between</tt> is that it doesn't return nice sharp integers, it returns floats. This always makes me wonder about things like whether 11.6 months round up to a year.</p>
+
+<p>One more damned thing to go wrong, and all that.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Try this...</h2>
+<h3><a href="/user/bart/">bart</a> on 2007-03-31T15:48:24</h3>
+I don't have access to an Oracle system right now, but this might just work.<p><blockquote> <div><tt>years<nobr> <wbr></nobr>:= trunc((to_number(to_char(date2, 'YYYYMMDD'))-to_number(to_char(date1, 'YYYYMMDD')))/10000)</tt></div> </blockquote> The idea is that you just want to subtract the years, but when the value for 'MMDD' for the lower date (date1), taken as a 4 digit number, is larger than that of the later (date2), then you'll have a "borrow" (AKA "carry" for subtraction) from the years. And then, you'll just throw the days/months value away, as it's incorrect anyway. It served its purpose.
+
+
+
+<blockquote>
+
+<h2>Re:Try this...</h2>
+<h3><a href="/user/grinder/">grinder</a> on 2007-04-02T08:53:24</h3>
+ooh sweet, I like this. The yyyymmdd insight is very clever. According to some quick tests it checks out just fine.<br><br>Thanks!
+
+
+
+
+
+</blockquote>
+
+
+<h2>TIMESTAMPs and INTERVALs</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2007-03-31T15:54:56</h3>
+<p>With most recent versions of Oracle, you can use the ANSI-SQL standard TIMESTAMP date types and associated functions, which will give you INTERVAL data types when you subtract, and those can be fairly intelligently converted to years.  I haven't gotten to use these as much as I like, but so far they have been very nice.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of sigzero: Is this a core Perl flaw?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Is this a core Perl flaw?</h1>
+<h2><a href="/user/sigzero/">sigzero</a> on 2005-11-30T02:23:55</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Is this a flaw in Perl or the way Webmin was coded?</p>
+
+<URL:http://news.com.com/Danger+level+rises+for+Perl+flaws/2100-1002_3-5975954.html?part=rss&tag=5975954&subj=news></p>
+
+
+<hr/>
+
+
+
+<h2>sprint formats inputs and taint</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2005-11-30T03:18:59</h3>
+Using values from web-form input in a <code>qx{ sprintf "blah %s blah", $input } </code> without taint checking the <code>$input</code> first is not safe, never was, never should have been considered safe.  If someone ever said "it's only a way to crash the program, no way to break in here", they were not listening to history.  Running system commands with user input is always going to be a target of opportunity, you have to defend that in depth.  You've got to check for buffer overrun (even if you can't see the buffer ) and<nobr> <wbr></nobr>;'s and all that other good stuff -- allow the reasonable things only, don't try to check for each attack!
+
+<p>If Webmin does this, that's bad. But that does Not make it Perl's fault, Perl has Taint mode, tried to deal with this sort of bad behavior more than any other language. (Java tried some sandbox rules, similar to Perl's safe opcodes module, but Java didn't go so far as to taint the variables to try to force type-checking of inputs before use.)
+
+</p><p>Since webmin runs as (or can run as) the Apache or other administrator, it must be protected as a security critical resource.  It should be paranoid about its inputs.</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-11-30T07:50:50</h3>
+<p>I think what&#8217;s happening is that they&#8217;re doing something like this:</p> <blockquote> <div><tt>printf "%${precision}d", $somenumber;</tt></div> </blockquote> <p>where <code>$precision</code> derives from user input. This exposes Perl code to all the same <a href="http://en.wikipedia.org/wiki/Format_string_attack" title="wikipedia.org">format string vulnerabilities</a wikipedia.org> that have commonly been found in C code. I&#8217;ve been pointing this out for a while now. I&#8217;m surprised that not more people have picked up on it.</p>
+
+<p>The right way to write that code, in the <em>general</em> case, is like so:</p> <blockquote> <div><tt>$precision =~ s/%/%%/g;<br>printf "%${precision}d", $somenumber;</tt></div> </blockquote> <p>or, in this particular case, like so:</p> <blockquote> <div><tt>printf "%*d", $precision, $somenumber;</tt></div> </blockquote> <p>The key is never to interpolate user input into format strings without first escaping percent signs.</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/jhi/">jhi</a> on 2005-11-30T11:32:50</h3>
+&gt; I&#8217;ve been pointing this out for a while now. I&#8217;m surprised that not more people have picked up on it.<br><br>So I assume that you have long since reported this through perlbug and/or perl5-porters and since it's a security flaw also contacted the branch maintainers (Rafael and Nicholas) directly?<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2005-11-30T13:39:14</h3>
+<p>I think what he is saying is that it isn't a *core* Perl flaw but a flaw in programming methodology.</p>
+
+
+
+<blockquote>
+
+<h2>Core perl or methodology?</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2005-12-03T17:12:43</h3>
+Well, let's say it's both. Perl could have been more paranoid, C lib could be more paranoid, Perl script authors should be more paranoid. Unclear but I suspect this bug is only usable when Taint mode should have been wasn't?
+
+MaintPerl already has patch 26420 <a href="http://www.nntp.perl.org/group/perl.perl5.changes/14020" title="perl.org">http://www.nntp.perl.org/group/perl.perl5.changes/14020</a perl.org>  , so Perl is now a bit more paranoid.
+
+The Ubuntu security team reports the problem as follows.  Also patched in FC4 security updates
+and FC3 backport.  Somewhere along the line the CVE# got typo'd, <a href="http://www.cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2005-3912" title="mitre.org">3912</a mitre.org> vs <a href="http://www.cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2005-3962" title="mitre.org"> 3962</a mitre.org>, which may someday be assigned to something else.
+<blockquote>
+<div>Ubuntu Security Notice USN-222-1          December 02, 2005
+<br>perl vulnerability
+<br>CVE-2005-3962 [typo: should be 3912 <a href="http://www.cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2005-3912" title="mitre.org">http://www.cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2005-3912</a mitre.org>
+<p>
+A security issue affects the following Ubuntu releases:
+</p><p>
+Ubuntu 4.10 (Warty Warthog)
+<br>Ubuntu 5.04 (Hoary Hedgehog)
+<br>Ubuntu 5.10 (Breezy Badger)
+</p><p>
+The following packages are affected:
+</p><p>
+perl-base
+</p><p>
+The problem can be corrected by upgrading the affected package to
+version 5.8.4-2ubuntu0.5 (for Ubuntu 4.10), 5.8.4-6ubuntu1.1 (for
+Ubuntu 5.04), or 5.8.7-5ubuntu1.1 (for Ubuntu 5.10).  In general, a
+standard system upgrade is sufficient to effect the necessary changes.
+</p><p>
+Details follow:
+</p><p>
+Jack Louis of Dyad Security discovered that Perl did not sufficiently
+check the explicit length argument in format strings. Specially
+crafted format strings with overly large length arguments led to a
+crash of the Perl interpreter or even to execution of arbitrary
+attacker-defined code with the privileges of the user running the Perl
+program.
+</p><p>
+However, this attack was only possible in insecure Perl programs which
+use variables with user-defined values in string interpolations
+without checking their validity.</p></div>
+</blockquote>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-11-30T15:08:32</h3>
+<p>Huh? Should I also report the fact that <code>open FH, $foo</code> can be used for mischief if <code>$foo</code> derives from user input?</p>
+
+<p>And this isn&#8217;t even as openly dangerous.</p>
+
+<p>Cursory experimentation and a superficial browsing of the source suggests it&#8217;s not possible to corrupt <code>perl</code>&#8217;s stack using <a href="http://perldoc.perl.org/functions/printf.html" title="perl.org">printf</a perl.org>, so this isn&#8217;t a vulnerability in <code>perl</code>. It is very well possible to inject unexpected <code>%n</code>s into the format string to make an application fall over, though, so it definitely constitutes a vulnerability in Perl code. Whether the vulnerability can be used for arbitrary code injection will depend on the application.</p>
+
+<p>So no, it doesn&#8217;t seem like something I should report to p5p.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re: Format</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2005-11-30T15:44:35</h3>
+Oh, <b> <code>varargs</code> </b>, even worse than usual buffer stuff, Ouch. Thanks for the wikipedia link!
+<p> I can see where prepping the stack for a varargs hack could be hard but not impossible with only a web client to work with.
+</p><p>Escaping or removing all relevant magic characters e.g., <code>%</code> is only one of the things one must do with user input before using it. Verifying syntax is as expected and size isn't absurd is also required for safety. (Some semantic checks may even be required to protect the backend from GIGO attacks, but that's beyond this scope.)  Removing all characters you don't expect is often easier and usually safer than trying to escape everything that might matter at this or next layer -- or just rejecting immediately but politely any query with nonsense characters.</p>
+
+
+
+<h2>Re: format strings</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2005-12-11T02:49:49</h3>
+Full details are on the front page now, P5P <a href="http://use.perl.org/article.pl?sid=05/12/06/1353226&amp;mode=nocomment&amp;tid=12" title="perl.org">http://use.perl.org/article.pl?sid=05/12/06/1353226&amp;mode=nocomment&amp;tid=12</a perl.org>.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

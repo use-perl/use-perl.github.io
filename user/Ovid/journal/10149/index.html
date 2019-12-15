@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Weird Normalization Issues</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Weird Normalization Issues</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2003-01-23T23:59:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Creating a PostGresSQL Database and winding up with some unusual issues and I'm curious who else might have experience with this.</p>
+
+<p>I'm building an inventory management system and we have three tables that I'm trying to figure out how to handle <tt>qw(customer country state)</tt>.  A country might have states, it might not.  For a given customer's address, if their country does not have states/provinces (Monaco, perhaps?), what do I do?  I can't insert a NULL value on a field with a foreign key constraint.  I suppose I can create a blank field in the <tt>state</tt> table and reference that, but then I'm treating this field as "special" and I'm concerned that I'll need to hardcode that ID into my application.  How is this usually handled where either one needs to have an FK constraint or NULL?</p>
+
+<p>I've also realized that for a given customer, there's no way to stop the database from having a state of "California" and a country of "France."  The interface doesn't allow this to occur, but that doesn't guarantee that future bugs won't occur.  I suspect a mistake in my database design, but for the life of me, I can't figure out what I might have done wrong.  Or it's possible that this is simply a situation that has to be handled on the application level :(</p></p>
+
+
+<hr/>
+
+
+
+<h2>Foreign Keys</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2003-01-24T01:07:45</h3>
+Depending on how the constraint is set up in the create table clause, foreign keys can be null. They need to exist in the other table if they are non-null. See <a href="http://www.postgresql.org/docs/view.php?version=7.3&amp;file=sql-createtable.html" title="postgresql.org">the create table statement</a postgresql.org> in the PostgreSQL docs[postgresql.org].
+
+
+
+<blockquote>
+
+<h2>Re:Foreign Keys</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2003-01-24T01:13:34</h3>
+<p>From what I can figure out, I apparently had NOT NULL on my column definition.  That threw me off.</p>
+
+<p>What I'm probably going to do is pull the reference to the country out of the customer table and use the state to look it up.  However, this means we can't have NULL states, so I'll have to create "blank" states that refer back to the country.  It's ugly, but this seems to be the cleanest way.</p>
+
+
+
+<h2>Re:Foreign Keys</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2003-01-24T01:22:44</h3>
+Looking again at the docs, 'MATCH PARTIAL' is not implemented yet, so you still have your California/France problem. Otherwise you would be able to have one constraint on country and another on a country/state combination.
+
+
+
+
+
+</blockquote>
+
+
+<h2>So broken but ...</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2003-01-24T01:21:42</h3>
+Postgres, like all SQL DBMS's, is very broken, but here's the "perfect world" version (where Postgres is actually a real relational DB.  haha).  You can probably extrapolate to an approximate real world version from here<nobr> <wbr></nobr>;)<blockquote><div> <tt> Customer<br>
+&nbsp; -----------<br>
+&nbsp; customer_id&nbsp; &nbsp;integer,<br>
+&nbsp; name&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; text,<br>
+&nbsp; country_id&nbsp; &nbsp; integer,<br>
+&nbsp; state_id&nbsp; &nbsp; &nbsp; integer,</tt> </div></blockquote>Actually, those integers should be separate data types, but Postgres doesn't really support that.  Moving on:<blockquote><div> <tt> Country<br>
+&nbsp; -----------<br>
+&nbsp; country_id&nbsp; &nbsp; integer,<br>
+&nbsp; name&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; text<br>
+&nbsp; <br>
+&nbsp; State<br>
+&nbsp; -----------<br>
+&nbsp; state_id&nbsp; &nbsp; &nbsp; integer,<br>
+&nbsp; name&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; text<br>
+&nbsp; <br>
+&nbsp; ValidCountryState<br>
+&nbsp; -----------<br>
+&nbsp; country_id&nbsp; &nbsp; integer,<br>
+&nbsp; state_id&nbsp; &nbsp; &nbsp; integer</tt> </div></blockquote>Now let's assume that you have a state entry named "" (0-length string).  This will be the valid state for all countries without states.<br> <br>Then you need a constraint along the lines of<blockquote><div> <tt>EXISTS<br>( SELECT country_id<br>&nbsp; FROM ValidCountryState AS VCS, Customer AS C<br>&nbsp; WHERE VCS.country_id = C.country_id<br>&nbsp; &nbsp; AND VCS.state_id = C.state_id )</tt> </div></blockquote>Of course, Postgres doesn't actually support database-wide constraints.  I think you may be able to fake this with a trigger or something, or you could (ick) check it programatically before inserts and updates.<br> <br>This isn't too terrible a solution, and it doesn't even require NULLs (which are at best avoided, and at worst a huge big disaster).<br> <br>BTW, This doesn't have anything to do with normalization.  "Normalization" is not the same thing as "integrity", though a normalized database is a good <i>first</i> step towards ensuring data integrity.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

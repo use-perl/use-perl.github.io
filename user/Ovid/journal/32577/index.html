@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: enum:  Yet Another Reason to Hate MySQL</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>enum:  Yet Another Reason to Hate MySQL</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-03-05T14:54:48</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I really hope that the MySQL developers have fixed this bug, but since we're not in a position to upgrade right now, it doesn't really matter.  Note the <tt>foo</tt> column in the following table definition:</p>
+
+<pre>CREATE TABLE `testaa` (
+  `a` int(11) NOT NULL default '0',
+  `b` double default NULL,
+  `foo` enum('this', 'that') NOT NULL DEFAULT 'this',
+  PRIMARY KEY  (`a`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1</pre>
+
+<p>Looks reasonable, yes?  Now let's try to insert some bogus data:</p>
+
+<pre>mysql> insert into testaa (a, b, foo) values (1, 2.0, '');
+Query OK, 1 row affected, 1 warning (0.00 sec)
+
+mysql> show warnings;
++---------+------+------------------------------------------+
+| Level   | Code | Message                                  |
++---------+------+------------------------------------------+
+| Warning | 1265 | Data truncated for column 'foo' at row 1 |
++---------+------+------------------------------------------+
+1 row in set (0.00 sec)
+
+mysql> insert into testaa (a, b, foo) values (2, 2.0, 'asdf');
+Query OK, 1 row affected, 1 warning (0.01 sec)
+
+mysql> show warnings;
++---------+------+------------------------------------------+
+| Level   | Code | Message                                  |
++---------+------+------------------------------------------+
+| Warning | 1265 | Data truncated for column 'foo' at row 1 |
++---------+------+------------------------------------------+
+1 row in set (0.00 sec)
+
+mysql> select * from testaa;
+
++---+------+-----+
+| a | b    | foo |
++---+------+-----+
+| 1 |    2 |     |
+| 2 |    2 |     |
++---+------+-----+
+2 rows in set (0.00 sec)
+
+mysql> </pre>
+
+<p>MySQL's default behavior, in many cases, is to just truncate anything which won't fit into a column.  Simply discarding information is so very, very wrong and often leads to corrupt data.  As you might guess, this is closely related to a bug I'm trying to hunt down right now :(</p></p>
+
+
+<hr/>
+
+
+
+<h2>Modes</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2007-03-05T16:22:18</h3>
+I guess it's something like <a href="http://dev.mysql.com/doc/refman/5.0/en/server-sql-mode.html" title="mysql.com">modes</a mysql.com> you're refering to (although it doesn't mention enums explicitly, the <a href="http://dev.mysql.com/doc/refman/5.0/en/enum.html" title="mysql.com">enum </a mysql.com> page does mention modes).<br><br>Well, at least they fixed it in v5. Or is that the version you already use and where it doesn't work?<br>
+
+
+
+<blockquote>
+
+<h2>Re:Modes</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-03-05T16:39:15</h3>
+<p>Nope, we're on an older version.  At least v5 isn't quite as crippled as older versions.</p>
+
+<p>Regrettably, the 'modes' available pre v5 don't offer protection for this.  At least I can use a trigger to<nobr> <wbr></nobr>... oh, wait<nobr> <wbr></nobr>... sigh.  (And in a totally unrelated note, the problem the 'enum' was trying to fix could have been solved with a view, but since we don't have those either, the 'enum' solution was used)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Modes</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2007-03-05T17:35:22</h3>
+It sounds like a FK to a value table with the enum values as PKs would solve your problem.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>enums are for saving space</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-03-05T20:19:43</h3>
+MySQL has enums to save space (and thus improve speed), not to enforce values.  For that, you should use a lookup table and a foreign key, like you would with Oracle.  (Constraints are a lousy place to put a list of acceptable values because they are hard to edit from user apps.)  Or you could run the database in "traditional" mode, which should make it throw an error for data that doesn't fit in an enum.  Personally, I just avoid enums and use lookup tables, except for data warehouse situations where I have tight control over how the data gets into the table.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

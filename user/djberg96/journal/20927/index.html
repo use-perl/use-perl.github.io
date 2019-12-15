@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of djberg96: Oracle: hash antijoins?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Oracle: hash antijoins?</h1>
+<h2><a href="/user/djberg96/">djberg96</a> on 2004-09-17T21:16:11</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>One of the few things I haven't been able to confirm from Guy Harrison's book is that a hash antijoin is more efficient than a minus when doing a diff.  Let me provide a couple quick examples:
+<ECODE>
+-- minus
+select foo, bar, baz
+from table1
+minus
+select foo, bar, baz
+from table2<br/><br/>-- hash antijoin
+select foo, bar, baz
+from table1
+where (foo, bar, baz) not in (
+   select /*+ hash_aj */ foo, bar, baz
+   from table2
+)
+</ECODE>
+The explain plan for the minus query looks reasonable, while the one for the hash antijoin looks awful and, indeed, performs badly.
+<P>
+However, I'm also querying against a view, which in turn is getting its data from a link, so that might be a major issue.  The view itself seems to be reasonable.
+<P>
+Anyone out there have an opinion?</p>
+
+
+<hr/>
+
+
+
+<h2>Is the hint being used?</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2004-09-17T22:34:11</h3>
+<p>As a side note, I've never had the opportunity to use a multi-column<nobr> <wbr></nobr>/(not )?in/ clause, I've wanted it for years and have never heard of it being a valid syntax until now.</p>
+<p>I googled for hash_aj <a href="http://asktom.oracle.com/pls/ask/f?p=4950:8:::::F4950_P8_DISPLAYID:313616750808" title="oracle.com">and found this</a oracle.com> in which one of the replies suggests that the hint is not being used, and that there should be a 'and field is not null' clause in both the query and subquery (the example there is a single column 'not in' clause, so I assume there should be a 'not null' condition for each column?).</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is the hint being used?</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2004-09-23T15:55:25</h3>
+I meant to say that though the reply suggests that the hint is not being used, adding a  'field is not null' expression to the where clauses (main and sub query) would maybe cause the hint to be used, and that printing the query plan should tell you for sure whether or not it is being used. I don't currently use Oracle, so I can't test any of this<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Is the hint being used?</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2004-09-24T20:42:11</h3>
+Indeed, that link proved to be useful - thanks.  Adding "is not null" conditionals forced the hint to be used.  The only problem is that it can alter your result set when compared to a minus (i.e. what if I don't want to exclude the NULL's?).
+<p>
+Besides, in my 10 column compare the performance increase was negligible - about 1 second faster, and that was with a PARALLEL(4) hint tossed in to boot.
+</p><p>
+But, it's good to know and YMMV.<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is the hint being used?</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2004-09-24T23:10:02</h3>
+<blockquote><div> <em>what if I don't want to exclude the NULL's?</em> </div></blockquote>
+<p>Then I think you need to use the MINUS anyway (which is not portable -- doesn't work on my version of Informix, and SqlServer doesn't complain, but it doesn't do the right thing either). If there are any nulls in the sub-query table, then you shouldn't get any results at all unless you have 'is not null' for those columns in the subquery, and if you have nulls in the main query table, then those records shouldn't be showing up. It's that old "if it's null, then it's neither in nor not in" thing. I've tested this with a single column in/not in clause on Informix, I couldn't say how Oracle behaves.</p>
+<p>Have you seen how a good old fashioned correlated sub-query fares?</p><blockquote><div> <tt>select foo, bar, baz<br>from table1 t1<br>where not exists (<br>&nbsp; select 1 from table2 t2<br>&nbsp; where t1.foo = t2.foo<br>&nbsp; and t1.bar = t2.bar<br>&nbsp; and t1.baz = t3.baz<br>)</tt> </div></blockquote> <p>MINUS is probably optimized to beat the heck out of this, though.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is the hint being used?</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2004-09-27T15:04:27</h3>
+Indeed, a correlated subquery can be very efficient.  It can also suck rocks.  It largely depends on how your indexes are set up.<nobr> <wbr></nobr>:)
+<p>
+I'll admit I had brushed this off, so now I'll go back and see how it compares.  We don't have control over the remote databases we're pulling some data from so it may or may not be an option.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>is it being used ?</h2>
+<h3><a href="/user/tinman/">tinman</a> on 2004-09-18T11:35:00</h3>
+<p>I remember reading somewhere that the hint wasn't being used (I see runrig has found a link). minus is way cool, besides (who said tuning was a rational procedure, anyway ?)</p>
+
+
+
+<blockquote>
+
+<h2>Re:is it being used ?</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2004-09-19T13:42:44</h3>
+<i>minus is way cool, besides</i>
+<p>
+Yeah, it does the job, although one potential drawback is that you can't PARALLEL a minus.</p>
+
+
+
+<h2>Re:is it being used ?</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2004-09-25T01:30:06</h3>
+<blockquote><div> <em>(who said tuning was a rational procedure, anyway ?)</em> </div></blockquote>
+<p>And that's why they have <a href="http://www.ddj.com/articles/2002/0205/" title="ddj.com">External SQL Rewriters</a ddj.com>. (sorry, gotta buy the article if you don't have the hard copy - May 2002 DDJ). Automated brute force SQL rewriting to find the best SQL statement.</p>
+
+
+
+<blockquote>
+
+<h2>Re:is it being used ?</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2009-04-20T18:22:22</h3>
+<blockquote><div><p>External SQL Rewriters</p></div></blockquote><p>
+
+Hey, <a href="http://www.ddj.com/database/184405049?pgno=1" title="ddj.com">a link to the article</a ddj.com> that works! (at the time of this post anyway).</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

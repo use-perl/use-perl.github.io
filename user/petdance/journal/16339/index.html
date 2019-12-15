@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of petdance: New memory testing tools</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>New memory testing tools</h1>
+<h2><a href="/user/petdance/">petdance</a> on 2003-12-15T06:18:29</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Here are a couple of slick new tools that make it easy to find circular references in your Perl structures that foul up Perl's reference counting.<br/><br/><P>
+Lincoln Stein just released
+<A HREF="http://search.cpan.org/dist/Devel-Cycle/">Devel::Cycle</A> the other day, and I just noticed it today.  It checks a given reference for circular references (what Lincoln calls "memory cycles"), and thus memory leaks.  "What a great tool," I thought, "I'll make a Test:: module out of it!"  So I just now released the 0.01 version of 
+<A HREF="http://search.cpan.org/dist/Test-Memory-Cycle/">Test::Memory::Cycle</A>.  I named it in the <TT>Test::Memory::</TT> namespace in planning for future memory-testing modules.
+<P>
+The two work together really well.  For instance, <A HREF="http://search.cpan.org/dist/WWW-Mechanize/">WWW::Mechanize</A> has always been plagued with circular references.  It keeps a queue of pages that have been visited, implemented with references back to prior objects.  I'd sure like some way to verify that I haven't fouled anything.  So I started adding <TT>memory_cycle_ok()</TT> calls in the <I>t/*.t</I> files, like so:<br/><br/><ECODE>
+use Test::More tests => 18;
+use_ok( 'WWW::Mechanize' );<br/><br/>my $agent = WWW::Mechanize->new();
+isa_ok( $agent, "WWW::Mechanize" );<br/><br/># ... do a whole bunch of Mech testing
+# and then at the end ...<br/><br/>SKIP: {
+    eval "use Test::Memory::Cycle";
+    skip "Test::Memory::Cycle not installed", 1 if $@;<br/><br/>    memory_cycle_ok( $agent, "No memory cycles found" );
+}
+</ECODE><br/><br/>The output format is pretty cool, too, if I do say so myself.  Here's some sample memory cycle-creating code:
+<ECODE>
+my $mom = {
+    name => "Marilyn Lester",
+};<br/><br/>my $me = {
+    name => "Andy Lester",
+    mother => $mom,
+};
+$mom->{son} = $me;<br/><br/>my $quinn = {
+    name => "Quinn Lester",
+    father => $me,
+    grandmother => $mom,
+};
+$mom->{grandchild} = [ $quinn ];
+</ECODE>
+Here, my mom and I each point at each other, and Mom and Quinn point at each other.  Mom's pointing at Quinn is an anonymous list, to handle more grandchildren (my sister is 7 months pregnant), but Quinn only has the one grandma (in this example).
+<P><br/><br/>In Lincoln's module, you run <TT>find_cycle($me)</TT> and it prints to standard output:
+<ECODE>
+Cycle (1):
+              HASH(0x8004a0)->{mother} => HASH(0x800368)                
+          HASH(0x800368)->{grandchild} => ARRAY(0x804c6c)               
+                  ARRAY(0x804c6c)->[0] => HASH(0x8049f0)                
+         HASH(0x8049f0)->{grandmother} => HASH(0x800368)                <br/><br/>Cycle (2):
+              HASH(0x8004a0)->{mother} => HASH(0x800368)                
+          HASH(0x800368)->{grandchild} => ARRAY(0x804c6c)               
+                  ARRAY(0x804c6c)->[0] => HASH(0x8049f0)                
+              HASH(0x8049f0)->{father} => HASH(0x8004a0)                <br/><br/>Cycle (3):
+              HASH(0x8004a0)->{mother} => HASH(0x800368)                
+                 HASH(0x800368)->{son} => HASH(0x8004a0)
+</ECODE><br/><br/>In mine, you call <TT>memory_cycle_ok($me)</TT> and it prints in the test diagnostic:<br/><br/><ECODE>
+# Cycle (1)
+#                         %A->{mother} => %B                            
+#                     %B->{grandchild} => @C                            
+#                              @C->[0] => %D                            
+#                    %D->{grandmother} => %B                            
+# Cycle (2)
+#                         %A->{mother} => %B                            
+#                     %B->{grandchild} => @C                            
+#                              @C->[0] => %D                            
+#                         %D->{father} => %A                            
+# Cycle (3)
+#                         %A->{mother} => %B                            
+#                            %B->{son} => %A
+</ECODE><br/><br/>I'm hoping that'll make debugging easier.
+<P>
+As always, your comments and suggestions are welcome!</p>
+
+
+<hr/>
+
+
+
+<h2>Very neat!</h2>
+<h3><a href="/user/samtregar/">samtregar</a> on 2003-12-15T06:23:44</h3>
+But brain is throwing warnings about this syntax:
+<p>
+<code>  %A-&gt;{mother}</code>
+</p><p>
+Maybe change that too:
+</p><p>
+<code>  $A{mother}</code>
+</p><p>
+-sam</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

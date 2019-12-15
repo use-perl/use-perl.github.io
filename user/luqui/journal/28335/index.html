@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of luqui: Overrrrrriding</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Overrrrrriding</h1>
+<h2><a href="/user/luqui/">luqui</a> on 2006-01-13T00:43:35</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'm toying with the idea of "composable modules" for Perl 6.  It all started with the combinator library for Parse::Rule in the pugs distribution.  I wanted to keep a uniform interface for combinators, but keep the options for a choice of evaluation strategy (CPS, Parrot JIT compiled, etc.) and choice of medium (utf8 string, array of objects, etc.). <br/><br/>The way I ended up doing it was to use stateless objects as modules.  That is, to create combinators for a text medium with a CPS strategy, you would do:<br/><br/><pre>
+class TextCPS {
+    does Strategy::CPS;
+    does Medium::Text;
+    # implement one or two required combinators
+}
+my $c = TextCPS.new;
+$c.quantify($c.any_char, :min(4));  # / .**{4...} /
+</pre><br/><br/>These roles used virtual classes all over the place.  For example, the Medium role, which holds medium-specific combinators, has to refer to a Pos class, which reperesents a medium-specific position in a stream.  However, that Pos will change based on what specific medium implementation is in use, so the Pos class is virtual.<br/><br/>But since the combinator objects don't have any state, they're really more like modules: collections of functions.  But we still want composable behavior.<br/><br/>But the thing that's been on my mind recently is the overriding problem.  What are you, and what are you not, allowed to override?  You can clearly override functions, as long as the new function's type is a subtype of the old function's type.  That's what OOers have been doing for ages.  It also makes sense to override constants, since they're just functions that take no arguments, as long as the subtyping relationship holds.<br/><br/>But what about variables?  For variables that can be assigned to and read from, the type must be exactly the same, or more generally, <i>isomorphic</i> (A and B are isomorphic if A &lt;: B and B &lt;: A).  Type isomorphisms are something that I've wanted in Perl for a while, but never really figured out how they would work.  <br/><br/>There's a pattern here:  if you read from it, new &lt;: old; if you write to it, old &lt;: new.  But what about classes?  A class is just a kind of constants.  By the pattern, the overriding class must be a subclass of the overridden class.  But I don't think that's quite accurate.  For starters, it's wrong, because:<br/><br/><pre>
+role Foo {
+    class Bar {...}
+    method foo(Bar --> Int) {...}
+    method bar(Int --> Bar) {...}
+}
+</pre><br/><br/>Here, you can't override Bar with a subclass of itself, because then you lose Liskov substitutability on foo().  You can't override Bar with a superclass of itself, because then you lose Liskov substitutability on bar().  So if you do override Bar, it has to be an isomorphic class.<br/><br/>That's because when you override a constant, you require not that the new constant is &lt;: to the old one, but the new constant's <i>type</i> is &lt;: to the old one.  So really we have to require that the overriding class's type is a subtype of the overridden class's type.  As far as I recall, types of types are kinds, and all non-parameteric classes would all have the same kind, so that trivially holds.  But clearly that's not the only constrant that is on these special constants.<br/><br/>The constraints come from the usage of the class within a scope, which is a little bit scary (mandatory inference kinds of things).  We could be like Scala and allow you to specify the relationship that must hold, but that's requiring that the user know a little too much about type theory.  The constraint might just be that the class doesn't cause any other subtype constraints to be violated in overriding.  That is:<br/><br/><pre>
+role Foo {
+    class Bar {...}
+    method foo(--> Bar) {...}
+}
+</pre><br/><br/>Our constraint is that for any subclass X of Foo, typeof(X::foo) &lt;: typeof(Foo::foo).  So if you override Bar with a supertype of Bar, then you break the constraint, so that isn't allowed.<br/><br/>Stepping back to the original question: what is a module?  I'd say a module is a collection of virtual things that refer to each other.  It is closed, so you can't add to the collection; you can only derive new collections based on it.  The constraints are exactly Liskov substitutability constraints.<br/><br/>Actually, the constraints might be more liberal than Liskov.  It might just be that a derived module still has to be well-typed.  That is a characteristic of a code-reuse construct rather than a typing construct.  That characteristic might be something to think about with roles, too.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

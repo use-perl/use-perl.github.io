@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Eric Wilhelm: Parallel Testing</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Parallel Testing</h1>
+<h2><a href="/user/Eric Wilhelm/">Eric Wilhelm</a> on 2007-09-11T09:03:49</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>So I decided to finally (after all of this compatibility work) take TAP::Harness out for a spin and make <a href="http://scratchcomputing.com/svn/TAP-Harness-Parallel/trunk">TAP::Harness::Parallel</a>.  That comes with some pain about the output formatting API (and I'll push it to CPAN as soon as we stabilize that -- right now you have to ride along and get TAP::Harness from its <a href="http://svn.hexten.net/tapx/trunk">svn</a> too (and possibly r491 because we're still working-through the single-process assumptions in the formatter.))  But, the preliminary results are between 40-60% reduced waiting.  If your test suite takes more than 10s to run, it is probably worth it.</p>
+
+<pre>runtests -r -j 9</pre>
+
+<p><i>Note: I symlink bin/prove to runtests -- the Test::Harness transition isn't quite complete.</i></p>
+
+<p>Expect about 40% time reduction in typical tests suites.  The perl 5.8.8 core tests dropped to 200s from 500s.  The parrot tests seem to be playing along as well.  (Both of these require the directory-based partitioning.)</p>
+
+<p>The biggest problem is resource conflicts.  Have you <em>ever</em> run your tests simultaneously before?  Probably not -- it is likely that they reuse tempfile names, server ports, etc.  Time to start tacking $$ onto your tempfiles or using File::Temp.  Of course, the directory-based partitioning (run each directory as a process) tends to help drop-in compatibility, but can block performance if things are unbalanced.</p>
+
+<p>Next steps probably involve more switches and various forms of partitioning.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Thank you!</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-09-11T09:09:59</h3>
+<p>Eric, this is a huge win for us.  People used to ask "why are we rewriting Test::Harness?"  It's because of things like this that they've stopped asking this question.</p>
+
+
+
+<h2>Thank you!</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2007-09-11T09:48:59</h3>
+I'd hacked evil equivalents several times in the past but never had the time and brains (or the new T::H<nobr> <wbr></nobr>:-) to make something sanely generic.<br><br>You are most exellent!
+
+
+
+<h2>Eric is being diplomatic...</h2>
+<h3><a href="/user/AndyArmstrong/">AndyArmstrong</a> on 2007-09-11T12:28:17</h3>
+...about the fact that it's my refactoring of our display code that's causing him a load of pain.<br/><br/>Great work in the face of considerable adversity Eric<nobr> <wbr></nobr>:)
+
+
+
+<h2>Lesson of the day...</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2007-09-11T13:35:26</h3>
+with Parallel...make sure to use unique tmp file names.<nobr> <wbr></nobr>:-)<br><br>Lesson #2: make sure no single test depends on a certain run order for lesson #1.<br><br>Is there a -shuffle or some other method in the new stuff to randomize the order tests are run in. I was addicted to that feature in Apache::Test. It keeps you honest.
+
+
+
+<h2>The next question will be:</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2007-09-11T13:39:46</h3>
+Is there, or will there be a way that test scripts can alert harness that they can't, or shouldn't be run in parallel due to some external resource issues?
+
+
+
+<blockquote>
+
+<h2>Re:The next question will be:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-09-11T16:36:44</h3>
+<p>That&#8217;s what partitioning is for. Within a partition, tests run sequentially, not in parallel.</p>
+
+
+
+<h2>Re: Sequential partitions</h2>
+<h3><a href="/user/Eric Wilhelm/">Eric Wilhelm</a> on 2007-09-11T18:48:34</h3>
+Yep.  Most simply, partitioning based on dirname($test) will work for most people.  The trick is how to add options to prove when '--jobs N' is triggering a run-time load of the optional module.  Perhaps it requires its own frontend, but that's actually quite easy due to prove being abstracted into App::Prove (well, except for the lack of composite-ing support in Getopt::Long.)
+
+
+
+
+
+</blockquote>
+
+
+<h2>Thanks Goodness</h2>
+<h3><a href="/user/thepler/">thepler</a> on 2007-09-15T20:29:06</h3>
+I have had to hack something like this into Test::Harness before, and it was annoying.  I haven't looked at TAP::Harness yet, so hopefully it is better.
+<p>
+One thing I remember being particularly annoying...  The harness shouldn't assume that it is running the test directly.  The test may actually run on another host, and the stdout/stderr saved to a file on that host and then copied back and fed to the harness.  I'm not saying<nobr> <wbr></nobr>::Parallel needs to provide all that, but it should be fairly easy to do with a subclass or plugin or somesuch.
+</p><p>
+I'm looking forward to seeing how this works out.  Hopefully I'll be able to change our test suite at $work to use it.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

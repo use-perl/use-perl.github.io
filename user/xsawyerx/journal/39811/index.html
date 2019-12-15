@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of xsawyerx: Extensive POE Testing PT. 6 - Testing, Event Parameters PT.1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Extensive POE Testing PT. 6 - Testing, Event Parameters PT.1</h1>
+<h2><a href="/user/xsawyerx/">xsawyerx</a> on 2009-10-28T08:27:52</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><address>There is actually a limit on the length of the subject, this should actually be entitled: <b>Extensive POE Testing PT. 6 - Testing, Ordered Event Parameters</b></address>
+
+<p>We've covered <a href="http://use.perl.org/user/xsawyerx/journal/39727">the rules</a>, <a href="http://use.perl.org/user/xsawyerx/journal/39734">ordered tests</a>, <a href="http://use.perl.org/user/xsawyerx/journal/39739">sequence ordered tests</a>, <a href="http://use.perl.org/user/xsawyerx/journal/39768">event counting</a> and <a href="http://use.perl.org/user/xsawyerx/journal/39775">a mixture of event counting and sequence ordered tests</a>. Now it's time to play with some more advanced stuff.</p>
+
+<p>The last frontier I came across trying to battle testing in POE was wanting to make sure the parameters to each event were what I expected. Why?</p>
+<ul>
+  <li>I'm able to test who called what and how many times, but if the parameters change, how would I know?</li>
+  <li>What if there an error in a function that's hard to test and it calls incorrect parameters?</li>
+  <li>What if I have a race condition?</li>
+</ul>
+
+<p>So, naturally, I wanted to know what parameters are sent to each event. This is how it can be done with my <a href="http://search.cpan.org/perldoc?POE::Test::Helpers">POE::Test::Helpers</a> 0.06:</p>
+
+<pre>
+package Session;
+use Test::More tests => 4; # this can also be defined in main
+use MooseX::POE;
+with 'POE::Test::Helpers';
+
+has '+event_params' => ( default => sub { {
+    next => [ [ 'hello', 'world' ], [ 'goodbye' ] ],
+    more => [],
+} } );
+
+# a flag for making sure next runs again
+my $flag = 0;
+
+# set up the events
+sub START { $_[KERNEL]->yield( 'next', qw( hello world ) ) }
+
+event 'next' => sub { $_[KERNEL]->yield('more') };
+event 'more' => sub {
+    $flag++ || $_[KERNEL]->yield( 'next', 'goodbye' );
+};
+
+# set up main
+package main;
+use POE::Kernel;
+Session->new();
+POE::Kernel->run();
+</pre>
+
+<p>What happens when the Kernel is run is that:</p>
+<ul>
+  <li><i>START</i> -> <i>next</i> (parameters: "hello", "world") </li>
+  <li><i>next</i> -> <i>more</i> (no parameters)</li>
+  <li><i>more</i> -> <i>next</i> (parameters: "goodbye")</li>
+  <li><i>next</i> -> <i>more</i> (no parameters)</li>
+  <li><i>more</i> does nothing and the program closes.</li>
+</ul>
+
+<p>What we can see is that we defined with our helpers the assumed iterations of each event. <i>next</i> is assumed to <b>first</b> run with the parameters "hello" and "world", and <b>secondly</b> run with the parameter "goodbye". We also assume that <i>more</i> will be called with no parameters at all.</p>
+
+<p>These are the results of the test:</p>
+<pre>
+1..4
+ok 1 - (next) Correct params
+ok 2 - (more) Correct params
+ok 3 - (next) Correct params
+ok 4 - (more) Correct params
+</pre>
+
+<p>This helps make sure the events run with the exact parameters we want <b>for each run</b>, <b>in the order we specified</b>. This is extremely important to understand. It checks that you called it <b>first</b> with the first parameter set (in an arrayref) and only <b>then</b> with the <b>second</b> one. If by some weird turn of events (or code editing), the calls would get mixed up and it will call <i>next</i> with "goodbye" first, the test will fail.</p>
+
+<p>This is how it would look if we reverse the order of the parameters:</p>
+<pre>
+not ok 1 - (next) Correct params
+#   Failed test '(next) Correct params'
+#   at lib/POE/Test/Helpers.pm line 94.
+# Comparing $data as a Bag
+# Missing: 'goodbye'
+# Extra: 'hello', 'world'
+ok 2 - (more) Correct params
+not ok 3 - (next) Correct params
+#   Failed test '(next) Correct params'
+#   at lib/POE/Test/Helpers.pm line 94.
+# Comparing $data as a Bag
+# Missing: 'hello', 'world'
+# Extra: 'goodbye'
+ok 4 - (more) Correct params
+# Looks like you failed 2 tests of 4.
+</pre>
+
+<p>One question remains: what if I can't know the order? What if I don't care? What if either of them can run but I don't know which one would come before the other? That's left for the next post.</p>
+
+<address>BTW, as promised, I will demonstrate how to test for a pretty nasty race condition using these methods, easily.</address></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

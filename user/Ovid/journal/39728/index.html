@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Object Responsibilities versus Object Behavior</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Object Responsibilities versus Object Behavior</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-10-07T13:16:43</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>There seems to be some confusion about some of the issues which roles are designed to deal with.  I'm going to take another stab at this.  Everyone who uses roles (that I've talked to) agrees that they're ridiculously easy to use.  What they don't understand is why.  I want to explain a core concept in objected-oriented programming (OOP) which seems to be at the heart of much of this confusion.  This can help you regardless of whether or not you adopt roles.</p>
+
+<p>Imagine that you have a <tt>Server</tt> class.  This class might look like this Perl 6 class definition:</p>
+
+<pre>class Server {
+    has $.ip_address;
+    has $.name is rw;
+
+    method restart(Bool $nice=True) {
+        say $nice ?? 'yes' !! 'no';
+    }
+}
+
+my Server $s .= new( name => 'localhost', ip_address => '192.168.0.1' );
+say $s.name;
+$s.restart;</pre>
+
+<p>That will output (well, with a recent version of Rakudo):</p>
+
+<pre>localhost
+yes</pre>
+
+<p>What's important here is that this class handles the <em>responsibilities</em> that a server needs (well, some of them).</p>
+
+<p>Now let's say that servers are uniquely identified by name and you need to find "Plato" and change its name to "Pluto" since you identify servers as celestial bodies.  Here's one hypothetical interface.</p>
+
+<pre>my Server $server .= find( name => 'Plato' );
+$server.name = 'Pluto';
+$server.save;</pre>
+
+<p>Where did the <tt>find</tt> and <tt>save</tt> method come from?  Here's where they should not come from:</p>
+
+<pre>class Server isa SomeORM { ... } # wrong!</pre>
+
+<p>Why is that?  Well, <tt>SomeORM</tt> theoretically is an Object-Relational Mapper (ORM) akin to <tt>DBIx::Class</tt>, <tt>Hibernate</tt> and similar technologies.  The problem with inheritance here is that your <tt>Server</tt> class isn't an ORM,  It's a server.  Maybe it could subclass off of <tt>Computer</tt> on the theory that it's a specialized type of <tt>Computer</tt>, but it's not an ORM.</p>
+
+<p>That theoretical point leaves us with an interesting conundrum.  The <tt>Server</tt> class has clear <em>responsibilities</em> and the <tt>SomeORM</tt> class should provide <em>behaviors</em> which various classes -- which may or may not be related by inheritance -- such as <tt>Customer</tt>, <tt>DataCenter</tt>, <tt>Office</tt> need to implement.  To say <em>SomeClass isa SomeOtherClass</em> is to promise that the child has the same responsibilities of the parent.  A customer class is <em>responsible</em> for providing the customer's name, the customer's age, the customer's balance, etc.  No other class should share this responsibility.  Instead, other classes should be asking the customer for this information.</p>
+
+<P>However, the <tt>find</tt> and <tt>save</tt> behaviors are shared by multiple classes and are not intrinsically part of a class' responsibilities.  They're artifacts of how we're using the classes (this gets a bit dodgy here as any subset of responsibilities for what you're modeling are artifacts of your business needs).</p>
+
+<p>Got that?  Share behaviors, not responsibilities (admittedly some responsibilities are implemented by collections of classes which act in concert, but each class encapsulates its responsibilities in the same way that the collection of classes should be solely responsible for the responsibilities it manifests).  Why is this important?  Here's some Perl 5:</p>
+
+<pre>package Book;
+use parent 'DBIx::Class';</pre>
+
+<p>In <tt>DBIx::Class</tt>, you have a resultset class for every resultsource (I really wish they called the latter "resultitem").  What have you inherited from <tt>DBIx::Class::ResultSet</tt> and its parent classes?</p>
+
+<pre>MODIFY_CODE_ATTRIBUTES
+VERSION
+__source_handle_accessor
+_add_alias
+_attr_cache
+_build_unique_query
+_calculate_score
+_collapse_cond
+_collapse_query
+_collapse_result
+_cond_for_update_delete
+_construct_object
+_count
+_is_unique_query
+_load_components
+_merge_attr
+_mk_group_accessors
+_remove_alias
+_resolve_from
+_resolved_attrs
+_result_class_accessor
+_rollout_array
+_rollout_attr
+_rollout_hash
+_source_handle
+_unique_queries
+all
+can
+carp
+clear_cache
+cluck
+component_base_class
+count
+count_literal
+create
+croak
+cursor
+delete
+delete_all
+ensure_class_found
+ensure_class_loaded
+exists
+find
+find_or_create
+find_or_new
+first
+get_cache
+get_column
+get_component_class
+get_inherited
+get_simple
+get_super_paths
+import
+inject_base
+isa
+load_components
+load_optional_class
+load_optional_components
+load_own_components
+make_group_accessor
+make_group_ro_accessor
+make_group_wo_accessor
+mk_classaccessor
+mk_classdata
+mk_group_accessors
+mk_group_ro_accessors
+mk_group_wo_accessors
+new
+new_result
+next
+page
+pager
+populate
+related_resultset
+require
+reset
+result_class
+result_source
+search
+search_like
+search_literal
+search_related
+search_rs
+set_cache
+set_component_class
+set_inherited
+set_simple
+single
+slice
+throw_exception
+update
+update_all
+update_or_create
+use</pre>
+
+<p>Well, that's interesting.  You've inherited close to 100 methods!  You'll discover that the resultsource classes also inherit a bunch of methods you possibly didn't want.  Do you know what they are?  Do you know if you're going to override them in your class?</P>
+
+<p>That's what's wrong with inheritance.  You're pulling in a bunch of behavior you do not want or need.  I'd much rather see this:</P>
+
+<pre>class Server does SomeORM {
+    has IPAddress $.ip_address is persisted;
+    has Str       $.name       is persisted;
+
+    method restart(Bool $nice=True) {
+        say $nice ?? 'yes' !! 'no';
+    }
+}</pre>
+
+<p>Separating behaviors out into roles, classes return to their original purpose of handling their responsibilities and shared behaviors are broken out into roles which implement those behaviors.  It's much cleaner and if one role's behavior conflicts with another role's behavior, you find out at composition time.  You won't get that with inheritance (unless you're programming in Eiffel).</p>
+
+<P>There is one fly in this ointment, though.  What happens if <tt>SomeORM</tt> implements a <tt>restart</tt> method?  Currently, both Moose roles and the Perl 6 spec say that the class wins and silently ignores the role's method.  This is as bad as the inheritance behavior.  I would like to at least see an overrideable warning.</p></p>
+
+
+<hr/>
+
+
+
+<h2>interface</h2>
+<h3><a href="/user/niceperl/">niceperl</a> on 2009-10-07T19:39:08</h3>
+the first time I heard about this concept was in 1996, studying the Java interface keyword. And the next step is "programming oriented to the interface", thinking in classes is bad. You must design witn roles in mind.
+
+
+
+<blockquote>
+
+<h2>Re:interface</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2009-10-07T22:21:41</h3>
+<p>Interfaces are a special case of Roles actually. They are effectively pure abstract Roles. Roles however can provide a default implementation of a contracted (this is also called Design By Contract) method. This is why the override warning was removed from Moose (it did have this behavior for a very short period of time). The warning was penalizing a valid idiom.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>don't mix responsibilities</h2>
+<h3><a href="/user/dami/">dami</a> on 2009-10-07T21:06:14</h3>
+<p>Hi Ovid,</p><p>Your example doesn't sound right to me. The job of a server is to serve requests; the job of an ORM is to give access to some persistence methods; merging both responsibilities into a single class, be it through inheritance or through roles, is confusing. I would rather have a ServerInfo class that keeps the persistent data, and a Server class that deals with requests, with a "has-a" relationship between them (and then it doesn't matter through which mechanism such classes are composed).</p><p>Besides, I agree that instances of DBIx::Class have too many methods, but that's not a consequence of using inheritance, it's a consequence of the particular DBIx::Class design, which is another mix of responsabilities : datasources and resultsets are merged into one single concept.</p>
+
+
+
+<h2>You're hiding the details ...</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2009-10-07T22:41:06</h3>
+<p>Role composition doesn't solve the method-explosion problem. Suggesting it
+does actually hides the obvious solution to the problem because to properly
+implement your role you need to create an ORM delegate anyway. The proper
+solution to this in Moose terms is:</p><blockquote><div><p> <tt>&nbsp; &nbsp; package Server;<br>&nbsp; &nbsp; use Moose -traits Persistent( storage =&gt; SomeORM );<br> <br>&nbsp; &nbsp; has ip_address =&gt; ( i<br>&nbsp; &nbsp; &nbsp; &nbsp; sa =&gt; 'IPAddress',<br>&nbsp; &nbsp; &nbsp; &nbsp; is =&gt; 'ro',<br>&nbsp; &nbsp; &nbsp; &nbsp; traits =&gt; ['Persisted']<br>&nbsp; &nbsp; );<br> <br>&nbsp; &nbsp; has name =&gt; (<br>&nbsp; &nbsp; &nbsp; &nbsp; isa =&gt; 'Str',<br>&nbsp; &nbsp; &nbsp; &nbsp; is =&gt; 'ro',<br>&nbsp; &nbsp; &nbsp; &nbsp; traits =&gt; ['Persisted']<br>&nbsp; &nbsp; );<br> <br>&nbsp; &nbsp; sub restart {<br>&nbsp; &nbsp; &nbsp; &nbsp; my ( $self, $nice ) = @_;<br>&nbsp; &nbsp; &nbsp; &nbsp; say $nice ? 'yes' : 'no';<br>&nbsp; &nbsp; }</tt></p></div> </blockquote><p>Where Persistent is a parameterized  role applied to the metaclass, and SomeORM is a parameter to define what storage engine to use. Effectively your Class's instance has-a ORM and that ORM is used to persist the attributes you care about.
+
+</p><p>To be more blunt, dami is correct<nobr> <wbr></nobr>... the relationship between between SomeORM and Server is 'has' not 'does' or 'is'. Your use of roles there doesn't change that fact it simply hides the implementation you're complaining about somewhere useful for the sake of your argument.</p>
+
+
+
+<h2>A meet-in-the-middle solution: Delegation.</h2>
+<h3><a href="/user/hobbs/">hobbs</a> on 2009-10-08T05:41:44</h3>
+<p>(in Moose syntax because I haven't boned up on this part of the Perl 6 syntax yet)</p><p><tt><br>has '_orm' =&gt; (<br>
+&nbsp; &nbsp; isa =&gt; 'SomeORM',<br>
+&nbsp; &nbsp; is =&gt; 'ro',<br>
+&nbsp; &nbsp; lazy_build =&gt; 1,<br>
+&nbsp; &nbsp; builder =&gt; '_connect_to_orm',<br>
+&nbsp; &nbsp; handles =&gt; [qw(find)],<br>);</tt></p>
+
+
+
+<h2>Representation, not delegation or inheritance</h2>
+<h3><a href="/user/moritz/">moritz</a> on 2009-10-08T09:48:04</h3>
+<p>In a perfect Perl 6 world you'd implement an ORM not as a inheritance or delegation, but by providing a different low-level representation, which manages storage to a db.</p><p>The object doesn't have to be aware that it's stored, you just have to provide a constructor that allows injecting of a different representation.</p><p>Sadly Rakudo doesn't implement representation polymorphism yet, SMOP might do it already</p>
+
+
+
+<h2>A verbose response</h2>
+<h3><a href="/user/nothingmuch/">nothingmuch</a> on 2009-10-08T15:53:03</h3>
+<p>I started responding in comments yesterday, but moved it to a blog post when it grew long. Then it grew longer<nobr> <wbr></nobr>;-)</p><p>Short story: I think moritz has hit the nail on the head, but I go into details about the ideas that dami, perigrin and hobbs commented about.</p><p><a href="http://blog.woobling.org/2009/10/roles-and-delegates-and-refactoring.html" title="woobling.org">http://blog.woobling.org/2009/10/roles-and-delegates-and-refactoring.html</a woobling.org></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

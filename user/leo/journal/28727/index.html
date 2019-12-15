@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of leo: Parrot: if vs. unless</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Parrot: if vs. unless</h1>
+<h2><a href="/user/leo/">leo</a> on 2006-02-18T21:12:58</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Parrot provides two opcodes to branch on the truthness of a
+register: <code>if</code> and <code>unless</code>. It looks
+like that it's just a matter of taste, which one to use. Is it
+really?</p>
+
+<p>Not with modern CPUs with branch prediction rules and
+with JIT code inside tight inner loops. Below are two versions
+of the ackermann function, one written with <code>if</code>
+and one using <code>unless</code>. (If you are missing the
+loop in the code, well, that's coming from tailcall
+optimization, turned on with <code>-Oc</code>.)</p>
+
+<p>
+<code>
+$ cat ack-if.pir<br>
+  .sub&nbsp;ack<br>
+  &nbsp;&nbsp;.param&nbsp;int&nbsp;x<br>
+  &nbsp;&nbsp;.param&nbsp;int&nbsp;y<br>
+  &nbsp;&nbsp;if&nbsp;x&nbsp;goto&nbsp;a1<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;inc&nbsp;y<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;.return&nbsp;(y)<br>
+  a1:<br>
+  &nbsp;&nbsp;if&nbsp;y&nbsp;goto&nbsp;a2<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;dec&nbsp;x<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;.return&nbsp;ack(x,&nbsp;1)<br>
+  a2:<br>
+  &nbsp;&nbsp;dec&nbsp;y<br>
+  &nbsp;&nbsp;y&nbsp;=&nbsp;ack(x,&nbsp;y)<br>
+  &nbsp;&nbsp;dec&nbsp;x<br>
+  &nbsp;&nbsp;.return&nbsp;ack(x,&nbsp;y)<br>
+  .end<br>
+</code>
+</p>
+
+<p>
+<code>
+$ cat ack-unless.pir<br>
+  .sub&nbsp;ack<br>
+  &nbsp;&nbsp;.param&nbsp;int&nbsp;x<br>
+  &nbsp;&nbsp;.param&nbsp;int&nbsp;y<br>
+  &nbsp;&nbsp;unless&nbsp;x&nbsp;goto&nbsp;a1<br>
+  &nbsp;&nbsp;unless&nbsp;y&nbsp;goto&nbsp;a2<br>
+  &nbsp;&nbsp;dec&nbsp;y<br>
+  &nbsp;&nbsp;y&nbsp;=&nbsp;ack(x,&nbsp;y)<br>
+  &nbsp;&nbsp;dec&nbsp;x<br>
+  &nbsp;&nbsp;.return&nbsp;ack(x,&nbsp;y)<br>
+  a1:<br>
+  &nbsp;&nbsp;inc&nbsp;y<br>
+  &nbsp;&nbsp;.return&nbsp;(y)<br>
+  a2:<br>
+  &nbsp;&nbsp;dec&nbsp;x<br>
+  &nbsp;&nbsp;.return&nbsp;ack(x,&nbsp;1)<br>
+  .end<br>
+</code>
+</p>
+<p>And here are the timings of both with <code>./parrot -Oc -Cj ack-xx.pir 12</code>
+on an AMD X2@2000: </p>
+<p><code>
+ack-if&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2.9&nbsp;s<br>
+ack-unless&nbsp;&nbsp;2.4&nbsp;s</code></p>
+
+<p>Branches with positive branch offsets (downwards) are considered to be likely
+not taken, that is the fall-through case is the default one. As there are a lot
+more positive numbers than the one zero, the <code>unless</code> is the better choice
+here (for some CPUs, YMMV). Well, that's at least my
+conclusion for now. But there is another issue: branch
+alignment. I've not yet experimented with
+different label alignments, but I know that alignment can
+cause timing differences like above too.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Not sure if this appears at the Parrot level...</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2006-02-18T21:53:43</h3>
+But "if" cannot be replaced by "unless" and vice versa in every case.  Witness:<blockquote> <div><tt>sub using_if {<br>&nbsp; $value = 3;<br>&nbsp; "bogus" if not $value;<br>}<br>sub using_unless {<br>&nbsp; $value = 3;<br>&nbsp; "bogus" unless $value;<br>}<br>my $result_if = using_if(); # will be "false" (result of "not $value")<br>my $result_unless = using_unless(); # will be 3 (result of $value)</tt></div> </blockquote>A similar dichotomy results from "while" vs "until".  So, both are needed.
+
+
+
+<h2>PBP</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2006-02-18T22:38:04</h3>
+Since I am trying to get my code inline with "Perl Best Practices", "unless" is discouraged.
+
+
+
+<h2>Also...</h2>
+<h3><a href="/user/JonathanWorthington/">JonathanWorthington</a> on 2006-02-18T22:48:25</h3>
+"Branches with positive branch offsets (downwards) are considered to be likely not taken, that is the fall-through case is the default one."<br><br>Yup, this comes down to branch prediction in the CPU which is one of many performance tricks they do. You've probably guessed this, but they also expect that branches with negative branch offsets are likely to be taken, since they are probably loops. That means you're better off putting your termination test at the end of the loop, and to account for loops where you test the condition first branch to the test. And as that's an unconditional branch, there's no chance of predicting it wrong.<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

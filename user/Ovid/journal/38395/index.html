@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Class::Sniff Now Detects &quot;Duplicate&quot; Methods</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Class::Sniff Now Detects &quot;Duplicate&quot; Methods</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-02-02T20:58:58</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Yeah, I know, you're sick of hearing about Class::Sniff.  I'll be over this manic streak soon :)</p>
+
+<p>It now detects and reports "duplicate" methods via this evil hack:</p>
+
+<pre>my $walker = B::Concise::compile( '-terse', $coderef ); 
+B::Concise::walk_output( \my $buffer);
+$walker->();
+$buffer =~ s/^.*//;   # strip method name
+$buffer =~ s/\(0x[^)]+\)/(0xHEXNUMBER)/g;   # normalize addresses
+my $digest = Digest::MD5::md5_hex($buffer);
+$self->{duplicates}{$digest} ||= [];
+
+# later we check if there is more than one entry
+push @{ $self->{duplicates}{$digest} } => [$class, $method];</pre>
+
+<p>It's severely limited, but I'm hoping it will offer a slight benefit for obviously cut-n-pasted code. We report duplicates based on identical op-trees. If the method names are different or the variable names are different, that's OK. Any change to the op-tree, however, will break this. The following two methods are identical, even if they are in different packages:</p>
+
+<pre>sub inc {
+    my ( $self, $value ) = @_;
+    return $value + 1;
+}
+
+sub increment {
+    my ( $proto, $number ) = @_;
+    return $number + 1;
+}</pre>
+
+<P>However, this will not match the above methods:</p>
+
+<pre>sub increment {
+    my ( $proto, $number ) = @_;
+    return 1 + $number;
+}</pre>
+
+<p>Class::Sniff 0.05 should be at your local CPAN mirror soon.</p>
+
+<P>(Now to get around to the Foo::Bar, Foo::Bar::Baz issue that Adam Kennedy pointed out).</p></p>
+
+
+<hr/>
+
+
+
+<h2>Stupid question...</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2009-02-02T22:13:34</h3>
+<p>If two packages import the same function from a module, will it think that this is duplicated code in 3 packages, or will it notice that they are the same subroutine so one function happens to appear in 3 places?</p><p>If it sees this as duplicated code then I foresee enough false positives to render it useless.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Stupid question...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-02T22:43:01</h3>
+<p>It will think this is duplicated code in 3 packages.  You would be running this on OO code, generally.  Exporting functions into OO packages is a dodgy practice.  It can override things you didn't want it to override and can show up as a "method" when it shouldn't.  However, that's why I have the human-readable report and these are just "smells".  After a while, people will learn to recognize these issues and ignore them.</p><p>I might even provide a<nobr> <wbr></nobr>.sniffrc format so that people can ignore <tt>Carp::croak</tt> or whatever else they put in there.  Right now, I don't want to plan too much as I'd like to get some real-world feedback on what people experience with this.  It might very well be useless.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Stupid question...</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2009-02-03T00:18:51</h3>
+<p>Well as you say, lots of OO code still imports croak.  Also there are people who do mixins.  What about those?  Sure, you can claim they are dodgy, but when they happen fairly often not by accident.</p><p>It seems to me that if you know that A::foo and B::bar have the same opcode, that it wouldn't be too hard to check whether \&amp;A::foo == \&amp;B::foo before reporting on the problem?  For simple OO code this is would cut down the false positives.  That eliminates the repeated croak issue fairly easily.</p><p>Unfortunately this won't cover the case where, for instance, someone does:</p><p>for my $field (@fields) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; no strict 'refs';<br>
+&nbsp; &nbsp; &nbsp; &nbsp; *{"$field"} = make_getter($field);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; *{"set_$field"} = make_setter($field);<br>}</p><p>And now there are lots of methods whose opcodes are identical, but whose references are different.  This will be a problem for people using ORMs, or a number of OO frameworks.  That's a pretty big limitation.  If you can't find any other way around it, though, you can just provide a way to list a set of examples of all sets of generated functions.  So in this case you would list one getter and one setter, and it will assume that all functions with those opcodes are generated and should not be reported on.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Stupid question...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-03T07:53:50</h3>
+<p>Ironically, lots of getters and setters are also a code smell in OO code, but trying to explain <em>that</em> one to programmers is like trying to nail pudding to a wall.  As for mixins, traits and roles, yes, this will be problematic.  I don't want special cases, but I <em>think</em> I can handle <a href="http://search.cpan.org/dist/Class-Trait/" title="cpan.org">Class::Trait</a cpan.org> and <a href="http://search.cpan.org/dist/Moose/lib/Moose/Role.pm" title="cpan.org">Moose::Role</a cpan.org>, as I think those are the two most common ways of implementing this.</p><p>The \&amp;A::foo == \&amp;B::foo is important, but there's an interesting caveat.  For a couple of the unreachable methods I discovered yesterday, we had functions exported into a namespace and due to <a href="http://search.cpan.org/dist/Exporter-NoWork/" title="cpan.org">Exporter::NoWork</a cpan.org> (great module.  Wish I hadn't introduced it at work) were getting accidentally re-exported to other classes in a cascading behavior.   Finding duplicate functions can help with this.  I'll provide facilities for people to ignore certain duplicate functions, but for now, I still think it's useful.</p>
+
+
+
+<blockquote>
+
+<h2>Re: Exporter::NoWork</h2>
+<h3><a href="/user/mauzo/">mauzo</a> on 2009-02-03T14:46:20</h3>
+Would an option to not re-export subs which were imported from somewhere else help, or are you relying on that behaviour?
+<p>I often wish there was a straightforward way to import subs into a lexical scope, so you can use unqualified function names without them showing up as methods. Moose offers <code>no Moose;</code> to do this, but it would be good to have something that hooked into <code>UNITCHECK</code> or some such which would allow</p><blockquote><div><p> <tt>&nbsp; &nbsp; use lexically "Carp";<br>&nbsp; &nbsp; use lexically "Scalar::Util", qw/weaken/;</tt></p></div> </blockquote><p>(Oh, and yet again I wish Perl 5 had a 'package name' type, so I didn't have to quote those...)</p>
+
+
+
+<blockquote>
+
+<h2>Re: Exporter::NoWork</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2009-02-03T16:44:54</h3>
+<p>The straightforward way you were <b>not</b> looking for is:</p><p>my $weaken = \&amp;Scalar::Util::weaken;<nobr> <wbr></nobr>...<br>$weaken-&gt;($ref);</p><p>It looks odd, but I've actually used this technique upon rare occasion and found it worked well.</p>
+
+
+
+<h2>Re: Exporter::NoWork</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2009-02-05T14:20:06</h3>
+<p>I do this all the time instead:</p><blockquote><div><p> <tt>package Foo;<br>use Moose; # exports a lot implicitly<br>use Scalar::Util qw( blessed );<br> <br># this removes everything imported above, but<br># expcludes the meta method installed by Moose<br>use namespace::clean -except =&gt; 'meta';</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re: Exporter::NoWork</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-05T14:26:51</h3>
+<p>I know you know this, but for others:  <tt>namespace::clean</tt> is great.  It removes those methods from the namespaces.  Thus:</p><blockquote><div><p> <tt>#!/usr/bin/env perl<br> <br>use strict;<br>use warnings;<br> <br>{<br>&nbsp; &nbsp; package Foo;<br>&nbsp; &nbsp; use Moose;<br>&nbsp; &nbsp; use Scalar::Util 'blessed';<br>&nbsp; &nbsp; use namespace::clean -except =&gt; 'meta';<br>}<br>use Class::Sniff;<br>my $sniff = Class::Sniff-&gt;new({class =&gt; 'Foo'});<br>print $sniff-&gt;to_string;<br>print $sniff-&gt;report;<br> <br>__END__<br>+---------------+<br>| Moose::Object |<br>+---------------+<br>&nbsp; ^<br>&nbsp; |<br>&nbsp; |<br>+---------------+<br>|&nbsp; &nbsp; &nbsp; Foo&nbsp; &nbsp; &nbsp; |<br>+---------------+<br>Report for class: Foo<br> <br>Overridden Methods<br>.--------+------------------------------------------------------------<nobr>-<wbr></nobr>  -------.<br>| Method | Class&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; |<br>+--------+------------------------------------------------------------------<nobr>-<wbr></nobr>  -+<br>| meta&nbsp; &nbsp;| Foo&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; |<br>|&nbsp; &nbsp; &nbsp; &nbsp; | Moose::Object&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; |<br>'--------+------------------------------------------------------------------<nobr>-<wbr></nobr>  -'</tt></p></div> </blockquote><p>So 'blessed' won't show up, but <tt>meta is exported from Moose and is reported as "overridden" (which it is) and existing in both %Foo:: and %Moose::</tt></p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Stupid question...</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2009-02-03T16:56:03</h3>
+<p>Yes, I am well aware of the theories of OO design which say you don't want getters and setters.  However I am <b>also</b> well aware that there are plenty of common approaches to common problems that use getters and setters and work well.  Being the kind of person who prefers to worry about practicalities rather than someone's abstract theories, I feel no need to apologize about using getters and setters where it is appropriate.</p><p>An example I would offer is for using an object-relational mapper like Rose::DB to make it easy to fetch and retrieve data from a database without having to write SQL.  If your design becomes more complicated, you might want to put wrappers on top of that to export cleaner APIs that hide the getters and setters.  But having the actual database access mediated by an ORM is perfectly appropriate, and for what the ORM does, creating getters and setters is a very reasonable interface.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Stupid question...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-03T17:55:49</h3>
+<p>It's a code <em>smell</em>, not a code error.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>I'm not sick of it!</h2>
+<h3><a href="/user/drhyde/">drhyde</a> on 2009-02-03T14:55:15</h3>
+<blockquote><div><p>Yeah, I know, you're sick of hearing about Class::Sniff</p></div></blockquote><p>
+
+I'm not!  It's good to hear about useful stuff that people are working on.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Matts: XS/guts Expert help needed</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>XS/guts Expert help needed</h1>
+<h2><a href="/user/Matts/">Matts</a> on 2006-11-10T22:27:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Anyone got any idea why the following leaks like a sieve:
+<pre>char *
+getline(str)
+    SV * str
+    CODE:
+    {   
+        STRLEN len;
+        char *cval = SvPV(str, len);
+        char *ret = (char*)calloc(len+1, sizeof(char));
+        I32 taken = 0;
+        if (!SvOK(str)) {
+            XSRETURN_UNDEF;
+        }
+        if (SvTYPE(str) < SVt_PVIV)
+            sv_upgrade(str,SVt_PVIV);
+        RETVAL = ret;
+        while (*cval) {
+            *ret = *cval;
+            if (*cval == '\n')
+                break;
+            *cval++; *ret++; taken++;
+        }
+        if (*cval == '\n') {
+            *cval++; *ret++; taken++;
+        }
+        *ret = 0;
+        if (!SvOOK(str)) {
+            SvOOK_on(str);
+            SvIVX(str) = 0;
+        }
+        SvIVX(str) += taken;
+        SvPVX(str) += taken;
+        SvLEN(str) -= taken;
+        SvCUR(str) -= taken;
+    }
+    OUTPUT:
+      RETVAL
+</pre><br/><br/>It's designed to be a fast replacement for: s/^(.*?)\n//; in case you were wondering, and uses the rather underdocumented OOK hack in perl core (which allows you to quickly truncate off the start of a string by specifying an offset in the IV slot).</p>
+
+
+<hr/>
+
+
+
+<h2>Re: XS/guts Expert help needed</h2>
+<h3><a href="/user/jmcnamara/">jmcnamara</a> on 2006-11-10T23:50:46</h3>
+I'm guessing based on the C parts since I don't know XS very well.<br><br>Aren't you calloc()ing a char buffer without free()ing it.<br><br>John.<br>--<br>
+
+
+
+<blockquote>
+
+<h2>Re: XS/guts Expert help needed</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-11-11T00:01:54</h3>
+Yes, but perl should free that when the SvREFCOUNT reaches zero.
+
+
+
+<blockquote>
+
+<h2>Re: XS/guts Expert help needed</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-11-11T00:07:49</h3>
+Never mind, that does indeed appear to be the culprit. How strange - I could have sworn perl free'd the strings.
+
+
+
+<blockquote>
+
+<h2>Re: XS/guts Expert help needed</h2>
+<h3><a href="/user/clkao/">clkao</a> on 2006-11-11T00:33:21</h3>
+The string (ret) is copied from the svpv, and not maintained by any sv so it's not perl's responsibility to manage the memory allocated to it.
+
+
+
+<blockquote>
+
+<h2>Re: XS/guts Expert help needed</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-11-11T00:50:02</h3>
+What's weird is this pretty much guarantees that a char * typemap will leak (as you can't free it before you return) unless you are returning static char *s.
+
+
+
+<blockquote>
+
+<h2>Re: XS/guts Expert help needed</h2>
+<h3><a href="/user/demerphq/">demerphq</a> on 2006-11-11T11:14:18</h3>
+Why are you returning a char * anyway? Why dont you return an SV? Something like this untested version of your code. Also doing *foo++; is pretty misleading since its the same as foo++;.<br><br>SV *<br>getline(str)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; SV * str<br>
+&nbsp; &nbsp; &nbsp; &nbsp; CODE:<br>
+&nbsp; &nbsp; &nbsp; &nbsp; {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; STRLEN len;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; char *cval = SvPV(str, len);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SV* retsv;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; I32 taken = 0;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; char *ret_str;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (!SvOK(str)) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; XSRETURN_UNDEF;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; retsv= newSVpvn("",0);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SvGROW(retsv,len+1);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ret_str = SvPV_nolen(retsv);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (SvTYPE(str)  SVt_PVIV)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; sv_upgrade(str,SVt_PVIV);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; RETVAL = retsv;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; while (*cval) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; *ret = *cval;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (*cval == '\n')<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; break;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; cval++; ret_str++; taken++;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (*cval == '\n') {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; cval++; ret_str++; taken++;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; *ret_str = 0;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SvCUR_set(retsv,taken);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (!SvOOK(str)) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SvOOK_on(str);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SvIVX(str) = 0;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SvIVX(str) += taken;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SvPVX(str) += taken;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SvLEN(str) -= taken;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SvCUR(str) -= taken;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; OUTPUT:<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; RETVAL
+
+
+
+<blockquote>
+
+<h2>Re: XS/guts Expert help needed</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-11-11T16:54:21</h3>
+Thanks, that works perfectly (aside from a minor typo in the main loop)<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re: XS/guts Expert help needed</h2>
+<h3><a href="/user/Kaffeemaschine/">Kaffeemaschine</a> on 2006-11-12T13:18:10</h3>
+The char* typemap uses newSVpv to turn the char* into an SV*.  newSVpv copies the string into the scalar.  Two options: use a CLEANUP section to free the string or use a custom typemap that frees the string.<br><br>CLEANUP section:<nobr> <wbr></nobr>...<br>
+&nbsp; &nbsp; CLEANUP:<br>
+&nbsp; &nbsp; &nbsp; &nbsp; free (ret);<br><br>Custom typemap: in a typemap file:<br><br>TYPEMAP<br>char_own * T_CHAR_OWN<br>OUTPUT<br>T_CHAR_OWN<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; sv_setpv ((SV*)$arg, $var);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; g_free ($var);<br><br>And then use char_own* instead of char* for the type of the return value of the xsub.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re: XS/guts Expert help needed</h2>
+<h3><a href="/user/demerphq/">demerphq</a> on 2006-11-11T00:41:26</h3>
+If you did a SAVEFREEPV() on the pointer it would be added to the savestack and freed the next time the save stack was cleared.<br><br>But you shouldn't use calloc() or other system level memory allocation routines. You should use New() or one of its variants. This is because Perl may be configured to use its own malloc routines and using the system ones at the same time could lead to issues. IOW, it might work fine for you on your box but might go disasterously wrong when built on a Perl with a different configuration.<br><br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

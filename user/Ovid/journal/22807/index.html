@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: A brief look at &quot;real&quot; OO</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>A brief look at &quot;real&quot; OO</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-01-20T17:03:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I was thinking about putting together a talk about different programming styles and I decided to loosely translate the following snippet from Squeak (a free implementation of Smalltalk):</p>
+
+<pre>hello: times say: text
+    (times > 100) 
+        ifTrue: [ Transcript show: 'You will get bored!']
+        ifFalse: [1 to: times do: [:i | (Transcript show: text) cr]]</pre>
+
+<p>It's like some kind of bizarro mirror universe where everything looks OK until you peer closely at it.  Since Squeak doesn't have if/then statements, what's really going on is the "greater than" comparison is actually a constructor and <tt>ifTrue</tt> and <tt>ifFalse</tt> are actually messages sent to the boolean object.  It can choose to act on those messages or not and if it does, the code in the square brackets is evaluated (think "anonymous sub".)  As a result, you really do have complete encapsulation and you could even reorder those messages if you so desired.  In a traditional if/else statement, that's not always as easy.</p>
+
+<p>To translate that into Perl, you might have the body of the method looking similar to this:</p>
+
+<pre>(Boolean->gt($times, 100))
+    ->ifTrue(  sub {print "You will get bored!" } )
+    ->ifFalse( sub {print $text for 1 .. $times } );</pre>
+
+<p>(Yes, I cheated with the range operator.)</p>
+
+<p>And the relevent methods in <tt>Boolean</tt> might look like this:</p>
+
+<pre>package Boolean;
+
+sub gt {
+    my ($class, $num1, $num2) = @_;
+    bless {
+        true => ($num1 > $num2)
+    } => $class;
+}
+
+sub ifTrue {
+    my $self = shift;
+    $self->{true} && shift->();
+    return $self;
+}
+
+sub ifFalse {
+    my $self = shift;
+    ! $self->{true} && shift->();
+    return $self;
+}
+
+1;</pre>
+
+<p>No <tt>if</tt> statements at all (though they're there in disguise.)</p>
+
+<p>I'm not recommending this particular technique, but I did think it was a fascinating look at "pure OO" and its implications.  This has proven very helpful to me as it taught me to take a closer look at how I use <tt>if</tt> statements.  Much of my code is now conceptually cleaner due to finding a different way of thinking about the problem. </p></p>
+
+
+<hr/>
+
+
+
+<h2>Pragmatism versus Purity</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2005-01-20T17:54:42</h3>
+That code example should be exhibit A in why I prefer Ruby over Smalltalk.  That, and the image-based versus file-based issue.<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Pragmatism versus Purity</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2005-01-20T18:02:31</h3>
+Smalltalk syntax is like lisp syntax.  It's deliberately small so that it can be parsed easily, and reflexive programming is easy.
+<p>
+Squeak also includes a more traditional syntax if you choose to use it (most don't), but can still map the one syntax to the other, without even losing comment locations.
+</p><p>
+Or, you can program in a tile-like environment in Morphic, which again builds Smalltalk methods from the tiles.
+</p><p>
+The nice thing about Smalltalk is that it's a way of life, not a language.  And every part of it is tweakable.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>This reminds me of something I did once</h2>
+<h3><a href="/user/stvn/">stvn</a> on 2005-01-20T19:20:13</h3>
+This reminds me of something I did once on a long Metro-North ride home from NYC after reading a having read a paper on Smalltalk.<blockquote><div> <tt>#!/usr/bin/perl<br> <br>use strict;<br>use warnings;<br> <br>use Test::More tests =&gt; 2;<br> <br>{<br>&nbsp; &nbsp; package Boolean;<br> <br>&nbsp; &nbsp; use strict;<br>&nbsp; &nbsp; use warnings;<br> <br>&nbsp; &nbsp; sub import {<br>&nbsp; &nbsp; &nbsp; &nbsp; no strict 'refs';<br>&nbsp; &nbsp; &nbsp; &nbsp; *{(caller())[0] . '::cond'} = \&amp;cond;<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; sub cond (&amp;) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my ($block) = @_;<br>&nbsp; &nbsp; &nbsp; &nbsp; return bless $block, "Boolean";<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; sub isFalse {<br>&nbsp; &nbsp; &nbsp; &nbsp; my ($self, $sub) = @_;<br>&nbsp; &nbsp; &nbsp; &nbsp; $sub-&gt;() if not $self-&gt;();<br>&nbsp; &nbsp; &nbsp; &nbsp; return $self;<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; sub isTrue {<br>&nbsp; &nbsp; &nbsp; &nbsp; my ($self, $sub) = @_;<br>&nbsp; &nbsp; &nbsp; &nbsp; $sub-&gt;() if $self-&gt;();<br>&nbsp; &nbsp; &nbsp; &nbsp; return $self;<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; sub whileTrue {<br>&nbsp; &nbsp; &nbsp; &nbsp; my ($self, $sub) = @_;<br>&nbsp; &nbsp; &nbsp; &nbsp; $sub-&gt;() while $self-&gt;();<br>&nbsp; &nbsp; &nbsp; &nbsp; return $self;<br>&nbsp; &nbsp; }<br> <br>}<br> <br>BEGIN {<br>&nbsp; &nbsp; # this would normally be 'use Boolean'<br>&nbsp; &nbsp; Boolean-&gt;import();<br>}<br> <br>{<br>&nbsp; &nbsp; my $e = 0;<br>&nbsp; &nbsp; cond { $e &lt; 10 }-&gt;whileTrue( sub { $e++ } );<br>&nbsp; &nbsp; cmp_ok($e, '==', 10, '... $e is 10 now');<br>}<br> <br>{<br>&nbsp; &nbsp; my $e = 2;<br>&nbsp; &nbsp; cond { $e == 2 }-&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; isTrue(<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; cond { $e == 3 }-&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; isFalse(sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; pass('... we got to the correct branch');<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; })-&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; isTrue(sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; fail('we should not end up here');<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; })<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; )-&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; isFalse(sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; fail('we should not end up here');<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; });<br>}</tt> </div></blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:This reminds me of something I did once</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-01-20T20:52:47</h3>
+<p>Sweet!  I would change two methods:</p> <blockquote><div> <tt>sub isFalse {<br>&nbsp; &nbsp; my ($self, $sub) = @_;<br>&nbsp; &nbsp; ! $self-&gt;() &amp;&amp; $sub-&gt;();<br>&nbsp; &nbsp; return $self;<br>}<br> <br>sub isTrue {<br>&nbsp; &nbsp; my ($self, $sub) = @_;<br>&nbsp; &nbsp; $self-&gt;() &amp;&amp; $sub-&gt;();<br>&nbsp; &nbsp; return $self;<br>}</tt> </div></blockquote> <p>Maybe I can slip this into production<nobr> <wbr></nobr>... (no, I'm not serious.)</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>ÃâÃâP</h2>
+<h3><a href="/user/TorgoX/">TorgoX</a> on 2005-01-21T04:26:45</h3>
+"Real" OO is <a href="http://interglacial.com/user/sburke/pub/Borges_-_Tlon,_Uqbar,_Orbis_Tertius.html" title="interglacial.com">Tl&ouml;n</a interglacial.com> -- a nice place to visit but I wouldn't want to <em>think</em> there.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

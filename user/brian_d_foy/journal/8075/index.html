@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: Finding Prerequisites</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Finding Prerequisites</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2002-09-29T01:56:55</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>A couple of weeks ago I released a bunch of Test:: modules. Somewhere after The Perl Conference I started to convert all of my tests to Test::More and along the way I found I needed a lot of other stuff too.<br/><br/>With such rapid releases I made plenty of mistakes, and the most egregious one, missing dependencies for PREREQ_PM, caused almost all of the new modules to FAIL CPAN Testers. I think one base module missed a dependency, and it went south from there.<br/><br/>Every time something like this happens, I write a some sort of test to detect it.  In this case, I need to determine if all of the modules I use in the distribution show up in Makefile.PL.<br/><br/>I started fooling around with %INC, the special hash that keeps track of loaded modules.  That hash, however, keeps track of <i>all</i> loaded modules.  Not only does it have keys for the modules that I explicitly loaded, but all of the modules that they loaded too.  I do not need to know about those as long as I trust that their distributions list all of their prerequisites.<br/><br/>While I was looking for something else on CPAN, I came across Module::Info which reports all of the modules that I explicitly load.  It actually walks the script's op-tree which is much better than regular expressions.<br/><br/>Module::Info gets me almost all of the way, but I need to filter that list to remove the modules supplied by the distribution.  Since Business::ISBN depends on Business::ISBN::Data but both come from the same distribution, my prerequisite reporter should not warn me that Business::ISBN depends on Business::ISBN::Data.  Now the fun starts.<br/><br/>I probably could not do this with other languages, but Perl lets me muck with namespaces that do not belong to me.  In this case, I want to execute Makefile.PL but make ExtUtils::MakeMaker do something different.  I do not need another Makefile, but the keys in the PREREQ_PM anonymous hash.  I simply redefine the WriteMakeFile function.<br/><br/><pre>
+sub ExtUtils::MakeMaker::WriteMakefile
+	{
+	my %hash = @_;
+	
+	my $hash = $hash{PREREQ_PM};
+	
+	@prereqs   = sort keys %$hash;
+	}
+</pre><br/><br/>To see which modules are in the distribution, I use File::Find::Rule to look inside blib, the build library.<br/><br/><pre>
+my @files = 
+	map { 
+		my $x = $_;
+		$x =~ s|^$_[0]/?||;
+		$x =~ s/\.pm$//;
+		$x =~ s|/|::|g;
+		$x;
+		}
+		File::Find::Rule->file()->name( '*.pm' )->in( 'blib/lib' );
+</pre><br/><br/>Any other module that Module::Info finds and does not show up in PREREQ_PM or blib I need to put in PREREQ_PM before I release the distribution.<br/><br/>I combined all of this in Test::Prereq and I have been using it for about a month.  I have not had that same annoying problem again, and when I add to my modules, sometimes using a new module, my test suite immediately finds and tells me to fix the problem.  I do not have to remember to fix PREREQ_PM or which modules I need to add.  Test::Prereq does both of those for me. :)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

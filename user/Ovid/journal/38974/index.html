@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Test::Aggregate Breaking Backwards Compatability</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Test::Aggregate Breaking Backwards Compatability</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-05-13T21:53:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>The new <a href="http://github.com/schwern/test-more/tree/master">Test::Builder</a> is giving me fits.  It incorporates some lovely changes, but there's a problem.  The old <tt>Test::Builder</tt> required some very nasty internals hacks by <a href="http://github.com/Ovid/test-aggregate/tree/master">Test::Aggregate</a> to work.  Unfortunately, Schwern's changed the internals for the first time in years.  This is his right and I shouldn't have relied on them, but there wasn't much else I could do unless I bundled my own <tt>Test::More</tt> distribution and that would have introduced an entirely different set of problems (just bundling <tt>Test::Builder</tt> would fail as an updated <tt>Test::More</tt> might try to call new <tt>Test::Builder</tt> features as it does now).</p>
+
+<p>The <tt>Test::Aggregate</tt> I'm working on now faces the problem of multiple calls to <tt>done_testing()</tt>.  Further, there are issues with calls to any tests in BEGIN/CHECK/INIT/END blocks.  I think I'm going to go ahead and bite a huge bullet (this was marked as ALPHA code, after all).  I'm going to deprecate tests in those blocks and eventually call BAILOUT on them.</p>
+
+<p>The problem with code in BEGIN/CHECK/INIT/END blocks is that there are timing problems associating them and associating the right test with the right test program for diagnostics.  Now, however, you can do this:</p>
+
+<pre>use Test::Aggregate;
+Test::Aggregate->new(\%options)->run;
+done_testing(217);</pre>
+
+<p>And that will quite nicely provide an ending plan check for you.  However, if any of your aggregated tests provide any tests in END blocks, those are automatically run after your call to <tt>done_testing()</tt>.</P>
+
+<p>As further incentive to remove BEGIN/CHECK/INIT/END blocks, we're moving to nested TAP.  It's critical that tests be nested correctly and there's no way to guarantee this with tests run in those blocks.  As a result, I have the following really, really nasty hack in <tt>Test::Builder::ok()</tt>:</p>
+
+<pre>{
+    my $ok;
+    BEGIN { $ok = \&Test::Builder::ok }
+
+    my %FORBIDDEN = map { $_ => 1 } qw/BEGIN CHECK INIT END/;
+
+    sub Test::Builder::ok {
+        __check_test_count(@_);
+        my $level  = 1;
+        while (1) {
+            my ($caller) = ( ( ( caller($level) )[3] || '' ) =~ /::([[:word:]]+)\z/ );
+            last unless $caller;
+            if ( $FORBIDDEN{$caller} ) {
+                my ( $self, $test, $name ) = @_;
+                $test = $test ? "Yes" : "No";
+                my ( $filename, $line ) = (caller($level))[1,2];
+                $self->diag(<<"                END");
+Aggregated tests must not be run in BEGIN, CHECK, INIT or END blocks.
+File:  $filename
+Line:  $line
+Name:  $name
+Pass:  $test
+                END
+                $self->BAILOUT('Illegal aggregated test call');
+            }
+            $level++;
+        }
+        local $Test::Builder::Level = $Test::Builder::Level + 1;
+        $ok->(@_);
+    }
+}</pre>
+
+<p>I know that people aren't going to be terribly thrilled with this, but it solves many, many problems.</p>
+
+<p>The main issue that people are going to have is this:</p>
+
+<pre>BEGIN { use_ok 'My::Module' or die }</pre>
+
+<p>I recommend that you stop using this meme.  Simply put a 'use My::Module' at the top of your code and put all of your 'use_ok' tests into one 'load.t' test which is <em>not</em> aggregated.</p>
+
+<p>I'll try and release the next <tt>Test::Aggregate</tt> with a strong deprecation warning for tests in those blocks instead of the BAILOUT I have in my test code, but I'm sad I have to do this.  Still, the long-term benefits you'll gain from nested TAP in <tt>Test::Aggregate</tt> should be worth it.</p>
+
+<p>I hope.</p>
+
+<p>It should be noted that at the last Perl-QA hackathon, neither Schwern nor I found a clear way of avoiding messing with <tt>Test::Builder</tt> internals.  Doing this cleanly waits on <tt>Test::Builder 2.0</tt>.</p>
+
+<p>Suggestions welcome :)</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

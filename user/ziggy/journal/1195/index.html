@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: Fine-grained vs. coarse-grained Perl code</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Fine-grained vs. coarse-grained Perl code</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2001-11-07T21:50:28</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Here's another example on how and why it's better to express your intent idiomatically instead of using a large amount of small statements to reach your goal.  Consider the following snippet:
+<blockquote><tt>
+my @list = split("\t", $line);<br>
+my $name = $list[0];<br>
+my $address = $list[1];<br>
+my $serial_number = $list[2];<br>
+my $phone_number = $list[3];<br>
+my $userid = $list[4];<br>
+...<br>
+</tt></blockquote>
+<p>
+Now, it's good to see that we're using my variables here.  But that's about the only good element of style here.  Such kinds of operations are quite common.  Unfortnately, this technique not only embeds a knowledge of the format of the data contained in $line, and does so in a brittle manner.
+By explicitly assigning a series of variables to specific indices of the temporary variable <tt>@list</tt>.  This opens up the possibility of introducing bugs as the number of elements grows over time, or as the code is copied and pasted around (this happens more often than we care to admit).
+<p>
+One simple way to improve the code is to replace the assignment from explicit indicies of <tt>@list</tt>:
+<blockquote></tt>
+my @list = split("\t", $line);<br>
+my $name = shift(@list);<br>
+my $address = shift(@list);<br>
+...<br>
+</tt></blockquote>
+<p>
+There is a slight advantage here: now, we don't need to maintain (and debug) which element of <tt>@list</tt> corresponds to a particular named scalar variable; each variable is created and it's value is the next piece of data found in <tt>@list</tt>.
+<p>
+But we can do much better.  If there are 27 variables, there must be 27 explicit assignment statements, whether we use the first style or second style here.  Now is the time to note that the <tt>my</tt> builtin can create a single lexical variable as well as a series of lexical variables.
+It can also assign values to each of the lexical variables it creates in a series:
+<blockquote><tt>
+my ($name, $address, $serial_number, <br>
+&nbsp;&nbsp;&nbsp;&nbsp;$phone_number, $user_id, ...)
+= @list;
+</tt></blockquote>
+<p>
+Now, we're creating a series of variables, tied to the order of data in a list, and assigning one variable to each data element in that list.  Except now, we've done it in a single assignment, and greatly clarified the intent.  The data elements are coming into the program in one group, and we are treating them as a single group.  Our program is now closer to matching our view of the world.
+<p>
+But that's not the only improvement we can make.  Remember that <tt>@list</tt> variable?  Why did it exist in the first place?  It actually doesn't have a role in our program, but acts as a temporary variable needed to ferry values around for 27 assignments.  Here's how we can get rid of it:
+<blockquote><tt>
+my ($name, $address, $serial_number, <br>
+&nbsp;&nbsp;&nbsp;&nbsp;$phone_number, $user_id, ...)
+= split(/\t/, $line);
+</tt></blockquote>
+<p>
+Now the program matches our intent:
+<ol>
+<li>Convert a line of input into a series of values</li>
+<li>Assign each of those values to a specific scalar variable</li>
+</ol>
+<p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Code reviews have to be good for something, eh?</h2>
+<h3><a href="/user/vsergu/">vsergu</a> on 2001-11-08T01:44:04</h3>
+<tt>Are you sending copies of these to the author of the inspirational code?&nbsp; I actually explained this particular code improvement to him on our walk to the Metro, and he seemed to understand what I was taking about.&nbsp; It's not so easy to absorb these things from a purely spoken explanation, though.
+<br>
+<br>I was thinking about introducing the idea of having a hash rather than a bunch of separate scalars, but whether it's worthwhile really depends on how many you've got.&nbsp; With the 27 that you mention, though, I'd definitely go with something like
+<br>
+<br>&nbsp; &nbsp; # Before the loop
+<br>&nbsp; &nbsp; my @fields = qw( name address serial_number phone_number<nobr> <wbr></nobr>... );
+<br>&nbsp; &nbsp; # or maybe read the field names out of the first line of the file,
+<br>&nbsp; &nbsp; # which would make adding fields easier
+<br>&nbsp; &nbsp; my %rec; # to hold the values for one line
+<br>
+<br>&nbsp; &nbsp; # In the loop
+<br>&nbsp; &nbsp; @rec{@fields} = split<nobr> <wbr></nobr>/\t/, $line;
+<br>&nbsp; &nbsp; # or more likely no $line, since I'd use $_
+<br>
+<br>--Keith</tt>
+
+
+
+<blockquote>
+
+<h2>Re:Code reviews have to be good for something, eh?</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2001-11-08T14:35:46</h3>
+Good point.
+<p>
+<i>time passes</i>
+</p><p><nobr> <wbr></nobr>...announced to the dc.pm list.  Julian said he's reading my journal, so he should spot these discussions eventually.  Thanks for the hint.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

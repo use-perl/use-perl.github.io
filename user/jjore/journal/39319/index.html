@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjore: Get a stack trace from your running perl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Get a stack trace from your running perl</h1>
+<h2><a href="/user/jjore/">jjore</a> on 2009-07-20T05:05:49</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>When you've got a process that's spinning and don't know what's going on, it's useful to get a perl level stack trace. There's a "simple" gdb function to get your perl to write its call stack to STDERR. It's not entirely without risk to corrupting your process. I've used it just fine against my mod_perl in prod when all our other normal methods of inspection failed.<br/><br/>Step 1: attach with gdb. <br/><br/><pre>
+jjore$ ps -x
+  PID   TT  STAT      TIME COMMAND
+...
+  765 s001  S      0:00.01 perl -e while(1){sleep 1}<br/><br/>jjore$ gdb --quiet -p 765
+Attaching to process 780.
+Reading symbols for shared libraries . done
+Reading symbols for shared libraries 
+warning: Could not find object file "..." - no debug information available for "...c".
+...
+..... done
+0x9005e46e in __semwait_signal ()
+(gdb) 
+</pre><br/><br/>Step 2: Get a C level backtrace to see if that's informative enough. In this case, I can see the program is current in some sleep functions. In prod, I've seen things like bugs in libxslt show up nicely here - I could see the stack extending down into the libxml/libxslt libraries which eventually lead me to solve the problem by upgrade my libxml library.<br/><br/><pre>
+(gdb) bt
+#0  0x9005e46e in __semwait_signal ()
+#1  0x9005e2ef in nanosleep$UNIX2003 ()
+#2  0x900b3e71 in sleep$UNIX2003 ()
+#3  0x0015a054 in Perl_pp_sleep ()
+#4  0x00081bb7 in Perl_runops_debug ()
+#5  0x000b6791 in perl_run ()
+#6  0x0000247e in main ()
+</pre><br/><br/>Step 3: Get your thread context pointer. For threaded perl, you'll need to pass in a thread context pointer. If this step returns 0x0, you don't have threaded perl and shouldn't pass this argument in. If you get something other than 0x0, you'll need to use this value.<br/><br/><pre>
+(gdb) print $thread_context = (void*)Perl_get_context()
+$1 = (void *) 0x0
+</pre><br/><br/>OR<br/><br/><pre>
+(gdb) print $thread_context = (void*)Perl_get_context()
+$1 = (void *) 0x800000
+</pre><br/><br/>Step 4: Use Carp::cluck() from inside gdb. If you've got a $thread_context, use it.<br/><br/><pre>
+(gdb) call (void*)Perl_eval_pv($thread_context, "require Carp;Carp::cluck('Hi')", 0)
+</pre><br/><br/>OR<br/><br/><pre>
+(gdb) call (void*)Perl_eval_pv("require Carp; Carp::cluck('Hi')", 0)
+</pre><br/><br/>Step 5: Profit.<br/><br/><pre>
+Hi at (eval 1) line 1
+	eval 'require Carp; Carp::cluck(\'Hi\')
+;' called at -e line 1
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>sighandler</h2>
+<h3><a href="/user/srezic/">srezic</a> on 2009-07-22T09:40:15</h3>
+<p>If I know beforehand that a script can run a long time or something unexpected is likely to happen, then I install a sighandler to give me a stack trace:</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; use sigtrap "handler" =&gt; sub { require Carp; Carp::carp() }, 'USR1', 'INFO';</p><p>That way I can do "kill -USR1 " and see what's going on.</p><p>This is especially nice on BSD systems, where SIGINFO exists. SIGINFO is typically bound to CTRL-T, so I don't have to find the pid (if the script runs in the terminal). The default output of CTRL-T provides also some numbers about memory and CPU usage and the current process state.</p>
+
+
+
+<h2>Impressive!</h2>
+<h3><a href="/user/bart/">bart</a> on 2009-07-23T12:59:10</h3>
+I've said it before, but... wow. You never cease to amaze me.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

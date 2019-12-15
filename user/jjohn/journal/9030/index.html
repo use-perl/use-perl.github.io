@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjohn: HTTP::Daemon and 'broken pipe' errors</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>HTTP::Daemon and 'broken pipe' errors</h1>
+<h2><a href="/user/jjohn/">jjohn</a> on 2002-11-20T03:47:55</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I'm working on a game similar to <a href="http://www.rtsoft.com/fq/">Funeral Quest</a> (an upgrade to 
+which is due soon). It's a turned-based web game based on UFOlogy 
+(go with what you know, I say). I'll have details on the game some.
+Naturally, the game is written in Perl.
+ 
+<p>The game includes a single-threaded web server implemented with 
+Gisle Aas' HTTP::Daemon Class. It's single-threaded because I want to 
+allow users to run the server on Winders, should they choose to and 
+I couldn't figure out how to use threads or ithreads (am I supposed to 
+have access to ithreads?) on win32. 
+
+<p>For simple tests, getting a file or a small web page, HTTP::Daemon works
+fine. The problem started when it attempted to serve a web page with 
+15 images on it. When the server tried to server the third file (an image), 
+I'd get a 'broken pipe' error my server would halt. As I worked to isolate
+the problem, I found that the error was coming from this simple loop in 
+HTTP::Daemon::ClientConn::send_file:
+
+<pre>
+    while ($n = sysread($file, $buf, 8*1024)) {
+        last if !$n;
+        $cnt += $n;
+	print $self $buf;
+    }
+</pre>
+
+<p>As I step through this code in the debugger, I found that after the 
+second iteration $self (a kind of IO::Socket::INET object) would choke.
+Bummer. I tried changing from print to syswrite, but that didn't change the 
+behavoir at all. 
+
+<p>I turned to Google.
+
+<p>Digging around, I found this post from 1997:
+<pre>
+Gisle Aas (gisle@aas.no)
+26 Nov 1997 11:39:19 +0100 
+
+Previous message: Gisle Aas: "Re: libwww-per-5.16" 
+In reply to: Joerg Kammerer: "Broken Pipe" 
+
+------------------------------------------------------------------
+
+Joerg Kammerer <jk@schlund.de> writes:
+
+> Hope for a Tip...
+
+Add:
+
+   $SIG{'PIPE'} = 'IGNORE';
+
+to your script.
+</pre>
+
+<p>Sure enough, that seems to do the trick. An early hack I thought of 
+that sort of worked was:
+<pre>
+$SIG{WARN} = sub { exec "/usr/bin/perl $0" };
+</pre>
+
+<p>This restarts the server on a broken PIPE error. Unfortunately, the 
+file that choke the server wouldn't get sent. 
+
+<p>It would be super if Gisle added this little gotcha to his HTTP::Daemon
+man page. If not, I'm sure others will find this journal page when they 
+Google for a solution, as I did.
+
+<p>Guru advice is welcomed. Any thoughts on why the server connection chokes?
+It looks like some kind of I/O buffer is getting full. Because I can 
+safely ignore the signal, I'm guessing that the I/O that trigger the signal
+gets cleared and more traffic is accepted on that socket. Is this some kind 
+of race condition?
+
+<p>Also, should I abandon the fantasy of expecting perl 5.6.1 threading to
+work reliably on both Linux and Windows? 
+
+<p>You guys are the best...
+</p>
+
+
+<hr/>
+
+
+
+<h2>Perl 5.6.1 threading</h2>
+<h3><a href="/user/samtregar/">samtregar</a> on 2002-11-20T06:34:28</h3>
+Yes.  Immediately abandon the fantasy of getting 5.6.1 threads stable <i>anywhere</i>.  Perl's threading support isn't even close to stable until 5.8.0, and even then there are a few problems left to deal with.  I wrote <a href="http://www.perl.com/pub/a/2002/09/04/threads.html" title="perl.com">an article about threading in Perl</a perl.com> that you might find useful.
+<p>
+As for the problems you're having with HTTP::Daemon...  Have you considered posting this as a question on <a href="http://perlmonks.org/" title="perlmonks.org">PerlMonks</a perlmonks.org>?  If there's a better answer out there, surely the monks know it.
+</p><p>
+-sam</p>
+
+
+
+<h2>Threads in 5.6 are bad, Win32 5.8 has ithreads</h2>
+<h3><a href="/user/sky/">sky</a> on 2002-11-20T08:27:00</h3>
+5005 threads and ithreads in 5.6 are just broken, to get atleast working threads you need 5.8 with ithreads.<br/><br/>I would bet that most win32 6.8 users have ithread enable, the default makefile enables them, and so does ActiveState to allow for psuedo-fork to work.
+
+
+
+<blockquote>
+
+<h2>Re:Threads in 5.6 are bad, Win32 5.8 has ithreads</h2>
+<h3><a href="/user/jjohn/">jjohn</a> on 2002-11-20T14:44:45</h3>
+Although AS Perl does have a kind of fork(), I understand that process creation is very slow on Win32. That Threading isn't really happening on 5.6.1 makes me feel less stupid for not getting it to work right.<nobr> <wbr></nobr>;-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

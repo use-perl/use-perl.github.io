@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of cbrooks: Perl and Daily Builds</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl and Daily Builds</h1>
+<h2><a href="/user/cbrooks/">cbrooks</a> on 2002-08-28T15:44:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've been reading a few articles on integrating daily builds into the software development process:
+<br><ul>
+    <li><a href='http://www.joelonsoftware.com/articles/fog0000000023.html'>JoelOnSoftware</a></li>
+    <li><a href='http://www.construx.com/stevemcc/bp04.htm'>Steve  McConnell</a></li>
+    <li><a href='http://freshmeat.net/articles/view/392/'>FreshMeat Editorial</a></li>
+</ul>
+It sounds like many folks see substantial benefits, especially on teams.<br/><br/><br><br>So, I was wondering what a nightly build process might look like to a team using Perl.  <br/><br/><br>Here are a few thoughts:
+<ul>
+    <li>Do a complete checkout from cvs of html pages and scripts</li>
+    <li>Run a link checker for static html pages</li>
+    <li>Run all unit tests</li>
+    <li>Run all regression tests</li>    
+    <li>Any errors break the build</li>
+    <li>tar / gzip everything, and save with a datestamp / build number</li>
+</ul><br/><br/>The nightly build then becomes the tool for syncing the staging and production servers, rather than using cvs update to sync the servers.  The benefit of this is that you can cvs commit files that are not 100% functional / stable, and not worry that they will be released into production on a nightly update, while still maintaining a record of each night's build and smoke test.<br/><br/><br><br>Is anyone working on a Perl project and doing nightly builds?  Do you find it useful?</p>
+
+
+<hr/>
+
+
+
+<h2>Boy do we test</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2002-08-28T22:03:44</h3>
+We use Test::Harness and its supporting tools to test everything.  The initiation of the test isn't automatic, but everything else is.
+<p>
+We have a script called smoke that
+</p><ul>
+<li>Runs *.t files</li>
+<li>Runs *.phpt files, which are PHP versions of *.t files for PHP libraries, and that emits the same style output</li>
+<li>Syntax checks all *.pl, *.pm and *.php files</li>
+</ul>
+<p>
+All this is done by creating my own subclass of Test::Harness::Straps which can handle all those other non-*.t files.
+</p><p>
+Also, some of the test files are meta-test files.  For example, there's a<nobr> <wbr></nobr>.t file that verifies that every<nobr> <wbr></nobr>.pm file in the tree has a corresponding<nobr> <wbr></nobr>.t file, that the POD in that file passes muster, and
+that it uses warnings and strict.</p><blockquote><div> <tt>#!/usr/bin/perl -w<br> <br>use strict;<br>use File::Spec;<br>use File::Find::Rule;<br>use Pod::Checker;<br> <br>use Test::More 'no_plan';<br> <br>my $base = (shift || $ENV{TWROOT} || '.');<br> <br>my $rule = File::Find::Rule-&gt;new;<br>$rule-&gt;or( $rule-&gt;new-&gt;directory-&gt;name('CVS')-&gt;prune-&gt;discard,<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;$rule-&gt;new-&gt;file-&gt;name( '*.pl','*.pm','*.t' ) );<br>my @files = $rule-&gt;in( $base );<br> <br>our $podchecker = Pod::Checker-&gt;new( '-warnings' =&gt; 1 );<br> <br>for my $file ( @files ) {<br>&nbsp; &nbsp; check( $file );<br>}<br> <br>sub check {<br>&nbsp; &nbsp; my $filename = shift;<br> <br>&nbsp; &nbsp; my $dispname = File::Spec-&gt;abs2rel( $filename, $base );<br> <br>&nbsp; &nbsp; local $/ = undef;<br> <br>&nbsp; &nbsp; open( my $fh, $filename ) or return fail( "Couldn't open $dispname: $!" );<br>&nbsp; &nbsp; my $text = &lt;$fh&gt;;<br>&nbsp; &nbsp; close $fh;<br> <br>&nbsp; &nbsp; # Search for strict and warnings.&nbsp; You can get around this just by<br>&nbsp; &nbsp; # having the text in comments, but that's not the point.<br>&nbsp; &nbsp; ok( $text =~<nobr> <wbr></nobr>/use strict;/,&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"$dispname uses strict" );<br>&nbsp; &nbsp; ok( $text =~<nobr> <wbr></nobr>/use warnings;|perl -w/,&nbsp; &nbsp;"$dispname uses warnings" );<br>}</tt> </div></blockquote> <p>
+I'm doing all sorts of automated testing as I keep going on.  I'm thinkin' of starting a series of articles in <a href="http://www.theperlreview.com/" title="theperlreview.com">The Perl Review</a theperlreview.com> on it.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Boy do we test</h2>
+<h3><a href="/user/cbrooks/">cbrooks</a> on 2002-08-29T16:16:23</h3>
+Cool stuff.  What I'm trying to sort out for myself is if there are additional benefits to be found from doing a <i>build</i> on a nightly basis.  That is, doing a cvs checkout into a fresh directory, firing up an Apache process which points to that directory, running the automated tests, then (assuming everything passes) tar'ing up the directory and storing it away.
+<br> <br>
+The tests that you are doing seem to capture a lot of the benefits of a nightly build:
+<ul>
+    <li>Syntax checking of all of your scripts is the equivalent of checking to see that they compile correctly.</li>
+    <li>Smoke testing by running unit and customized tests</li>
+    <li>Forcing programmers to write tests, since modules without a<nobr> <wbr></nobr>.t file will break the smoke test</li>
+</ul><br/><br/>I guess what I'm wondering is whether there are additional benefits that could be achieved by pulling the sources out of cvs and tar'ing them up.  There seem like there might be two benefits:
+<ul>
+    <li>If this is the core of your release system (i.e. you untar the resulting tarball on your production server(s) and kick the web server), you have tested that your release system works.</li>
+    <li>You have separated the decision to release functionality from the decision to commit changes to source code.</li>
+</ul>
+That last one may or may not make sense.  Here's the problem that I'm concerned about: One of member of the team starts to update some code on existing production functionality (call it project A).  The project isn't top priority, so they commit their (incomplete) project A code to cvs, and begin work on project B.  Now, suppose that we had a nightly (or even weekly) automated release cycle which simply performs a cvs update from the staging server to the production server.  We have now launched unfinished code to the production server.  Even without an automated cycle, there's a problem -- you need an automated way to check whether committed files are ready for production.  Doing a nightly build does not solve this problem -- but it ensures that programmers will be comfortable commiting unfinished code, since committed code is not automatically a candidate for release.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

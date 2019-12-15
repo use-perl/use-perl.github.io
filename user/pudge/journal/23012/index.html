@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: MySQL Packet Size</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>MySQL Packet Size</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2005-02-03T23:49:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><b>Problem</b>: in MySQL, you can only send data that is less than max_allowed_packet.
+<b>Solution</b>: increase max_allowed_packet.<br/><br/>That's all well and good, and works, but for safety's sake we want to keep its size down, but occasionally we might need to save some data that is far larger than what we keep it at.<br/><br/>I thought, no problem: just set max_allowed_packet session variable in the current session, then send the data, then set it back (or just allow it to reset when the session finishes).<br/><br/><b>Problem</b>: it seems the client library sets that value on initialization, and changing it in the server via a <tt>SET $var = $value</tt> doesn't change anything in the client, so you still hit the limit.
+<b>Solution</b>: break the data down into chunks, and add it one chunk at a time, with <tt>UPDATE table SET data=CONCAT(data, $chunk)</tt>.<br/><br/>That's all well and good, but ...<br/><br/><b>Problem</b>: max_allowed_packet doesn't merely prevent you from sending data of a certain size: it also governs the size of an "expanded" query.  So if <tt>data</tt> is 1MB and <tt>$chunk</tt> is 512K, you still hit a 1MB max_allowed_packet limit with the <tt>CONCAT(...)</tt>.
+<b>Solution</b>: increase max_allowed_packet.<br/><br/>Aha!  I can't increase max_allowed_packet on the client side, but I can increase it on the server side.  This doesn't help me send the data, but it helps me save it on the server side.  So to get past the client limitation I do it in chunks, and to get past the server limitation I still need to set the session variable.<br/><br/>It all worked fine for a file that was 1.3MB where the limit was 1MB.  But on a file that was over 30MB, it saved the file fine, but it wouldn't fetch it.  <b>update</b> This is because of a problem saving the data to an InnoDB table, where the log group capacity is not large enough.  Whatever that means.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Be careful with replication, too</h2>
+<h3><a href="/user/krellis/">krellis</a> on 2005-02-04T02:22:05</h3>
+When increasing max_packet_size on your master, make damned sure your slaves have a max_packet_size that's as large or larger, because otherwise you'll have FUN results!
+
+
+
+<blockquote>
+
+<h2>Re:Be careful with replication, too</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2005-02-04T02:52:13</h3>
+Yeah, I know.  But thanks for the reminder.<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

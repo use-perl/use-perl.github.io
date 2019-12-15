@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of scrottie: How flash cards die</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>How flash cards die</h1>
+<h2><a href="/user/scrottie/">scrottie</a> on 2009-06-30T06:56:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've been running a 32gb AData Compact Flash card as a harddrive in my laptop (the Panasonic Toughbook CF-R1 2 pounder with the 10" screen) for over a year.  It was kind of an experiment.  Besides the 32gb card, the little CF-IDE adapter had a 4gb AData card that I had been using as swap.  With the machine maxed at 256 megs of RAM, it did a heck of a lot of swapping.  Firefox bloats up to that much memory in a few minutes of unattended "operation".  The adapter accepts two cards.  One is the master drive and the other the slave.  CF cards are IDE devices.  The adapter board only connects the pins.  I found the thing on eBay for a couple bucks and it shipped directly from China.  I've been buying a lot of electronics like that.<br/><br/>AData advertised wear leveraging.  I've had good and bad luck with other flash cards.  The Lexar thumbdrives have been bulletproof.  On the other hand, Sandisk drives won't even fill up to their capacity once before they crap out.<br/><br/>Someone asked what the failure mode looks like.  Well, in general, using the things as thumb drives, they won't write any more.  Attempting to write gives errors.  The data is readable.  Half written data and metadata can leave a filesystem corrupt.<br/><br/>The AData CF card seemed to follow a similar mode.  The machine seemed to be having trouble.  I didn't run xconsole so I could see the messages and when Linux locks up, the dmesg errors are gone.  But my Linux-fu is weak.  I did an svn pull that went really, really slow, to the point where I stopped it.  When I got back, the thing essentially locked up with the drive light stuck on, apparently starved for lack of data from the hard drive.  When I tried to reboot it, it stuck part way through.  When I tried to fsck the disc, it took a long time and found a lot of errors.  It did finish though.  But there was too much damage to boot again and it thought that the journal hadn't been recovered.  That's when I dd'd the image off the card onto a HD and mounted it lookback and fsck'd that.  But it was a little more involved than that.<br/><br/>dd won't write anything if it finds it can't read a sector.  That would make all of the block addressing in the filesystem datastructures wrong and really cock things up.  So you have to use the conv=sync,noerror argument.  That'll make it insert 0'd to pad blocks it can't read and tell it to continue going after it can't read a block.<br/><br/>In my case, at block 55492570, it hit a block it couldn't read.  All reads after that failed until the end of the card.  As an experiment, I tried skipping ahead a bunch from there and it was able to read.  So I did a binary search and settled on block 59475000 as being readable again after the error.  I had to amend the dd command to do conv=sync,noerror,notrunc with matching skip and seek arguments of the block numbers so I could start dd'ing from in middle of the thing to in middle of the file I was creating from it.<br/><br/>The loopback mount was easy, of course:  losetup /dev/loop0 /what/ever/file, then fsck /dev/loop0.  Among the lost blocks were high level directory hash, so a large chunk of the filesystem wound up hung off of lost+found with their filenames and directory structures in tact.<br/><br/>I ran backups before I left using rsync to another machine (32gb isn't much of a chore to back up).  I had also been carrying around a spare 32gb CF card that I rsync to also but that didn't happen to be the most recent copy.  That got stuck in now and I'm running this experiment a bit longer but I'm also thinking of just throwing a HD back in there.  Both of them make me nervous.  If there were something more expensive with even less capacity that didn't wear itself out or easily take damage or have batteries that ran down, I'd be all over that.<br/><br/>Briefly though, when it can't find a block to forward to, it gets really slow and then just stops being able to write.<br/><br/>I really wish the thing had SMART that gave stats about how many spare blocks it had to forward bad blocks to, or otherwise stats about the capacity of the wear leveraging system's reserves.  DMA would also be nice.  I guess some of the "high speed" flash cards do DMA.  Actually I'm not clear if this thing does or not.  I turned it on on this laptop but it didn't work in another machine, but that was after the failure, so the DMA requests were probably failing because it was dead.  I was only running DMA1 or 2.  Also it does work at 66mhz.<br/><br/>The CF cards take radically less power than a HD *or* a SSD.  The SSDs have large arrays that run in parallel to make them faster but that winds up making them drain a lot of power too.  For the most part, Linux's caching insulated me from the slowness.  Sometimes tab completion was painfully slow but for the most part, IO just happened in the back ground.  I tend to run lightweight programs rather than bloatware that pegs the disc constantly.  Battery life jumped from just over 2 hours to just short of 3 compared to the HD that was in there before.  The draw of the CF card at idle is essentially nill.  WiFi, the CPU, and the backlight are the other significant power draws.<br/><br/>-scott</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

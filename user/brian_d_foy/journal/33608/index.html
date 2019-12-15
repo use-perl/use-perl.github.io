@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: Trying to get feeds from Google Calendar</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Trying to get feeds from Google Calendar</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2007-06-26T19:08:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Jim Brandt (TPF Conference Chair) and I were talking about the <a href="http://theperlreview.com/community_calendar">Perl Community Calendar</a>. Eventually we want to use the <a href="http://calendar.google.com">Google Calendar</a> as a central data store to which anyone can add and update events, and then create various feeds from it (Jim or I can both add people to the calendar's editors if you want to add events. The trick is getting the data back out and figuring out what to include in which feed (for instance, maybe Lisbon.pm wants just the events in Portugal, but also the major events such as YAPC).<br/><br/>It's only a lack of free time that prevents me from getting right on this. If someone else wants to solve this, I could find some free subscriptions to TPR, even though the solution should work for any <a href="http://calendar.google.com">Google Calendar</a>.<br/><br/>Here's the quick script I wrote just to see if I could get the data programmatically and what It would look like. I haven't investigated too deeply, but you see that Net::Google::Calendar's <code>body</code> method returns the data in a big string rather than in the separated form in which someone enters the separate parts.<br/><br/>This code is free for you to use anyway that you like, even if not for this problem:<br/><br/><pre>
+#!/usr/bin/perl
+use strict;<br/><br/>use Data::Dumper;
+use Template;<br/><br/>
+use  Net::Google::Calendar;<br/><br/>my $url = "http://www.google.com/calendar/feeds/ngctmrd1cac35061mrjt3hpgng%40group.calendar.google.com/public/basic";<br/><br/>my $cal = Net::Google::Calendar->new( url => $url );<br/><br/>my @entries = ();<br/><br/>foreach my $event ( $cal->get_events )
+	{
+	my $hash = {};
+	
+	$hash->{title} = $event->title;
+	
+	my $body = $event->content->body;<br/><br/>	print $body, "\n\n\n";
+	$body =~ s/&nbsp;/ /g;
+	
+	$hash->{description} = do { $body =~ s/(?:<br>\s*)*Event Description:\s+(.*)\s*//; $1 };
+	$hash->{status}      = do { $body =~ s/(?:<br>\s*)*Event Status:\s+(.*)\s*//; $1 };
+	$hash->{where}       = do { $body =~ s/(?:<br>\s*)*Where:\s+(.*)\s*//; $1 };
+	$hash->{when}        = do { $body =~ s/When:\s+(.*)\s*//; $1 };<br/><br/>	$hash->{when} =~ s/<br>Replaces.*//;<br/><br/>	push @entries, $hash;
+	}<br/><br/>
+my $tt = Template->new();<br/><br/>my $template = <<"TT";
+<?xml version="1.0" encoding="ISO-8859-1"?><br/><br/><rdf:RDF
+ xmlns:dc="http://purl.org/dc/elements/1.1/"
+><br/><br/><channel rdf:about="http://use.perl.org/">
+<title>The Perl Review: Community Events Calendar</title>
+<link>http://www.theperlreview.com/community_calendar</link>
+</channel><br/><br/>[% FOREACH event IN entries %]
+<item>
+<title>[% event.title %]</title>
+<link></link>
+<description>[% event.description %]</description>
+</item>
+[% END %]<br/><br/></rdf:RDF><br/><br/>TT<br/><br/>$tt->process( \$template, { entries => \@entries } );
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Confusion with $event-content-body</h2>
+<h3><a href="/user/Limbic Region/">Limbic Region</a> on 2007-07-06T06:15:50</h3>
+When I started working on this earlier today (blind), I assumed from looking at your code and comments along with Jim's starter code that $event-&gt;content-&gt;body indeed returned everything in one huge chunk.<br><br>Once I got home and was able to test it out, my experience disagreed with those assumptions.  In fact, I couldn't get much more than id(), title(), and content()-&gt;body() to work.  The output of content()-&gt;body() though is much different then is implied above.<br><br>As I pointed out in a reply to you over in Jim's blog, I have already provided working code but I am truly confused as to what your code (and his) was based on.<br><br>I feel like I am missing the boat here.<br><br>Cheers,<br>Limbic~Region<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:Confusion with $event-content-body</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2007-07-06T06:39:21</h3>
+You're just missing the fact that I spent about five minutes thinking about it then moved on in life, which is why I posted it here. For what I did, the body is just what my code implies. If you used a different feed, then it comes out differently. *shrug*
+
+
+
+
+
+</blockquote>
+
+
+<h2>Ahhhh, I get it now</h2>
+<h3><a href="/user/Limbic Region/">Limbic Region</a> on 2007-07-06T06:31:25</h3>
+Minor difference between your code and Jim's<br><br>group.calendar.google.com/public/basic<br><br>vs<br><br>group.calendar.google.com/public/full<br><br>I focused on full which required me to figure out why Net::Google::Calendar is broken since not all the meta data is stuffed into body() in that view.<br><br>In any case, I hope the code I provided is useful.<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

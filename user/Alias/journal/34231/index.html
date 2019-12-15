@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: The delicate process of making friends with symlinks</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>The delicate process of making friends with symlinks</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2007-08-27T02:01:41</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Symlinks are always tricky, and it's easy to ignore them a lot of the time.<br/><br/>I've typically tried to ignore them wherever I can... until now.<br/><br/>You see, my current $work project (a web application) has the interesting behaviour of configuring itself via the name of the directory ABOVE the project root. I'm still torn on whether this is bad (you can't just check it out and run the tests) or good (you can never accidentally deploy in the wrong configuration) on aggregate.<br/><br/>The setup of a typical dev environment looks like this
+<pre>
+# The actual svn checkout (with typical contents)
+/opt/productname
+/opt/productname/trunk
+/opt/productname/t
+...etc etc...<br/><br/># Per-site symlinks
+# (same code runs Australian site and New Zealand site)
+/opt/www.dev13au.local -> /opt/productname/trunk
+/opt/www.dev13nz.local -> /opt/productname/trunk<br/><br/># Loading up the codebase in a "non-web" context
+# (this is used for places where back-end automation is done)
+/opt/backend           -> /opt/productname/trunk<br/><br/># And just to make things more interesting
+/home/adamk/opt -> /opt
+</pre><br/><br/>Where this gets REALLY interesting is that the configuration classes do a directory search upwards to get the name of the directory ABOVE the project root, and then EVERYTHING is configured off this. And there's no way around it.<br/><br/>The first time this broke my code was with <a href="http://search.cpan.org/perldoc?pler">pler</a>, which changes directory to get to the root path if you aren't in it (since tests need to be run from the root path with .t files). I was confused that prove would run my tests and they passed, but the tests behaved differently under pler.<br/><br/>Because pler uses File::Spec, which called Cwd::cwd, which ignores symlinks, it was changing to the absolute path instead of the symlinked one, which of course broke the config class, and the tests failed.<br/><br/>Module::Build also suffers from this problem. At some point in the code it must do a cwd, so we end up with the keys <i>orig_dir</i> and <i>base_dir</i> both set to the absolute path.<br/><br/>So unfortunately I can't use Module::Build for this project till that gets fixed (and since there's already some other tasks being done from a Makefile, it's essential to use Module::Build).<br/><br/>In any case, here's the fix I used for pler, in the hope it is useful for other people.<br/><br/>The only place that reliably retains the symlinks (that I'm aware of) is $ENV{PWD}. But this isn't portable, and so is not a safe replacement for Cwd::cwd.<br/><br/>What's interesting about Cwd and $ENV{PWD} is that Cwd provides an alternate version of chdir. And this chdir appears to be PWD-aware. If you use Cwd::chdir it will keep PWD up to date with the correct new path, using some code that looks utterly evil (because of so many platform-related special cases) but that works great.<br/><br/>So in pler, I've used the following to find the "symlink-aware current working directory" and it seems to work everywhere.
+<pre>
+use Cwd        ();
+use File::Spec ();<br/><br/>sub symlink_aware_cwd {
+    unless ( defined $ENV{PWD} ) {
+        Cwd::chdir(File::Spec->curdir);
+    }
+    return $ENV{PWD};
+}
+</pre><br/><br/>Of course, you need to call this somewhere near the beginning of your program, so you can be sure that nothing else has trounced over the path in the mean time.<br/><br/>But it does appear to work just fine.<br/><br/><b>UPDATE!</b><br/><br/>It would appear that I am completely wrong and Module::Build is blameless in this regard (although it DOES remember the wrong base_dir, so that change should probably be made anyways).<br/><br/>The ACTUAL problem seems to be that M:B sets -w by default when calling test scripts, which enables warnings globally and tickles some warnings that were otherwise NOT getting caught, which cascades outwards eventually resulting in a collection of spurious noise (which I'm fixing now) and some tests breaking which require no warnings to be thrown.<br/><br/>So atm I'm more interested in the fact that M:B enables -w by default, while prove and pler don't. This is both good (warnings enabled during testing are absolutely best practice, even if you don't enable them on production) and bad (doesn't match the behaviour of prove and pler and EU:MM).<br/><br/>I think I'm a fence sitter on whether correctness or pragmatism should triumph in this instance...</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

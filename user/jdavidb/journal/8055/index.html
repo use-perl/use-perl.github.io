@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jdavidb: use Perl; journal scrapers</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>use Perl; journal scrapers</h1>
+<h2><a href="/user/jdavidb/">jdavidb</a> on 2002-09-27T15:33:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I posted an entry earlier with a little statistics gathering program I had that used WWW::UsePerl::Journal.  That module's been updated, and I've cleaned up my changes slightly, so here's the patches again, plus two programs I have that use them.  (I think I forgot one of the patches in my original post, anyway.  You have to patch WWW::UsePerl::Journal::Entry as well.)</p>
+
+<ul><li>journalstat.perl</li></ul>
+<pre>
+#!/usr/local/bin/perl5.8.0 -- # -*- perl -*-
+
+use warnings;
+use strict;
+use lib $ENV{HOME};
+use WWW::UsePerl::Journal;
+
+my($user) = @ARGV;
+
+foreach my $user (@ARGV)
+{
+    my $journal = WWW::UsePerl::Journal->new($user);
+
+    my @entries = $journal->entryids();
+    
+    # Originally I took the date of the first and last entries, but
+    # actually I want the current date as an endpoint.  (If you stop
+    # posting, that means your average rate should gradually decrease
+    # as time progresses.)
+    my $firstdate = $journal->entry($entries[0])->date;
+    my $numentries = scalar @entries;
+
+    use Time::Piece;
+    my $lastdate = localtime;
+    my $interval = $lastdate - $firstdate;
+    
+    my $per_day = $numentries / $interval->days;
+    
+    print "$user has written $per_day entries per day\n";
+}
+</pre>
+
+<ul><li>journalmonths.perl</li></ul>
+<pre>
+#!/usr/local/bin/perl5.8.0 -- # -*- perl -*-
+
+use warnings;
+use strict;
+use lib $ENV{HOME};
+use WWW::UsePerl::Journal;
+
+my($user) = @ARGV;
+
+foreach my $user (@ARGV)
+{
+    my $journal = WWW::UsePerl::Journal->new($user);
+
+    my %entries = $journal->entryhash;
+
+    my %count;
+    foreach my $entrynum (sort keys %entries)
+    {
+	my $entry = $entries{$entrynum};
+	my $date = $entry->date;
+	my($month, $year) = ($date->mon, $date->year);
+	$month = sprintf "%02d", $month;
+	$count{"$year$month"}++;
+    }
+    foreach my $month (sort keys %count)
+    {
+	print "$month:\t$count{$month}\n";
+    }
+}
+</pre>
+
+<ul><li>WWW::UsePerl::Journal patch</li></ul>
+<pre>
+--- /usr/local/perl580/lib/site_perl/5.8.0/WWW/UsePerl/Journal.pm	2002-09-26 04:51:29.000000000 -0500
++++ WWW/UsePerl/Journal.pm	2002-09-27 10:24:17.000000000 -0500
+@@ -1,4 +1,6 @@
+-package WWW::UsePerl::Journal;
++package WWW::UsePerl::Journal;  # -*- perl -*-
++
++BEGIN {warn "Using local copy of WWW::UsePerl::Journal!"}
+ 
+ =head1 NAME
+ 
+@@ -30,6 +32,7 @@
+ use HTTP::Request::Common;
+ use Data::Dumper;
+ use Carp;
++use Time::Piece;
+ use WWW::UsePerl::Journal::Entry;
+ 
+ 
+@@ -171,19 +174,25 @@
+         my $content = $self->{ua}->request(
+             GET UP_URL . "/journal.pl?op=list&uid=$UID")->content;
+         die "could not create entry list" unless $content;
+-        my @lines = split /\n/, $content;
+ 
+         my %entries;
+-        foreach my $line (@lines){
+-            next unless $line =~ m#~$user/journal/#ism;
+-            $line =~ m#~$user/journal/(\d+)"><b>(.*?)</b></a>#ism;
+-
++	my $count = 0;
++	while ( $content =~ m{~$user/journal/(\d+).><b>(.*?)</b></a></td>\s+<td valign="top"><em>([\d.\s:]+)</em>}ig)
++	{
+             next unless defined $1;
+-	    $entries{$1} = WWW::UsePerl::Journal::Entry->new(
++	    my($id, $subject, $datestr) = ($1, $2, $3);
++	    $datestr =~ m/(\d+).(\d+).(\d+)\s+(\d+):(\d+)/;
++	    my($year, $month, $dateofmonth, $hour, $minute) =
++		($1, $2, $3, $4, $5);
++	    my $formatteddate =
++		"$year-$month-$dateofmonth $hour:$minute:00";
++	    my $date = Time::Piece->new(HTTP::Date::str2time($formatteddate));
++	    $entries{$id} = WWW::UsePerl::Journal::Entry->new(
+ 		j	=> $self,
+ 		user	=> $user,
+-		id	=> $1,
+-		subject	=> $2,
++		id	=> $id,
++		subject	=> $subject,
++		date	=> $date,
+ 	    );
+         }
+ 
+@@ -203,7 +212,7 @@
+         my %entries = $self->entryhash;
+         my @IDs;
+ 
+-        foreach (sort keys %entries) {
++        foreach (sort {$a <=> $b} keys %entries) {
+ 	    $IDs[$#IDs+1] = $_;
+         }
+         return @IDs;
+</pre>
+
+<ul><li>WWW::UsePerl::Journal::Entry</li></ul>
+<pre>
+--- /usr/local/perl580/lib/site_perl/5.8.0/WWW/UsePerl/Journal/Entry.pm	2002-03-03 14:13:05.000000000 -0600
++++ WWW/UsePerl/Journal/Entry.pm	2002-09-27 10:00:49.000000000 -0500
+@@ -1,4 +1,4 @@
+-package WWW::UsePerl::Journal::Entry;
++package WWW::UsePerl::Journal::Entry;  # -*- perl -*-
+ 
+ =head1 NAME
+ 
+@@ -15,6 +15,7 @@
+ use Data::Dumper;
+ use Carp;
+ use WWW::UsePerl::Journal;
++use Time::Piece;
+ 
+ our $VERSION = '0.03';
+ use constant UP_URL => 'http://use.perl.org';
+@@ -58,6 +59,10 @@
+ sub date
+ {
+     my $self = shift;
++    unless (defined $self->{date})
++    {
++	$self->get_content;
++    }
+     return $self->{date};
+ }
+ 
+@@ -132,6 +137,27 @@
+     if $content =~ 
+     m#Sorry, there are no journal entries 
+     found for this user.</TD></TR></TABLE><P>#ismx;
++    $content =~ m{
++	<H2>((Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)
++	     [^<]*)</H2>
++    }x;
++    my $datestring = $1;
++    $datestring =~ m/(.*day)\s+(.*)\s+(\d+),\s+(\d+)/;
++    my($day, $month, $dateofmonth, $year) = ($1, $2, $3, $4);
++    $content =~ m{
++	<I>((\d+):(\d+)\s+[AP]M)</I>
++    }x;
++    my $timestring = $1;
++    $timestring =~ m/(\d+):(\d+)\s+([AP]M)/;
++    my($hour, $minute, $ampm) = ($1, $2, $3);
++    $hour += 12 if $ampm eq "PM";
++    $hour = 0 if $hour == 24;
++    $month = substr($month, 0, 3);
++    $day = substr($day, 0, 3);
++    my $formatteddate = "$day $month $dateofmonth $hour:$minute:00 $year";
++    my $dateseconds = HTTP::Date::str2time($formatteddate);
++    my $date = Time::Piece->new($dateseconds);
++    $self->{date} = $date;
+     $content =~ 
+     m#.*?$ID</a>\n]\n\s*</font>\n\s*<p>\n\s*(.*?)
+     \n\s*<br><br></div>.*#ismx;
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Patches</h2>
+<h3><a href="/user/koschei/">koschei</a> on 2002-09-29T04:59:49</h3>
+Perhaps submit the patches to Russell? The date portion is nicer than mine.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

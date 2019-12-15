@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: More On Constraints</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>More On Constraints</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-06-12T09:01:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I was Warnocked in my <a href="http://use.perl.org/user/Ovid/journal/36635">last post about an approach to constraint programming in Perl 6</a>.  This isn't terribly surprising.  <a href="http://en.wikipedia.org/wiki/Constraint_programming">Constraint programming</a> is one of those areas which is fascinating, but for some reason, doesn't seem to catch on, even though I suspect it could eliminate many bugs in software.</p>
+
+<p>If you squint, you could think of a constraint as a data type which is dependent on other variables, but which affects the value of the variable with said type.  But what the hell does that mean???  Imagine the variable is <tt>$distance_above_ground</tt> and this refers to "how far above the ground my feet are".  In the real world it's clear that I can't just set this value by jumping to my new height.  Newton would not approve.  My <tt>$distance_above_ground</tt> is constrained by <tt>$gravity</tt> and my <tt>$mass</tt>, amongst other things.  Further more, I might think of it as being constrained by <tt>$time</tt> and <tt>$momentum</tt> because as <tt>$time</tt> advances, <tt>$gravity</tt> and <tt>$momentum</tt> are going to have a lot of fun with <tt>$distance_above_ground</tt>.  In fact, if the latter is great enough, my <tt>$life</tt> will be impacted (hah!) by such things as <tt>$terminal_velocity</tt>.</p>
+
+<p>So clearly in the real world, variables are seldom (if ever) completely independent of other variables.  Constraint programming allows us, in programming, to express those relations in our code.  While more commonly used in declarative languages, constraint programming has been brought to Java, C++ and other "mainstream" languages.  To give you an idea, here's an example from <a href="http://citeseer.ist.psu.edu/89513.html">a paper about the Kaleidoscope programming language</a>.</p>
+
+<p>Consider a thermometer display which has a grey area representing the mercury, a white area representing the area above the mercury, and a display showing the degrees.  How would we update this as a mouse drags the mercury level up and down?  Here's a traditional mouse button event handler (rewritten in Perl 6 to make it easier to read):</p>
+
+<pre>while $mouse.button_down {
+    my $old = $mercury.top;
+    $mercury.top = $mouse.location.y;
+    my $degrees = $mercury.height / $scale;
+
+    if $old < $mercury.top {
+        delta_grey($old, $mercury.top);
+    }
+    elsif $old > $mercury.top {
+        delta_white($mercury.top, $old);
+    }
+    display_number($degrees);
+}</pre>
+
+<p>That's the example from their paper and right off the bat I noticed the duplicated line of code and I'm suspicious about the delta methods.  That being said, assuming the supporting functions work, it's a straightforward <em>imperative</em> way of handling this.  However, having to hand code all this behavior is fraught with the possibility of error.</p>
+
+<p>So how do we avoid this?  Constraint programming is one way of doing it.  We attach the constraints directly to the variables.  Rewriting the above in a constraint style gives us this:</p>
+
+<pre>while $mouse.button_down {
+    $mercury.top = $mouse.location.y;
+}</pre>
+
+<p>Holy crap!  See how much simpler that <tt>while</tt> loop is?  Wouldn't life be wonderful if all programming was that easy?</p>
+
+<p>Of course, you're probably wondering how this works.  The reality is that you've previously declared <em>constraints</em>.  They might look like this (adjusting from the Kaleidoscope paper's syntax):</p>
+
+<pre>always: $degrees = $mercury.height / $scale;
+always: white_rectangle($thermometer):
+always: grey_rectangle($mercury);
+always: display_number($degrees);</pre>
+
+<p>Now, if anyone adjusts any of those variables anywhere in the program, you cannot accidentally skip this logic.</p>
+
+<p><strong>Please note that all of what follows is highly speculative.</strong></p>
+
+<p>How do we translate this to Perl 6, though?  I'm thinking "subsets".  A subset is an easy way for you to declare your own type.  For example, let's say you want to have a variable which only allows positive integers.  It's easy:</p>
+
+<pre>subset PosInt of Int where { $_ > 0 };
+my PosInt $foo;</pre>
+
+<p>Now, if anyone tries to assign anything but a positive integer to <tt>$foo</tt>, they get a fatal error.</p>
+
+<p>But what if you don't want that?  What if that number should be set to 1 (one) if anyone ever tries to set it to a non-legal value?  You have to declare the variable as mutable like this:</p>
+
+<pre>subset ConstrainedPosInt of Int where <-> $_ { $_ = 1 if $_ < 1 }</pre>
+
+<p>Now you should get a fatal error if it's set to a non-integer value (because it's still an Int), but if it's set to an integer value less than one, it's set to one.  That's basic constraint programming, but the full power of this technique comes out when dealing with relationships between variables.  So let's look at that.</p>
+
+<p>Borrowing from yesterday's examples and tightening it up a bit, let's say that you are writing a game and you have a target area with a crosshair in it.  If you move the target area, the crosshair must be move with it if it's going to be outside the area.  If you move the crosshair, it must not move the target area (the latter can drag the former, not vice versa).  What would that look like in a Perl 6 contraint style?</p>
+
+<pre>subset CrossHair of Point where <-> $_ {
+    $_.inside_of($target_area) || $_.move_inside($target_area)
+};
+
+subset TargetArea of Rectangle where <-> $_ {
+    $_.outside_of($cross_hair) || $cross_hair.move_inside($_)
+};</pre>
+
+<p>Now, we can move our target area or cross hair and everything Just Works.  Now more worrying about all of the special cases every time we write our code.</p>
+
+<p>Well, that's the theory.  I've not actually played with this before and you're probably already noticing the undeclared variables in the above example.  Where do those come from?  It's all terribly academic to me (even though this technique has been around for almost 20 years) but it appears to be a way of maintaining a guaranteed state in a variable without adding too much cognitive overhead.  I'm anxious to play with Perl 6 and see how this plays out.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Fortress</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2008-06-12T16:53:50</h3>
+Fortress (sans unicode in this example) may provide some inspiration:<p><blockquote> <div><tt>factorial (n<nobr> <wbr></nobr>:Z64) requires n &gt;= 0 =<br>&nbsp; &nbsp;if n = 0 then 1<br>&nbsp; &nbsp;else n factorial (n - 1)<br>end</tt></div> </blockquote> Take a look at method contracts and function contracts for possible ideas as there's more to it then just what I've shown.
+
+
+
+<h2>Database</h2>
+<h3><a href="/user/Theory/">Theory</a> on 2008-06-15T18:50:36</h3>
+This smells an awful lot like a database to me&#226;&#8364;&#166;when are people going to realize how powerful and flexible the databases are that they already use?<br><br>&#x2014;Theory
+
+
+
+<blockquote>
+
+<h2>Re:Database</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-06-15T19:43:53</h3>
+<p>This is far different.  Would you <em>really</em> want to try to update real-time GUI constraints from a database instead of in the code?</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

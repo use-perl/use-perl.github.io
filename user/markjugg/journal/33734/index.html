@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of markjugg: SQL::Interp 1.00 released as a SQL::Abstract alternative</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>SQL::Interp 1.00 released as a SQL::Abstract alternative</h1>
+<h2><a href="/user/markjugg/">markjugg</a> on 2007-07-07T04:32:57</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Perl hashes are natural representation of name/value pairs, and there should be
+an easy way to translate them in the name/value pairs SQL expects in INSERT and
+UPDATE statements, as well as WHERE clauses.</p>
+
+<p>Also, for best security practices, bind variable should be used. This further
+complicates the problem space, because names and values need to be split up
+in the resulting SQL.</p>
+
+<p><a href="http://search.cpan.org/perldoc?SQL::Abstract">SQL::Abstract</a> is a
+popular solution for addressing these problems, and I one I used myself for
+some time. To its credit, it has a fairly intuitive API, and focuses just on
+SQL generation, not getting involved the actual query execution.</p>
+
+<p>However, as SQL::Abstract grew over time, it tried to handle more and more
+complex cases of SQL, and the design failed to scale up well. Here's an example
+bit of SQL, straight from the SQL::Abstract docs. </p>
+
+<p>The goal is to generate SQL that looks like this:</p>
+
+    <pre>
+    WHERE ( user = ? AND
+                 ( ( workhrs > ? AND geo = ? )
+                OR ( workhrs < ? AND geo = ? ) ) )
+    </pre>
+
+    <p>    The SQL abstract solution looks like this:</p>
+
+<pre>
+  my @where = (
+             -and => [
+                user => Ã¢â¬â¢nwigerÃ¢â¬â¢,
+                -nest => [
+                    -and => [workhrs => {Ã¢â¬â¢>Ã¢â¬â¢, 20}, geo => Ã¢â¬â¢ASIAÃ¢â¬â¢ ],
+                    -and => [workhrs => {Ã¢â¬â¢<Ã¢â¬â¢, 50}, geo => Ã¢â¬â¢EUROÃ¢â¬â¢ ]
+                ],
+            ],
+  );
+  </pre>
+
+  <p>Now, to generate that structure, you would have to know exactly the SQL
+structure you wanted, plus you would have to know the special syntax that goes 
+with "-and", "-nest" and the especially cumbersome syntax that translated 
+" > 20 " into  " => {'>', 20}, ". The resulting Perl is actually more cumbersome
+and ugly to write than the original SQL!</p>
+
+<p>With <a href="http://search.cpan.org/perldoc?SQL::Interp">SQL::Interp</a>, there is nothing special to learn to handle this case. 
+You just write out the SQL like you want, and drop in the Perl variables you
+need as references:</p>
+
+    <pre>
+    "WHERE ( user = ",\$user,"  AND
+    ( ( workhrs > ",\$asia_hrs," AND geo = ",\$asia," )
+                OR ( workhrs < ",\$euro_hrs," AND geo = ",\$euro," ) ) )"
+    </pre>
+
+    <p>The result is easy to develop, easy to read, and neatly takes care of managing
+bind variables for you.</p>
+
+<p>And, yes, there are shortcuts for managing the common insert and update cases, similar
+to those offered by SQL::Abstract: </p>
+
+<p><strong>Insert</strong></p>
+
+    <pre>
+	SQL::Abstract
+		my ($sql, @bind) = $o->insert('table',\%data)
+		$dbh->do($sql,{},@bind);
+
+	SQL::Interpolate
+		my ($sql, @bind) = sql_interp("INSERT INTO table",\%data);
+		$dbh->do($sql,{},@bind);
+
+	DBIx::Interpolate
+		$dbh->do_i("INSERT INTO table",\%data);
+        </pre>
+
+<p><strong>Update</strong></p>
+
+<pre>
+	SQL::Abstract
+		my ($sql, @bind) = $o->update('table',\%data,\%where);
+		$dbh->do($sql,{},@bind);
+	
+	SQL::Interpolate
+		my ($sql, @bind) = sql_interp("UPDATE table SET", \%data, "WHERE", \%where );
+		$dbh->do($sql,{},@bind);
+
+	DBIx::Interpolate
+		$dbh->do_i("UPDATE table SET", \%data, "WHERE", \%where )
+</pre>
+</p>
+
+
+<hr/>
+
+
+
+<h2>SQL::Interpolate</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2007-07-07T12:57:21</h3>
+Hi,<br><br>Could you describe the important differences between SQL::Interp and SQL::Interpolate, for someone who's trying to choose?<br><br>Cheers
+
+
+
+<blockquote>
+
+<h2>SQL::Interpolate and SQL::Interp</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2007-07-07T13:42:11</h3>
+Juerd,<br><br>Thanks for your interest. SQL::Interp and DBIx::Interp were created as a fork, after the author of SQL::Interpolate couldn't be found.<br><br>The core functionality remains unchanged, but I took some liberties on some design decisions as part of the fork:<br><br>- The optional source filtering feature has been removed.<br>- The optional "macro" feature was removed<br>- A legacy, deprecated function "sql_literal" was removed.<br>- The docs were overhauled to try to be simpler and clearer.<br><br>So if you want those removed features, you should stick with SQL::Interpolate. I used it for years and never missed them.<br><br>Also, there were a few improvements to SQL::Interpolate which were never officially released in that name space because the author disappeared. I tried to release "0.40" in that name space with those updates, that release was marked "UNAUTHORIZED" by CPAN, and is difficult to discover and download.<br><br>So, SQL::Interp, also has the improvements from 0.33 to 0.40 in SQL::Interpolate. These were mostly made by the author or other contributors.<br><br><a href="http://search.cpan.org/src/MARKSTOS/SQL-Interpolate-0.40/Changes" title="cpan.org">http://search.cpan.org/src/MARKSTOS/SQL-Interpolate-0.40/Changes</a cpan.org><br><br>
+&nbsp; &nbsp; &nbsp; Mark<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

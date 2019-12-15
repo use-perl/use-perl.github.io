@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: April svn.ali.as summary - ADAMK::Repository borgs the CPAN</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>April svn.ali.as summary - ADAMK::Repository borgs the CPAN</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2009-05-06T01:37:58</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This post is the latest in my series, letting other high-release CPAN authors know about what I'm doing with my repository, in the hopes that they may find something useful and steal the idea for their own repository automation.<br/><br/>I'm going to start doing these as a monthly summary for simplicity.<br/><br/>-------------------------------------------------------<br/><br/>My rapidly maturing repository automation passed another milestone last month, when I finally managed to integrate the repository model code with both <a href="http://search.cpan.org/perldoc?ORDB::CPANUploads">ORDB::CPANUploads</a> and <a href="http://search.cpan.org/perldoc?ORDB::CPANTesters">ORDB::CPANTesters</a>.<br/><br/>This is of particular value to the ::Release object, which is now able to tell if and when it was actually uploaded to the CPAN, and what the CPAN Testers results for the release were (mostly of interest if it's the current release).<br/><br/>As I'd hoped, it turned out to be really easy to do the integration.<br/><br/>First, the CPAN Uploads data.
+<pre>
+sub upload {
+	require ORDB::CPANUploads;
+	ORDB::CPANUploads->import;
+	ORDB::CPANUploads::Uploads->select('where filename = ?', $_[0]->file);
+}
+</pre>
+As you can see, I delay loading the class until it's needed, because the model classes auto-inflate at import time. The model name in this case doesn't read very well either, a good argument for naming your tables in the singular.<br/><br/>That code returns a single <a href="http://search.cpan.org/perldoc?ORDB::CPANUploads::Uploads">ORDB::CPANUploads::Uploads</a> object (although the code is really written to return a list) from which I can find out various things.<br/><br/>The main use I'm making of the uploads data right now is to determine which of the modules in my repository that I have released in the past are now maintained by someone else.<br/><br/>This is what that looks like in the ::Distribution model object.
+<pre>
+#####################################################################
+# ORDB::CPANUploads Integration<br/><br/>sub uploads {
+	require ORDB::CPANUploads;
+	ORDB::CPANUploads->import;
+	ORDB::CPANUploads::Uploads->select('where dist = ? order by released desc', $_[0]->name);
+}<br/><br/>sub maintainer {
+	my @upload = $_[0]->uploads;
+	@upload ? lc($upload[0]->author . '@cpan.org') : '';
+}<br/><br/>sub mine {
+	$_[0]->maintainer eq 'adamk@cpan.org'
+}
+</pre><br/><br/>The email address stuff there is done because my repository uses emails as usernames (90% of which are authorid@cpan.org emails) so when working with the concept of an author across both CPAN and svn it's simpler to work only in emails.<br/><br/>The other integration of note is with <a href="http://search.cpan.org/perldoc?ORDB::CPANTesters">ORDB::CPANTesters</a>, which pulls in the CPAN Testers data. This integration is a hell of a lot heavier, since the only CPAN Testers data export I have access to is around 750meg.<br/><br/>This, ironically, has not just meant resource trouble for me caused by CPAN Testers, but also resource trouble for CPAN Testers caused by me. When a CPAN Testers machine tries to test <a href="http://search.cpan.org/perldoc?CPANTS::Weight">CPANTS::Weight</a> (the code behind the CPAN Top 100 math) it means that <a href="http://search.cpan.org/perldoc?ExtUtils::MakeMaker">ExtUtils::MakeMaker</a> will load <a href="http://search.cpan.org/perldoc?ORDB::CPANTesters">ORDB::CPANTesters</a> to check the version, which results in a 150meg download and 750meg of disk space consumed on the CPAN Testers machine. :)<br/><br/>The result of this rather intensive database pull is that I can easily calculate the PASS/FAIL/etc scores for each of the ::Release model objects.
+<pre>
+sub cpan_testers {
+	require ORDB::CPANTesters;
+	ORDB::CPANTesters->import;
+	my $rows = ORDB::CPANTesters->selectall_arrayref(
+		'SELECT state, COUNT(*) AS count FROM cpanstats WHERE dist = ? and version = ? group by state',
+		{}, $_[0]->distname, $_[0]->version,
+	);
+	my %hash = ( map { uc($_->[0]) => $_->[1] } @$rows );
+	delete $hash{CPAN};
+	return \%hash;
+}
+</pre>
+The main purpose of these extra calls, of course, is as more fodder for my repository analysis reports.<br/><br/>It should now be fairly easy to do things like identifying modules I've given away that I might need to take back by saying.<br/><br/>"Find all the distributions that I've released at some point, which are NOT maintained by me, but which have CPAN Testers failures".<br/><br/>The other new addition to the repository model is <a href="http://search.cpan.org/perldoc?Module::Install">Module::Install</a> integration (from an analysis side).<br/><br/>The ::Make role (which provides Makefile.PL/make functionality for repository model elements that control directories which are Makefile.PL-based distributions) now has a set of methods which detect the M:I version used in the Makefile.PL, and the M:I version that was actually included.<br/><br/>At the same time, it also understands which versions of <a href="http://search.cpan.org/perldoc?Module::Install">Module::Install</a> are considered "bad" and so allows the generation of a report to monitor modules I have both in development or on the CPAN which need incremental releases to get an updated <a href="http://search.cpan.org/perldoc?Module::Install">Module::Install</a>.
+<pre>
+D:\cpan\trunk\ADAMK-Repository>adamk report_module_install_versions --sort=2 --bad
+Preloading releases...
+Preloading distributions...<br/><br/>|----------------------|-------------|---------|
+| Name                 | Makefile.PL | Tarball |
+|----------------------|-------------|---------|
+| ORDB-CPANTesters     | 0.86        | 0.85    |
+| CGI-Capture          | 0.85        | 0.85    |
+| ORDB-CPANTS          | 0.85        | 0.85    |
+| ORDB-CPANUploads     | 0.85        | 0.85    |
+| ORLite-Mirror        | 0.85        | 0.81    |
+| Task-CatInABox       | 0.85        | 0.85    |
+| Test-XT              | 0.85        | 0.85    |
+| Win32-Env-Path       | 0.85        | 0.85    |
+| Win32-File-Object    | 0.85        | 0.85    |
+| ADAMK-Repository     | 0.83        | 0.85    |
+| Acme-Mom-Yours       | 0.83        | 0.85    |
+| Aspect-Library-Trace | 0.83        | 0.85    |
+| Class-Inspector      | 0.83        | 0.85    |
+| Data-JavaScript-Anon | 0.83        | 0.85    |
+| Module-Changes-ADAMK | 0.83        | 0.84    |
+| Module-Manifest      | 0.83        | 0.85    |
+| ORLite-Migrate       | 0.83        | 0.85    |
+| ORLite-Profile       | 0.83        | 0.85    |
+| Test-Inline          | 0.83        | 0.84    |
+| Test-SubCalls        | 0.83        | 0.85    |
+| prefork              | 0.83        | 0.85    |
+| PPI-Tester           | 0.77        | 0.36    |
+| PPI-XS               | 0.76        | 0.36    |
+|----------------------|-------------|---------|
+</pre><br/><br/>As you can see, clearly those last two modules with 0.36 are so far out of date as to be somewhat problematic. So last night I cleaned both of them up and did maintenance releases to fix the problem.<br/><br/>The 25 releases that used Matt Trout's problematic first attempt to fix auto_install (which I did a release of before he'd actually finished it) are more of a problem, since I'm getting increasingly bored with doing 5 or 10 releases at a time.<br/><br/>Even though most of the release process itself is automated now, it's still boring and slow(ish) to have to do it 10 or 20 times in a row.<br/><br/>So I think I've finally reached the point where I need to teach <a href="http://svn.ali.as/cpan/trunk/ADAMK-Repository">ADAMK::Repository</a> how to do an incremental release on it's own.<br/><br/>Getting distribution transforms working (classes which can modify a distribution and prove they didn't break it) and implementing a distribution increment transform is my goal for this month.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

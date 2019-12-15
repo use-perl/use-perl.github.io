@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Encapsulation, or Moose?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Encapsulation, or Moose?</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-10-12T08:22:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>This was not surprising, but also not what I wanted:</p>
+
+<pre>#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+{
+    package Point;
+    use Moose;
+
+    has 'x' => ( is => 'rw', isa => 'Int' );
+    has 'y' => ( is => 'rw', isa => 'Int' );
+}
+
+#use Devel::EnforceEncapsulation;
+#Devel::EnforceEncapsulation->apply_to('Point');
+use Test::More qw'no_plan';
+use Test::Exception;
+
+ok my $point = Point->new, 'Creating a new Point should succeed';
+ok $point->x(3), '... as should setting x()';
+ok $point->y(7), '... and y()';
+is $point->x, 3, '... and x() should have the correct value';
+is $point->y, 7, '... as should y()';
+
+throws_ok { $point->x(8.3) }
+    qr/\QAttribute (x) does not pass the type contraint (Int) with '8.3'/,
+    'Setting an attribute to an invalid value should fail';</pre>
+
+<p>Those tests pass -- until you uncomment the encapsulation lines.</p>
+
+<pre>Illegal attempt to access Point internals from Class::MOP::Instance</pre>
+
+<P>I had my hopes up for a moment :)<?p></p>
+
+
+<hr/>
+
+
+
+<h2>Umm...</h2>
+<h3><a href="/user/nothingmuch/">nothingmuch</a> on 2006-10-12T12:54:49</h3>
+you do realize <b>something</b> has to "violate" encapsulation somewhere, namely the accessor code, right?<br><br>Class::MOP::Instance is precisely the object that lets accessors get at an objects instance structure.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Umm...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-10-12T13:44:14</h3>
+<p>See my reply to Stevan, below.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>You are totally mistaken in your assumptions</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2006-10-12T13:24:55</h3>
+<p>
+There is no violation of encapsulation here actually, you should ask before you assume<nobr> <wbr></nobr>:)
+</p>
+<p>
+<a href="http://search.cpan.org/user/stevan/Class-MOP-0.35/lib/Class/MOP/Instance.pm" title="cpan.org">Class::MOP::Instance</a cpan.org> is the meta object which represents the instance structure, it is the gateway through which all the access to the underlying instance structure is proxied (it also handles generating code for any inlined accessors as well). This puts a layer of abstraction <i>over</i> the instance structure so that the Moose user does not have to think about what kind of instance they are using, and therefore can change the instance type based on their application requirements.
+</p>
+<p>
+Now, of course we do not yet have the ability in Moose to alter the instance structure (currently I have very limited tuits because of $work), but the protocol is in place, and we do have some proof of concept examples in Class::MOP. Please see the <a href="http://search.cpan.org/user/stevan/Class-MOP-0.35/examples/ArrayBasedStorage.pod" title="cpan.org">Array Based instance example</a cpan.org> and the <a href="http://search.cpan.org/user/stevan/Class-MOP-0.35/examples/InsideOutClass.pod" title="cpan.org">Inside Out based instance example</a cpan.org> and note that their tests (<a href="http://search.cpan.org/src/STEVAN/Class-MOP-0.35/t/108_ArrayBasedStorage_test.t" title="cpan.org">here</a cpan.org> and <a href="http://search.cpan.org/src/STEVAN/Class-MOP-0.35/t/102_InsideOutClass_test.t" title="cpan.org">here</a cpan.org>) are almost completely identical (aside from some basic meta-level tests specific to the instance type and the declarations to use the specific instance types themselves).
+</p>
+<p>
+Sometimes enforcing encapsulation is not just about <i>where</i> the access takes place, but instead more about <i>how</i> it takes place.
+</p>
+<p>
+- Stevan
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:You are totally mistaken in your assumptions</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-10-12T13:43:43</h3>
+<p>What did you think my assumptions were, Stevan?  I wasn't assuming this would pass.  I was merely hoping I could get away with it<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:You are totally mistaken in your assumptions</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2006-10-12T13:55:29</h3>
+<p>
+From your title ("Encapsulation <b>or</b> Moose"), and your initial line ("This was not surprising, but also not what I wanted" ) it seemed to me that you were implying that Moose violated encapsulation. Which admitedly, if you go by the definition of encapsulation encoded in Devel::Encapsulation, it does. However, there <i>is</i> more than one way to do it<nobr> <wbr></nobr>:)
+</p>
+<p>
+Of course, my response is riddled with assumptions on my part, so if I am mistaken, please clarify it for me.
+</p>
+<p>
+- Stevan
+</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:You are totally mistaken in your assumptions</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-10-12T13:48:53</h3>
+<p>The issue here isn't that I think that Class::MOP is doing something naughty.  The issue is that I want the final test to fail:</p> <blockquote> <div><tt>throws_ok { $point-&gt;x(8.3) }<br>&nbsp; &nbsp; qr/\QAttribute (x) does not pass the type contraint (Int) with '8.3'/,<br>&nbsp; &nbsp; 'Setting an attribute to an invalid value should fail';<br> <br>$point-&gt;{x} = 8.3;<br>is $point-&gt;x, 8.3, 'Whoops!&nbsp; I broke it';</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Assumptions abound!</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2006-10-12T14:08:58</h3>
+<blockquote> <div><i>
+The issue here isn't that I think that Class::MOP is doing something naughty.
+</i></div> </blockquote>
+<p>
+What exactly do you think it is doing wrong? It is following the Instance protocol, which states that only methods of (or generated by) Class::MOP::Instance should access the internals of the instance. Again, this violates the rather narrow defintion of encapsulation in Devel::Encapsulation, but it enforces (albeit with a much softer hand) encapsulation in a different way.
+</p>
+<blockquote> <div><i>
+The issue is that I want the final test to fail
+</i></div> </blockquote>
+<p>
+Moose does not <i>enforce</i> encapsulation, it <i>suggests</i> it. And in fact, Moose never will (by default) enforce encapsulation like this, IMO this is a descision for the user, and not the object system.
+</p>
+<p>
+- Stevan
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Assumptions abound!</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-10-12T14:16:34</h3>
+<p>I don't think Class::MOP is doing anything wrong.  I'm sorry if it sounded like I was suggesting it!  One thing about Moose I like is that it does make it very easy to respect encapsulation and I do agree that this is more of a user problem than a programming one.  Sorry if my post came off the wrong way.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Assumptions abound! (whoops)</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2006-10-12T15:22:42</h3>
+<blockquote> <div><i>
+I don't think Class::MOP is doing anything wrong.I'm sorry if it sounded like I was suggesting it!
+</i></div> </blockquote>
+<p>
+Sorry, my fault, you didn't suggest that. I mistakenly read "isn't" as "is", in your previous post. That will teach me to respond to posts while also half listening on a conference call with the $client<nobr> <wbr></nobr>:)
+</p>
+<p>
+Anyway, no worries, I just wanted to be sure you understood the reason why you got that error, and that encapsulation is not actually being violated.
+</p>
+<p>
+- Stevan
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

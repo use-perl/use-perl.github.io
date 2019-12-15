@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org story by brian_d_foy: our $gotcha</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>our $gotcha</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2008-02-14T20:11:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>On the first morning of the <a href="http://www.perl-workshop.de/en/2008/index.html">10th German Perl Workshop</a> <a href="http://use.perl.org/user/Corion/">Max</a> did a tutorial on <a href="http://www.perl-workshop.de/talks/95/view">Advanced Perl</a> during which someone asked about the difference between <code>our</code> and <code>use vars</code>. Max didn't know the answer offhand (and being smart, doesn't need to pretend to be by pretending to know the answer), and I had to scratch my head a bit when J&#252;rgen told me about it (I'd been in the other tutorial), so J&#252;rgen asked if I could do a lightning talk to explain it. I said yes (which seemed to be consistent with a question at breakfast - Jonathan asked "are you speaking this year?" and I replied "not yet").</p>
+<p><p>However, today it turned out that it is a good thing that I am a virtuously lazy programmer and hadn't written any slides, as Steffen Ullrich did an excellent talk on <a href="http://www.perl-workshop.de/talks/89/view">Perl Gotchas</a> which
+had an example of code which explained it much better than I could. Specifically, consider the following:
+</p> <p><blockquote> <div> <tt>!/usr/bin/perl -w<br> <br>use strict;<br> <br>package awk;<br> <br># ...<br> <br>package urkk;<br>our @ISA = 'awk';<br> <br># ...<br> <br>package rakkk;<br>our @ISA = 'urkk';<br> <br># ...<br> <br>package owww;<br>@ISA = 'rakkk';<br> <br># ...<br> <br>1;</tt> </div> </blockquote>  <p>All nicely <code>strict</code> clean: </p> <p><blockquote> <div> <tt>$ perl -Mawk -e0</tt> </div> </blockquote>  <p>but nevertheless buggy. Why? Because the inheritance isn't set up correctly:</p> <p><blockquote> <div> <tt>$ perl -Mawk -wle 'print @owww::ISA'<br> <br>$ perl -Mawk -le 'print @rakkk::ISA'<br>rakkk<br>$</tt> </div> </blockquote>  <p>Erk! How did that happen? It's because the our was missed from the last assignment. It should read:</p>
+<p> <code>package owww;
+<b>our </b>@ISA = 'rakkk';
+</code> </p>
+<p>But without that our, that last assignment is still to the variable <code> <b>@rakkk::ISA</b> </code>, not <code>@owww::ISA</code>, because <code>our</code> actually creates a <i>lexical</i> alias to the global variable, a lexical that is still in scope for the rest of the file.</p>
+<p>Whoops! Gotcha!</p></p>
+
+
+<hr/>
+
+
+
+<h2>Another gotcha for you</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-02-14T17:51:52</h3>
+<code><br>$ perl -wle 'package foo; our $_; print map {$_} 1..5'<br>Use of uninitialized value in print at -e line 1.<br>Use of uninitialized value in print at -e line 1.<br>Use of uninitialized value in print at -e line 1.<br>Use of uninitialized value in print at -e line 1.<br>Use of uninitialized value in print at -e line 1.<br></code><br>What happened?  Well $_ is supposed to be $main::_.  But after the our, $_ is now looking at $foo::_ while map still populates $main::_.<br><br>You may find <a href="http://www.perlmonks.org/?node_id=48379" title="perlmonks.org">http://www.perlmonks.org/?node_id=48379</a perlmonks.org> to be of interest as well.
+
+
+
+<h2>Sooo....</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-02-15T01:05:55</h3>
+So it would be a flaw in a Perl file, if it contains multiple packages, with our statements in them... or at least a critic-worthy warning?
+
+
+
+<blockquote>
+
+<h2>Re:Sooo....</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-02-15T01:19:04</h3>
+<p>File-scoped <code>our</code> variables could be a problem.  Block-scoped <code>our</code> variables are less troublesome.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Yet another gotcha</h2>
+<h3><a href="/user/Maddingue/">Maddingue</a> on 2008-02-15T07:55:32</h3>
+<p>Another small problem with <code>our</code> variables is that they take twice the memory of lexical variables or plain global. </p>
+
+
+
+<blockquote>
+
+<h2>Re:Yet another gotcha</h2>
+<h3><a href="/user/kwilliams/">kwilliams</a> on 2008-02-17T14:24:09</h3>
+That comment is a bit misleading; if you have a 1000-byte string in an <code>our</code> variable it's not suddenly going to consume 2000 bytes.  It would be more accurate to say they take twice the overhead.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Lexical alias</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2008-02-17T14:18:03</h3>
+So in short: "our" creates a lexically scoped alias for a package global variable. And lexical scope itself has nothing to do with packages, but with curlies and files.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

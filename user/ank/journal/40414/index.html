@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ank: PHP 5.3 includes garbage collection for circular references</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>PHP 5.3 includes garbage collection for circular references</h1>
+<h2><a href="/user/ank/">ank</a> on 2010-06-24T03:42:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Now, this is what I'm talking about. I haven't done PHP in ages, but today I needed to do some quick scripting and I realized there's been a new major release sometime after my last contact with the language. Quick look at new features includes garbage collection for circular references, something that perl still doesn't include.
+
+<p>You see? This is the sort of things that we lose by allowing Wall and his minions to have his way. A few years ago it would have been laughable to think that PHP was somehow more advanced than perl, but that's not the case anymore.
+
+<p>Of course, PHP has this garbage collection disabled by default, and seems quite experimental, in a very PHP-ish way. But still, at least there's an evolution. 
+
+<p>What's really sad is that GC algorithms are very well known and quite easy to use; the <a href="http://en.wikipedia.org/wiki/Boehm_garbage_collector">Boehm GC</a> comes to mind immediately.
+
+<p>See what happens when you dream of a pluggable, perfect GC scheme for a language that's been in development for 12 years instead of finishing something that's better than perl 5 and can be done now?
+
+<p>Cross posted to <a href="http://fixingsoftware.blogspot.com/2010/06/php-53-includes-garbage-collection-for.html">my blog</a></p>
+
+
+<hr/>
+
+
+
+<h2>&quot;Allow&quot;</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2010-06-24T04:33:08</h3>
+<i>allowing Wall and his minions to have his way.</i>
+<p>
+You seem to be implying that you can somehow disallow it.
+</p><p>
+<i>What's really sad is that GC algorithms are very well known and quite easy to use; the Boehm GC comes to mind immediately.</i>
+</p><p>
+It sounds you're upset because your patches to Perl 5 that implemented this GC were rejected?</p>
+
+
+
+<h2>It's easy to get it wrong</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2010-06-24T09:12:15</h3>
+<blockquote><div><p>What's really sad is that GC algorithms are very well known and quite easy to use; the Boehm GC comes to mind immediately.</p></div></blockquote><p>What you're missing from this analysis is that swapping to mark &amp; sweep GC, particularly a conservative GC such as Boehm, means that you no longer have any guarantee of the timing of destruction of objects, or even that they'll be (formally) destroyed at all, before program exit. So many of the existing uses of <code>DESTROY</code> in Perl would go out of the window, and the paradigm of <a href="http://en.wikipedia.org/wiki/Resource_Acquisition_Is_Initialization" title="wikipedia.org">Resource Acquisition Is Initialization</a wikipedia.org> would no longer be possible. Files handles wouldn't close automatically when the go out of scope. Database handles wouldn't be released immediately that their enclosing object becomes unreferenced. If the system has a lot of free memory, it's quite possible that the GC decides that it doesn't need to run a sweep, with the result that the program runs out of a limited resource such as database handles.</p><p>Hence it's easy to do something "obvious" and get it very wrong.</p><p>What would be needed is code to detect cycles of references, which is something more subtle than general "live-ness".</p><p>And as Andy suggests, nothing is stopping you contributing patches to Perl 5 to implement this. You can get the source code from <a href="http://perl5.git.perl.org/perl.git" title="perl.org">http://perl5.git.perl.org/perl.git</a perl.org> </p>
+
+
+
+<blockquote>
+
+<h2>Re:It's easy to get it wrong</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2010-06-24T12:08:06</h3>
+<blockquote><div><p> <em>Hence it's easy to do something "obvious" and get it very wrong.</em></p></div> </blockquote><p>Some hybrid systems use simple refcounting but occasionally run a full GC to reclaim circular references.  As well, it's certainly possible to use a mortalize scheme for simple escape analysis to catch the majority of cases where you want timely destruction; most objects tend to have reference counts of zero or one.</p>
+
+
+
+<h2>Re:It's easy to get it wrong</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2010-06-24T15:06:55</h3>
+<i>What you're missing from this analysis</i>
+<p>
+
+Using the word "analysis" here gives far too much credit.  It is not "analysis" to say "Can't you just do a new GC?"</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Wall obsession?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2010-06-24T13:32:39</h3>
+<blockquote><div><p>This is the sort of things that we lose by allowing Wall and his minions to have his way.</p></div> </blockquote><p>Uhm, the development effort for Perl&#160;5 never ceased (although it bled momentum for a time for a long list of disparate reason), nor has Larry been involved in a very long time. In fact there is something of a schism and sometimes outright hostility between the 5 and 6 communities. It&#8217;s a convenient to identify a corrupt leader to project all problems onto, but it has little to do with reality.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Wall obsession?</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2010-06-24T23:45:15</h3>
+<p>I did not know there was outright hostility. Why would that be?</p><p>I am ignoring the original post by "ank" as tripe.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Wall obsession?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2010-06-25T02:11:49</h3>
+<p>Not these days so much, and I&#8217;m hoping it&#8217;s all in the past at this point.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

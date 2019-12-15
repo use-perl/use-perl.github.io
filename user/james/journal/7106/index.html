@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of james: Pipeline Power</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Pipeline Power</h1>
+<h2><a href="/user/james/">james</a> on 2002-08-15T09:41:45</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This morning coming into work, I knew I needed to hack together a quick proxy server so that I could examine a web protocol stream going back and forth across the network.  Whereas previously I'd have sat down and written the whole thing out by hand, this time I decided to use OpenFrame 3 to put together a quick solution.<br/><br/>I had to write just a few lines of code to make it all work -- and some of that code was out of politeness rather than need. The code I wrote was simply a pipeline segment that is added to the OpenFrame pipeline. It simply takes the HTTP::Request out of the store,  forwards it to the right place, and then returns the response back to the pipeline:<br/><br/><code>
+package Segment::Forwarder;<br/><br/>use strict;
+use warnings::register;<br/><br/>use LWP::UserAgent;
+use Pipeline::Segment;
+use base qw ( Pipeline::Segment );<br/><br/>sub init {
+  my $self = shift;
+  my $lwp  = LWP::UserAgent->new( env_proxy => 1 );
+  $self->lwp( $lwp );
+}<br/><br/>sub lwp {
+  my $self = shift;
+  my $lwp  = shift;
+  if (defined( $lwp )) {
+    $self->{lwp} = $lwp;
+    return $self;
+  } else {
+    return $self->{lwp};
+  }
+}<br/><br/>sub dispatch {
+  my $self = shift;
+  my $pipe = shift;<br/><br/>  my $httpr = $pipe->store->get( 'HTTP::Request' );
+  return $self->lwp->request( $httpr );
+}<br/><br/>1;
+</code></p>
+
+
+<hr/>
+
+
+
+<h2>accessors</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2002-08-15T17:12:43</h3>
+Hmmm, I've been caught out by using accessors like that before.  This is a more general code issue, and it's probably fine for your small code, but what happens if you want to store undef in your accessor?<br> <br>This is the reason I am leaning more and more towards Class::Accessor and similiar.  I note that you'd have to override set() to return $self that way, however.<br> <br>-Dom
+
+
+
+<blockquote>
+
+<h2>Re:accessors</h2>
+<h3><a href="/user/james/">james</a> on 2002-08-15T17:31:25</h3>
+&gt; Hmmm, I've been caught out by using accessors like <br>&gt; that before. This is a more general code issue,<br>&gt; and it's probably fine for your small code, but<br>&gt; what happens if you want to store undef in your<br>&gt; accessor?<br> <br>Generally I work very hard to make sure I never need to have an undef in any given state<nobr> <wbr></nobr>:-)<br> <br>The object in question will always be in one of two states:<ol> <li>Usable - there is a valid LWP::UserAgent object</li> <li>Unusable - there is no valid LWP::UserAgent object</li> </ol>Cases can be made for wanting to store undef however<nobr> <wbr></nobr>:-)<br> <br>I'm pretty big on returning $self from accessors in 'set' mode.  That way you can move parameter passing away from the constructor, which makes subclassing later on <i>much</i> easier.  If you want set things up at construction time, you can chain your method calls, and still get everything nice and concise in the real estate department without sacrificing flexibility.<br> <br>Or maybe I'm a SmallTalk junkie<nobr> <wbr></nobr>:-)
+
+
+
+<h2>Re:accessors</h2>
+<h3><a href="/user/wickline/">wickline</a> on 2002-08-15T23:11:02</h3>
+&gt; what happens if you want to store undef <br> <br>I usually write something like<blockquote><div> <tt>sub foo {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; return&nbsp; &nbsp;@_&nbsp; ? $self-&gt;{foo}=$_[0]&nbsp; : $self-&gt;{foo};<br>}</tt> </div></blockquote>which gives you the ability to set something to <tt>undef</tt> but doesn't let you chain method calls. If you wanted to chain method calls, you could instead write it this way<blockquote><div> <tt>sub foo {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; if (@_) {<br>&nbsp; &nbsp; &nbsp; &nbsp; $self-&gt;{foo} = shift;<br>&nbsp; &nbsp; &nbsp; &nbsp; return $self;<br>&nbsp; &nbsp; } else {<br>&nbsp; &nbsp; &nbsp; &nbsp; return $self-&gt;{foo};<br>&nbsp; &nbsp; }<br>}</tt> </div></blockquote>-matt<br>
+
+
+
+<blockquote>
+
+<h2>Now I'm just being silly...</h2>
+<h3><a href="/user/wickline/">wickline</a> on 2002-08-16T00:28:09</h3>
+Put these two subroutines somewhere<blockquote><div> <tt>sub non_chaining_accessor {<br>&nbsp; &nbsp; my $name = (caller 1)[3];<br>&nbsp; &nbsp; $name = substr $name, rindex($name,':')+1;<br>&nbsp; &nbsp; $#_&nbsp; ? $_[0]-&gt;{$name}=$_[1]&nbsp; : $_[0]-&gt;{$name}<br>}<br>sub chaining_accessor {<br>&nbsp; &nbsp; my $name = (caller 1)[3];<br>&nbsp; &nbsp; $name = substr $name, rindex($name,':')+1;<br>&nbsp; &nbsp; if ($#_) {<br>&nbsp; &nbsp; &nbsp; &nbsp; $_[0]-&gt;{$name} = $_[1];<br>&nbsp; &nbsp; &nbsp; &nbsp; return $_[0];<br>&nbsp; &nbsp; } else {<br>&nbsp; &nbsp; &nbsp; &nbsp; return $_[0]-&gt;{$name};<br>&nbsp; &nbsp; }<br>}</tt> </div></blockquote>and then when you want accessors of either type, just do this:<blockquote><div> <tt>sub foo { &amp;non_chaining_accessor }<br>sub bar {&nbsp; &nbsp; &nbsp;&amp;chaining_accessor }<br>sub baz { &amp;non_chaining_accessor }<br>sub bop {&nbsp; &nbsp; &nbsp;&amp;chaining_accessor }</tt> </div></blockquote>and your subs will be accessors for like-named hash keys in a hash-ref-based objet. They'll be slower though (extra subroutine call and three extra function calls per invocation). I suppose you could cache the sub name to hash key lookups to gain a bit of speed in future calls, if that's worth the bother: one function call and a hash lookup instead of three function calls.<br> <br>Well, it looks like I'm on the way to re-inventing Class::Accessors now. I just looked at that module, and it seems to do the same sort of thing, but much nicer. It goes another step and lets you just specify the names of the accessors, and it creates the subs and stuffs them in your namespace for you. Since it knows the names of the subs when it creates them, it can avoid that repeated callerIt's also much more configurable.<br> <br>At least it was a fun excersize<nobr> <wbr></nobr><tt>:)</tt> <br> <br>-matt
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of aurum: Text collation engine: design overview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Text collation engine: design overview</h1>
+<h2><a href="/user/aurum/">aurum</a> on 2008-08-21T13:49:45</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Here I will describe the basic design outline, as it currently stands, for my manuscript text collation engine, a.k.a. the "Armenian Difference Engine."  (Later I will ask you to argue with each other about a module name, but not now.  Call it the MCE for now.)  I welcome, indeed I solicit, feedback and opinions as to how I might do things more cleverly.</p>
+
+<p>This is being posted without external proofreading, so if something isn't clear, please ask!</p>
+
+<b>So what's the problem?</b>
+<p>The editor of a historical text begins with some number of manuscript copies of that text.  The goal of the exercise is to compare each of these manuscript texts against each other, note the variations among them, and choose the best "reading" out of each of the alternatives wherever a variation occurs.  Until recently, this was done manually; what I am building is a program that will calculate the variations and only consult me when I need to exert editing controlÃ¢â¬âthat is, when I need to choose the best reading.</p>
+
+<b>OK, sure.  So how does your program work then?</b>
+<p>Each manuscript text is passed in as a filehandle (or as a string), containing a bunch of words.  For my purposes, the text I am passing in has punctuation and orthography variation as represented in the manuscript, but I have expanded the abbreviations.  (Eventually I will accept TEI XML and parse that into a string of text; doing that will probably make my life easier writing this program in the same measure that it makes my life more difficult in transcribing and handling conversion to XML.)</p>
+
+<p>The first step is to transform each "text" into words.  Words are non-whitespace characters, separated by whitespace.  (Yes that means that, right now, I only support scripts that demarcate words with whitespace.)  Each word gets a representation as an MCE::Word object, which I will describe in my next post.  Now I have several arrays of Words, where each array represents a manuscript text.  In theory, I could create an MCE::Text object with information about the manuscript itself and a chain of words all linked together, but I haven't yet concluded that a simple array is fragile enough to justify the overhead of another OO package.  I may later change my mind.</p>
+
+<p>Now I have two or more arrays, probably all slightly different lengths.  I pull out the string representations of each Word from the first two arrays, and pass them to Algorithm::Diff.  Diff can return three answers for any given chunk of text:</p>
+<ul><li>The chunks are the same.  Pass them through, and link them as being the same word.</li>
+<li>One of the chunks is zero-length (addition or deletion.)  Pass the non-zero chunk through, and pad the text which contains the zero-length chunk with empty Words.  (Actually the same empty Word, to save space.)</li>
+<li>The chunks are not the same.  Call &amp;align_and_match_words on the two chunks.</li></ul>
+
+<p>The &align_and_match_words subroutine takes two (generally relatively short) arrays of Word objects, which may be varying lengths.  It compares each word in one array to each word in the second array to find the "best" match.  If, for example, you send representations of two strings to this subroutine:<p>
+
+<code>This is a short sentence.<br>
+This is an even longer sentence with more words.</code>
+
+<p>your result is:</p>
+
+<pre>0    1  2  3     4      5        6    7    8
+This is a  short NUL    sentence NUL  NUL  NUL
+This is an even  longer sentence with more words.</pre>
+
+<p>(Note that this is an illustration only; in practice, these two strings would not be sent <i>in toto</i> to the subroutine, because Algorithm::Diff would only report a "changed" chunk for the substrings "a short" and "an even longer.")</p>
+
+<p>The subroutine will detect a fuzzy match between "a" and "an" in column 2, and add the Word object "a" to the list of "fuzzymatch"es attached to the Word object "an".  It will find no similarity between the words "short" and "even" in column 4, so will add the Word object for "even" to the list of variants attached to the Word object "short".  It will pad the remaining empty spaces with an empty Word; the empty Word is never linked to anything.  All "fuzzymatch" and "variant" linkage relations work from top to bottom; that is, given two texts, the first text always contains the links.</p>
+
+<p>The top-to-bottom association of links becomes important when more than two texts are compared.  To begin the next comparison, I call the &generate_base subroutine on the two texts whose comparison has just finished.  This subroutine is fairly simple; it looks for the topmost non-NUL word in all the arrays it has passed.  In our example above, the new base text generated would be</p>
+
+<code>This is a short longer sentence with more words.</code>
+
+<p>Semantically useless, but a good way to generate pegs on which to hang words.  The word "a" has a fuzzymatch link to "an", and the word "short" has a variant link to "even".  All the identical words that occur in the same column are also linked.  This newly generated "base" becomes the topmost text in the next comparison.</p>
+
+<p>At the end of the run, then, we have an array of Words to represent each of the manuscript texts we passed in.  The arrays are padded with empty (NUL) words where necessary, so that all the arrays are the same length, and all their same / similar words are aligned in the same row.  If the user calls &generate_base on the complete set of result arrays, he/she will have an array of non-NUL words, each of which contain the appropriate links to non-NUL words in the manuscripts that come after it.  And then the real work can start.</p>
+
+<p>In the next few posts, I will say more about the concept of a "variant", talk about the structure of Word objects, and discuss the as-yet unsolved problem of punctuation.</p></p>
+
+
+<hr/>
+
+
+
+<h2>order-dependence?</h2>
+<h3><a href="/user/mr_bean/">mr_bean</a> on 2008-08-22T09:41:48</h3>
+<p>It seems like the data structure will become dependent on which sentence you start with first, and that you won't be able to find variants of words which come under the control of<br>earlier-processed counterparts.</p><p>By the way, where is the NLP community in perl? There seems to be some action around Ted Pedersen's Wordnet similarity modules and Dragomir  Radev has text relationship analyzer work in Clair.</p><p>But there doesn't seem to be other ongoing NLP development in perl.</p>
+
+
+
+<h2>Re: order-dependence?</h2>
+<h3><a href="/user/aurum/">aurum</a> on 2008-08-22T12:06:57</h3>
+<p>It may have some dependence on which text I start with; I may need to look at this in more detail.  My assumption is that for a given word row (discounting NULs for the moment) the words will look like this (picking an arbitrary set of words)</p><blockquote><div><p> <tt>Precedense precedence order ordering preceedence</tt></p></div> </blockquote><p>So the entire structure is hanging on the first word, "Precedense".  I should link both "precedence and "preceedence" to that as a fuzzy match.  When I find "order", I will link it to "Precedense" as a variant.</p><p>...and, yes.  The next step is one I left out of my overview.  When I find "ordering", before adding it as a variant in its own right, I compare it to each of the existing variants.  So I have a structure that looks like:</p><blockquote><div><p> <tt>Precedense:<br>&nbsp; &nbsp;FUZZY_MATCH precedence preceedence<br>&nbsp; &nbsp;VARIANT order<br> <br>order:<br>&nbsp; &nbsp;FUZZY_MATCH ordering</tt></p></div> </blockquote><p>I think that retains all the information I need, yes?</p><p>Re NLP: I did a double-take before I realized that you meant <a href="http://en.wikipedia.org/wiki/Natural_language_processing" title="wikipedia.org">this</a wikipedia.org> and not <a href="http://en.wikipedia.org/wiki/Neuro-linguistic_programming" title="wikipedia.org">this</a wikipedia.org>.<nobr> <wbr></nobr>:)  I am not aware of a community around it, no.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

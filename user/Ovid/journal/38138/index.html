@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Perl Hell</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl Hell</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-12-23T11:30:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Here's what has me stumped today:</p>
+
+<pre>#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Test::Most 'no_plan';
+use Test::XML::XPath;
+
+my $xml = do { local $/; <DATA> };
+
+my @xpath = qw(
+    /p:pips/p:version/p:segment_events/p:segment_event[@pid="p0000004"]/p:ids/p:id
+    /p:pips/p:version/p:segment_events/p:segment_event[@pid="p0000004"]/p:ids/p:id[1]
+    /p:pips/p:version/p:segment_events/p:segment_event[@pid="p0000004"]/p:ids/p:id[2]
+    not(/p:pips/p:version/p:segment_events/p:segment_event[@pid="p0000004"]/p:ids/p:id[3])
+    count(/p:pips/p:version/p:segment_events/p:segment_event[@pid="p0000004"]/p:ids/p:id)=2
+);
+
+for my $xpath (@xpath) {
+    like_xpath $xml, $xpath, 'whee!';
+}
+__DATA__
+# our XML
+</pre>
+
+<p>Know what it takes to get that to pass?  This:</p>
+
+<pre>for my $xpath (@xpath) {
+    my $anything = undef;
+    like_xpath $xml, $xpath, 'whee!';
+}</pre>
+
+<p>Or this:</p>
+
+<pre>for my $xpath (@xpath) {
+    like_xpath $xml, $xpath, 'whee!';
+}
+ok 1;</pre>
+
+<p>Trying to reduce that to a minimal test case for a bug report has failed miserably.  It appears that <em>any</em> sort of assignment anywhere in the <tt>like_xpath</tt> code will cause these tests to pass and the mere act of moving the affected files to other directories also appears to make tests pass.  Running these tests under the debugger also makes them pass.  Printing out any affected variables makes these tests pass.  Hell, I suspect that breathing heavy would make these tests pass.</p>
+
+<p>This is Perl 5.8.8 on Solaris.  Earlier this month, <a href="http://www.mail-archive.com/london.pm@london.pm.org/msg16454.html">Andy Wardley started a London.pm thread about this version of Perl segfaulting due to a comment</a>.  Some people could reproduce his error and others couldn't.  Versions of Perl other than 5.8.8 seemed fine (and not all 5.8.8 seemed affected).  I'm beginning to suspect that 5.8.8 has a parser issue.  Since Perl's parsing is heuristic-based, this is a bugger (ha!) to track down.</p>
+
+<p><strong>Update</strong>:  Pardon me, but F****************K!  As mentioned, any assignment of a variable in the <tt>like_xpath</tt> code will fix this bug -- but only for my minimal test case.  One of our actual tests still fails roughly 1 out of 5 runs.  The XML returned is always the same, aside from timestamps which aren't in the xpath.  I'm going insane.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Context?</h2>
+<h3><a href="/user/bart/">bart</a> on 2008-12-23T13:25:02</h3>
+<p>Have you checked the context that the like_xpath() call is invoked in? It looks to me like it should be in void context, and probably, it isn't.</p><p>This often bites me with Data::Dump::Streamer, where Dump() needs to be in void context to print anything. And a bare Dump statement, more often than not, is in scalar or list context.</p><p>Argh! I wish Perl required explicit return (as in Javascript) to return values, so context of statements would always be void unless explicitly overridden.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Context?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-12-23T13:41:19</h3>
+<p>The context in which it's called doesn't matter.  I'm reading the code now and it shouldn't make any difference.  Of course, sometimes just adding a comment to the <tt>like_xpath</tt> code causes these tests to pass, but only in the example above.  In the actual test, it still fails about 1 out of 5 runs.</p><p>Well, that's not quite true.  It now fails about 1 out of 8 runs after a fresh checkout.  However, the failure above stopped failing as soon as I checked it in to source control and checked it back out again.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>hash order issue?</h2>
+<h3><a href="/user/davidnicol/">davidnicol</a> on 2008-12-23T19:51:20</h3>
+my ignorant guess is hash key ordering.
+
+
+
+<blockquote>
+
+<h2>Re:hash order issue?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-12-23T21:00:02</h3>
+<p>I wondered about that myself as I had just worked on a Catalyst bug involving that (one that's fixed in the current version), but the <tt>my $anything = undef;</tt> line seems to eliminate that thought.  Plus, the fact that my small test case which always failed passes if I commit it to Subversion and check the branch again<nobr> <wbr></nobr>:(</p><p>I've heard anecdotal stories of possible parsing issues in 5.8.8, but I don't see them reported as bugs, so it's tough to say if this is true or if it's related to my problem.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Sounds like memory corruption to me...</h2>
+<h3><a href="/user/mauzo/">mauzo</a> on 2008-12-29T18:50:55</h3>
+Are you able to run it under valgrind or something equivalent?
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

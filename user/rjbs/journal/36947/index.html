@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: validation is hard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>validation is hard</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2008-07-18T03:26:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><html><p>More and more, I&#39;m dealing with lots of mostly-JSON web service APIs.  I enjoy
+this.  It&#39;s simple, and tends to work well.  I think JSON is a really nice
+format to work with.  I had a discussion with Ingy and a bit of the <code>#yaml</code>
+gang about things I don&#39;t like about YAML (largely it&#39;s implicit types) and I
+ended up thinking that YAML wasn&#39;t quite as insane as I&#39;d thought.  Still, from
+the perspective of clarity, JSON blows it out of the water.</p><p>I want to add more formalized validation to our JSON APIs, so I was looking at
+ways to quickly write validation for data structures.  I&#39;d seen
+<a href="http://www.kuwata-lab.com/kwalify/">Kwalify</a> and <a href="http://search.cpan.org/dist/Kwalify">its Perl
+implementation</a> out of the corner of my
+eye a number of times, and I looked into it more today.  It started out looking
+quite reasonable, but then I started to find things that made me unhappy.</p><p>The first thing that should&#39;ve made me wary was the fact that you can declare a
+<code>pattern</code> for a node, saying that the string must match a regex.  That&#39;s not so
+crazy if you&#39;re writing a library for one language, but Kwalify seems like it&#39;s
+multilanguage.  What regex library does it use?  You can&#39;t specify it.
+Presumably it&#39;s the &#34;native&#34; library, but that means that your schemata are
+already not cross-language.  That didn&#39;t jump out at me until later.</p><p>There&#39;s an <code>assert</code>, too, which is basically a string of code that gets
+templated and evaluated.  This made me grumpy, but it&#39;s marked as
+&#34;experimental,&#34; so I pretended that it would be ditched or replaced.</p><p>The mechanism for reusable schema parts is the YAML reference/anchor schema,
+which is equivalent to Perl references.  In order to say that both &#34;masters&#34;
+and &#34;servants&#34; are the same kind of data, you might write a schema like this:</p><hr /><pre>type: map
+mapping:
+  masters:
+    type: seq
+    sequence:
+      - &person
+        type: map
+        mapping:
+          name: { type: str }
+          age:  { type: int }
+  servants:
+    type: seq
+    sequence:
+      - *person
+</pre><p>...or something like that.  I&#39;d rather write something like:</p><hr /><pre>schema: map/person
+type: map
+mapping:
+  name: { type: str }
+  age:  { type: int }
+...
+</pre><hr /><pre>type: map
+mapping:
+  masters:
+    type: seq
+    sequence:
+      - type: map/person
+  servants:
+    type: seq
+    sequence:
+      - type: map/person
+</pre><p>Then I could have some better registry of types than just &#34;references to other
+parts of one document.&#34;  For example, the first document in the above section
+could actually be resolved by Some Unspecified Mechanism like &#34;look up in
+filesystem.&#34;  Without that, each schema is an island.</p><p>Kwalify also has a &#34;data-binding&#34; feature, which really means that it can
+generate a class from a schema and transform input into objects.  That&#39;s okay,
+but I don&#39;t see how the fact that you might want to do that belongs in the
+schema.  Doesn&#39;t it belong in some loader layer?  Every time more features are
+added that do runtime things, the schema system becomes less cross-platform.</p><p>The two container types allowed in Kwalify are <code>seq</code> and <code>map</code>, which
+correspond to YAML&#39;s sequence and mapping.  Unfortuantely, the sequence type
+can only define sequences of zero or more elements each matching the same
+constraint.  In other words, you can say &#34;this is an array of zero or more
+integers&#34; but not &#34;this is an array of between 2 and 8 integers&#34; or &#34;this is an
+array of an integer, then a string, then a map.&#34;</p><p>Validation systems always disappoint.  So far my experience has been that
+everybody has his own particular fetishes for what he wants from a validator,
+and the more validation he has done, the more perverse his desires become.  If
+you&#39;re really satisfied with your data validator (and you only use the one
+library for it) you&#39;re probably not validating enough.</p><p>Some time ago, I looked at BDFOY&#39;s <a href="http://search.cpan.org/dist/Brick">Brick</a>
+library.  It looks great, but it has no non-developer releases, and the
+impression I got is that while it&#39;s really, really cool, no one actually uses
+it.  I&#39;m wary of being the first one to try to use it in production.</p><p>Beyond that, it&#39;s pretty clearly Perl.  Of course, it would be possible to
+write something to compile simpler schema definitions into Bricks, so you could
+hand your compiler something like a Kwalify YAML file and get a Brick.</p><p>I&#39;ve spent the last two hours or so trying to decide how I&#39;d want to write
+this, with an eye toward being able to say things like, &#34;and then you should
+have an array with one or more things matching the Pobox/Spam/Item schema.&#34;
+I&#39;m also keen on being able to have things defined in terms of semantics that
+can be implemented in multiple languages, rather than being specified in regex.
+Maybe that just means you have to say &#34;to be a valid Email/Address, you meet
+these criteria&#34; and people are responsible for their own testing.</p><p>Of course, with a schema in a format like JSON, and a cross-platform testing
+system like FIT, this could be practicable.  Further, it&#39;s not the worst thing
+in the world if parts of the schema can&#39;t be validated everywhere by everyone.
+It lets the client say &#34;well, I tried to validate before sending, but I do not
+have all of the schema to be sure I am okay.&#34;  This might not be acceptable
+for two-way transmission, but it&#39;s okay as long as the receiving end can
+validate enough to be happy.</p><p>I&#39;m going to keep thinking about it while I clean the guinea pig cage.</p></html>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Related reading</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-07-19T11:37:44</h3>
+<p> <a href="http://blog.jclark.com/2007/04/do-we-need-new-kind-of-schema-language.html" title="jclark.com">James Clark: Do we need a new kind of schema language?</a jclark.com> </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

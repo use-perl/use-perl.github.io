@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Localizing variables in another stack frame?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Localizing variables in another stack frame?</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-10-14T09:18:25</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>The latest development version of <a href="http://search.cpan.org/user/ovid/Test-Aggregate-0.34_07/">Test::Aggregate</a> is out.  I've tried to be somewhat conservative about what I add to this module as my primary consideration is "ease of use".  This time, I've made such an obvious change that I can't believe I didn't do it earlier.</p>
+
+<p>One problem with aggregating code in Perl is the built-in globals.  We're constantly admonished to localize these whenever we use them, but we see things like <tt>$| = 1</tt> in plenty of code.  If it's a small test program, this doesn't look like a bad thing, but under aggregation it, altering globals like this is a bad thing.  In several of our test programs, we've deliberately localized some environment variables to avoid this, but it's important that aggregating tests be (as much as is possible) a simple matter of moving the test from the <tt>t/</tt> directory to the aggregated directory.  As a result, now when I rewrite the tests, I have this at the top of all of them:</p>
+
+<pre>no warnings 'uninitialized';   # I ALWAYS misspell this
+local %ENV = %ENV;
+local $/   = $/;
+local @INC = @INC;
+local %INC = %INC;
+local $_   = $_;
+local $|   = $|;
+local %SIG = %SIG;
+use warnings 'uninitialized';</pre>
+
+<P>I went through <tt>perlvar</tt> and tried to find the most commonly used globals for this.  It's getting closer and closer to emulating separate processes for every test, without the overhead of launching separate processes.  Of course, we can't go the full route of separate processes because this kills the performance benefits of aggregation, but it's a decent compromise.</p>
+
+<p>However, I <em>hate</em> having that block of variables there.  Even though this is in auto-generated code that the end user doesn't see, sometimes you need to have <tt>Test::Aggregate</tt> write out the code so you can debug it manually and having all of this code duplication is a frustration.  Sure, I could use something stupid like vim folding to hide it, but what I really want is the ability to run <tt>local</tt>, <tt>eval</tt> and other bits of code in a higher stack frame.  I've tried various tricks to get around this, but so far it eludes me.  Is there a solution?  (And haven't I asked this before?  I don't see that I have, but I know it's been on my mind a number of times)</p></p>
+
+
+<hr/>
+
+
+
+<h2>Probably a dumb idea...</h2>
+<h3><a href="/user/RMGir/">RMGir</a> on 2008-10-14T14:34:29</h3>
+...but how about a source filter?<br/><br/>Filtering "$.==0" and inserting your block of localizers might work.
+
+
+
+<h2>Even dumber idea...</h2>
+<h3><a href="/user/RMGir/">RMGir</a> on 2008-10-14T14:55:23</h3>
+<p>Ah, I missed that these were generated blocks.</p><p>Goto's are evil.  But this might be a place to use them, perhaps...</p><p>Why not put them at the bottom of the file?  Then stick a</p><p># GENERATED GOTO - Localize important perl vars<br>goto LOCALIZE_VARS;<br>VARS_LOCALIZED:</p><p>at the top, and generate this at the bottom:</p><p>goto PAST_LOCALIZERS; # so we don't change return<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # value of code...<br>LOCALIZE_VARS:<br>no warnings 'uninitialized';   # I ALWAYS misspell this<br>local %ENV = %ENV;<br>local $/   = $/;<br>local @INC = @INC;<br>local %INC = %INC;<br>local $_   = $_;<br>local $|   = $|;<br>local %SIG = %SIG;<br>use warnings 'uninitialized';<br>goto VARS_LOCALIZED; # jump back to top of code<br>PAST_LOCALIZERS:</p><p>
+&nbsp; at the bottom of the localizer block...</p><p>This way, the localizers aren't in your face as you're looking at the important part -- the tests.</p><p>In fact, any amount of scaffolding could be moved down into that block, if there's any other prologue stuff your framework generates...</p>
+
+
+
+<blockquote>
+
+<h2>Re:Even dumber idea...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-10-14T15:29:21</h3>
+<p>Actually, Andy Armstrong pointed out that <a href="http://stackoverflow.com/questions/200578/localizing-perl-variables-in-a-different-stack-frame" title="stackoverflow.com">I could just use a closure for tricking the stack frame</a stackoverflow.com>.  I felt really stupid once I saw that<nobr> <wbr></nobr>:)</p><p>In other news, turns out the code has a SERIOUS bug.  Localizing %INC causes all sorts of nasty things when you try to reload code.  Oops!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

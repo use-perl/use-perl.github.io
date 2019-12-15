@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of miyagawa: Perl UTF-8 and latin-1 woes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl UTF-8 and latin-1 woes</h1>
+<h2><a href="/user/miyagawa/">miyagawa</a> on 2006-09-08T05:49:58</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've been thinking that I fully understand the Perl UTF-8 flag and Unicode stuff very well, with the professional experience handling I18N and L10N issues with Perl for more than 5 years.<br/><br/>But it turns out that I still have something to learn, or things I've learned recently at least.<br/><br/>So here's the code.<br/><br/><pre>
+#!/usr/bin/perl
+use strict;
+use warnings;
+use Encode;
+use File::Temp qw(tempfile);<br/><br/>use XML::RSS;
+use XML::RSS::LibXML;
+use XML::Atom::Feed;
+use Test::More 'no_plan';<br/><br/>$XML::Atom::ForceUnicode = 1;
+$XML::Atom::DefaultVersion = "1.0";<br/><br/>my %data;
+$data{latin1}  = "Diction" . chr(225) . "rios";
+$data{utf8}    = "Diction" . "\xc3\xa1" . "rios";
+$data{unicode} = decode_utf8($data{utf8});<br/><br/>my %code = (
+    'XML::RSS' => \&test_xml_rss,
+    'XML::RSS::LibXML' => \&test_xml_rss_libxml,
+    'XML::Atom' => \&test_xml_atom,
+);<br/><br/>for my $module (qw(XML::RSS XML::RSS::LibXML XML::Atom)) {
+    for my $label (qw(latin1 utf8 unicode)) {
+        $code{$module}->($data{$label}, $label);
+    }
+}<br/><br/>sub is_same {
+    my($str1, $str2) = map _unicode($_), @_[0..1];
+    is $str1, $str2, pop(@_);
+}<br/><br/>sub _unicode {
+    my $str = shift;
+    return $str if utf8::is_utf8($str);
+    return Encode::decode_utf8($str) if $str =~ /\xc3/;
+    return Encode::decode('latin-1', $str);
+}<br/><br/>sub test_xml_rss {
+    my($string, $label) = @_;<br/><br/>    my $rss = XML::RSS->new;
+    $rss->channel(title => $string);<br/><br/>    my $xml = $rss->as_string;
+    diag "XML::RSS + $label: is_utf8() = ",  utf8::is_utf8($xml) ? 1 : 0;<br/><br/>    $rss = XML::RSS->new;
+    eval {
+        my $tmp = write_file($xml);
+        $rss->parsefile($tmp);
+        is_same $rss->channel->{title}, $string, "XML::RSS $label";
+    };
+    fail "XML::RSS $label" if $@;
+}<br/><br/>sub test_xml_rss_libxml {
+    my($string, $label) = @_;<br/><br/>    my $rss = XML::RSS::LibXML->new;
+    $rss->channel(title => $string);<br/><br/>    my $xml = $rss->as_string;
+    diag "XML::RSS::LibXML + $label: is_utf8() = ",  utf8::is_utf8($xml) ? 1 : 0;<br/><br/>    $rss = XML::RSS::LibXML->new;
+    eval {
+        my $tmp = write_file($xml);
+        $rss->parsefile($tmp);
+        is_same $rss->channel->{title}, $string, "XML::RSS::LibXML $label";
+    };
+    fail "XML::RSS::LibXML $label" if $@;
+}<br/><br/>sub test_xml_atom {
+    my($string, $label) = @_;<br/><br/>    my $feed = XML::Atom::Feed->new;
+    $feed->title($string);<br/><br/>    my $xml = $feed->as_xml;
+    diag "XML::Atom + $label: is_utf8() = ",  utf8::is_utf8($xml) ? 1 : 0;<br/><br/>    eval {
+        my $tmp = write_file($xml);
+        $feed = XML::Atom::Feed->new($tmp);
+        is_same $feed->title, $string, "XML::Atom $label";
+    };
+    fail "XML::Atom $label" if $@;
+}<br/><br/>sub write_file {
+    my $data = shift;
+    my($fh, $name) = tempfile(CLEANUP => 1);
+    print $fh $data;
+    close $fh;
+    return $name;
+}
+</pre><br/><br/>8 out of 9 tests will fail. It's because XML::Atom and XML::RSS::LibXML's output method (as_string() and as_xml() specifically) returns UTF-8 flagged string, regardless of what the input data was. So, if and only if the string contains of characters less than 255 (= latin-1 range), perl will print them in latin-1, if we don't supply the encoding explicitly.<br/><br/>It doesn't happen if the characters contain Unicode characters larger than 255, which is quite annoying, in terms of consistency.<br/><br/>Obviously, the fix is to add:<br/><br/><pre>
+binmode $fh, ":utf8";
+</pre><br/><br/>before actually printing the XML to the file. Or Encode::encode_utf8 and other equivalent stuff. What makes things a bit worse is that there's no documentation (in XML::RSS::LibXML and XML::Atom) if the output data is utf-8 flagged or not. Even worse, XML::RSS output data may be utf-8 flagged or not, depending on the input.<br/><br/>As an author of XML::Atom, I was about to change the as_xml() implementation to force UTF-8 binary output, rather than UTF-8 flagged string. But I hesitate to push the code now, since it *might* break the backward compatibility. There could be some code that expects $feed->as_xml return Unicode string and open the filehandle with utf8 mode. That way, the users will get the double utf-8 encoded string.<br/><br/>I'm chatting this about Daisuke, the author of XML::RSS::LibXML and agreed it's all about documentation, or probably add another option to force UTF-8 binary output.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

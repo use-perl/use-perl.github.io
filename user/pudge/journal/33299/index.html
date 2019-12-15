@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: Stupid Mac::Glue Tricks: Saving Safari URLs with Tabs</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Stupid Mac::Glue Tricks: Saving Safari URLs with Tabs</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2007-05-17T15:35:29</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I don't know if <a href="http://daringfireball.net/2003/05/safaris_unscriptable_tabs">Gruber-man</a> ever came up with a solution to the unscriptable tabs, I have a workaround.<br/><br/>You cannot use Apple events to get every URL of every open document in Safari: the documents in nonvisible tabs are unavailable.  So this workaround uses UI Scripting (turn it on in System Preferences -> Universal Access -> Enable access for assistive devices) to flip through the tabs.  It (perhaps unreliably, if you have the same URL open in more than one tab) stops when the first URL fetched is equal to the last.<br/><br/>It does this for each window, then closes the window and moves on (it is not a simple matter to switch windows, and since I use this for quitting Safari, I want the windows closed anyway).  It then simply prints out all the URLs into a Data::Dumper data structure.<br/><br/><pre>#!/usr/bin/perl
+use warnings;
+use strict;<br/><br/>use Mac::Glue ':all';<br/><br/>my $safari = new Mac::Glue 'Safari';
+my $sysevt = new Mac::Glue 'System Events';<br/><br/>my $next_tab = $sysevt->obj(
+	menu_item               => 'Select Next Tab',
+	menu                    => 1,
+	menu_bar_item           => 'Window',
+	menu_bar                => 1,
+	application_process     => 'Safari'
+);<br/><br/>
+$safari->activate;<br/><br/>my @windows;
+my $win = 0;<br/><br/>my $windows = $safari->obj('windows');
+for my $window ($windows->get) {
+	my $url;
+	while (defined(my $url = get_doc_url($window))) {
+		push @{$windows[$win]}, $url if length $url;
+	}
+	$win++ if defined $windows[$win];
+	$window->close;
+}<br/><br/>use Data::Dumper;
+print Dumper \@windows;<br/><br/>
+sub get_doc_url {
+	my($window) = @_;
+	my $document = $window->prop('document')->get;
+	return unless $document;<br/><br/>	my $url = $document->prop('url')->get;
+	$url = '' unless defined($url);
+	return if @windows && $windows[$win] && @{$windows[$win]} &&
+		$url eq $windows[$win][0];<br/><br/>	$next_tab->click;<br/><br/>	return $url;
+}</pre><br/><br/>
+Then you can do what you want the data structure.  Here's what I do:<br/><br/><pre>#!/usr/bin/perl
+use warnings;
+use strict;<br/><br/>use Mac::Glue ':all';<br/><br/>my $safari = new Mac::Glue 'Safari';<br/><br/>$safari->activate;<br/><br/>sub open_windows {
+	my($windows) = @_;
+	for my $window (@$windows) {
+		$safari->make(new => 'document'); sleep 2;
+		$safari->open_location($_) for @$window;
+	}<br/><br/>}<br/><br/>my $VAR1;<br/><br/>$VAR1 = [
+          [
+            'http://pudge.net/',
+            'http://pudge.net/tunes/'
+          ],
+          [
+            'http://projects.pudge.net/'
+          ]
+        ];<br/><br/>open_windows($VAR1);</pre><br/><br/>Saving and restoring to a file instead of copying/pasting the data structure is an exercise left to the reader.
+</p>
+
+
+<hr/>
+
+
+
+<h2>How about generating an 'open' command?</h2>
+<h3><a href="/user/reppep/">reppep</a> on 2007-05-25T05:15:17</h3>
+Pudge,<br><br>That's slick, and I hate when Safari loses my windows, but closing them for me would be awkward -- I might want to use this to back up state, not just capture it for later resumption.<br><br>Is there any reason a Data Dumper structure is better than emitting a simple command line, starting with 'open ' and containing all the URLs found (wrapped in '' to protect against puctuation such as '?')? This is what I use to 'store' URLs when i have to quit Safari.
+
+
+
+<blockquote>
+
+<h2>Re:How about generating an 'open' command?</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2007-05-25T06:22:26</h3>
+<p><div class="quote">That's slick, and I hate when Safari loses my windows, but closing them for me would be awkward -- I might want to use this to back up state, not just capture it for later resumption.</div> Right.  But there's no real way to do that right now, that I can find.<p><div class="quote">Is there any reason a Data Dumper structure is better than emitting a simple command line, starting with 'open ' and containing all the URLs found (wrapped in '' to protect against puctuation such as '?')? This is what I use to 'store' URLs when i have to quit Safari.</div> The only thing was that my re-open command takes the data structure and opens them as they were before (including different windows for different sets of tabs).  If you'd rather use opens, sure, you could do that.<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

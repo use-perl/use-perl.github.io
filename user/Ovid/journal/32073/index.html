@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Outputting failed test information</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Outputting failed test information</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-01-04T21:49:56</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Part of my current work with TAPx::Parser is to get the <tt>TAPx::Harness</tt> output as similar to <tt>Test::Harness</tt> output as I can.  This turns out to be annoyingly tricky.</p>
+
+<pre>Failed Test         Stat Wstat Total Fail  List of Failed
+-------------------------------------------------------------------------------
+runtests_example.pl    5  1280    13    5  3 5 10-12
+ (1 subtest UNEXPECTEDLY SUCCEEDED).
+Failed 1/1 test scripts. 5/13 subtests failed.
+Files=1, Tests=13,  0 wallclock secs ( 0.06 cusr +  0.02 csys =  0.08 CPU)
+Failed 1/1 test programs. 5/13 subtests failed.</pre>
+
+<p><tt>Test::Harness</tt> uses formats to get this right.  While my code doesn't use formats, I have worked on getting the "List of Failed" ranges right with code similar to the following:</p>
+
+<pre>#!/usr/bin/perl
+
+use strict;
+use warnings;
+use Test::More qw/no_plan/;
+
+is join( ', ', range(qw( 33 34 35 37 99 100 101 )) ), '33-35, 37, 99-101';
+is join( ', ', range(qw( 1 2 3 4)) ),                 '1-4';
+is join( ', ', range(qw(1 2 5 6 7 9)) ),              '1-2, 5-7, 9';
+is join( ', ', range(qw(17 19 33)) ),                 '17, 19, 33';
+is join( ', ', range(qw(17 19)) ),                    '17, 19';
+
+diag balanced_range( 15,
+    range(qw(  1 2 3 5 7 9 20 33 34 35 37 99 100 101 )) );
+
+sub balanced_range {
+    my ( $limit, @range ) = @_;
+    my $lines = "\t";
+    my $curr  = 0;
+    while (@range) {
+        if ( $curr < $limit ) {
+            my $range = ( shift @range ) . ", ";
+            $lines .= $range;
+            $curr += length $range;
+        }
+        elsif (@range) {
+            $lines .= "\n\t";
+            $curr = 0;
+        }
+    }
+    $lines =~ s/, $//;
+    return $lines;
+}
+
+sub range {
+    my @numbers = @_;
+    my ( $min, @range );
+
+    foreach my $i ( 0 .. $#numbers ) {
+        my $num  = $numbers[$i];
+        my $next = $numbers[ $i + 1 ];
+        if ( defined $next && $next == $num + 1 ) {
+            if ( !defined $min ) {
+                $min = $num;
+            }
+        }
+        elsif ( defined $min ) {
+            push @range => "$min-$num";
+            undef $min;
+        }
+        else {
+            push @range => $num;
+        }
+    }
+    return @range;
+}</pre>
+
+<p>As a first pass, it's awful, but I'm working on it!</p></p>
+
+
+<hr/>
+
+
+
+<h2>golf it</h2>
+<h3><a href="/user/rafl/">rafl</a> on 2007-01-04T23:56:35</h3>
+<tt>/\b(\d+)( ((??{$++1})))+/$1-$+/g;s/<nobr> <wbr></nobr>/,<nobr> <wbr></nobr>/g</tt>
+
+
+
+<h2>Please don't</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2007-01-05T02:48:25</h3>
+Please don't try to make it match Test::Harness.  The old Test::Harness format is clunky and yucky.  I've been meaning to redo it for some time.
+<p>
+Maybe you can come up with something beautiful that I can steal instead!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Please don't</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-01-05T07:29:33</h3>
+<p>Well, I've had a lot of trouble coming up with an exact match (and in any event, it can't match exactly because I have different information I present).  However, so far I'm quite satisfied I've come up with something even clunkier and yuckier than Test::Harness.  However, it works<nobr> <wbr></nobr>:)</p>
+
+<p>My thought is fix a couple of minor nits, get <tt>--exec</tt> nailed down, and release.  If I do that, maybe my output will be <em>so</em> ugly I can get suggestions or even patches!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of hachi: MDNS responder in perl, with Net::DAAP::Server</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>MDNS responder in perl, with Net::DAAP::Server</h1>
+<h2><a href="/user/hachi/">hachi</a> on 2007-02-15T09:45:41</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>#!/usr/bin/perl
+# :vim filetype=perl<br/><br/>use strict;
+use warnings;<br/><br/>$|++;<br/><br/># sub POE::Kernel::TRACE_EVENTS () { 1 }<br/><br/>use Carp;
+$SIG{__DIE__} = sub { Carp::confess( @_ ) };<br/><br/>use POE;
+use POE::Wheel::Multicast;
+use POE::Filter::MDNS;<br/><br/>use Net::DAAP::Server;
+use Net::DNS::Packet;<br/><br/>use Net::IP;<br/><br/>use Data::Dumper;<br/><br/>sub SHARENAME	() { "yuumi's music" }
+sub HOSTNAME	() { "yuumi" }
+sub IPADDR      () { "10.8.0.101" }
+sub PORT        () { "3692" }
+sub CPU		() { "Dell Inspiron 8200" }
+sub OS		() { "Debian 3.1 Linux 2.6.13" }<br/><br/>my $path = shift;<br/><br/>POE::Session->create(
+	package_states => [
+		main	=> [qw(
+			_start
+			receive
+			receive_question
+			sendshit
+			do_announcements
+			rendezvous_publish
+			rendezvous_unpublish
+			sigint
+			shutdown
+			go
+		)],
+	],
+	heap => {
+		publish		=> Net::DNS::RRPool->new(),
+		cache		=> Net::DNS::RRPool->new(),
+		announce	=> Net::DNS::RRPool->new(),
+	},
+	args => [
+		$path,
+	],
+	options => {
+#		trace => 1,
+		debug => 1,
+	},
+);<br/><br/>sub _start {
+	my ($kernel, $path) = @_[KERNEL, ARG0];
+	
+	$kernel->alias_set( 'mdns' );
+	$kernel->yield( 'go' );
+}<br/><br/>sub go {
+	my ($kernel, $heap) = @_[KERNEL, HEAP];
+	my $wheel = POE::Wheel::Multicast->new(
+		LocalAddr => '0.0.0.0',
+		LocalPort => 5353,
+		DefaultAddr => '224.0.0.251',
+		DefaultPort => 5353,
+		InputEvent => 'receive',
+		Filter => POE::Filter::MDNS->new(),
+	);
+	$wheel->mcast_loopback(1);
+	$wheel->mcast_ttl(255);
+	$wheel->mcast_add( '224.0.0.251' );<br/><br/>	$heap->{wheel} = $wheel;<br/><br/>	$heap->{server} = Net::DAAP::Server->new(
+		path => $path,
+		port => PORT,
+		name => SHARENAME,
+		debug => 1,
+	);<br/><br/>	$kernel->sig( 'INT', 'sigint' );<br/><br/>	$kernel->yield( 'sendshit' );
+}<br/><br/>sub sigint {
+	my ($kernel, $heap) = @_[KERNEL, HEAP];
+	my $service = $heap->{server}->service;<br/><br/>	$service->stop();<br/><br/>	delete( $heap->{server} );
+	print "SIGINT Service: $service\n";
+	$kernel->sig_handled();<br/><br/>	$kernel->delay( 'shutdown', 5 );
+}<br/><br/>sub shutdown {
+	$_[KERNEL]->sig( 'INT' );<br/><br/>	$SIG{ALRM} = sub { die "Emergency cleanup" };
+	alarm 10;
+}<br/><br/>sub sendshit {
+	my ($kernel, $heap) = @_[KERNEL, HEAP];
+	my @rrs = (
+		rr(
+			name	=> HOSTNAME . '.local',
+			ttl	=> 7200,
+			class	=> 'IN',
+			type	=> 'A',
+			address	=> IPADDR,
+			unique	=> 1,
+		),
+		rr(
+			name	=> HOSTNAME . '.local',
+			ttl	=> 7200,
+			class	=> 'IN',
+			type	=> 'HINFO',
+			cpu	=> CPU,
+			os	=> OS,
+			unique	=> 1,
+		),
+                rr(
+                        name    => Net::IP->new(IPADDR)->reverse_ip,
+			ttl	=> 7200,
+			class	=> 'IN',
+			type	=> 'PTR',
+			ptrdname	=> HOSTNAME . '.local',
+			unique	=> 1,
+		),
+	);<br/><br/>	$heap->{publish}->add( @rrs );
+	$heap->{announce}->add( @rrs );<br/><br/>	$kernel->delay_add( 'do_announcements', .5 );
+}<br/><br/>sub rendezvous_unpublish {
+	my ($kernel, $heap, $rrs) = @_[KERNEL, HEAP, ARG0];
+	
+	my $publish = $heap->{publish};
+	my $announce = $heap->{announce};<br/><br/>	print "Unpublishing " . @$rrs . " records.\n";
+	
+	foreach my $rr (@$rrs) {
+		printf "\t%s\n", $rr->string;
+		$publish->remove( $rr );
+		
+		$rr->{ttl} = 0;
+		$announce->add( $rr );
+	}<br/><br/>	$kernel->delay_add( 'do_announcements', .5 );
+}<br/><br/>sub rendezvous_publish {
+	my ($kernel, $heap, %args) = @_[KERNEL, HEAP, ARG0..$#_];
+	# my %args = @_;<br/><br/>	my $type = $args{type} or die;
+	my $name = $args{name} or die;
+	my $txt  = $args{txt}  or die;
+	my $port = $args{port} or die;<br/><br/>	my @rrs = (
+		rr(
+			name	=> "${name}.${type}.local",
+			ttl	=> 7200,
+			class	=> 'IN',
+			type	=> 'SRV',
+			priority	=> 0,
+			weight	=> 0,
+			port	=> $port,
+			target	=> HOSTNAME . '.local',
+			unique	=> 1,
+		),
+		rr(
+			name	=> "${name}.${type}.local",
+			ttl	=> 7200,
+			class	=> 'IN',
+			type	=> 'TXT',
+			char_str_list	=> [split( /\x{1}/, $txt )],
+			unique	=> 1,
+		),
+		rr(
+			name	=> "${type}.local",
+			ttl	=> 7200,
+			class	=> 'IN',
+			type	=> 'PTR',
+			ptrdname	=> "${name}.${type}.local",
+		),
+		rr(
+			name	=> '_services._dns-sd._udp.local',
+			ttl	=> 7200,
+			class	=> 'IN',
+			type	=> 'PTR',
+			ptrdname	=> "${type}.local",
+		),
+	);
+	<br/><br/>	my $publish = $heap->{publish};
+	my $announce = $heap->{announce};<br/><br/>	foreach my $rr (@rrs) {
+		$publish->add( $rr );
+		$announce->add( $rr );
+	}
+	
+	$kernel->delay_add( 'do_announcements', .5 );
+	
+	return [@rrs];
+}<br/><br/>sub do_announcements {
+	my ($kernel, $heap) = @_[KERNEL, HEAP];
+	
+	$kernel->delay( 'do_announcements' ); # remove all pending runs, emptying the queue.<br/><br/>	my @records = $heap->{announce}->get_all;<br/><br/>	print "Announcing " . @records . " records.\n";
+	return unless (@records);<br/><br/>	printf "\t%s\n", $_->string
+		foreach @records;<br/><br/>	my $packet = Net::DNS::Packet->new();<br/><br/>	$packet->pop( 'question' );<br/><br/>	my $header = $packet->header;
+	$header->rd(0);	
+	$header->aa(1);
+	$header->id(0);
+	$header->qr(1);
+	$header->rd(0);
+	$header->ra(0);<br/><br/>	foreach my $rr (@records) {
+		$packet->push( answer => $rr );
+	}<br/><br/>	my $bytes = $heap->{wheel}->put( { payload => [ $packet ] } );<br/><br/>	$heap->{announce} = Net::DNS::RRPool->new();
+}<br/><br/>sub receive {
+	my ($kernel, $heap, $input, $wheelid) = @_[KERNEL, HEAP, ARG0, ARG1];<br/><br/>	my $packets = $input->{payload};
+	my $peer_addr = $input->{addr};
+	my $peer_port = $input->{port};
+	my $bytes = $input->{bytes};<br/><br/>	foreach my $packet (@$packets) {
+		if ($packet->header->qr == 0) {
+			$kernel->yield( 'receive_question', $packet );
+		}
+	}
+}<br/><br/>sub receive_question {
+	my ($kernel, $heap, $packet) = @_[KERNEL, HEAP, ARG0];<br/><br/>	my $publish = $heap->{publish};
+	my $announce = $heap->{announce};<br/><br/>	my $pre		= Net::DNS::RRPool->new( $packet->pre );
+	#my $authority	= Net::DNS::RRPool->new( $packet->authority );
+	#my $additional	= Net::DNS::RRPool->new( $packet->additional );
+	
+	my $go = 0;<br/><br/>	foreach my $question ($packet->question) {
+		printf "Question: %s\n", $question->string;
+		my @matches = $publish->question( $question );<br/><br/>		unless (@matches) {
+			print "\tNo answers found\n";
+			next;
+		}
+		
+		foreach my $match (@matches) {
+			if ($pre->lookup( $match )) {
+				printf "\tFound pre: %s, not sending.\n", $match->string;
+			}
+			elsif ($announce->lookup( $match )) {
+				printf "\tFound answer: %s, not sending.\n", $match->string;
+			}
+			else {
+				printf "\tSending: %s\n", $match->string;
+				$announce->add( $match );
+				$go = 1;
+			}
+		}
+	}<br/><br/>	$kernel->delay_add( 'do_announcements', .1 ) if $go;
+}<br/><br/>POE::Kernel->run();<br/><br/>sub rr {
+	my %args = @_;
+	
+	my $name = $args{'name'};
+	my $unique = delete $args{'unique'};
+	my $class = Net::DNS::classesbyname( delete $args{'class'} );<br/><br/>	$class |= ($unique ? 0x8000 : 0x0000);
+	
+	my $rr = Net::DNS::RR->new(
+		%args,
+		class => Net::DNS::classesbyval( $class ),
+	);
+	
+	return $rr;
+}<br/><br/>package Net::MDNS::RR;<br/><br/>sub new {
+	my $objclass = shift;
+	my %args = @_;
+	
+	my $name = $args{'name'};
+	my $unique = delete $args{'unique'};
+	my $class = delete $args{'class'};
+	
+	my $rrclass = Net::DNS::classesbyname( $class );
+	$rrclass &= 0x7FFF;
+	$rrclass |= ($unique ? 0x8000 : 0x0000);
+	
+	my $rr = Net::DNS::RR->new(
+		%args,
+		class => Net::DNS::classesbyval( $rrclass ),
+	);<br/><br/>	my $self = bless {
+		rr	=> $rr,
+		class	=> $class,
+		unique	=> $unique,
+	}, (ref $objclass || $objclass);
+	
+	return $self;
+}<br/><br/>sub unique {
+	my $self = shift;<br/><br/>	if (my $unique = shift) {
+		$self->{unique} = $unique;
+		my $rrclass = Net::DNS::classesbyname( $self->{class} );
+		$rrclass &= 0x7FFF;
+		$rrclass |= ($unique ? 0x8000 : 0x0000);
+		
+		$self->{rr}->class => Net::DNS::classesbyval( $rrclass );
+	}
+	return $self->{unique};
+}<br/><br/>sub class {
+	my $self = shift;
+	
+	if (my $class = shift) {
+		$self->{class} = $class;
+		my $rrclass = Net::DNS::classesbyname( $self->{class}  );
+		my $unique = $self->{unique};
+		$rrclass &= 0x7FFF;
+		$rrclass |= ($unique ? 0x8000 : 0x0000);<br/><br/>		$self->{rr}->class => Net::DNS::classesbyval( $rrclass );
+	}
+	return $self->{class};
+}<br/><br/>sub string {
+	my $self = shift;
+	my $rr = $self->{rr};<br/><br/>	return join("\t",
+		"$rr->{'name'}.",
+		$rr->{'ttl'},
+		$self->{'class'},
+		$rr->{'type'},
+		(defined $rr->rdatastr and length $rr->rdatastr) ? $rr->rdatastr : '; no data',
+		$self->{unique} ? '; unique' : '; multiple',
+	);
+}<br/><br/>sub isa {
+	my $self = shift;
+	die( "ISA not implemented yet" );
+}<br/><br/>our $AUTOLOAD;<br/><br/>sub AUTOLOAD {
+	my $method = $AUTOLOAD;
+	$method =~ s/^.+:://;<br/><br/>	my $self = shift;
+	my $rr = $self->{rr};<br/><br/>	if (my $sub = $rr->can( $method )) {
+		$sub->( $rr, @_ );
+	}
+	else {
+		die "AUGH!";
+	}
+}<br/><br/>package Net::Rendezvous::Publish::Backend::POE;<br/><br/>use POE;<br/><br/>use strict;
+use warnings;<br/><br/>use Data::Dumper;<br/><br/>BEGIN {
+	$INC{'Net/Rendezvous/Publish/Backend/POE.pm'} = 1;
+}<br/><br/>sub new {
+	my $class = shift;
+	my $self = bless {}, ( ref $class || $class );<br/><br/>	return $self;
+}<br/><br/>sub publish {
+	my $self = shift;
+	my %args = @_;<br/><br/>	return $poe_kernel->call( 'mdns', 'rendezvous_publish', %args );
+}<br/><br/>sub publish_stop {
+	my $self = shift;
+	my $rrs = shift;
+	
+	$poe_kernel->call( 'mdns', 'rendezvous_unpublish', $rrs );
+#	die( "Not implemented yet: @_\n" );
+}<br/><br/>sub step {
+	die( "POE doesn't need stepping, all operations are cooperative\n" );
+}<br/><br/>1;<br/><br/>package Net::DNS::RRPool;<br/><br/>use strict;
+use warnings;<br/><br/>use Net::DNS::Packet;<br/><br/>sub new {
+	my $class = shift;<br/><br/>	my $self = bless [@_], (ref $class or $class);<br/><br/>	return $self;
+}<br/><br/>sub add {
+	my $self = shift;<br/><br/>	push @$self, @_;
+}<br/><br/>sub remove {
+	my $self = shift;
+	my $rr = shift;
+	
+	@$self = map { $rr != $self } @$self;
+	return $rr;
+}<br/><br/>sub question {
+	my $self = shift;
+	my $query = shift;<br/><br/>	my $qname = $query->qname;
+	my $qtype = $query->qtype;
+	my $qclass = Net::DNS::classesbyname( $query->qclass ) & 0x7F;<br/><br/>	my @nameanswers = grep {
+		$qname eq $_->name and
+		$qclass == (Net::DNS::classesbyname( $_->class ) & 0x7F)
+	} @$self;<br/><br/>	if ($qtype eq 'ANY') {
+		return @nameanswers;
+	}
+	else {
+		return grep { $qtype eq $_->type } @nameanswers;
+	}
+}<br/><br/>sub lookup {
+	my $self = shift;
+	my $query = shift;<br/><br/>	return grep {
+		$query->name eq $_->name and
+		$query->type eq $_->type and
+		(Net::DNS::classesbyname( $query->class ) & 0x7F) ==
+			(Net::DNS::classesbyname( $_->class ) & 0x7F)
+	} @$self;
+}<br/><br/>sub get_all {
+	my $self = shift;
+	return @$self;
+}
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

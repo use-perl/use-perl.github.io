@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pdcawley: Thinking about Object persistence. Again.</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Thinking about Object persistence. Again.</h1>
+<h2><a href="/user/pdcawley/">pdcawley</a> on 2002-05-31T09:35:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>So, you may or may not know that I'm working on (yet another) Object persistence tool (with <a href="/user/james/">james</a> and <a href="/user/acme/">acme</a> of this parish.<br/><br/>"An object persistence tool?" You ask, "There's hundreds of 'em, aren't you just reinventing the wheel?"<br/><br/>Well, yes and no. We've looked at a whole heap of tools that are available and none of them fit the bill for what we want. Our design goals have been, in no particular order (I've numbered the list so I can refer back):
+<ol>
+<li>Allow the user to throw any kind of object at  the database, whether built on a hash, an array, a pseudo hash or any of the other things that one can build objects with.
+<li>Don't require any support from the user classes. But provide hooks that, if the user <em>wants</em> to 'help' the persistence framework she can.
+<li>Be neutral about the physical storage.
+<li>Don't <em>require</em> a schema before anything can be stored.
+<li>Keep it Simple. You should be able to store an object and get a cookie back and then use that cookie later to retrive the object. And that is all. Complex indexing and querying should be something that can be built <em>on</em> not something that is built <em>in</em>
+<li>Don't pull in the world. If I fetch an object that's at the top of a tree I don't want the entire tree fetching immediately. Unless I explicitly ask for it of course.
+<li>Try not to 'save the world'. Don't go saving the same object 100 times. Try and avoid saving objects that haven't changed since they were last saved.
+</ol>
+And do you know, it's starting to come together. We're using James' trick with <b>Data::Dumper</b> and <code>bless</code> as a way of walking object trees (which hurts your head the first few times you look at it, but which gets rid of a whole pile of treewalking code). Once you get your head wrapped 'round how it works, it all starts to seem remarkably simple...<br/><br/>So, what do we have working. Part 1 is really, really hard in the general case. For now we can reliably store most 'pure perl' objects that aren't based on CODE refs. Storage is more efficient (ie: We can do deferred fetching tricks) if the classes support an <code>_oid</code> method. Things fall apart (badly) in the case where we have XS classes that use the blessed reference as a key to some perl inaccessible data structure out in C space. The general rule of thumb is that, if an object has state that <b>Data::Dumper</b> can't see, then neither can we. It'd be <em>really</em> cool if Data::Dumper were a little more 'hooky', and checked for, say, '_Dumper' method on all classes and could hand off the responsibilitly for serializing to perl code to those objects that wanted it...<br/><br/>Point 2 is pretty much covered (modulo what was discussed in point 1). Objects can help by providing an <code>_oid</code> method, but we can generally cope if they don't.<br/><br/>Point 3, yup, we do that, we have <b>Pixie::Store::*</b> objects for DBI, BerkeleyDB and Memory (that last is a hangover from early algorithm testing...). The DBI store uses the very lovely <b>DBIx::AnyDBD</b> to cope with database inconsistencies. (If you've not looked at <b>DBIx::AnyDBD</b> and you do anything with databases then I strongly recommend you take a look. <a href="/user/Matts/">Matt Sergeant</a> is a genius.) Currently the only database we have a 'specific' module for is MySQL, but that's just to get round the lack of real transactions by using their atomic <code>REPLACE</code>.<br/><br/>Point 4. Yup, we do that. We not only don't require a schema, we wouldn't know what to do with one if we had it. <br/><br/>Point 5. Yup. It's simple all right. <br/><br/>Point 6. Yup. If an object contains other objects that are stored seperately (objects that have oids) then we don't pull them in immediately, but instead provide a proxy.<br/><br/>Point 7. Sort of. A lot of this falls out as a result of deferred loading. When we store an object we store all the 'real' objects that are 'reachable' from it, but we stop when we reach a proxy object. We could probably be more efficient, but I've not had a hard think about pathological cases yet.<br/><br/>We've now reached the point where I'm thinking of  deploying it for an internal application. There's still issues though. Here's a few that are making me think at the moment.
+<ol>
+<li>Garbage collection. I'm not about to go doing bad things involving reference counting in this database, that would be bad. But that means I need to think about a mark & sweep approach to deletion, and that, in turn means maintaining a 'root set' of objects. Ah well, it'll probably fall out as 'just another index' once we've added indices.
+<li>Indexes. We want to be able to do things like 'get me all the Widget objects' without having to load every single object in the database and do an 'isa' query on it. This means we need some way of adding indexes to the store. Ideally I'd like to be able to either have an index from the beginning, maintained by insertions and deletions  or to add one late in the game and have it build itself.
+<li>Querying. I'm not a big fan of trying to bend a sql like query language to fit an OO world; I'm more inclined to go with a system of filtering of sets/indices. If you want a full on query language it should be possible to build it on top.
+<li>Uniqueness. Not sure it's the right word. I'm talking about the idea that, if you have an object with an oid of, say 'Homer', then there should be one (and only one) object with that oid in memory (and ideally it should be unique across all processes too, but that's just scary.)
+<li>Granularity(?). Sometimes you want an object that writes its every change back to the database. We don't do this. But it should be possible to implement something on top of what we have.
+<li>Atomicity. We're a hostage to our store for this. It should be possible to insert a complex object into the database (one that points to a bunch of other, sub objects) on an all or nothing basis. If one sub insertion fails then all the others should be rolled back. This should work in the BerkeleyDB store and on DBI backed stores that support transactions, but it'd be really cool if we could support it on non transactional stores too...
+</ol><br/><br/>"So, where can I find this paragon of perl persistency? And what's it called?"<br/><br/>Well, it's called 'Pixie' (ask Acme), and right now you can't have it. Some of the current tests are adapted from Tangram and are only distributable under the GPL, and we want Pixie to be destributed under the same terms as Perl. So, we need to either get permission to distribute them under a dual license, or get rid of them entirely.<br/><br/>I'll be off to ask for permission as soon as I've hit 'save' on this form, so we should know one way or the other soon.</p>
+
+
+<hr/>
+
+
+
+<h2>A few thoughts</h2>
+<h3><a href="/user/darobin/">darobin</a> on 2002-05-31T11:43:19</h3>
+<p>
+  I don't know if you've looked in the direction of SleepyCat's latest baby, BerkeleyDB XML, but they might have solved or at least thought about some of the problems you list.
+</p>
+
+<p>
+  <em>2. Indexes.</em>
+</p>
+
+<p>
+  I guess this depends on the complexity of the indexing you intend to have. The simplest form is probably a token2ID mapping, where token could be anything (eg class name) and ID is whatever internal id you give the stored objects. It might in fact be sufficient for most cases, and means that it ought to be really simple to express indexing rules in Perl (whether they are constant or post-built).
+</p>
+
+<p>
+  <em>3. Querying. I'm not a big fan of trying to bend a sql like query language to fit an OO world;</em>
+</p>
+
+<p>
+  (Re)inventing a language is probably a bad idea indeed. One thing that could help you get away without a query language would be a simple way to express cross-product operations such as I want all objects that are in index Foo and in index Bar. Just a thought though.
+</p>
+
+<p>
+  <em>4. Uniqueness.</em>
+</p>
+
+<p>
+  Do the oids need to be human-friendly? If yes, you're in trouble, if not then it's probably a lot simpler. I would personally try to avoid being human-friendly at that level, and perhaps provide for naming with aliases (that aren't guaranteed to be unique by anything else than the user's intelligence) to real oids.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:A few thoughts</h2>
+<h3><a href="/user/james/">james</a> on 2002-05-31T13:37:55</h3>
+<i> <br>(Re)inventing a language is probably a bad idea indeed. One thing that could help you get away without a query language would be a simple way to express cross-product operations such as I want all objects that are in index Foo and in index Bar. Just a thought though. <br> </i> <br> <br>The only tricky bit about this is deciding which is the least expensive index to compare against. Actually this is one of the ways we're thinking about doing it.  There are actually a few mechanisms that we could use, but its choosing the best one for the general case, and having the edge cases still run at an acceptable level of speed/flexibility etc, etc..<br>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Human friendliness.</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-05-31T13:27:24</h3>
+We've defaulted to using Data::UUID for our oid generation, though for a particular application I'm thinking of I plan on having 'pointer' objects which have 'computed' oids. <br> <br>So, say you are holding persistent state over a 'conversation' via email. Your session object has an opaque oid, but there's a bunch of pointer objects, the oids of which are the Message-IDs of all the messages in the conversation so far. Then, when a message arrives you use the last entry in the References: header as an oid to fetch a pointer, which leads you to your session data.<br> <br>Easy, and no need for any complex querying, just some careful thought about how you design your objects.<br> <br>Actually, this isn't the sort of 'uniqueness' I'm worried about. Say you go to the 'magic data pixie' (I'll get you for this Brocard) to get an object called (for the sake of argument) 'fred'. What should happen is that the pixie will go "Ooh look, there's an object called fred already in memory!" and return the aleady existing 'fred'.<br> <br>And (again ideally) it should be able to do this for objects called fred that haven't actually been stored in the database yet.<br> <br>The first part is relatively easy. The pixie just keeps a (weak) hash of all the objects it's fetched from the store and checks that first. The second part requires cooperation from various classes. If I really want it I'm going to have to make a Pixie::Cache object or something and provide an API for adding stuff to the cache. <br> <br>Hmm.
+
+
+
+<blockquote>
+
+<h2>Re:Human friendliness.</h2>
+<h3><a href="/user/darobin/">darobin</a> on 2002-06-04T10:43:26</h3>
+<p>
+  What you describe sounds a lot like what the enterprise people call "naming". I think there are CPAN modules revolving around that, have you look into them? I wouldn't be surprised if they took a simpler approach than what you need though.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

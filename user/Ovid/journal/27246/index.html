@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Refactoring saves the day -- months later</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Refactoring saves the day -- months later</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-10-19T17:56:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>What an incredibly thorny problem.  I have a dispatch class which dispatches complicated requests to our data store.  However, the dispatch class does not know how to parse the request.  It shouldn't have to.  Unfortunately, the requests are complicated enough that persisting the request on the Web page is mandatory.  This means that the dispatch class has to know what the parsed request looks like.  But the form has the request, right?  Why can't I just read in the form values, have the dispatch class cache them and then dispatch it?  For various reasons, this is not much of an option (I'd have to sit down and walk you through the application and show you why this really doesn't work -- you'll have to trust me on this).</p>
+
+<p>So I give this some thought.  This is a RESTful application and the URLs are in the following form:</p>
+
+<p><tt>http://$domain/$path/$class_key/$method/$args</tt></p>
+
+<p>The args are essentially joined with slashes to make a clean URL.  This means that a user can build a complicated request and bookmark it.  The dispatch class doesn't know how to parse the reqeust but I <em>could</em> try to add extra args to put all form parameters in the URL before they're assembled by the request.  Unfortunately that means they're being sent twice in the URL.  I could attach them in a query string but they're still being sent twice.  That defeats much of our purpose and complicates how the URL is being handled.  So how can I get the dispatch class to pull apart the <tt>$args</tt> and know how to persist the complicated search form?</p>
+
+<p>The data store accepts either a block of Perl code or a string.  Depending upon which it accepts, it lexes the request and hands it off to a parser which builds an intermediate representation (IR) of the request which is then used to build the actual search request -- SQL in this case.  I <em>could</em> have the data store accept a request that's already been lexed by the dispatch class and build the IR that way.  Thus, the dispatch class would take the request, lex it, parse the lexed tokens and use that data to persist the search.</P>
+
+<p>That would be bad.  This violates separation of concerns.  The dispatch class should know <em>nothing</em> about lexing or parsing.  It merely dispatches requests to the data store and formats the results as XML.  Then I remembered something I did months ago.</p>
+
+<p>The data store used to contain all of the information for assembling the IR.  However, this meant that the IR was tied to the data store for making <em>database</em> requests.  Since the intention of the data store is to allow people to search anything, this means that LDAP searches can't use the IR already constructed.  So I broke the IR out into a separate search class.  This had huge benefits.  I could build tests directly for the IR, it simplified the data store code and ensured that the IR could be reused if necessary.</p>
+
+<p>Months later, I'm struggling to figure out the best way to persist a request sent from a REST application.  I remember that the IR is now in its own class and all of the information I need is stored there.  It's a bit odd, but now I'm setting it up so the store can, upon request, cache the IR.  This allows the dispatch class when formatting the search results to query the IR and say "how did you get these results?" and easily persist the search information even though it still doesn't know how to parse it.</p>
+
+<p>Out of all of the options available, this one was clean, neat, and reused components already put into place.  Pulling the IR out of the data store months ago saved me a lot of work today and prevented some really bad design decisions being put into place.</p>
+
+<p><tt>--</tt></p>
+
+<p>Amusingly, once I thought of this strategy, I tried to think of the easiest way to implement it.  My first run through, I toyed with the store code, figured out a way to do it and wrote up some quick code to handle it.  It was really, really easy.  Then I started writing the tests.  The second I looked at my test class, I realized that the code I just wrote created a confusing API.  I now have to back out that code and write the tests first to make sure that I really have an API that's easy to use.</p>
+
+<p>I must say that working remotely forces one to be really disciplined.  Before, if I was pair programming with someone or just having a programmer nearby to bounce questions off of, I could be a bit casual about my code and then fix things later as needed.  Now, I have to focus very hard on coming up with good, solid designs that properly decompose problems into appropriate classes.  I can't turn to another programmer months later and hope they remember what I did.  It's pretty difficult, but I'm finding that I keep having to introduce new, complicated features but these features are easy to implement and test.  The user interface is becoming rich, easy to use and intuitive.  It's also very persistent despite the fact that we currently use no cookies.</p>
+
+<p>The application also degrades very nicely.  Can't handle XSLT?  The server will do it for you.  Is your javascript broken?  The application gets a bit uglier, but it still works even though we're doing a huge amount of work on the client side.</p>
+
+<p>Next up is going to be reimplementing some of the javascript as AJAX calls.  This will allow us to have the Perl handle some of the heavy lifting and not require us to duplicate the logic in Javascript -- a problem that's plagued many an application.</p></p>
+
+
+<hr/>
+
+
+
+<h2>AJAX</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2005-10-19T19:20:22</h3>
+One of the nice things about the AJAX vogue at the moment is that it's commending the idea of REST style interfaces.  Although it's doing it through the back door, so to speak.  It's simply the most obvious way to do it.  And you find that when you've implemented AJAX for your site, all of a sudden, you most likely have a very easily usable REST api.
+
+<p>-Dom</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

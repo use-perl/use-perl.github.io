@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of perigrin: Perl 5.8 slowness ...</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl 5.8 slowness ...</h1>
+<h2><a href="/user/perigrin/">perigrin</a> on 2006-09-07T19:53:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>So at work we are going through and updating our toolset. This included moving from Perl 5.6.1 to 5.8.8 (Yay!). However we discovered a deal breaking issue. Perl 5.8.8 is much slower than 5.6.1. We discovered a slowdown of around 100% between 5.6.1 and 5.8.8 using as close to default installs as we could. (Things that used to take 30 seconds were now taking a minute, and we have some time critical production code.) After doing some inspection I found the largest cause to the slowdown was the change in 5.8.0 to use the system malloc instead of perl&#8217;s internal malloc (-Dusemymalloc) by default on Solaris. Fixing this we went back to a roughly 20% slowdown. I never found a clear explanation of why they switched the default malloc other than a reference to corruption and segfaulting when dealing with over 2G of memory (was that RAM or LARGEFILE support?) &#8230; does anybody have a pointer?</p>
+
+<p>I&#8217;ve been trying to track this down for a couple weeks, and I&#8217;ve discovered that this slowdown is true on every platform I&#8217;ve tested it on (Solaris, Darwin, Linux). I also found a <a href="http://xrl.us/perlsplitspeeds">reference</a> to it on P5P from several years ago that appears to be warnocked. I&#8217;m stumped as to what else to try. Below are the benchmarks from my Linux machine along with the benchmark script.</p>
+
+<p>Note that this may look like I&#8217;m arguing over peanuts with the tests running in less than 10 seconds. Multiply everything by 4 to roughly get the speeds on our Solaris boxes at work.
+</p>
+<pre>
+perigrin@schroedinger ~/dev/perl_speed/rdsmerge $ perl5.9.4 split_test.pl 
+do_split:        4 wallclock secs ( 3.59 usr +  0.00 sys =  3.59 CPU) @ 69637.88/s (n=250000)
+do_split_loop:   8 wallclock secs ( 7.38 usr +  0.01 sys =  7.39 CPU) @ 33829.50/s (n=250000)
+do_split_loop_ia:        7 wallclock secs ( 6.65 usr +  0.00 sys =  6.65 CPU) @  0.15/s (n=1)
+
+perigrin@schroedinger ~/dev/perl_speed/rdsmerge $ perl5.8.8 split_test.pl 
+do_split:        5 wallclock secs ( 3.99 usr +  0.00 sys =  3.99 CPU) @ 62656.64/s (n=250000)
+do_split_loop:   9 wallclock secs ( 8.55 usr +  0.00 sys =  8.55 CPU) @ 29239.77/s (n=250000)
+do_split_loop_ia:        7 wallclock secs ( 7.55 usr +  0.01 sys =  7.56 CPU) @  0.13/s (n=1)
+
+ # -Dusemymalloc
+perigrin@schroedinger ~/dev/perl_speed/rdsmerge $ perl5.8.8+ split_test.pl 
+do_split:        3 wallclock secs ( 2.82 usr +  0.00 sys =  2.82 CPU) @ 88652.48/s (n=250000)
+do_split_loop:   6 wallclock secs ( 5.84 usr +  0.01 sys =  5.85 CPU) @ 42735.04/s (n=250000)
+do_split_loop_ia:        6 wallclock secs ( 5.55 usr +  0.01 sys =  5.56 CPU) @  0.18/s (n=1)
+
+# -Dusemymalloc
+perigrin@schroedinger /home/projects/perl_speed/rdsmerge $ perl5.8.5  split_test.pl 
+do_split:        3 wallclock secs ( 2.75 usr +  0.00 sys =  2.75 CPU) @ 90909.09/s (n=250000)
+do_split_loop:   5 wallclock secs ( 6.07 usr +  0.00 sys =  6.07 CPU) @ 41186.16/s (n=250000)
+do_split_loop_ia:        6 wallclock secs ( 5.52 usr +  0.00 sys =  5.52 CPU) @  0.18/s (n=1)
+
+# -Uusemymalloc aka System Malloc
+perigrin@schroedinger /home/projects/perl_speed/rdsmerge $ perl5.8.5- split_test.pl 
+do_split:        4 wallclock secs ( 3.50 usr +  0.00 sys =  3.50 CPU) @ 71428.57/s (n=250000)
+do_split_loop:   8 wallclock secs ( 7.30 usr +  0.01 sys =  7.31 CPU) @ 34199.73/s (n=250000)
+do_split_loop_ia:        6 wallclock secs ( 6.28 usr +  0.00 sys =  6.28 CPU) @  0.16/s (n=1)
+
+perigrin@schroedinger ~/dev/perl_speed/rdsmerge $ perl5.6.2 split_test.pl 
+do_split:        3 wallclock secs ( 2.57 usr +  0.00 sys =  2.57 CPU) @ 97276.26/s (n=250000)
+do_split_loop:   6 wallclock secs ( 6.27 usr +  0.00 sys =  6.27 CPU) @ 39872.41/s (n=250000)
+do_split_loop_ia:        6 wallclock secs ( 5.63 usr +  0.01 sys =  5.64 CPU) @  0.18/s (n=1)
+
+# -Dusemymalloc
+perigrin@schroedinger ~/dev/perl_speed/rdsmerge $ perl5.6.2+ split_test.pl 
+do_split:        1 wallclock secs ( 2.22 usr +  0.00 sys =  2.22 CPU) @ 112612.61/s (n=250000)
+do_split_loop:   6 wallclock secs ( 5.69 usr +  0.00 sys =  5.69 CPU) @ 43936.73/s (n=250000)
+do_split_loop_ia:        5 wallclock secs ( 5.20 usr +  0.00 sys =  5.20 CPU) @  0.19/s (n=1)
+
+
+--- split_test.pl ---
+
+#!/usr/local/bin/perl5
+
+use Benchmark;
+use strict;
+use warnings;
+
+my $r = timeit( 250000, sub { do_split(); } );
+my $r2 = timeit( 250000, sub { do_split_loop(); } );
+#my $r2 = timeit( 250000, sub { do_split_noregex(); } );
+#my $r3 = timeit( 250000, sub { do_split_bytes(); } );
+my $r3 = timeit( 1, sub { do_split_loop_ia(); } );
+
+print "do_split:\t", timestr($r), "\n";
+print "do_split_loop:\t", timestr($r2), "\n";
+print "do_split_loop_ia:\t", timestr($r3), "\n";
+
+exit;
+
+sub do_split
+{
+	my $input = "0|hucalc8|hucalc8a0|00:00:04|2|0x00000b0000339fa7|3620316P6|E|P|0.125000|PRICE|BID|3620316P6|GNPL   006278  8.500 07/15/18|100.469000|8.446256|8.446256|5.398844|20060808|20060823|";
+
+	my @fields = split /\|/, $input;
+	my $f1 = $fields[1];
+	my $f2 = $fields[1];
+
+	return;
+}
+
+sub do_split_loop
+{
+	my $input = "0|hucalc8|hucalc8a0|00:00:04|2|0x00000b0000339fa7|3620316P6|E|P|0.125000|PRICE|BID|3620316P6|GNPL   006278  8.500 07/15/18|100.469000|8.446256|8.446256|5.398844|20060808|20060823|";
+
+	my @fields = split /\|/, $input;
+	my $f1 = $fields[1];
+	my $f2 = $fields[1];
+	my $foo;
+	my @out;
+
+	## loop 15 building array by force
+	for ( my $i = 0; $i < 15; $i++ ) {
+		if (defined $fields[$i]) {
+			$out[$i] = $fields[$i];
+		}
+	}
+
+	return;
+}
+
+sub do_split_loop_ia
+{
+	my $count = 250000;
+	my $input = "0|hucalc8|hucalc8a0|00:00:04|2|0x00000b0000339fa7|3620316P6|E|P|0.125000|PRICE|BID|3620316P6|GNPL   006278  8.500 07/15/18|100.469000|8.446256|8.446256|5.398844|20060808|20060823|";
+
+	my @out;
+	my $foo;
+
+	foreach (0..$count) {
+		my @fields = split /\|/, $input;
+
+		## loop 15 building array by force
+		for ( my $i = 0; $i < 15; $i++ ) {
+			if (defined $fields[$i]) {
+				$out[$i] = $fields[$i];
+			}
+		}
+
+		$foo = join( ',', @out );
+	}
+
+	return;
+}
+</pre>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

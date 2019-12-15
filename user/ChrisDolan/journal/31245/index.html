@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ChrisDolan: Class::Encapsulate - catch naughty code</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Class::Encapsulate - catch naughty code</h1>
+<h2><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-10-07T04:38:10</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Earlier today, Curtis "Ovid" Poe <a href="http://use.perl.org/user/Ovid/journal/31241">wrote in his journal</a> about a trick to restrict accesses to a blessed hash to packages in that instance's inheritence tree.  He saw this as a clever way to add strict encapsulation to objects.<br/><br/>I got intrigued by this idea not for real code but for detecting naughty code during debugging.  It overloads hash accesses to throw exceptions if anyone tries to access object properties directly instead of through accessor methods.<br/><br/>
+Even more interesting, I figured out how to insert the encapsulation at runtime!<br/><br/>I created a prototype (not headed to CPAN yet) that I'm calling Class::Encapsulate for now.  Feedback on that name is welcome.  As proof of concept, I applied this prototype to the Perl::Critic test suite.  Here's the block of code I inserted into the Perl::Critic test code in t/40_criticize.t:<br/><br/><code>
+# Strict object testing -- prevent direct hash key access                                                                                                            
+eval { require Class::Encapsulate::Runtime; };
+if ( !$EVAL_ERROR ) {
+    for my $pkg ( '', '::Config', '::Policy', '::Violation' ) {
+        diag 'apply Class::Encapsulate to Perl::Critic'.$pkg;
+        Class::Encapsulate::Runtime->apply_to('Perl::Critic'.$pkg);
+    }
+}
+</code><br/><br/>My pre-0.01 prototype is in <a href="https://svn.clotho.com/clotho/Class-Encapsulate/lib/Class/Encapsulate.pm">the Clotho SVN</a>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Bravo</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2006-10-07T06:59:49</h3>
+I think I MUCH prefer testing for this your way than enforcing the encapsulation via all that extra code the inside-out way.<br>
+
+
+
+<h2>Nits</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-10-07T16:59:00</h3>
+<p>ref() lies about object blessings.</p> <blockquote> <div><tt>my $pkg = ref $self; -&gt; my $pkg = blessed $self;</tt></div> </blockquote> <p>Only undef indicates "not-blessed." Some classes are false.</p> <blockquote> <div><tt>if ( !$pkg ) { -&gt; if ( !defined $pkg ) {</tt></div> </blockquote> <p>You might want to look at -&gt;DOES(<nobr> <wbr></nobr>... ) as well. It's new to 5.10 but it gets at the idea of interfaces that don't use ISA. Allomorphism and all that stuff chromatic is on about.</p> <p>The return result of _hash_overload should probably be the object itself. You don't need to have a separate hash in %instances, store the object itself. From overload.pm: "As a special case if the overload returns the object itself then it will be used directly (provided it is the correct type)."</p> <p>DESTROY isn't using SUPER.pm or SUPER:: to propagate -&gt;DESTROY up to its parents. You might prevent proper destruction by not redispatching.</p> <p>Good job!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Nits</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-10-07T18:41:37</h3>
+<p>In fact he needs to duplicate all the things that <a href="http://search.cpan.org/dist/Class-InsideOut/" title="cpan.org">Class::InsideOut</a cpan.org> provides in order to be leak- and thread-safe.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Nits</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-10-07T18:52:19</h3>
+Agreed.  Which is why I don't want to bother making it super-safe.  Josh's comments are much appreciated, and I'll implement as many of them as are easy, but I've made it clear in the POD that this is a hack.  I do NOT recommend this for production code.  Instead I intend to angle this specifically toward debugging.<br><br>I've considered calling it Devel::Encapsulate.  If you want real encapsulation, you should use a real implementation like inside-out objects.<br>
+
+
+
+<h2>Re:Nits</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-10-07T21:58:04</h3>
+It occurs to me that he can remove the DESTROY method along with the %instances hash and just throw errors when unauthorized access is attempted.<br><br>No storage is even required to do this.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Nits</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-10-07T18:55:24</h3>
+Excellent points.  Thanks!<br><br>The !$pkg part was just to catch a bug that I've since removed, so I think it's obsolete.  ref() is good enough for this hack module because if you are using it with something other than blessed hashes, then you get what you deserve.
+
+
+
+<blockquote>
+
+<h2>Re:Nits</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-10-07T21:56:09</h3>
+Ok? But ref() is still inaccurate. defined( blessed(<nobr> <wbr></nobr>... ) ) is accurate and you already have Scalar::Util. Why not go for full fidelity?
+
+
+
+<blockquote>
+
+<h2>Re:Nits</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-10-08T03:08:32</h3>
+<blockquote> <div><em>Ok? But ref() is still inaccurate. defined( blessed(<nobr> <wbr></nobr>... ) ) is accurate and you already have Scalar::Util. Why not go for full fidelity?</em></div> </blockquote><br><br>I don't understand.  ref() and blessed() only differ in behavior for SCALAR, HASH, ARRAY, CODE, etc. right?  Are you worried that someone is going to apply Class::Encapsulate to HASH?  Would that even work???<br>
+
+
+
+<blockquote>
+
+<h2>Re:Nits</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-10-08T17:36:07</h3>
+ref() returns a true value for all references even if they're not blessed. It returns a false value for objects blessed into the two classes 0 and ''.<br><br>defined( blessed() is full fidelity because it always returns true for all objects and it always returns false for all non-objects. Plain bool( blessed() ) is *not* sufficient because not all class names evaluate to true.<br><br>This is why blessed() returns undef instead of '' for it's "false" value. blessed( bless<nobr> <wbr></nobr>..., 0 ) is false and so is blessed( bless<nobr> <wbr></nobr>..., "\0" ). Wrapping defined(<nobr> <wbr></nobr>... ) around that gives the proper answer.<br><br>It's cheap, it's easy, it's the right thing.
+
+
+
+<blockquote>
+
+<h2>Re:Nits</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-10-08T19:06:10</h3>
+I understand the merits of blessed(), but they are not relevant here.  I already *know* my object is blessed.  It wouldn't get into my overload function if it wasn't.  If you look at the current <a href="https://svn.clotho.com/clotho/Class-Encapsulate/lib/Class/Encapsulate.pm" title="clotho.com">SVN code</a clotho.com> you'll see that I'm not using ref() in boolean context any longer.<br><br>I don't care about non-blessed refs because they can't be affected by "use overload".  And "0" and "" are not valid names in "package" statements, so I don't care about those either -- people who bless instances into packages like that get what they deserve!<nobr> <wbr></nobr>:-)<br><br>So, for my purpose (determining the package of a blessed hashref), ref() and blessed() are 100% equivalent, and the latter is slower so why would I use it?<br>
+
+
+
+<blockquote>
+
+<h2>Re:Nits</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-10-09T01:13:07</h3>
+Ooooh. Yeah. $self is already an object so you only need the class name. Oops.<br><br>As for being safe with defined(blessed(...)), I advocate that because there really is seriously weird code out there and pretending otherwise just gets us into accidents.<br><br>Also, there's a related issue that no one has come up with a good method overridable method to ask an object what class it wants to pretend to be blessed into. Maybe Moose/MOP provides a nice name. The ref() function is absolutely evil to override while at least blessed() is possible to hook without difficulty. I'd mention <a href="http://perlmonks.org/?node_id=544094" title="perlmonks.org">http://perlmonks.org/?node_id=544094</a perlmonks.org> as a reference for just how evil ref() is when using mock objects.<br><br>I read <a href="https://svn.clotho.com/clotho/Class-Encapsulate/lib/Class/Encapsulate.pm" title="clotho.com">https://svn.clotho.com/clotho/Class-Encapsulate/lib/Class/Encapsulate.pm</a clotho.com> and it looks good except that I'm not clear on why Class::Encapsulate has %{} overloading when you're applying that to the actual class in <a href="https://svn.clotho.com/clotho/Class-Encapsulate/lib/Class/Encapsulate/Runtime.pm" title="clotho.com">https://svn.clotho.com/clotho/Class-Encapsulate/lib/Class/Encapsulate/Runtime.p<nobr>m<wbr></nobr> </a clotho.com>. It looks like one of those is dead code. I suspect the one in Class/Encapsulate.
+
+
+
+<blockquote>
+
+<h2>Re:Nits</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-10-09T01:39:09</h3>
+<blockquote> <div><em><br>I read <a href="https://svn.clotho.com/clotho/Class-Encapsulate/lib/Class/Encapsulate.pm" title="clotho.com">https://svn.clotho.com/clotho/Class-Encapsulate/lib/Class/Encapsulate.pm</a clotho.com> and it looks good except that I'm not clear on why Class::Encapsulate has %{} overloading when you're applying that to the actual class in <a href="https://svn.clotho.com/clotho/Class-Encapsulate/lib/Class/Encapsulate/Runtime.pm" title="clotho.com">https://svn.clotho.com/clotho/Class-Encapsulate/lib/Class/Encapsulate/Runtime.p<nobr>m<wbr></nobr> </a clotho.com> . It looks like one of those is dead code. I suspect the one in Class/Encapsulate.<br></em></div> </blockquote><br><br>I should document that...  It's so Class::Encapsulate can be a superclass and automatically install the encapsulation.  That comes directly from Adrian Howard's original implementation.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Nits</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-10-08T03:32:12</h3>
+I implemented a bunch of these suggestions.  Would you be willing to look at SVN again?  Thanks much!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

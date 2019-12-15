@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of simcop2387: Mulings with Parrot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Mulings with Parrot</h1>
+<h2><a href="/user/simcop2387/">simcop2387</a> on 2008-02-12T23:11:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>-------------INTRODUCTION----------
+This is going to be a strange thing for me i usually never bother with this kind of thing but there seems to be very little out there about someone's experiences with learning about Parrot and starting out with PIR.<br/><br/>First some biases i may have.  I've programmed in perl for a couple of years now so i consider myself fairly proficient, I've also spent a good bit of time several years ago programming in X86, m68000, and my own flavor  of Assembler (mostly wasted time on another project i did, made my own VM, was a real joke by the time i gave up... but thats another story).  So I have a decent idea of what its like to work at a real low level.<br/><br/>What i'm doing now is to learn more about Parrot and how it works i've decided to undertake a rather strange project i'm going to be building a Multi-User Dungeon (here on in, MUD) with Parrot and Lua (i know a good bit of lua from another project and the Parrot compiler for it is at a fairly decent state).<br/><br/>Since there is so very little out there on parrot (aside from mailing lists and technical documents) I've decided to record my experiences with learning how parrot works and how currently languages within it interact.<br/><br/>---------------PARROT TOOLS----------------
+So far i've explored a few of the basic tools that come with parrot, parrot itself, pbc_to_exe, pbc_merge, and the luac.pl in languages/lua/.<br/><br/>
+-----------------THOUGHTS ON PIR-----------------
+I've started out by learning some PIR, this is currently the main language that parrot is programmed in simply because its the only one that can do everything at the moment.<br/><br/>learning it hasn't been too bad, aside from a few keywords for declarations, it functions very similar to most assembler flavours, what i haven't learned yet are what most of the flags mean when declaring a sub, so far i only really know :main.<br/><br/>------------RANDOM RESOURCES-------------------
+i figure i'll list some of the resources i've used so far (so far only one)<br/><br/>http://www.parrotcode.org/examples/<br/><br/>------------INTERACTING WITH LUA-------------
+So far the best documentation on how to interact with a specific language i've found is in the libraries of that language. [languages/lua/lib/*.pir].  My understanding of this at the moment is that parrots languages should eventually have some method of calling functions and objects in the other languages without resorting to learning the internals of the languages implementation, however i believe this has not happened yet, at least not for lua anyway.  <br/><br/>there are a few things you need to know about lua to understand this, first there is a global [to lua] symbol table called _G, in order for Lua code to see anything it has to be inserted into this table.  so we've got to do that from PIR to add our own functions.<br/><br/>(these examples are taken from the code in, languages/lua/lib/alarm.pir)<br/><br/>here's an example on how to retrieve _G in PIR
+----BEGIN----
+  .local pmc _lua__GLOBAL
+  _lua__GLOBAL = get_hll_global '_G'
+-----END-----<br/><br/>in order for this to work we've got to declare ourselves as a HLL that is also lua (i really don't know what that means too much as far as this goes, but get_hll_global seems to look at only the current HLL).  to do that insert a directive that says <.HLL 'Lua', 'lua_group'> at the top of the file (it may be possible to do this elsewhere i don't know).  <br/><br/>now that we've got _G into a register in PIR, we can do something with it.  however the keys for it are of the PMC type LuaString, so we'll have to use them to do what we want. so lets create a LuaString that will contain the text "dohello"<br/><br/>----BEGIN----
+.local pmc luaname
+luaname = new 'LuaString' #AKA: new luaname, 'LuaString' # luaname is now a LuaString PMC<br/><br/>luaname = "dohello" #AKA: set luaname, "dohello"
+-----END-----<br/><br/>you might think that when we do <luaname = "dohello"> that luaname is no longer a LuaString PMC, however things do not quiet work that way, LuaString has the set opcode overridden (or at least that is my understanding of it, probably wrong) so that if you set it with a string it'll convert it for you and just work.<br/><br/>Now that we've got that string ready we can do something with it, but what will we do?  lets use this to import a function, (importing other things into Lua works exactly the same, you just create a Lua datatype for them rather than find the function). so lets go create a subroutine called <dohello><br/><br/>----BEGIN----
+.sub dohello
+  print "Hello World"
+.end
+-----END-----<br/><br/>That example should be fairly self explanitory :)<br/><br/>now that we've got the function, how do we tell lua about it? first we've got to get a "reference" (someone please correct me on the correct word there), to the function, then we've got to tell lua what it is, by inserting it into _G (remember from the earlier example we've called this <_lua__GLOBAL>). [also there's one thing here i don't understand, but it seems to be neccesary]<br/><br/>
+----BEGIN----
+  .local pmc _func #we need a PMC register to store the reference in<br/><br/>#One thing i haven't mentioned is that find_global needs a namespace, at least i think it does
+#at the same time you do <.HLL ...> its a good idea to also do <.namespace [ 'Lua::sockets' ]>
+#obviously replace 'Lua::sockets' with your own name
+  _func  = find_global "Lua::sockets", "dohello"<br/><br/>
+  _func.'setfenv'(_lua__GLOBAL) #this is the line i don't understand<br/><br/>
+#this line does the biggest part, it sets _G[luaname] to the function
+  _lua__GLOBAL[luaname] = _func 
+-----END-----<br/><br/>and thats all there is to setting a variable in lua, now to call that function in lua all you do is <dohello()> and you've got yourself a more complicated "Hello World" than is neccesary.<br/><br/>There is more to the story, such as where does this code go?, more on that later.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

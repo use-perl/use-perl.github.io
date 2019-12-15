@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of samtregar: DateTime-&amp;gt;now() versus localtime()</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>DateTime-&amp;gt;now() versus localtime()</h1>
+<h2><a href="/user/samtregar/">samtregar</a> on 2006-04-04T23:18:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>What's wrong with this picture:
+<p>
+<pre>
+   $ perl -MDateTime -e 'print DateTime->now()'
+   2006-04-04T23:08:37
+
+   $ perl -e 'print scalar localtime'
+   Tue Apr  4 19:09:10 2006
+</pre>
+<p>
+It seems that DateTime->now() doesn't do what I thought it did.  I thought it returned the current date and time at this point on the planet.  What it actually does is return the current date and time in UTC!  (And please don't tell me that DateTime can't reliably figure out my timezone.  Perl's localtime() manages just fine!)  (You can, however, lambaste me for not reading the DateTime docs, since it's quite clear that now() doesn't return local time.)
+<p>
+Unfortunately I discovered this only in the late stages of testing version 3 of a large application that makes moderately extensive use of Datetime.  That means the "easy" way to fix this, namely:
+<p>
+<pre>
+    $ perl -MDateTime -e 'print DateTime->now(time_zone => "local")'
+    2006-04-04T19:12:03
+</pre>
+<p>
+Isn't so easy, as it would mean touching a lot of files.
+<p>
+As far as I can tell I don't have a lot of good options here.  I'm going to make a sub-class of DateTime which defaults to "local" for now(), new() and from_epoch(), but that will still mean touching lots of files.  I did find <a href="http://marc.theaimsgroup.com/?t=108871641900003&r=1&w=2">discussion of this problem on the DateTime lists</a>, but I don't think a solution made it into the module.
+<p>
+I did discover that <a href="http://marc.theaimsgroup.com/?l=perl-datetime&m=108877037725879&w=2">Tim Bunce considers my chosen solution "trivial"</a>, whatever that means!
+<p>
+-sam
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>hate to be harsh but ...</h2>
+<h3><a href="/user/jhi/">jhi</a> on 2006-04-05T05:43:31</h3>
+&gt; I discovered this only in the late stages of testing version 3 of a large application that makes moderately extensive use of Datetime.<br><br>How is this possible? How can you have been using versions 1 and 2, and well into testing version, with the time stamps off by hours, without anyone noticing?<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:hate to be harsh but ...</h2>
+<h3><a href="/user/samtregar/">samtregar</a> on 2006-04-05T07:08:32</h3>
+Hard to say for sure.  I think the biggest factor is that although we do lots of date math in the application the actual times don't matter very much to the client.  They'd tell us within a few days if we ever got the dollar amounts wrong but noticing a shift of a few hours on a monthly or weekly report is pretty tough.
+<p>
+Another factor is that a lot of the most important dates were right.  MySQL has a DWIM that matched our expectations - NOW() really is now, right here, on this spot on the planet.  So timestamps in the DB were mostly accurate.
+</p><p>
+-sam</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Other Way Round?</h2>
+<h3><a href="/user/Smylers/">Smylers</a> on 2006-04-05T06:51:07</h3>
+<p>Suppose that <code>DateTime</code> were the other way round, and defaulted to the local timezone.  Then somebody could've made an equivalent blog post to yours but comparing <code>DateTime-&gt;now</code> with <code>gmtime</code> and complaining that they are different!</p>
+
+<p>There are 2 different possible behaviours.  Obviously the module can only do 1 of them by default.</p>
+
+<p>I've been inconvenienced the other way round, when I discovered that our MySQL database was storing timestamps in local time rather than UTC &mdash; and not storing the timezone.  So this means that in autumn when the clocks go back we have 1 hour's worth of recorded times that actually represent 2 hours' data, and no way of distinguishing them.</p>
+
+<p>Smylers</p>
+
+
+
+<blockquote>
+
+<h2>Re:Other Way Round?</h2>
+<h3><a href="/user/samtregar/">samtregar</a> on 2006-04-05T07:13:39</h3>
+You're striking at the heart of the matter by bringing up MySQL.  That's our DB and it's probably the first place I ever saw a "NOW()" function.  As you mention NOW() in MySQL is just like "now" in real life - it's local time.  So when I see DateTime-&gt;now(), well, I expect the same.  And if I called you up right now and said "hey, what time is it now?" you'd probably meet my expectations too!
+<p>
+Sure, that doesn't mean that everyone should expect that or that the developers of DateTime are morons.  They just have different expections, I suppose.
+</p><p>
+Although, if you actually read the link in my post you'll find that they don't defend the semantics of "now is UTC".  They actually don't think they can reliably know the local time!  I find that, well, nuts.  If you can't figure out local-time on  Windows then what kind of a platform is it?  What does Perl do for "localtime()", give up?  The lowest common denominator here is pretty damn low.
+</p><p>
+-sam</p>
+
+
+
+<blockquote>
+
+<h2>Re:Other Way Round?</h2>
+<h3><a href="/user/pijll/">pijll</a> on 2006-04-05T08:55:48</h3>
+Information on the local time may be easy to find everywhere, but the info on the timezone may be much harder. You can get the time difference between localtime and UTC, but that does not uniquely define a timezone.
+<p>
+E.g., in your example, the only thing we know about your timezone is that it is '+0400' now, but we don't know what DST rules you have. So instead of guessing the correct timezone, DateTime chooses to let the user decide.</p>
+
+
+
+<h2>Re:Other Way Round?</h2>
+<h3><a href="/user/Smylers/">Smylers</a> on 2006-04-05T12:33:56</h3>
+<blockquote><div>As you mention NOW() in MySQL is just like "now" in real life - it's local time.</div></blockquote>
+
+<p>Except that it isn't &mdash; it's more like floating time, because it doesn't also note the timezone.  That's just wrong, because it means that MySQL's timestamps don't map to a particular moment in time, but to several possible moments.  And even if you know the physical location, because of daylight-saving time that isn't good enough.</p>
+
+<p>I don't mind at all which timezone MySQL uses to display its times.  And I certainly don't care how it stores them internally.  But I do care that if I tell it to note an event as having just occurred that it records sufficient information about when 'now' is such that when I later ask it for when that event happened it can give me an answer which unambiguously refers to just 1 moment in time.</p>
+
+<p>So in practice that means you have to know the timezone of stored times.  That can either be explicit (by storing a timezone with every time) or by being documented that all times are in UTC (or some other &lsquo;standard&rsquo;).</p>
+
+<blockquote><div>So when I see DateTime-&gt;now(), well, I expect the same.</div></blockquote>
+
+<p>But it <em>is</em> doing the same!  Calling <code>DateTime-&gt;now</code> is constructing an object which unambiguously refers to the current moment in time.  There are lots of ways of displaying that.  By default it happens to display in UTC, but that's to do with how the data is displayed, not which moment is being represented.  (And it doesn't seem fair to blame a constructor for the output!)  You could also note that it displays the date by default in ISO8601 format, which has the fields in an order that most humans don't use in their day-to-day lives.  Perhaps it should display the date in a more familiar format?  But even so that wouldn't affect <em>which</em> date is being displayed.</p>
+
+<p>Consider this one-liner:</p> <blockquote> <div><tt>% perl -MDateTime -wle 'my $now = DateTime-&gt;now; print $now; $now-&gt;set_time_zone("America/New_York"); print $now'</tt></div> </blockquote> <p>Note how the time initially stored is in UTC, but is (internally) labelled as such &mdash; because when you tell it which timezone you wish to view the time in you are not merely applying a timezone label to an existing floating time (which would result in the time staying the same in the subsequent <code>print</code> statement), but telling it which view of the already-stored moment you are interested in.</p>
+
+<p>This isn't unusual behaviour.  If you do <code>my $num = 0x10</code> then Perl stores the actual integer to which you're referring (sixteen), not the digits one and zero.  If you try to print it you'll get 16 by default.  If you want that integer displayed in a different base then there are ways of specifying that.  But 0x10 and 16 are undoubtedly the same integer.  And now is undoubtedly now, regardless of the number of ways of writing it.</p>
+
+<blockquote><div>And if I called you up right now and said "hey, what time is it now?" you'd probably meet my expectations too!</div></blockquote>
+
+<p>Do you know where in the world I am?  If not you might find it confusing if I just gave you a time in my local timezone (which is different from yours) without telling you what that was.</p>
+
+<p>And while <em>most</em> of the time if somebody asked me the time I wouldn't give them the timezone (because I'd presume they know which timezone I'm in), if somebody happened to ask me the time on the day that the clocks change for daylight saving then I'd probably clarify my answer by stating explicitly which time I was referring to.</p>
+
+<p>I'd be satisfied if MySQL only stored timezone information with times that are potentially ambiguous (that hour when the clocks go back every autumn); that's the minimum required.  But surely it's better to be consistent, and simpler for everybody involved, if it always included it?</p>
+
+<blockquote><div>Sure, that doesn't mean that everyone should expect that or that the developers of DateTime are morons. They just have different expections, I suppose.</div></blockquote>
+
+<p>Exactly &mdash; whichever you pick, somebody's going to prefer t'other.  So <code>DateTime</code> can be seen as having arbitrarily chosen one of several ways which would be correct; it's straightforward to get any behaviour you want.</p>
+
+<p>Whereas MySQL has chosen a way which is definitely wrong, because if it isn't doing what you want it forgets vital information and there's no way of getting back out of it the information you put in.  Which, when you think about it, is a pretty fundamental requirement for a database.</p>
+
+<p>Smylers</p>
+
+
+
+<blockquote>
+
+<h2>Re:Other Way Round?</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2006-04-05T13:35:07</h3>
+<p> <i>You could also note that it displays the date by default in ISO8601 format, which has the fields in an order that most humans don't use in their day-to-day lives.</i> </p>
+
+<p>I do, now, ever since I first used DateTime and thought, "What is that weird format, and why do they use it?"</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>__</h2>
+<h3><a href="/user/Abigail/">Abigail</a> on 2006-04-05T08:57:47</h3>
+If you want a solution without touching many files, consider redefining DateTime::now. After using DateTime, rename its now subroutine to something else (say __now), and install something like:<blockquote> <div><tt>&nbsp; sub DateTime::now {<br>&nbsp; &nbsp; &nbsp; push @_ =&gt; time_zone =&gt; "local";<br>&nbsp; &nbsp; &nbsp; goto &amp;DateTime::__now;<br>&nbsp; }</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:__</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-04-05T16:05:10</h3>
+Use unshift, otherwise the time_zone can't be overridden.
+
+
+
+<h2>Re:__</h2>
+<h3><a href="/user/samtregar/">samtregar</a> on 2006-04-05T17:01:41</h3>
+Hhaha.  Where I work that's a hanging offense!
+<p>
+-sam</p>
+
+
+
+<blockquote>
+
+<h2>Re:__</h2>
+<h3><a href="/user/Abigail/">Abigail</a> on 2006-04-06T09:50:26</h3>
+I'm interested to know why that's a "hanging offense".
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Do what I did</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2006-04-05T13:32:02</h3>
+<p>I simply switched my own personal timezone to UTC.  My watch is set to UTC, my PC timezone is set to UTC, my TZ variables everywhere I go are set to UTC, my Wikipedia preferences are set to UTC, my forum preferences many places on the net are set to UTC.  I know when the sun rises and sets.  I'm always reminded to convert timestamps for the benefit of my coworkers, 100% of whom are all distributed across the other three continental U.S. timezones.  The hardest part is twice a year when I have to remember the change in offset.</p>
+
+<p>Thank you for pointing out the time_zone =&gt; 'local' option.  I don't believe I'd noticed that.  Interestingly enough, I just tested, and when I do this under Cygwin after unsetting my TZ variable, it comes out to my local timezone.  I wonder how it knows; Windows is set to UTC.  Probably some administrator-set option somewhere.  (Seems like at one time DateTime couldn't figure out my local timezone on its own.)</p>
+
+<p>BTW, if the proposed solution's only drawback is that it touches a lot of files, and you've come up with an alternative which also requires touching a lot of files and some additional work and is slightly substandard, why not just go with the proposed solution?  You have to touch all those files anyway.</p>
+
+
+
+<h2>On the flip side</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2006-04-05T15:27:30</h3>
+What is this 'MySQL' of which you speak?<nobr> <wbr></nobr>:-)<br><br>I hate date time conversions in general. They're right up there is characher/codepage conversions in my book if things no human should ever have to think about.<br><br>In MSSQL land, we have GETDATE(), and GETUTCDATE(). Converting them on the fly is even more fun.
+
+
+
+<h2>Mistake #1</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-04-05T16:09:12</h3>
+Using DateTime.pm instead of Time::Piece. You would have just got the right thing using localtime vs gmtime that way.
+
+
+
+<h2>The Ruby Way</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2006-04-05T16:53:10</h3>
+Time.now     # localtime
+<br>
+Time.now.utc # UTC
+<p>
+Why not make DateTime-&gt;now() return localtime and create a utc() method?  I guess it would break backwards compatibility, though.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

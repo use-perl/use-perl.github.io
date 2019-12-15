@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of dpuu: Blackjack!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Blackjack!</h1>
+<h2><a href="/user/dpuu/">dpuu</a> on 2008-12-24T20:37:42</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>The final challenge was blackjack. The instructions said that we
+could choose to implement that aces always equal 11, but that seems
+insufficiently interesting: I wanted to use junctions!<br/><br/>To start with, a simple definition of a deck of cards. The challenge
+required humanly named cards: so I started with a list of pairs, and
+then crossed this list against the list of suites. Finally, "@cards =
+@deck.pick( @deck.elems )" results in a random shuffle.<br/><br/><code>
+my @values = (
+    ace =&gt; 1|11,
+    two =&gt; 2,
+    three =&gt; 3,
+    four =&gt; 4,
+    five =&gt; 5,
+    six =&gt; 6,
+    seven =&gt; 7,
+    eight =&gt; 8,
+    nine =&gt; 9,
+    ten =&gt; 10,
+    jack =&gt; 10,
+    queen =&gt; 10,
+    king =&gt; 10,
+);<br/><br/>my @suites = &lt; spades clubs diamonds hearts &gt;;<br/><br/>my @deck = ( @values X @suites ).map: {
+        my ($name, $value) = $^a.kv;
+        "$name of $^b" =&gt; $value
+    };<br/><br/>my @cards = @deck.pick( @deck.elems );
+</code><br/><br/>So that's my deck of cards. I first deal the initial hands:<br/><br/><code>
+my @dealer;
+my @player;<br/><br/>@dealer.push( @cards.shift );
+@player.push( @cards.shift );
+@dealer.push( @cards.shift );<br/><br/>say "DEALER:";
+say @dealer[0].key; #only display the first card of dealer's hand
+say "";<br/><br/>say "PLAYER:";
+.key.say for @player;
+</code><br/><br/>Now we come to the main player loop. Card values are junctions, so I
+don't need to worry about calculating all possible values of hands that
+include aces. However, I do need to remember to not test for "bust"
+using a "greater-than" test. Because of the logic of "any" junctions,
+I need to check only for "less than 21" is not bust (and == 21 is WIN):<br/><br/><code><br/><br/>my $choice = "hit";<br/><br/>my $player_value = [+] @player.map: { .value };<br/><br/>while ($choice ~~ /h/) {<br/><br/>    my $card = @cards.shift;<br/><br/>    @player.push( $card );
+    say $card.key;<br/><br/>    $player_value += $card.value;<br/><br/>    say "current value is { $player_value.perl }";<br/><br/>    if $player_value == 21 {
+        say "congradulations, you win!";
+        $choice = "s";
+    }
+    elsif $player_value &lt; 21 {
+        say "hit (h) or stay (s)";
+        $choice = "stay" unless $player_value &lt; 16;
+        say $choice;<br/><br/>        #TODO: read STDIN
+    }
+    else {
+        say "Sorry, you bust!";
+        $choice = "s";
+    }
+}
+</code><br/><br/>Note that my version of Rakudo doesn't implement "last" properly yet,
+so I arranged my code to not need it.<br/><br/>Now the dealer gets to play (but only if the game is still live). A
+problem here was to figure out what "player value" to use. If a player
+hand is (ace, ace, eight), then possible values are 10, 20, and 30. I
+need to make sure that "20" is used for all tests against the dealers
+value. I couldn't figure out an analytic way to achieve this, so I brute
+forced it: "max (4 .. 21).grep: { $_ == $player_value }". (I start the
+list at 4 because that's the lowest possible blackjack hand).<br/><br/>Checking for a dealer win has the same problem: I can't use "less-than"
+or "greater-than" tests because of possible junctional values (e.g. "ace,
+six, ten" is both not-bust, and greater than any possible play hand).<br/><br/><code><br/><br/>say "";<br/><br/>if $player_value &lt; 21 && not $player_value == 21 {<br/><br/>    $player_value = max (4 .. 21).grep: { $_ == $player_value };<br/><br/>    say "DEALER:";
+    .key.say for @dealer;<br/><br/>    my $dealer_value = [+] @dealer.map: { .value };
+    my $done = 0;<br/><br/>    while ! $done {
+        say "dealer value: {$dealer_value.perl}";<br/><br/>        if $dealer_value == any( $player_value ^.. 21) {
+            say "you loose!";
+            $done = 1;
+        }
+        elsif $dealer_value &lt; 21 {
+            my $card = @cards.shift;
+            @dealer.push( $card );
+            say $card.key;
+            $dealer_value += $card.value;
+        }
+        else {
+            say "dealer bust: you win!";
+            $done = 1;
+        }
+    }<br/><br/>}
+</code><br/><br/>And so that's it. Junctions work, but I can't help feeling that we need
+some more language features to help with the "collapsing" of a junction
+to its appropriate value -- and that includes a "partial collapse" that,
+for example, excludes all values greater than 21 after I've checked that
+there'd be at least one value left over. Hmm, perhaps that could be done
+with a subset type...</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

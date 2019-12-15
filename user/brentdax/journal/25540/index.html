@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brentdax: Kontent Days 3-4: Storage</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Kontent Days 3-4: Storage</h1>
+<h2><a href="/user/brentdax/">brentdax</a> on 2005-07-06T06:07:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Yesterday I started on the basic SQL store, WWW::Kontent::Store::NarrowDBI, and today I finished the reading component of it.  Writing will be somewhat harder, because I have three requirements:
+<ol>
+<li>In the absence of transactions, a write error must not render a page unreadable; if a page is unwritable, it must be trivial to repair.</li>
+<li>In the presence of transactions, a write error must not render a page unreadable or unwritable.</li>
+<li>It has to work across most database engines; it can't use engine-specific features, or standard features which aren't widely supported.</li>
+</ol>One helpful point is that I don't actually <em>want</em> concurrent edits to work; I'd rather have the edit that starts second fail.  If Alice and Bob are both revising the same page at the same time, and Alice saves first, Bob should have to examine Alice's edits instead of blindly reverting them.<br/><br/>The name of the store might strike people as a bit odd.  NarrowDBI is "narrow" because the <code>attrs</code> table with all of the actual data has only three columns&mdash;<code>revid</code>, <code>name</code> and <code>value</code>.  (Alternatives I've imagined are "wide", which has a table with a column for each possible attribute, and "deep", which uses several different tables.)<br/><br/>Basically, each revision has a bunch of attributes, like "content" and "title" and so on.  Precisely <em>which</em> attributes a revision has will depend on its class (annoyingly, one of its attributes); the three SQL stores reflect three different ways to organize the attributes.<br/><br/>To save time, I'll only be implementing NarrowDBI for the Summer of Code project.  I chose this store for three reasons:
+<ol>
+<li>It's the simplest conceptually, given the way the Revision class is defined.</li>
+<li>It's the easiest to implement.</li>
+<li>It's the only one that allows attribute names to change without altering the tables.</li>
+</ol>That last point is important, because they <em>are</em> changing; for example, I realized about half an hour ago that DeepDBI&mdash;and general good design&mdash;will require some way to separate different classes' attributes, so I'll be adding prefixes to indicate which part of the system owns the attribute in question.  (For example, the revision-wide attributes that were previously called "author" and "date" will now be "kontent:author" and "kontent:date"&mdash;or maybe "rev:author" and "rev:date", I'll need to think about it.)<br/><br/>Tomorrow, the Revision::revise method, the Page::create method, and the Draft class to go with them.</p>
+
+
+<hr/>
+
+
+
+<h2>sensitive handling of concurrent edit attempts</h2>
+<h3><a href="/user/wickline/">wickline</a> on 2005-07-13T01:01:25</h3>
+Please ignore if you've already moved on past this issue. If you've still got this one on the table, maybe the following notes will be of some use...<br><br>If CVS (or whatever) is an option, you can check for conflicts and do a blind merge if no conflicts arrise. If conflicts would occur, you can echo them back to the user and let them resolve before commit.<br><br>That approach may not work for one or more reasons. CVS (or whatever) may not be a prerequisite you want to have for Kontent installation. Merge skills may not be a prerequisite you want to have for content authors using Kontent-driven sites. Even if you could do the above, blind merges may not be appropriate for certain types of content. If Alice adds a parenthetical reference to "marsupial reproduction" early on in the content of the "about Australia" document, and commits that change just prior to Bob committing the change to remove that section in the interests of brevity, then the blind merge will result in an orphaned reference.<br><br>In the past I'd had to deal with a simliar circumstance. Multiple medical staff were expected to be editing one on-line form. Certain nurses tended to edit these areas, the pharmacy tended to edit those areas, the attending physician tended to edit other areas, but everyone needed to read and edit all parts of the form. Usage was generally expected to be concurrent, and concurrent edits needed to never result in blind changes to the form.<br><br>Each field was saved with field content, date of last modification, and user who last modified the field. Clients got the field content and a token which represented the last modification date, user who modified, and content (hashed with a server-side key to prevent tampering).<br><br>When the server got an edit request, it would first verify that the user is requesting to edit the content that is currently in the database. If that was true, then it would apply the edit. If that was not true, it would send a note back to the user showing their (unapplied) revised content next to the current content in the database along with a note about who made the most recent change and when.<br><br>The user could then edit the text again to incorporate their changes into the updated copy from the database (using the copy of their failed update for reference and/or copy/paste). If they had questions about conflicting intentions, then they knew who to talk to and could have them paged if they weren't nearby to ask.<br><br>This approach seemed to work for that application. In this case, every field on the form was small. The largest fields were perhaps a small paragraph in length. For larger data, it might be akward to get your whole failed edit right next to the updated original, but perhaps a diff-like representation of their change could be shown instead.<br><br>-matt
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of david.romano: fixing readline 5.0 on OS X Tiger</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>fixing readline 5.0 on OS X Tiger</h1>
+<h2><a href="/user/david.romano/">david.romano</a> on 2006-07-07T03:26:04</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+While trying to build <a href="http://www.pugscode.org/">pugs</a> with readline support, I've had to battle a neutered readline library, a readline that doesn't come with certain functions which pugs (and <a href="http://www.haskell.org/ghc">ghc</a>) expect. I had previously installed readline 5.1 in /usr/local, but apparently ghc still linked to the libreadline in /usr, even after my having set <a href="http://www.justatheory.com/computers/databases/postgresql/howto_avoid_tigers_readline.html">$LDFLAGS to -L/usr/local/include</a>. Therefore, I decided to do something a little more drastic: overwrite the libreadline.dylib in /usr/lib.
+</p>
+
+<p>
+Now I've heard over and over again that you don't want to mess with /usr and that you should always use /usr/local. However, it didn't seem like other workarounds were working. So I decided to cream my /usr/lib version of libreadline and install the same version and minor version of of readline from GNU (after making a backup of my original libreadline.dylib and include/readline.h, of course). Fortunately, it wasn't too hard. I did <code>curl -f http://ftp.gnu.org/gnu/readline/readline-5.0.tar.gz | tar xvz, cd readline-5.0; make; sudo make install</code>. However, there was one small hitch. The make process gave this error message:
+<pre>gcc version 4.0.0 20041026 (Apple Computer, Inc. build 4061)
+powerpc-apple-darwin8-gcc-4.0.0: -compatibility_version only allowed with -dynamiclib
+</pre>
+The reason for the error is that GNU readline's default flags for building shared libraries is wrong for my version of OS X. Fortunately, some quick google'ing turned up <a href="http://www.hmug.org/phpbb2/viewtopic.php?p=105&">this</a>, telling me that I had to edit shlib/Makefile to have SHOBJ_LDFLAGS=-dynamiclib. After that was changed, <code>make</code>ing was successful.
+</p>
+
+<p>
+But I decided to dig around more as the the reason <strong>why</strong> GNU readline was passing the wrong flag. It was easier than expected. I looked at <code>configure</code> and noticed that it called ${srcdir}/support/shobj-conf to configure the shared libraries. Searching for <code>-dynamic</code> brought me to this chunk of script:
+<pre>
+    case "${host_os}" in
+    darwin7*)    SHOBJ_LDFLAGS=''
+            SHLIB_XLDFLAGS='-dynamiclib -arch_only `/usr/bin/arch` -install_name $(libdir)/$@ -current_version $(SHLIB_MAJOR)$(SHLIB_MINOR) -compatibility_version $(SHLIB_MAJOR) -v'
+            ;;
+    *)      SHOBJ_LDFLAGS='-dynamic' 
+            SHLIB_XLDFLAGS='-arch_only `/usr/bin/arch` -install_name $(libdir)/$@ -current_version $(SHLIB_MAJOR)$(SHLIB_MINOR) -compatibility_version $(SHLIB_MAJOR) -v'
+            ;;
+    esac
+</pre>
+The lone <code>darwin7</code> looked suspicious to me, so I checked out the same file for readline-5.1 and noticed <code>darwin7</code> had changed to <code>darwin[78]</code>. Also, the error message above said it was building for <code>darwin8</code>, so it seemed reasonable to suspect this was the crucial change. After I made that change and did <code>make clean; ./configure; make</code>, libreadline-5.0 compiled properly.  Now ghc and pugs both compile with readline support, and I haven't had any problems (readline related) otherwise. Woo-hoo! :-)
+</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

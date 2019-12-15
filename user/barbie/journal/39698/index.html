@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of barbie: ImageMagick / convert / --no-globbing!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>ImageMagick / convert / --no-globbing!</h1>
+<h2><a href="/user/barbie/">barbie</a> on 2009-09-30T12:19:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've recently reworked an image creation script at work to use <a href="http://www.imagemagick.org">ImageMagick</a>'s own <a href="http://www.imagemagick.org/script/convert.php"><code>convert</code></a> script. The main reason being that text support is much better using <code>convert</code> than calling ImageMagick through its <a href="http://search.cpan.org/dist/PerlMagick/Magick.pm">Perl API</a>. However, it threw up a rather confusing issue, that has taken a while to track down and resolve.</p>
+
+<p>The command issued for a number of images is along the lines of the following:</p>
+
+<pre>
+convert -background "#ffffff" -fill "#000000" -font Helvetica -pointsize 14 -size 400x caption:"*" 9780596001735.png
+</pre>
+
+<p>The 'caption' is the piece of text we wish to have in the image. In most cases this is 1 or 2 short sentences, but in some cases it can include a single asterisk, as above. This has the confusing result of creating many files with the text in each a different file name as found in the current directory. It's perhaps not too confusing to realise that filename expansion has occurred. However, the asterisk is quoted, so shouldn't be expanded by bash. After a bit of investigation and various attempts to check quoting in the shell, I discovered that ImageMagick's <a href="http://www.imagemagick.org/script/command-line-processing.php">own documentation</a> has this to say regarding <code>convert</code>...</p>
+
+<blockquote>
+<p><i>In Unix shells, certain characters such as the asterisk (*) and question mark (?) automagically cause lists of filenames to be generated based on pattern matches. This feature is known as globbing. ImageMagick supports filename globbing for systems, such as Windows, that does not natively support it. For example, suppose you want to convert 1.jpg, 2.jpg, 3.jpg, 4.jpg, and 5.jpg in your current directory to a GIF animation. You can conveniently refer to all of the JPEG files with this command: </i></p>
+
+<pre>
+$magick> convert *.jpg images.gif
+</pre>
+</blockquote>
+
+<p>In the above command this would actually be expanded by the shell on Unix like systems, not <code>convert</code>, as there is no quoting around the asterisk. However, ImageMagick in its desire to be "helpful" gleefully ignores any quoting and does the filename expansion (or globbing as they call it) regardless. Hence why in my original command several hundred files could be generated.</p>
+
+<p>Understanding this, I then set about trying to pass the character in hex form, escaping with '\' and quoting in a variety of ways to just get the single asterisk written as the text, all to no avail. I hunted through the online documentation (both on ImageMagick's site and in other forums) to find a solution, but drew a blank. I had expected to find a command-line option such as '--no-globbing' or similar, that would suppress the filename expansion feature, but alas no.</p>
+
+<p>Through a bit of trial and error I finally discovered the solution:</p>
+
+<pre>
+convert -background "#ffffff" -fill "#000000" -font Helvetica -pointsize 14 -size 400x caption:"* " 9780596001735.png
+</pre>
+
+<p>Can you see the difference? All it took was a magic(k?) space character after the asterisk for <code>convert</code> to suppress the filename expansion! </p>
+
+<p>Nowhere in the manual, docs and online help is there any mention of this. Perhaps I'm the first to encounter this, but I doubt it. As a way to help others who might also come across this frustration, I'm posting it here. I've submitted a bug report to the ImageMagick Wizards, so hopefully it may get considered for a future release. However, for now this looks to be the only way to get it working as intended.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Is the space magic?</h2>
+<h3><a href="/user/grantm/">grantm</a> on 2009-09-30T20:20:20</h3>
+Is the space actually 'magic' or it simply that you have no filenames that end with a space?
+
+
+
+<blockquote>
+
+<h2>Re:Is the space magic?</h2>
+<h3><a href="/user/barbie/">barbie</a> on 2009-10-01T12:16:20</h3>
+<p>ssshh! That's part of the magic<nobr> <wbr></nobr>;)</p><p>From what I can see, that quite possibly is the reason.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Abigail/">Abigail</a> on 2009-09-30T22:34:52</h3>
+That works until you have a file whose name ends with a space. Another way:<blockquote><div><p> <tt>(mkdir X; cd X; convert -background "#ffffff" -fill "#000000" -font Helvetica -pointsize 14 -size 400x caption:"*"<nobr> <wbr></nobr>../your-file.png; cd<nobr> <wbr></nobr>..; rmdir X)</tt></p></div> </blockquote><p>This uses the fact that in an empty directory, a globbed '*' is just a '*'.</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/barbie/">barbie</a> on 2009-10-01T12:18:24</h3>
+<p>Except I'd rather not have odd directories being created, especially if anything goes wrong. Plus it seems a lot more work than the "magic" space<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Abigail/">Abigail</a> on 2009-09-30T22:37:27</h3>
+Duh. Much simpler:<blockquote><div><p> <tt>convert -background "#ffffff" -fill "#000000" -font Helvetica -pointsize 14 -size 400x caption:"'*'" your-file.png</tt></p></div> </blockquote><p>The shell eats the double quotes, and convert gets the single quotes.</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Abigail/">Abigail</a> on 2009-09-30T22:39:00</h3>
+Or even:<blockquote><div><p> <tt>convert -background "#ffffff" -fill "#000000" -font Helvetica -pointsize 14 -size 400x caption:\"*\" your-file.png</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/barbie/">barbie</a> on 2009-10-01T12:23:11</h3>
+<p>As I mentioned, I did try all types of escaping and quoting. In your examples the images contain the 3 characters '*' and "*" respectively as the text. Infuriating! Even trying to fool it with the hex value doesn't work, it gets translated into an asterisk, then 'convert' does the filename expansion on it!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

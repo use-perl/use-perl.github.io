@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: things learned while implementing rx</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>things learned while implementing rx</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2008-09-03T03:34:48</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><html><p>Rx was a lot of fun to implement.  It&#39;s all about data in memory, not
+representation in files, so I got to design it that way, too.  I spent a lot of
+time thinking about what the various kinds of in-memory structures were that
+I&#39;d need to validate, and then I&#39;d think about how to represent schemata to
+validate them.</p><p>This was all done outside the realm of any one language or representation,
+although I used JSON as a guidepost: it needed to be able to represent any
+schema available in core Rx.  Then, once I had the idea down, I&#39;d write a test
+file or two for the new type of schema I&#39;d devised.  An Rx test file looks
+something like this:</p><pre>{
+  "schema": {
+    "type": "//seq",
+    "contents": [ "//int", "//str", "//int" ],
+    "tail": {
+      "type": "//arr",
+      "contents": "//bool",
+      "length"  : { "max": 2 }
+    }
+  },
+
+  "pass": {
+    "arr": [
+      "0-str-3",
+      "0-str-3-T",
+      "0-str-3-T-F"
+    ]
+  },
+
+  "fail": {
+    "arr"  : [ "0-str-3-18", "0-str-3-T-str", "0-str-3-T-F-T" ],
+    "bool" : "*",
+    "null" : "*",
+    "num"  : "*",
+    "obj"  : "*",
+    "str"  : "*"
+  }
+}
+</pre><p>It provides the schema, then calls out specific accept and reject data from the
+Rx test data repository.  Then it&#39;s up to each implementation to load the test
+data, instantiate the schema, and see if it gets the expected results.</p><p>I wrote five distinct implementations of Rx.  Perl, JavaScript, PHP, Python,
+and Ruby, in that order.  When writing each implementation, I tried not to look
+back at the previous implementations, so that I&#39;d avoid at least a little bit
+of direct porting.</p><p>Some of the implementations definitely turned out better than others, although
+much of that was a factor of how tired I was when I was writing the bits that
+should&#39;ve been better polished.  I&#39;m sure, too, that someone with more
+experience in those languages could&#39;ve done better than I did.  Still, I think
+I did pretty well, and it was a fun exercise.  I got a good view of things I
+really like or don&#39;t like about these languages.</p><p>The biggest headache in Perl was dealing with the lack of distinct scalar
+subtypes.  JSON::XS and boolean.pm go a decent way to making it possible to
+have a &#34;this value only means true or false&#34; scalar, but in Real Programming I
+have rarely needed True or False very much.  1 and 0 do me just fine.  Number
+and String types, though, would be greatly appreciated.  I think I&#39;d very often
+want to just use a plain old scalar and trust myself to do the right thing, but
+sometimes I&#39;d really like to know how a value started life -- and fatals when I
+try to implicitly change its nature.  I tried for a while to look at the
+underlying guts of the scalar -- IV, PV, NV, ETCV -- but that was pointless.
+It changes too freely.</p><p>The place where Perl beat out everything else, and by large margin, was scope.
+Python, Ruby, and JavaScript lack block scope.  This is really a huge deal.  If
+you&#39;re used to being able to create a variable at the smallest scope possible,
+and now it&#39;s getting set all over the place, you will begin to wonder what the
+hell is going on.  Worse, there&#39;s no way to require that you declare variables.
+They&#39;re created on first assignment.  The canonical example of how this sucks
+is something like:</p><pre>setting = default
+if not opt.get('setting') is None:
+  seting = opt['setting']
+
+print("current value is %s" % seting)
+do_something(setting)
+</pre><p>Augh!  We&#39;ve made a typo twice, but since the first time it was an assignment,
+we created that variable -- and because there&#39;s no block scope, the variable is
+still there for the second typo, and it gets passed in... as long as the <code>if</code>
+block was run.  The variable is created at runtime, so if <code>seting</code> wasn&#39;t
+assigned to, we&#39;ll get a runtime error.  In Perl, we would&#39;ve gotten a compile
+time error when we would have presumably declared <code>my $setting</code> and then tried
+to use <code>$seting</code> without declaring it.</p><p>The use of the <code>get</code> method is also there so I can point out the way it bugs
+me:  it&#39;s also a runtime error to look up a dictionary entry that doesn&#39;t
+exist, so you have to use one of the dictionary access methods to avoid an
+exception.  This actually has saved me a few times, but it bothers me that I
+have to use a method.  Python&#39;s use of methods versus built-in funtions versus
+syntax has always struck me as really haphazard.</p><p>In Ruby, the lack of block scope bit me hardest with something like this:</p><pre>value = [ ]
+arr.each { |value| do_something }
+</pre><p>Okay, so more descriptive variable names would help, but... come on, that&#39;s
+just awful!</p><p>I really enjoyed Python&#39;s built-in exceptions, even if only because it means
+that I always got a nice stack trace, and even if the stack trace is
+upside-down.  It certainly beat Ruby, where the stack traces seemed always to
+be slightly weird and confusing and, more importantly, had mediocre error
+messages.  Ruby also had trouble with extra commas.</p><p>For example, these are valid:</p><pre>x = [ 1, 2, 3, ]
+
+obj.method(1, 2, 3)
+</pre><p>...but these are not:</p><pre>x = [ 1, 2, 3, , ]
+
+obj.method(1,2,3,)
+</pre><p>That last one becomes really annoying when you&#39;ve written:</p><pre>obj.method(
+  compute_first_argument,
+  compute_second_argument,
+)
+</pre><p>Oops!</p><p>JavaScript mostly allows trailing commas, but Microsoft&#39;s implementation gets
+it wrong, so you must be fastidious about avoiding them.</p><p>On the subject of lousy error messages and syntax, though, PHP is a bigger
+winner.  I mean, we all know that <a href="http://zestyping.livejournal.com/124503.html">PHP should never be
+taught</a>, but there were a few
+things that I didn&#39;t realize.  Some of them are that PHP&#39;s model of truth is
+bizarre, that its notions of equality and really-equal-equality are demented,
+and that its class indirection (at least prior to 5.3.0) stink.  My absolute
+favorite lesson, though, was with exceptions.</p><p>I had some code in this form:</p><pre>try {
+  print "about to try\n";
+  $x = y();
+  print "done trying\n";
+} catch (Exception $e) {
+  print "caught exception\n";
+}
+</pre><p>I saw &#34;about to try&#34; but not &#34;done trying&#34; and then this:</p><pre>Catchable fatal error: Object of class stdClass could not be converted to
+string in /Users/rjbs/code/projects/Rx/php/Rx.php on line 54
+</pre><p>What was going on?!  Why couldn&#39;t I catch this thing?  I would have been
+willing to believe that it was some kind of ultra-fatal uncatchable error,
+except for the label: <em>Catchable fatal error</em>.</p><p>About 45 minutes later, I found the answer:  Catchable fatal errors can&#39;t be
+caught with &#39;catch&#39;.  Instead, you must have a global error handler in place.
+If you&#39;re a Perl programmer this is like saying, &#34;Built in exceptions can&#39;t be
+caugth by eval; you will need a <code>$SIG{__DIE__}</code> in place.&#34;  Wow.</p><p>Of course, pointing out flaws in PHP (holy cow, its arrays!) is like shooting
+duck in a barrel.  I&#39;ll just give you one more:</p><p>This code:</p><pre><?php
+$x::$y = 10;
+?>
+</pre><p>Generates this error:</p><pre>Parse error: syntax error, unexpected T_PAAMAYIM_NEKUDOTAYIM in
+FILE on line 2
+</pre><p>Apparently that&#39;s Hebrew for &#34;double colon&#34; or something.  Given the fact that
+I get this error nearly any time I try to get at class data indirectly, it
+would be nice if the error message was in the same langauge as the rest of the
+error messages and of the programming language itself.  Oh well.  Maybe when I
+upgrade to PHP 5.3.0, this syntax will be valid and I won&#39;t care.</p><p>I had more trouble with Ruby than just its scope and commas, though.  It
+provides a Range class, which I thought would be great for representing, well,
+ranges.  Unfortunately, Ruby ranges are either exclusive at both ends or
+inclusive at both ends.</p><p>Ruby has Perl&#39;s lovely postfix statement modifiers, but they become pretty ugly
+once you need to use a line continuation marker:</p><pre>@type_registry.check_and_register( type ) \
+  unless @type_registry.has_handler_for?(type)
+</pre><p>That backslash really bugs me.  I also didn&#39;t like the hoops I had to go
+through to deal with instance or class data.  I couldn&#39;t just say:</p><pre>class MyClass
+  @@datum = 10
+  class_attr_accessor :datum
+end
+</pre><p>There was more than one way to do it, all annoying.  I also couldn&#39;t change the
+value for that attribute on a subclass without rewriting the methods involved,
+too.  I think it would be possible, with some use of Ruby&#39;s introspection, but
+I really wanted it to Just Work.  I imagine someone has written a nice module
+to solve that problem, already... of course that&#39;s only a very, very small
+subset of the problems solved for me in Perl in Moose.  When do we get... um...
+Rooster?</p><p>Moose aside -- since I didn&#39;t use it -- it was very pleasant, in every non-Perl
+language, to have object construction taken care of for me.  That is, my
+initializer got passed a new object, which I initialized.  I didn&#39;t have to do
+anything to construct the object itself.  Scope comes back into things here,
+though.  With Moose, I can define the attributes of my class and then I can&#39;t
+(politely) act like there are other slots than those I gave it.  In Python,
+Ruby, JavaScript, and PHP, I can easily (and accidentally) add more attributes
+to an object whenever I want, just by assigning to them.</p><p>Python&#39;s namespaces continue to irritate me.  In most other languages, I
+implemented something called Rx.  In Python, the Rx namespace was applied to
+everything in Rx.py, so I needed to call the main thing Rx.Factory.  That&#39;s
+fine, but what&#39;s weird is that I do that by defining <code>class Factory</code>.  That
+means that Rx.Exception is <code>class Exception</code>.  That futher means that from then
+on, in Rx.py, <code>Exception</code> means the Rx exception class.  To get the &#34;real&#34;
+Exception class, I need to use <code>__builtins__.Exception</code>.  Ugh.`</p><p>In the end, though, I really enjoyed working with all of the languages in
+question, except for PHP.  Working with PHP was depressing and frustrating.
+Python wasn&#39;t really my style -- but big points for having a built in set type.
+Beyond that, it was also a totally reasonable language to work in.  I think it
+has more annoyances than Perl, for me, but I can definitely see how someone
+might feel the other way.  JavaScript was loads of fun, but I think it needs a
+bit more sugar for making constructors for derived objects.  I don&#39;t think we
+need classes in JavaScript, but I also wouldn&#39;t mind typing <code>x.prototype.y</code> a
+lot less.  Ruby, as always, was a lot of fun to program in.  I&#39;d surely use it
+more if the CPAN weren&#39;t such a massive time-saver.</p><p>I often think that my first gems contribution (after Rx, I suppose) will be
+Sub::Exporter in Ruby.  That will be fun.</p><p>I&#39;m sure I have lots more foibles to report about, but right now that&#39;s
+everything that springs to mind.</p><p>Are you an expert Ruby, PHP, Python, or JavaScript programmer?  I&#39;d love your
+feedback on why my implementation of <a href="http://rjbs.manxome.org/rx">Rx</a> sucks.</p></html>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Semantics and Syntax</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2008-09-03T12:42:12</h3>
+<p>That was very interesting.</p><p>A theme I picked while reading up was that compared to the other languages, Perl seems to have better semantics but worse syntax.</p><p>Is that a fair assessment? Or is it just you being unfamiliar with or unused to the other languages' dark corners?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Semantics and Syntax</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2008-09-03T13:37:31</h3>
+<p>It's hard to say how much I suffered with each language due to unfamiliarity.  With PHP, it's definitely some, but PHP is also just awful.  With Python, I'm pretty okay with Python, so it was not so bad, I think.  In Ruby, I know I probably could've done some things more idiomatically if I knew more idioms.</p><p>As for your summary, no, I don't think I'd agree with that.  Perl's syntax was very often excellent.  Perl and Ruby both have syntax that pleases me, although not always in the same places.  Ruby's line orientation gets in my way and it makes me miss variable-marking sigils.</p><p>Ruby's semantics for object oriented code blow Perl's out of the water (duh), until you add Moose into the picture, and then they both have some advantages over the other.  If I ever get off my butt and implement overloading of -&gt;, Perl can start gaining more on Ruby.</p><p>Python has better semantics (by which I mean any) for built-in sets.  Perl has better syntax for chained list transformations.</p><p>It goes on and on.  It's more complicated than just syntax or semantics.  It's specific instances of both.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Semantics and Syntax</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-09-04T18:29:06</h3>
+<p>I am always terribly amused when people claim that their favourite language out of the group of Perl, Python and Ruby is clearly and obviously much better than one or more of the others. (Javascript arguably belongs to this same group.) If you throw <em>really</em> different languages into the mix, like C, C++, Java, Haskell, OCaml, Prolog, Self, Erlang, XSLT, Forth, and a few more, then suddenly you can hardly tell a difference between Perl, Python, Ruby and JS. Someone making a big deal out of these differences suggests to me either inexperience or <a href="http://en.wikipedia.org/wiki/Narcissism_of_small_differences" title="wikipedia.org">narcissism</a wikipedia.org>.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Semantics and Syntax</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2008-09-04T19:05:06</h3>
+<p>Sure, they are very similar languages, and claiming that any one is the supreme language would be nonsense, and claiming that one is wildly superior to another for everyone and in all ways would also be nonsense.  Still, they are different.  They have different problems and strengths.  Discussing those seems like a reasonable thing to do.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Semantics and Syntax</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-09-04T19:46:40</h3>
+<p>Absolutely. I was tying into your point that it&#8217;s much more complicated than any simplistic soundbite analysis.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of nkuitse: SQL templates</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>SQL templates</h1>
+<h2><a href="/user/nkuitse/">nkuitse</a> on 2003-08-07T15:46:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'm not crazy about positional parameters in DBI, but I don't want to use a heavy-duty module like Tangram or Alzabo* to get away from them.<br/><br/>What I decided was to use simple SQL templates with placeholders like <code>$foo</code> instead of <code>?</code>, then write a simple module to expand the template given a hash of placeholder names and values.<br/><br/><pre>
+my $str = 'SELECT id FROM People'
+    . 'WHERE age >= $min AND age <= $max';
+my $template = SQL::Template->new($str);
+my ($sql, @args) = $template->process(
+    'min' => 20,
+    'max' => 29
+);
+# $sql = 'SELECT id FROM People'
+# . 'WHERE age >= ? AND age <= ?'
+# @args = (20, 29)
+$dbh->prepare_cached($sql, @args);
+</pre><br/><br/>That was simple enough.  But then I also wanted multiple substring searching like this:<br/><br/><pre>
+my $str = 'SELECT id FROM People'
+    . 'WHERE { name ILIKE $name }:AND';
+my $template = SQL::Template->new($str);
+my ($sql, @args) = $template->process(
+    'name' => 'tolk% %chris%'
+);
+# $sql = 'SELECT id FROM People'
+# . 'WHERE name ILIKE ? AND name ILIKE ?'
+# @args = ('tolk%', '%chris%')
+$dbh->prepare_cached($sql, @args);
+</pre><br/><br/>That was easier than I had thought it would be.<br/><br/>The hardest part is what to call my module.  <code>SQL::Template</code> is the most obvious choice, but to me that sounds like a big, fancy module whereas mine is very simple (and likely to remain that way).<br/><br/>Meanwhile, the module isn't quite ready for release, since I think there are some Postgresisms to root out.<br/><br/><i>* Not that there's anything with Tangram or Alzabo!</i><br/><br/><b>Update 18 Aug:</b> Fixed the quotes in the sample code (should have been single quotes, not double. D'oh!)</p>
+
+
+<hr/>
+
+
+
+<h2>Positional Parameters are a good idea</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2003-08-07T21:31:37</h3>
+Not using them means that you have to recreate the query execution plan each time.  You get better performance by using them.
+
+<p>You might want to have a look at <a href="http://www.gtsm.com/DBI_AdvancedTalk_200307/" title="gtsm.com">Tim Bunce's Advanced DBI talk</a gtsm.com>
+
+</p><p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Positional Parameters are a good idea</h2>
+<h3><a href="/user/nkuitse/">nkuitse</a> on 2003-08-08T12:45:06</h3>
+<i>Not using them means that you have to recreate the query execution plan each time.</i> <br> <br>Actually, my code <b>generates</b> SQL with positional parameters.  It takes a pseudo-SQL template like this:<blockquote><div> <tt>SELECT foo<br>&nbsp; FROM bar<br>
+&nbsp; WHERE baz = $baz<br>&nbsp; &nbsp;AND qux = $qux</tt> </div></blockquote>And turns it into this:<blockquote><div> <tt>SELECT foo<br>&nbsp; FROM bar<br>
+&nbsp; WHERE baz = ?<br>&nbsp; &nbsp;AND qux = ?</tt> </div></blockquote>Simultaneously taking the name-based parameters that you provide (in a hash, i.e., unordered) and lining their values up in the correct order in a params array:<blockquote><div> <tt>$tmpl = SQL::Template-&gt;new($template_string);<br>($sql, @params) = $tmpl-&gt;process(<br>&nbsp; &nbsp; 'qux' =&gt; 'quaint',<br>&nbsp; &nbsp; 'baz' =&gt; 'baboon'<br>);</tt> </div></blockquote>The result is:<blockquote><div> <tt>$sql =<nobr> <wbr></nobr>...as above...<br>@params = ('baboon', 'quaint')</tt> </div></blockquote>Which you can then use normally:<blockquote><div> <tt>$sth = $dbh-&gt;prepare[_cached]($sql);<br>$sth-&gt;execute(@params);</tt> </div></blockquote>Oh, and thanks for the tip on Tim Bunce's slides!
+
+
+
+
+
+</blockquote>
+
+
+<h2>need testers?</h2>
+<h3><a href="/user/WebDragon/">WebDragon</a> on 2003-08-14T22:18:49</h3>
+I'd be happy to help test this with MySQL if you'd like. It sounds a lot like it would be useful for me with an upcoming project I'm working on.
+
+
+
+<blockquote>
+
+<h2>Re:need testers?</h2>
+<h3><a href="/user/nkuitse/">nkuitse</a> on 2003-08-20T14:47:28</h3>
+<i>I'd be happy to help test this with MySQL if you'd like.</i> <br> <br>Sure, thanks.  (Though it doesn't really matter which RDBMS is used, since SQL::Template simply spits out SQL and a correctly ordered list of values.)<br> <br>You can download version 0.01 <a href="http://www.nkuitse.com/temp/SQL-Template-0.01.tar.gz" title="nkuitse.com">here (ca. 3KB)</a nkuitse.com> for now.  Do the usual to install:<blockquote><div> <tt>perl Makefile.PL<br>make<br>make test<br>[sudo] make install</tt> </div></blockquote> <i>It sounds a lot like it would be useful for me with an upcoming project I'm working on.</i> <br> <br>Glad to hear it!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

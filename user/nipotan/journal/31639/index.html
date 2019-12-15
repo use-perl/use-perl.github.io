@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of nipotan: Sledge::PluginLoader</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Sledge::PluginLoader</h1>
+<h2><a href="/user/nipotan/">nipotan</a> on 2006-11-17T07:59:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><URL:http://use.perl.org/user/ikebe/journal/31589><br>
+It's cool.<br>
+<br>
+But, maybe <URL:http://use.perl.org/user/tokuhirom/journal/31638> is fault.<br>
+<br>
+The plugins will be exported via Sledge::PluginLoader.<br>
+<br>
+the implementation is like this:<br>
+<pre>
+package Sledge::PluginLoader;<br/><br/>use strict;
+use warnings;
+use Carp qw(croak);
+use UNIVERSAL::require;<br/><br/>sub import {
+    my $class = shift;
+    my $pkg = caller;<br/><br/>    for my $name (@_) {
+        my $plugin = "Sledge::Plugin::$name";
+        $plugin->require or croak $!;<br/><br/>        unless ($plugin->can('add_methods') && $plugin->can('register_hooks')) {
+            croak "$plugin is an old Sledge Plugin. use it directly";
+        }<br/><br/>        my @method_info = $plugin->add_methods;
+        for (my $i = 0; $i < @method_info; $i += 2) {
+            no strict 'refs';
+            my $method_name = $method_info[$i];
+            *{"$pkg\::$method_name"} = $method_info[$i + 1];
+        }<br/><br/>        my @hook_info = $plugin->resister_hooks;
+        for (my $i = 0; $i < @hook_info; $i += 2) {
+            $pkg->register_hook($hook_info[$i] => $hook_info[$i + 1])
+        }
+    }
+}<br/><br/>1;
+</pre><br/><br/>I didn't try it. It's no guarantee :P<br><br/><br/>and this code lost the backward compatibility.<br>
+any idea?</p>
+
+
+<hr/>
+
+
+
+<h2>core?</h2>
+<h3><a href="/user/tokuhirom/">tokuhirom</a> on 2006-11-17T08:15:04</h3>
+<blockquote> <div><tt>Index: lib/Sledge/Pages/Base.pm<br>=====================================================<nobr>=<wbr></nobr>  =============<br>--- lib/Sledge/Pages/Base.pm&nbsp; &nbsp; (revision 2)<br>+++ lib/Sledge/Pages/Base.pm&nbsp; &nbsp; (working copy)<br>@@ -29,6 +29,7 @@<br> <br> use File::Spec;<br> use URI;<br>+use UNIVERSAL::require;<br> <br> use Sledge::Exceptions;<br> use Sledge::FillInForm;<br>@@ -238,6 +239,31 @@<br>&nbsp; &nbsp; &nbsp;return $url;<br> }<br> <br>+sub load_plugins {<br>+&nbsp; &nbsp; my ($class, @plugins) = @_;<br>+<br>+&nbsp; &nbsp; for my $name (@plugins) {<br>+&nbsp; &nbsp; &nbsp; &nbsp; my $plugin = "Sledge::Plugin::$name";<br>+&nbsp; &nbsp; &nbsp; &nbsp; $plugin-&gt;require or croak $!;<br>+<br>+&nbsp; &nbsp; &nbsp; &nbsp; unless ($plugin-&gt;can('add_methods') &amp;&amp; $plugin-&gt;can('register_hooks')) {<br>+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; croak "$plugin is an old Sledge Plugin. use it directly";<br>+&nbsp; &nbsp; &nbsp; &nbsp; }<br>+<br>+&nbsp; &nbsp; &nbsp; &nbsp; my @method_info = $plugin-&gt;add_methods;<br>+&nbsp; &nbsp; &nbsp; &nbsp; for (my $i = 0; $i &lt; @method_info; $i += 2) {<br>+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; no strict 'refs';<br>+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $method_name = $method_info[$i];<br>+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; *{"$pkg\::$method_name"} = $method_info[$i + 1];<br>+&nbsp; &nbsp; &nbsp; &nbsp; }<br>+<br>+&nbsp; &nbsp; &nbsp; &nbsp; my @hook_info = $plugin-&gt;resister_hooks;<br>+&nbsp; &nbsp; &nbsp; &nbsp; for (my $i = 0; $i &lt; @hook_info; $i += 2) {<br>+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $pkg-&gt;register_hook($hook_info[$i] =&gt; $hook_info[$i + 1])<br>+&nbsp; &nbsp; &nbsp; &nbsp; }<br>+&nbsp; &nbsp; }<br>+}<br>+<br> sub _destroy_me {<br>&nbsp; &nbsp; &nbsp;my $self = shift;<br>&nbsp; &nbsp; &nbsp;# paranoia: guard against cyclic reference</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:core?</h2>
+<h3><a href="/user/nipotan/">nipotan</a> on 2006-11-17T08:21:04</h3>
+Yes, it is.
+it will be implemented into Sledge core is better than using loader.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: Discovering bugs while going to bed</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Discovering bugs while going to bed</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2003-01-26T08:53:16</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>There is a special sort of design-pattern that I've come up during my attempts with XS that has so far proven its usefulness quite often. Consider the following setup in a C-header:<br/><br/><code><br/><br/>    struct dbx {
+        ...
+    } DBX;
+    
+    struct dbxemail {
+        ...
+    } DBXEMAIL;
+    
+    char * dbx_get_email_body(DBX *dbx, DBXEMAIL* email);<br/><br/></code><br/><br/>For an object-oriented approach, where a DBX- and a DBXEMAIL object exists, this is sub-optimal, since the DBXEMAIL object needs a reference to a DBX in order to be able to say <code>$dbxemail-&gt;get_body</code>.<br/><br/>So in my XS, I wrapped the DBXEMAIL struct thusly:<br/><br/><code>
+    struct dbx_email {
+        DBX         *dbx;
+        DBXEMAIL    *email;
+        char        *header;  /* just the header */
+        char        *body;    /* just the body */
+    } DBX_EMAIL;
+</code><br/><br/>Typemaps take care of all the conversions, etc. Very convenient. get_body() then could look like this:<br/><br/><code>
+    char *
+    get_body(self)
+            DBX_EMAIL *self;
+        CODE:
+            RETVAL = dbx_get_email_body(self-&gt;dbx, self-&gt;email);
+        OUTPUT:
+            RETVAL
+</code><br/><br/>Yet, while going to bed last night I was thinking about this pattern, and more specifically about this piece of code:<br/><br/><code><br/><br/>    my $dbxemail;
+    {
+        my $dbx = Mail::Transport::Dbx-&gt;("file.dbx");
+        $dbxemail-&gt;get(0); # first message
+    }
+    print $dbxemail-&gt;get_body;
+    
+</code><br/><br/>The destructor of Mail::Transport::Dbx objects would get invoked (and thus destroying my <code>DBX*</code> structure) while $dbxemail would still hold a pointer to this (now freed) DBX. First thing I did this morning was trying it and, yes, it indeed dumped core.<br/><br/>The fixes themselves were harmless. <code>DBX_EMAIL-&gt;dbx</code> is no longer a <code>DBX*</code> but now a <code>SV*</code> (namely the DBX* as a Perl object) so that I can increase and decrease the refcount where necessary. Of course, I have to do a few things manually that'd normally be taken care of by the typemaps, but that could probably be done by a macro if it gets too annoying.<br/><br/>Anyway, just wanted to inform the world out there that bugs can be discovered (and even fixed) while doing other things (like brushing your teeth, dining with your girl-friend etc.). Don't let your mind rest when you're away from the computer. Programming Perl can be carried out everywhere (even in mind, or possibly in your dreams). I still hope that some day I wake up in the morning, rush to my computer and simply type down the module I programmed during the night while dreaming. Mozart worked a little like that: He wrote down one piece of music composed previously in mind and at the same time his mind was already composing the next symphony. Sigh, I wish I was a genius!
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

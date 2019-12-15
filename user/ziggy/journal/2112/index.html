@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: XML Schema wrinkles</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>XML Schema wrinkles</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2002-01-14T15:24:18</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>It's easy to create an enumerated type in XML Schema, like all 50 states by postal abbreviation or state name.
+<p>
+Creating a type that validates zip codes is a little trickier.
+<p>
+You would think that using something like the totalDigits facet would constrain a type to a five-digit number.  Except that there are zip codes that start with leading zeros: 08063 is
+a valid zip code and must be presented that way, even though an integer with that value will be incorrectly serialized as 8063.
+<p>
+So perhaps the solution is to treat a zip code as a string, where each position in the string is in the range '0'..'9'.
+Atomic datatypes are composable into lists, and we can create a list of five of these '0'..'9' values.  Except that lists are a series of values separated by spaces, so we've now constructed a type that will validate a value like this: "0 8 0 6 3", which is clearly incorrect.
+<p>
+It seems like the simplest type definition that can work here is a pattern: '\d\d\d\d\d', except that just feels <i>wrong</i>.  Regexes feel like an escape hatch on the XML Schema data definition, doubly so here.  I must be missing something; there <b>should</b> be a more natural way to construct a simpleType that matches zip codes; either that or the simpleType definition is missing something fundemental in datatype composition.  
+<p>
+(Theoretically, with enough work, it should be possible to define a datatype that would validate a document if a piece of element content is a syntactically valid C program; clearly with a list of a union of simple token types, we're not quite there yet.  I certainly don't want to see that grammar though...)
+<p>
+So how is this for a totally off-the-cuff idea for a schema language for element content:
+<ul>
+<li>simple strings (unconstrained, just like #PCDATA or xsd:string)
+<li>simple numbers (like xsd:decimal)
+<li>simple dates (ISO dates)
+<li>simple URIs (like xsd:anyURI)
+<li>simple email addresses (from RFC 822 and it's successors)
+<li>simple namespaces (like xsd:QName)
+<li>simple XML names (NMTOKEN from the DTD grammar; is this really necessary, or is QName sufficient here?)
+<li>basic constraints on the above (XSD derived types, such as xsd:short and xsd:unsignedLong)
+<li>full regular expressions
+<li>concatenations of simple strings (that may be a way to define xsd:decimal...)
+<li>BNF grammars for string data (a way to compose email addresses, and define QNames / URIs natively and not punt to the Schema engine...)
+<li>unions and lists as they exist today
+<li>directed unions and lists (perhaps as a way to define a simple BNF grammar, or something simpler?)
+</ul>
+...all plugged into a RELAX NG structure definition.</p>
+
+
+<hr/>
+
+
+
+<h2>why not re's?</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2002-01-14T18:08:01</h3>
+Sounds like you're going to a lot of work to define something that will be unique and original and will cover some of the things that RE's could be used for.
+<br>
+<br>Considering RE's an escape hatch to be avoided if possible suggests that te alternative is not powerful enough some of the time.  Why not just use RE's and forget about defining a brand new incompatible language that isn't as powerful?
+
+
+
+<blockquote>
+
+<h2>Re:why not re's?</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2002-01-14T20:16:30</h3>
+<i>
+Sounds like you're going to a lot of work to define something that will be unique and original and will cover some of the things that RE's could be used for.
+</i>
+<p>
+Actually, that was just thinking out loud.<nobr> <wbr></nobr>;-)
+</p><p>
+You are quite correct in observing that if regexes are an "escape hatch", then it is an indication that the "brand new incompatible language" isn't as powerful.  However that doesn't necessarily mean we're dealing with a "brand new incompatible language".<nobr> <wbr></nobr>:-)
+</p><p>
+For example, it is much easier to think in terms of a <tt>yacc</tt> (or even P::RD) grammar if we want to write a parser for C or even a rudimentary subset of Perl.  However, the task of writing, maintaining and extending the corresponding regex is quite daunting.  So while the regex notation is quite powerful, it isn't always optimized to the problem space (or the grey matter typically used to solve the problem).
+</p><p>
+One peeve I have with XML Schema is that it is so verbose and difficult to create simple constructs for element content validation.  For example, given a validating model for zip codes, and another one for zip+4, it's as simple as creating a union of the two types to validate either one or the other.  (Except that now we need 3 named types; urgh...)  But each of those types are atomic, and the union itself is atomic.  If we had a structured datatype, then XML encoding practice would have us tag each subtype individually since it is not atomic.  Alternatively, we could describe each subtype as a simple (<b>dirt</b> simple) regex, and create a union of atomic types.  (or just punt and make a validating regex that understands both types of zip code...)
+</p><p>
+But what do we do when we want to tag a complex structure as a simple type?  For example, a set of email headers, a POD document, etc.?  Here we fall down because we can't (er, "aren't supposed to") parse the atom.  We could write regexes here for these kinds of element content, but that has similar scalability problems that a <tt>yacc</tt> grammar may simiplify.
+</p><p>
+Is that clearer?</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

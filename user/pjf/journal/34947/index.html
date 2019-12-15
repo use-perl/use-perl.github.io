@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pjf: Intruder Alert - Tracking down a rogue connection</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Intruder Alert - Tracking down a rogue connection</h1>
+<h2><a href="/user/pjf/">pjf</a> on 2007-11-21T11:39:01</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><b>Intruder Alert - Tracking down a rogue connection</b><br />
+The hosts I administer look through their logfiles each hour, looking for things that are out of the ordinary, and mailing them to me.  This is where my uncanny ability to remember leap-seconds comes from; it's not because I actually <i>care</i> about things, but because I'll get an e-mail saying that a host suddenly found itself a <i>whole second</i> out of sync with some incredibly accurate clock somewhere.  Lucky me.
+</p><p>
+Most things <i>don't</i> end up in my log digests, because most things are boring.  The things I do see are things that I either care about, or have never seen before.
+</p><p>
+A few days ago I got an e-mail that one machine was trying to contact a particular address, 172.16.45.35.  What made this noteworthy is that address is <i>unroutable</i>.  It's a reserved, private address space.  It doesn't go <i>anywhere</i> on the Internet, and it's not used by us internally, so there should be no reason to try and contact it.  The connection indicated it would have been an outgoing web request, and since I was busy working on other things, I assumed that some other fool had set up <i>their</i> system incorrectly, and thought nothing of it.  People leave references to their own internal sites in documents all the time.
+</p><p>
+A few days later I got another e-mail, same result.  And then another, the next day, and another.  Each time I looked a little closer.  About the same time each day, a few attempts to contact this address, and then nothing.
+</p><p>
+Today, this bothered me.  What if we're seeing these packets because there's something running on this machine that shouldn't be?  So I go to my proxy logs, and do a search for the address.  Nothing matches.
+</p><p>
+Hmm, that's odd.  Let's see what's in our name-server cache, since the address is probably the result of a name lookup.  <tt>kill -INT</tt> on your <tt>named</tt> will let you see its memory cache, a great trick to remember.  Nothing in here, either, but it's now been hours since I got the mail, so the record may well have expired.
+</p><p>
+What's odd about this connection is that it seems to happen around lunchtime, but not every day, and not always exactly the same time, and sometimes it misses days, so I don't really know if or when I'll ever see it again.  Rather than trying to futilely trying to find it <i>minutes</i> after it occurs, I figure that I'll set something running to catch it in the act:
+</p>
+<blockquote>
+<tt>lsof -r1 +c0 -ni@172.16.45.35 | grep --line-buffered -v ======= | tee 172.16.45.35-watch</tt>
+</blockquote>
+<p>
+Every second I'll look for anything involving that address using <tt>lsof</tt>, remove the boring separators, and chuck it into a file and STDOUT.  The <tt>--line-buffered</tt> option is important so that <tt>grep</tt> doesn't delay the flow of data.
+</p><p>
+While I've got that running, I whip up a bit of perl to watch the output, and grab fingerprints of the process when we spot it; most of the contents of the relevant entry in <tt>/proc</tt> will do nicely.
+</p><p>
+I leave my tools to run in a <tt>screen</tt> session (which will preserve them even if my terminal goes away), make dinner, have an extremely nice home-brew beer, and watch some TV.  In this case, House MD.
+</p><p>
+As is common in many episodes of House, the patient is sick with a disease that <i>should</i> have been obvious, since they test for that particular disease in every single episode (expect this one).  Not long afterwards, it dawns upon me what <i>my</i> problem may be.
+</p><p>
+I go to the proxy logs, and I look up <i>all</i> the addresses of <i>all</i> the sites accessed today:
+</p>
+<blockquote><tt>
+perl -pe'my @f = split(/\s+/,$_); $_ = $f[6]; s{^http://}{}; s{[:/].*}{}; $_ .= "\n"' access.log | sort | uniq | perl -MIO::Handle -MNet::DNS -e'my $dns = Net::DNS::Resolver-&gt;new; STDOUT-&gt;autoflush(1); while (&lt;&gt;) { chomp; print "== $_ ==\n"; my $q = $dns-&gt;search($_); if ($q) { foreach my $rr ($q-&gt;answer) { print $rr-&gt;address,"\n" if $rr-&gt;type eq "A" } } else { warn $dns-&gt;errorstring; } }' | tee /tmp/squid-dns
+</tt></blockquote>
+<p>
+Sure enough, after a few moments my answer pops out!  The address <tt>proof.smh.com.au</tt> resolves to 172.16.45.35.  SMH is the Sydney Morning Herald, and it looks like some of their pages refer to an internal machine, which my reporting system is dutifully reporting as odd.  Sure enough, all the dates and times in the squid logfiles match up nicely with the packet intercept reports I was sent.
+</p><p>
+The reason it wasn't showing up when I first searched is that squid only records IP addresses when it needs to make a direct connection.  In this case, it <i>tried</i> to make the connection and failed, but rather than giving up it then proceeds to try and hand the problem off to an upstream cache, and <i>that's</i> what gets reporting in the logfile.
+</p><p>
+This is good for me, since it means that the odd connections really are what I thought they would be, and not a sign of unwanted activity on one of my machines.  I'm doubly glad because it would be especially embarrassing to find a rootkit that's so badly written that it tries connecting to a completely unroutable address.
+</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of cbrooks: Cross-Site Tracing (XST) security vulnerability</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Cross-Site Tracing (XST) security vulnerability</h1>
+<h2><a href="/user/cbrooks/">cbrooks</a> on 2003-01-23T05:06:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Ilya has already mentioned <a href='http://use.perl.org/user/IlyaM/journal/10127'>this</a>, but he has comments disabled, so I thought I'd make an entry as well.<br><br><br/><br/>XST is a newly-<a href='http://www.whitehatsec.com/press_releases/WH-PR-20030120.txt'>reported</a> vulnerability that combines traditional XSS (cross-site-scripting) attacks with HTTP TRACE.  The traditional XSS part of the attack is that a blackhat could embed a malicious JavaScript (or other client-side scripting language) function in a web application that does not properly screen client input.  The JavaScript function in turn can craft an HTTP TRACE request (using the XMLHTTP ActiveX control in IE or XMLDOM in Mozilla).  HTTP TRACE simply echoes your HTTP request, including HTTP Basic Authentication strings (which are passed as base64-encoded cleartext), which apparently makes this new attack noteworthy.  XSS attacks could not previously access Authentication strings.<br><br><br/><br/>The tone of commentary on Bugtraq generally seems to downplay the severity of this vulnerability for two reasons: (1) very few people have ever seen XSS attacks in the wild; and (2) the vulnerability would be largely mitigated were Microsoft to simply remove XMLHTTP's ability to send an HTTP TRACE request.<br><br><br/><br/>If you use HTTP Basic Authentication on your server, you can protect against this method of reading authentication strings by disabling TRACE requests.  Disabling TRACE on Apache is trivial, assuming that you have compiled Apache with mod_rewrite:<br><br><br/><br/>##########################<br>
+#<br>
+#This rule is in response to http://www.cgisecurity.com/whitehat-mirror/WH-WhitePaper_XST_ebook.pdf<br>
+#<br>
+RewriteEngine On<br>
+#Test the server variable REQUEST_METHOD to see if it matches the pattern ^TRACE<br>
+RewriteCond %{REQUEST_METHOD} ^TRACE<br>
+#<br>
+#Match 0 or more of any character, No substitution, return FORBIDDEN (403)<br>
+RewriteRule .* . [F]<br>
+#<br>
+#########################<br><br><br/><br/>(Comments are mine, mod_rewrite directives are from the white paper mentioned above.)</p>
+
+
+<hr/>
+
+
+
+<h2>Hmm...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-01-23T08:22:56</h3>
+If I understand how it works correctly, it goes a bit like this:<br> <br>I connect to malicious web server (or hacked friendly one)<br>That web server sends me some javascript<br>That javascript sends a TRACE request to some site it knows I use<br>The TRACE request bounces back my cookies/credentials<br>The javascript thus has access to those credentials that it didn't know how to get at before<br>The malicious web server can then re-use these credentials in other attacks<br> <br>It's an interesting attack vector. I like it. One more reason not to allow remote web servers to run code on your machine (be it ActiveX or Javascript). Not that I'll be turning off Javascript any time soon though - the web is often just too hard to use without it. *sigh*.
+
+
+
+<blockquote>
+
+<h2>Re:Hmm...</h2>
+<h3><a href="/user/cbrooks/">cbrooks</a> on 2003-01-23T19:38:21</h3>
+I think that's a nice summary.<br> <br><br/><br/>#That javascript sends a TRACE request to some site it knows I use<br> <br>
+My only quibble is that for this attack to be useful to the person who initiates it, the TRACE must be sent to a server that you have already authenticated against -- otherwise, TRACE will not return the authentication string.  Practically speaking, then, this is an attack from a hacked friendly server (because a malicious server would be able to access your authentication information directly), and the TRACE will be requested from the (friendly) server with the XSS hole.
+
+
+
+<blockquote>
+
+<h2>Re:Hmm...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-01-23T19:49:57</h3>
+Most sites that any user would be interested in stealing the credentials from will be cookie based logins. Thus it doesn't matter that much where it all happens, I don't think.<br> <br>My guess though is that this is really a bug in xmlHTTP (on both Mozilla and IE) because it really shouldn't send these credentials via TRACE, IMHO. And it's access to the credentials thats the issue.
+
+
+
+<blockquote>
+
+<h2>Re:Hmm...</h2>
+<h3><a href="/user/cbrooks/">cbrooks</a> on 2003-01-24T02:06:51</h3>
+#Most sites that any user would be interested in stealing the<br>
+#credentials from will be cookie based logins<br> <br><br/><br/>That may well be true.  I am not aware, for instance, of any financial institutions that use HTTP Basic authentication.  (Because, let's face it, transferring the username and password in cleartext look's pretty silly from our perspective today).  However, existing XSS attacks allow you to access a user's cookie -- the XST attack is interesting because it gives you access to the authentication string using XSS.<br> <br><br/><br/>#this is really a bug in xmlHTTP (on both Mozilla and IE)<br>
+#because it really shouldn't send these credentials via TRACE, IMHO.<br> <br><br/><br/>Some of the commentary on Bugtraq has made a similar point, that XMLHTTP should not allow you to make a TRACE request at all.  To be clear, however, the HTTP spec is "at fault" for the decision to return the authentication string during a TRACE request.  And the folks implementing the HTTP spec in servers like Apache perhaps share a bit of the "blame", as they don't provide a method to turn off TRACE requests.  (The method that I mentioned in the original post uses mod_rewrite.)
+
+
+
+<blockquote>
+
+<h2>Re:Hmm...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-01-24T08:10:55</h3>
+<i> Some of the commentary on Bugtraq has made a similar point, that XMLHTTP should not allow you to make a TRACE request at all. To be clear, however, the HTTP spec is "at fault" for the decision to return the authentication string during a TRACE request. And the folks implementing the HTTP spec in servers like Apache perhaps share a bit of the "blame", as they don't provide a method to turn off TRACE requests. (The method that I mentioned in the original post uses mod_rewrite.)</i> <br> <br>I strongly disagree. At the end of the day the TRACE method is just a plain old echo. There's nothing inherently insecure about it. The security leak comes from the client end.<br> <br>Of course at the end of the day, just like XSS bugs, we'll rarely see this used in practise.
+
+
+
+<blockquote>
+
+<h2>Re:Hmm...</h2>
+<h3><a href="/user/cbrooks/">cbrooks</a> on 2003-01-24T13:39:11</h3>
+#Of course at the end of the day, just like XSS bugs,<br>
+#we'll rarely see this used in practise.<br> <br><br/><br/>I agree with this part of your post.  The more I think about this particular exploit, the less of a threat I think it represents.  It's trivial to forbit TRACE requests if you run a mod_rewrite-enabled Apache, and you should not use HTTP Basic Authentication to secure anything important, for the same reason security-conscious organizations don't use telnet: passwords are sent in cleartext.<br> <br><br/><br/>#I strongly disagree. At the end of the day the<br>
+#TRACE method is just a plain old echo. There's<br>
+#nothing inherently insecure about it. The security <br>
+#leak comes from the client end.<br> <br><br/><br/>Let me make sure that I understand your argument: you believe that XMLHTTP should provide functionality to make a TRACE request against the web server and to listen for the server's response.  (Remember that an HTTP 1.1 complaint web server will reply to an HTTP TRACE request by echoing the headers (authentication string and all) to the caller.)  When the XMLHTTP client receives the response you believe that it should filter out the authentication string before returning the headers to the program (or function) that called XMLHTTP?<br> <br><br/><br/>I disagree with this argument.  Here are my reasons:<br> <br><br/><br/>1. XMLHTTP doesn't know ahead of time which headers represent a security risk -- the actual security risk could come from several different headers: the authentication string, cookie header(s), or even custom headers that the particular application might set.  The most secure client-side solution is to disable TRACE altogether, BUT, this is still not adequate for the following reason:<br> <br><br/><br/>2. You are suggesting that the server should return the authentication string but simply trust the client not to display it.  This provides wholly inadequate security -- the original XST white paper notes that the vulnerability has been exercised using both XMLHTTP on IE and XMLDOM on Mozilla.  It also suggests that there are likely to be many other possible ways to exploit this vulnerability, including Java and Flash.  Fixing the problem in the XMLHTTP client does not elimate the problem, it simply closes it in one client.  <br> <br><br/><br/>3.  There are perfectly valid reasons that someone developing XMLHTTP applications might want to do a TRACE -- they may need to debug a problem in their application, and the problem may lie in the authentication string!  The security-conscious developer needs to be able to enable TRACE on their development servers, but disable it on production servers.
+
+
+
+<blockquote>
+
+<h2>Re:Hmm...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-01-24T16:05:56</h3>
+No, I believe in the TRACE situation that xmlHttp (which is what is responsible for accessing the credentials in the first place - any other http library wouldn't have access to them) should not include anything the programmer didn't specify in the headers.
+
+
+
+<blockquote>
+
+<h2>Re:Hmm...</h2>
+<h3><a href="/user/cbrooks/">cbrooks</a> on 2003-01-24T17:26:44</h3>
+Hmmm.<br> <br><br/><br/>Somehow, we're talking past each other.  Let me define a set of assumptions, because I think that will help us move past this.<br> <br><br/><br/>XMLHTTP is analagous, in a sense, to LWP in Perl.  It essentially lets you call a web browser from JavaScript (or VBScript, etc.).  According to <a href="http://msdn.microsoft.com/library/default.asp?url=/library/en-us/xmlsdk30/htm/xmobjxmlhttprequest.asp" title="microsoft.com">Microsoft</a microsoft.com>  , a "client computer can use the XMLHTTP object (MSXML2.XMLHTTP) to send an arbitrary HTTP request, [and] receive the response".<br> <br><br/><br/>One of those arbitrary HTTP requests is an HTTP TRACE.  According to the <a href="http://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html" title="w3.org">HTTP protocol</a w3.org>, "The TRACE method is used to invoke a remote, application-layer loop- back of the request message.... TRACE allows the client to see what is being received at the other end of the request chain and use that data for testing or diagnostic information."<br> <br><br/><br/>If a user has authenticated against a server using HTTP Basic Authentication, the authentication string is sent as part of the headers in subsequent requests to that server.<br> <br><br/><br/>Therefore, in the XST scenario, let's assume that a user at time t0 authenticates against a friendly (but hacked) server.  At time t1, they request a page that contains a live XSS vulnerability, such that an XMLHTTP object makes a TRACE request against the friendly, hacked server.  This TRACE request will send the authentication headers to the server, and the server echo them back.  The function that initiated the TRACE request now has access to the authentication string.<br> <br><br/><br/>I may now understand your argument.  Are you saying that when the TRACE method is called, it should look for an authentication header <b>before</b> making the TRACE request, and remove that header?  Or that it should remove all headers (except Content-type)?<br> <br><br/><br/>Hmmm.  The second version of that question addresses 1 of my 3 previous arguments -- that XMLHTTP doesn't know where the security problem lies ahead of time.  However, it fails on the other two: you have to depend on all vulnerable clients getting patched to have this behavior (i.e. you have to trust the client); and there may be times when it is perfectly valid for the XMLHTTP programmer to request a full TRACE.<br> <br><br/><br/>The stronger argument, I think, is that the flaw is in the implementation of the web server.  If you disable a TRACE by default, (or at least make it trivial for a sysadmin to disable TRACE), your server is secure against any client attempting to exploit this vulnerability, and your programmers can make use of the benefits of TRACE.<br> <br><br/><br/>I suppose I should mention that this discussion has helped me see that the flaw is not in the HTTP spec itself -- it is simply in the design decision of those who have implemented it.  Also, of course, I'm not intending to criticize those folks -- nobody thought of this vulnerability until a few months ago.  The criticism would only apply if they do not now change the implementation.
+
+
+
+<blockquote>
+
+<h2>Re:Hmm...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-01-24T21:21:33</h3>
+OK, let me be a little clearer here.<br> <br>If you tried this using (say, for example) LWP wrapped up as a COM object, so that it would be accessible via JavaScript (you can probably do this with the neat tools that ActiveState provide), you would have no vulnerability.<br> <br>Why? Because xmlHttp has EXPLICIT access to the credentials that are internal to IE, and IE passes them to xmlHttp AUTOMATICALLY. No other HTTP library gets such priviledges.<br> <br>Now do you understand why I think this is a bug in xmlHttp? - the very fact that it has access to those credentials and the ability to do requests across domains makes it all too powerful to be executing in javascript.
+
+
+
+<blockquote>
+
+<h2>Re:Hmm...</h2>
+<h3><a href="/user/cbrooks/">cbrooks</a> on 2003-01-27T15:43:38</h3>
+#xmlHttp has EXPLICIT access to the credentials that are internal to IE,<br>
+#and IE passes them to xmlHttp AUTOMATICALLY. No other HTTP library<br>
+#gets such priviledges.<br> <br><br/><br/>I believe <a href="http://msdn.microsoft.com/msdnmag/issues/02/12/XMLFiles/default.aspx" title="microsoft.com">this</a microsoft.com> is what you're referring to:<br>
+Internet Explorer and various other Windows components (the XMLHttp class of MSXML, for example) use WinInet for their underlying HTTP communications. If you were to write the WinInet code directly, you would have to deal with the authentication challenge programmatically. Internet Explorer and those other Windows components instruct WinInet to respond to the authentication challenge by sending the system credentials of the current security context after the initial challenge. This makes it seem like it works magically (without authentication), but if you sniff the transmission using a trace utility (see the previous question), you'll see that multiple requests are indeed taking place and that credentials/tokens are being sent.<br> <br><br/><br/>As I read this quote, it is saying that: (1) If XMLHTTP requests a page which responds with a 401 error and an HTTP Basic authentication challenge; (2) XMLHTTP will call WinInet, which checks to see if the user has configured IE such that IE should attempt to authenticate for the user (using their previously specified userid and password.)  Then (3) WinInet will complete the challenge / authentication process without user input, and, if authentication is successful, WinInet will hand the authentication tokens to XMLHTTP so that XMLHTTP can construct the correct HTTP headers for the request.<br> <br><br/><br/>So, it appears that there IS an additional vulnerability here that I was not aware of, and that (narrowly speaking) it would not affect LWP in your first sentence.  That vulnerability is that when the JavaScript function (inserted through some XSS hole by an evil hacker) calls XMLHTTP, WinInet might actually authenticate for the user, even if the user had not previously authenticated.  If the request would fall inside a security context that the user has previously defined as one for which their browser should authenticate them, XST is one method that could be used to retrieve those headers.<br> <br><br/><br/>Note, however, the rather careful way that I phrased that last sentence.  The issue with XMLHTTP and WinInet is separate from Cross-Site Tracing (XST).  It doesn't require the use of HTTP TRACE at all.  (For example, there were two additional vulnerabilities released to BugTraq over the weekend that make use of XMLHTTP to access the authentication string without using a TRACE -- one munges the Host: header for sites with name-based virtual hosts, and the other works through Apache Proxy.)  Fixing this issue in XMLHTTP has zero impact on the XST vulnerability if a hacker attempts to exercise that vulnerability through a client other than XMLHTTP.<br> <br><br/><br/>#If you tried this using (say, for example) LWP wrapped up as a COM object,<br>
+#so that it would be accessible via JavaScript (you can probably do this with<br>
+#the neat tools that ActiveState provide), you would have no vulnerability.<br> <br><br/><br/>Whether or not the COM object included the WWW-Authenticate headers in the outgoing request would depend entirely on how you implemented the LWP client.  You could certainly pass authentication credentials to your LWP client and, if you did so, LWP would happily include them in its TRACE request.<br> <br><br/><br/>#Now do you understand why I think this is a bug in xmlHttp? - the very fact<br>
+#that it has access to those credentials and the ability to do requests<br>
+#across domains makes it all too powerful to be executing in javascript.<br> <br><br/><br/>I will happily agree that you have identified a potential problem in XMLHTTP that may make it particularly vulnerable to XST attacks.<br> <br><br/><br/>Do you understand why I think that the XST vulnerability itself has nothing to do with any one client, though?  The XST vulnerability exists because web servers have TRACE enabled.  Folks that implement web servers should provide a simple method to disable TRACE, or perhaps even disable it by default.
+
+
+
+<blockquote>
+
+<h2>Re:Hmm...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-01-27T16:48:16</h3>
+This is getting complex, and really gets too deep into whatever layer you happen to be in. But I still think I'm right - this vulnerability is pretty strictly limited to certain clients. It doesn't work for other HTTP client libraries (though might if they used this WinInet thing, whatever that is), and since this is a remote attack the only thing you can assume is the presence of this xmlHttp, which in turn uses WinInet. The vulnerability (exposing credentials) is either in WinInet or xmlHttp, either way it's only exposed via xmlHttp, not other client libraries.<br> <br>Same issue on Mozilla too - it's only exposed via xmlHttp.<br> <br>I completely agree with you though that allowing TRACE to be switched off at the web server is a good thing. Even if the vulnerability was in space demons from mars you still need a way to protect against it.
+
+
+
+<blockquote>
+
+<h2>Re:Hmm...</h2>
+<h3><a href="/user/cbrooks/">cbrooks</a> on 2003-01-27T18:31:21</h3>
+#The vulnerability (exposing credentials) is either in WinInet or xmlHttp<br> <br><br/><br/>I think we're just going to have to agree to disagree.  The JavaScript method never sees the credentials until they have been echoed back by TRACE.  If TRACE is turned off at the server, you will not be able to see the credentials using the XST vulnerability, even if no change is made to WinInet / XMLHTTP.<br> <br><br/><br/>#Same issue on Mozilla too - it's only exposed via xmlHttp.<br> <br><br/><br/>I would just note that according to the original white paper, the XST vulnerability was exercised on Mozilla using XMLDOM, not MS' proprietary XMLHTTP:<br> <br><br/><br/>"It is important to note two things at this point. The first is [that the] ability to do these types of
+request[s] using a web browser is NOT limited to Internet Explorer. Other web browsers such
+as Mozilla/Netscape possess the ability as well. Specifically, TRACE requests have been
+achieved in Mozilla using XMLDOM object scripting. The second, XMLHTTP, is only one
+of several ActiveX controls and other technologies, which appear [to] have this control over
+HTTP within a browser environment."<br> <br><br/><br/>(It might be worth noting, though, that the details of using this attack on Mozilla have not been released to BugTraq, despite several requests.  It is not clear whether this is out of a concern for Mozilla's security, an inability to reproduce the XMLDOM results, or something else.)<br> <br><br/><br/>I'll shut up now.  Thanks for the interesting discussion.
+
+
+
+<blockquote>
+
+<h2>Re:Hmm...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-01-27T20:40:19</h3>
+<i> I think we're just going to have to agree to disagree. The JavaScript method never sees the credentials until they have been echoed back by TRACE. If TRACE is turned off at the server, you will not be able to see the credentials using the XST vulnerability, even if no change is made to WinInet / XMLHTTP.</i> <br> <br>On this we agree. What I disagree with is where it should be fixed. XSS (and XST) vulnerabilities affect both the user and the server end. While I agree that sites should take action to prevent this, I also seriously think MS should prevent users from being exposed to this. They have that power.<br> <br>And yes, sorry - I did mean xmlDom. It implements the same API as xmlHttp, and apparently the same bugs<nobr> <wbr></nobr>;-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

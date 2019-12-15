@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Here's The Bug</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Here's The Bug</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-02-26T09:36:40</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Yesterday's <a href="http://use.perl.org/user/Ovid/journal/35751">Find the Bug</a> was pretty straightforward for folks, but I'll lay it out here.  Basically, this causes the problem:</p>
+
+<pre>sub foo {
+    while ($_ = @_) {}
+}
+
+foreach ('bar') { foo($_) }</pre>
+
+<p>That fails with a "Modification of a read-only value" error.  This is because <tt>foreach</tt> without a declared variable implicitly creates an alias to each element in the list, in this case, a string constant.  As a result, <tt>$_</tt> has a value when <tt>foo()</tt> is called and you find yourself attempting to assign to a constant.</p>
+
+<p>I've been bitten by this before and I know some of you have, so you might be asking yourself an obvious question.  Why did I write "it took me a while to see [the bug]?"</p>
+
+<p>Because the bug was triggered by this:</p>
+
+<pre>use Moose;
+
+extends 'Some::Class';</pre>
+
+<P>And somehow, deep in the bowels of the Moose, it fails to load <tt>Some::Class</tt> because that class needs some other class which requires <tt>Exporter::NoWork</tt> and the string constant <tt>Some::Class</tt> gets set as the value of <tt>$_</tt> and <tt>Exporter::NoWork</tt> has a <tt>while ($_ = shift)</tt> line in it.  The first fix was strange:</p>
+
+<pre>use Moose;
+
+use Some::Class;
+extends 'Some::Class';</pre>
+
+<p>The real fix is a patch to <tt>Exporter::NoWork</tt> (though I suspect Moose is being a touch naughty, too), but it turns out that this module only has one test, and it's a load test.  I hate sending patches to modules with no test suite :(</p>
+
+<p>Once again, the moral of today's story:  if you use anything which potentially impacts global state, please try to limit it to your local scope!</p></p>
+
+
+<hr/>
+
+
+
+<h2>Re; Moose</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2008-02-26T15:46:43</h3>
+<p>
+Well, Moose is not really doing anything very nasty here, the class loading code is quite sane (we "borrowed" it from Class::Inspector). But we are looping through @_ using $_ when we load those classes, so that is where the issue comes from.
+</p>
+<p>
+I have adjusted all code that comes in contact with the class loader so that none of it uses $_ anymore. This should eliminate the issue you are seeing with the Exporter::NoWork and modules like it. This will be available in the next release of Class::MOP/Moose.
+</p>
+<p>
+- Stevan
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Re; Moose</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-02-26T16:21:33</h3>
+<p>I don't think it's terribly nasty, but the implicit aliasing can cause strange behavior if other modules don't play well with that.  Imagine this:</p><p><blockquote> <div><tt>foreach (@_) {<br>&nbsp; &nbsp; some_other_function($_);<br>&nbsp; &nbsp; # do something with $_<br>}</tt></div> </blockquote>  <p>If <tt>some_other_function</tt> did something silly like <tt>s/(.*)/scalar&nbsp;reverse&nbsp;$1/e</tt>, then the above code would break.  Guarding against side-effects is a good thing.  Of course, since <tt>@_</tt> contains aliases, I suppose that the way to be truly paranoid would be:</p> <p><blockquote> <div><tt>foreach my $var (@_ = @_) {<br>&nbsp; &nbsp; some_other_function(my $temp = $var);<br>&nbsp; &nbsp; # do something with $var<br>}</tt></div> </blockquote>  <p>After a while, too much paranoia on my part would get ridiculous, but I'm now understanding better why Larry Wall rejected my proposal to add an 'is rw' shortcut for sub/method signatures in Perl 6 (right now you have to declare this for every argument and that gets tedious, but it's the right thing to do).</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>no test suite</h2>
+<h3><a href="/user/mauzo/">mauzo</a> on 2008-02-26T20:38:46</h3>
+Having just got your bug reports, I'm in the middle of writing a test suite now... I wrote E::NW before I'd really cottoned on to the value of testing, and haven't touched it since. I've already found another latent bug.
+<p>Unfortunately, <code>local $_</code> isn't safe either. If <code>$_</code> is aliased to a member of a tied hash or array, it isn't localised properly and the value in the hash is affected as well:</p><p><blockquote> <div><tt>tie my %h, 'Tie::StdHash';<br>$h{a} = 1;<br>for ($h{a}) {<br>&nbsp; &nbsp; local $_ = 2;<br>&nbsp; &nbsp; print $h{a};&nbsp; &nbsp; # 2, but should be 1<br>}<br>print $h{a};&nbsp; &nbsp; &nbsp; &nbsp; # back to 1 again</tt></div> </blockquote> If you call external code in the scope of the change (as E::NW does) this could be a problem. The workarounds are either to localise all of <code>*_</code> which, besides being ugly, clobbers <code>@_</code> as well, or to use <code>for</code> instead of assigning to <code>$_</code> at all. <code>for</code> doesn't suffer from this problem, and neither does 5.10's <code>my $_</code>.
+
+
+
+<blockquote>
+
+<h2>Re:no test suite</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-02-26T20:43:21</h3>
+<p>Oh, nice catch.  We've got local workarounds in place, but I'm happy to know that you've spotted more than I did<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

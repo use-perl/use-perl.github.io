@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjore: Decoding multiple encoded utf-8 in perl or ruby</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Decoding multiple encoded utf-8 in perl or ruby</h1>
+<h2><a href="/user/jjore/">jjore</a> on 2010-01-07T03:57:25</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'd recently encountered some data that had been re-encoded five times. Ugh. The key was to guess that if a character 0xC0-0xFF is followed by 0x80-xBF, it's likely that the bytes are actually utf-8. What follows is a function which guessed a reasonable way to deal with the data and turn it into the right utf-8.<br/><br/><pre>
+use Test::More tests => 1;
+use Encode ();<br/><br/>my $bad = "\xc3\x83\xc2\x83\xc3\x82\xc2\x83\xc3\x83\xc2\x82\xc3\x82\xc2\x83\xc3\x83\xc2\x83\xc3\x82\xc2\x82\xc3\x83\xc2\x82\xc3\x82\xc2\xa9";
+my $good = "\xe9";
+is( multiple_decode( $bad ), $good );<br/><br/>sub multiple_decode {
+  my ( $str ) = @_;<br/><br/>  Encode::_utf8_on( $str );
+  while ( $str =~ /[\xc0-\xff][\x80-\xbf]/ ) {
+    utf8::downgrade( $str );
+    Encode::_utf8_on( $str );
+  }<br/><br/>  return $str;
+}
+</pre><br/><br/>I tried doing this in Ruby because I actually needed this for an EventMachine (<a href="http://rubyeventmachine.com">http://rubyeventmachine.com</a>) server but never quite got it working. Iconv seemed to want to be strict about rejecting the originally ostensibly invalid input.<br/><br/><pre>
+# Iconv::IllegalSequence: "\303\203\302\203\303\202\302\203\303\203\302\202\303\202\302\203"...<br/><br/>require 'test/unit'
+require 'iconv'<br/><br/>class MDecode < Test::Unit::TestCase
+  def test_multiple_decode
+    conv = Iconv.new( 'UTF-8', 'ASCII' )<br/><br/>    bad = "\xc3\x83\xc2\x83\xc3\x82\xc2\x83\xc3\x83\xc2\x82\xc3\x82\xc2\x83\xc3\x83\xc2\x83\xc3\x82\xc2\x82\xc3\x83\xc2\x82\xc3\x82\xc2\xa9"
+    good = "\xe9"<br/><br/>    assert_equal( good, conv.multiple_decode( bad ) )
+  end
+end<br/><br/>class Iconv
+  def multiple_decode( str )
+    while str =~ /[\xc0-\xff][\x80-\xbf]/
+      str = iconv( str )
+    end<br/><br/>    return str
+  end
+end
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>That code is painful to read</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2010-01-07T07:44:06</h3>
+<p>Why in Larry&#8217;s name are you fiddling with the UTF8 flag at all? And for what, turning the flag on and then downgrading the string? That&#8217;s pure obfuscation.</p><blockquote><div><p> <tt>sub multiple_decode {<br>&nbsp; &nbsp; my ( $str ) = @_;<br> <br>&nbsp; &nbsp; utf8::decode $str<br>&nbsp; &nbsp; &nbsp; &nbsp; while $str =~<nobr> <wbr></nobr>/[\xc0-\xff][\x80-\xbf]/;<br> <br>&nbsp; &nbsp; return $str;<br>}</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:That code is painful to read</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2010-01-09T05:59:04</h3>
+<p>That doesn't work. I didn't know it was supposed to.</p>
+
+
+
+<blockquote>
+
+<h2>Re:That code is painful to read</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2010-01-09T06:04:41</h3>
+<p>Actually, that would apparently work if the value being decoded were fully valid but it doesn't because the input was an abuse of Unicode.</p>
+
+
+
+<blockquote>
+
+<h2>Re:That code is painful to read</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2010-01-09T10:34:17</h3>
+<p>It is indeed supposed to work.</p><p>So what <em>does</em> your data look like, then? Does it contain a mixture of encoding levels at once?</p>
+
+
+
+<blockquote>
+
+<h2>Re:That code is painful to read</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2010-01-10T22:36:05</h3>
+<p>Ah. Ok, it works provided the value is valid UTF-X, Perl's more permissive variant of UTF-8. When I'd tried your snippet I copied my original post but the rendered blog post had a space inserted into the middle of the string which made the value no longer be valid UTF-X.</p><p>Also, utf8::decode returns a boolean indicating whether it did anything. Presumable this means your function should read as follows. This leaves both the interpretation of the string up to Perl and also lets us eventually abort when there's no more work to be done according to perl.</p><blockquote><div><p> <tt>1 while utf8::decode( $str );</tt></p></div> </blockquote><p>As a note, utf8::decode is implemented by sv_utf8_decode of sv.c which will abort when the string stops being valid UTF-X.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Iconv</h2>
+<h3><a href="/user/Hansen/">Hansen</a> on 2010-01-07T12:25:19</h3>
+<p>Iconv can't transcode your data to US-ASCII since it contains octets greater than 0x7F. Your double encoded data has been transcoded from Latin-1 to UTF-8, in order to reverse it you need to transcode from UTF-8 to Latin-1.</p><p>Change:<br>Iconv.new( 'UTF-8', 'ASCII' )</p><p>To:<br>Iconv.new( 'LATIN1', 'UTF-8' )</p><p>and it should work just fine.</p><p>You can aslo narrow down your regexp to [\xc2-\xc3][\x80-\xbf], since UTF-8 encoded Latin-1 is within that range.</p><p>--<br>chansen</p>
+
+
+
+<h2>Encode::Repair</h2>
+<h3><a href="/user/bart/">bart</a> on 2010-01-07T19:31:21</h3>
+<p>Earlier today, moritz uploaded a new module, <a href="http://search.cpan.org/perldoc?Encode::Repair" title="cpan.org">Encode::Repair</a cpan.org>, to CPAN, which has fixing this kind of trouble in mind. But 5 times? That's a bit steep...</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

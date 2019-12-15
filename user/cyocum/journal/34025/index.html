@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of cyocum: Tinkering with BibTeX, Perl, and Yaml</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Tinkering with BibTeX, Perl, and Yaml</h1>
+<h2><a href="/user/cyocum/">cyocum</a> on 2007-08-07T12:25:36</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>After working with BibTeX for my thesis, I was looking into the style language which comes with it because, being in the Humanities, we have some fairly complex needs when it comes to referencing.  This is especially true in the history based disciplines (i.e. Chicago in the States and MHRA in the UK).  At this point, the jurabib package seems to fit the bill as it does generally everything but if you look at the code which underpins it, it is generally difficult to understand (and my latex-foo is still very weak).  I also took a look at the style language which comes with BibTeX and I did not like what I saw.  Reverse Polish Notation works great for stack based languages but it does not work well as a method for humans to describe something to a computer.  Not only that but BibTeX has a fixed memory structure (bibtex8 fixes some of this but it still has an upper limit).</p>
+
+<p>What I wanted was something that was specific and easy to understand.  Less code is generally a good way for having less bugs (although, not always).  At the same time, I had a bad reaction to the style language; I did not like it at all.  So, I figured that I could put something better together with Perl.</p>
+
+<p>My first stop was CPAN in which I found <a href="http://search.cpan.org/user/ambs/Text-BibTeX-0.37/BibTeX.pm">Text::BibTex</a>.  While this is fantastic work, it relies on a C library and is thus not completely portable.  From the documentation of that module, I began to understand some of the edge cases which comes with the BibTeX file format.  I began to wonder if another format would be beneficial but I hacked together a version in Parse::RecDescent which kind-of works (it does not handle @string's and @comment's just yet).  After working on a Parse::RecDescent grammar, I thought that a file format that I did not have to support a parser for would be better than fighting with BibTeX's file format.  This is when I though of using YAML as the basis for my BibTeX replacement as it is easily readable by people and by computers.</p>
+
+<p>With these things in mind, I wrote a bit of code to read a YAML based format for bibilographic information.  I ended up with something that looks like this (I have not fully figured it out just yet so it might change based on experience):</p>
+
+<pre>
+---
+preamble:
+  string:
+    JIES: The Journal of Indo-European Studies
+
+Ahyan2004:
+  type: article
+  author: Ahyan, Stepan
+  title: The Hero, the Woman, and the Impregnable Stronghold: A Model
+  year: 2004
+  volume: 32
+  pages: 79-100
+</pre>
+
+<p>This is read by the YAML module and handed back  as a hash reference which works very well for the purpose and I don't have to maintain the file format (yay!).  Once this is parsed then what?</p>
+
+<p>Well, the way in which BibTeX works is that it reads LaTeX's .aux file looking for certain tags (\citation{Ahyan2004} for example) and tags to tell it where the bibliographic database is and where the style file is.  I wanted to replace the style file with a Perl solution.  So, I wrote a class called BibStyle::Style which is the base class for all styles in this scheme.  It will also provide some of the basic stuff to make sytles (like adding italics and wrapping the entire entry in the appropriate \bibitem, which goes into the .bbl file to be read by LaTeX on the second run).    The only problem is that I don't know at run time if someone has written a proper style class so I have to use eval "require $class;";, which I am not very happy about (if anyone has an idea of how to write a plug-in style without that, please feel free to enlighten me).  I then call the method style_entry with the key and a hash ref to the contents.  The class then does whatever it needs to do to style.  It passes back a styled entry for the \bibitem in the .bbl file.  Here is where there are a few problems.</p>
+
+<p>The bibitem command takes one or optionally two arguments the one in the [] is the label which is inserted when you call \cite{key}.  This is exactly the same every time that you call it so you have to redefine cite so that if it sees the same key as last time it will input ibid instead of the same label over again, which is possible but looks bad and is prohibited in MHRA style.  I am investigating some LaTeX-foo tricks to allow ibid style.</p>
+
+<p>I have not yet implemented the sort function on the bib data but it should not be terribly difficult, although, I have to watch out for the backslash style commands which put accents and stuff on letters.  I think I can do most of the common ones and map them to their unicode equivalents and sort on that.</p>
+
+<p>Right now the code is not in any state to release.  Honestly, it is in the tinkering stage but I wanted to show that it is indeed possible to replace BibTeX with something else.  In fact, it seems pretty easy, at this point, to replace it with styles that are commonly used in the sciences and the parenthetical styles used in Harvard and MLA.  The Chicago, Oxford, and MHRA styles will need more LaTeX intervention to work correctly.  My Parse::RecDescent version might hang around as a translator if (and a big if at that) I release the code.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: rx, json schema, and uri templates</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>rx, json schema, and uri templates</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2008-09-08T04:04:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><html><p>I got to feeling like maybe JSON Schema was not yet firm enough to give up on,
+and that maybe I could help improve it in the areas where
+<a href="http://rjbs.manxome.org/rx">Rx</a>&#39;s design made more sense.  I made one or two
+very minor suggestions that were accepted, but the most important area was not
+addressed.  You can read more about it at <a href="http://groups.google.com/group/json-schema/browse_thread/thread/e6caf10ade7b4b8a">the Google Groups
+thread</a>.</p><p>I moved on to looking at other parts of my project, and realized that I was
+going to need a way to templatize a URI.  Maybe it was time to look at <a href="http://bitworking.org/projects/URI-Templates/">URI
+Templates</a> again.  When I&#39;d
+first seen them, they didn&#39;t seem like they provided much.  You&#39;d say:</p><pre>http://gallery.example.com/user/{username}/photo/{photoid}
+</pre><p>...and then fill it in with:</p><pre>{ username => "rjbs", photoid => 1234 }
+</pre><p>That was it.  Still, that&#39;s more or less everything I&#39;d need.  I thought I&#39;d
+have another look and see if there was some reason not to use it.</p><p>Well, in the time since I first saw it, there have been a few revisions to the
+spec, adding features like list-value variables and operators.  So you can say:</p><pre>http://x.com/?valid={-opt|true|valid}&{-join|&|foo,bar}&baz={-list|&baz=|baz}
+
+{ valid => 1, foo => 'x', bar => 'y', baz => [ 1, 3, 5 ] }
+</pre><p>...to get:</p><pre>http://x.com/?valid=true&foo=x&bar=y&baz=1&baz=3&baz=5
+</pre><p>That <code>-opt</code> operation says &#34;if the value for &#39;valid&#39; is not empty, then
+evaluate to the string &#39;true&#39; and otherwise the empty string.&#34;  There&#39;s also an
+inverted form called <code>-neg</code>.  The behavior of <code>-join</code> should be clear.
+Unfortunately you&#39;re not allowed to pass list-value items to it, so it&#39;s not
+very useful for building a query string that would contain multiple entries for
+a given name.  That&#39;s a shame, since it seems to be intended for use in
+building query strings.  Meanwhile, <code>-list</code> (once called <code>-listjoin</code>) doesn&#39;t
+act like <code>-join</code>.  It doesn&#39;t include the name of the variable (or equals sign)
+with each entry, so I have to include it in the join string and before the
+expansion.</p><p>Here&#39;s another way to do it:</p><pre>http://x.com/?valid={-opt|true|valid}&{-join|&|foo,bar}{-prefix|&baz=|baz}
+</pre><p><code>-prefix</code> (along with <code>-suffix</code> and <code>-list</code>) are actually shown in examples
+forming paths, letting you turn our baz value above into <code>1/2/3/</code> or <code>/1/2/3</code>.</p><p>The first thing I wonder is this: why do we need a template system for query
+strings, anyway?  They&#39;re easy, they&#39;ve been around since forever, and the
+existing tools already handle all the crap like multiple values for one named
+parameter.  The more interesting problem is in the path and maybe, sometimes,
+the domain.  The most important feature is probably just dropping in a named
+value.</p><p>Another useful feature mentioned (and according to the archives at least
+briefly implemented) but not in the spec is the ability to deal with
+substrings.  The system described looked like this:</p><pre>http://cpan.org/{-sub|0,1|author}/{-sub|0,2|author}/{author}
+</pre><p>I think that stinks.  In most cases that I&#39;ve seen this kind of thing, you&#39;re
+just making a simple path, and it looks like one of these:</p><pre>R/J/BS
+R/J/RJBS
+R/RJ/RJBS
+S/B/RJBS
+</pre><p>I sure don&#39;t want to have to give every substring that I need, with those
+slashes.  Why not:</p><pre>http://cpan.org/{buildup:author,3,cumulative}
+</pre><p>...or something more along those lines.</p><p>I think I need to look through the APIs that I&#39;d use this on and see what
+features I&#39;d want, and whether URI Templates address those well.  If not, I&#39;m
+not going to settle on something that gives me features I don&#39;t need but none
+that I do.  I just don&#39;t relish trying to compete with yet another somewhat
+successful system.</p></html>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

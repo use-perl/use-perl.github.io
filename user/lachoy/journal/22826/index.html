@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of lachoy: A little bit of Algorithm::Dependency and decomposition</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>A little bit of Algorithm::Dependency and decomposition</h1>
+<h2><a href="/user/lachoy/">lachoy</a> on 2005-01-21T13:29:08</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a
+href="http://search.cpan.org/dist/Algorithm-Dependency/">Algorithm::Dependency</a>
+is a nifty little distribution to help you manage
+dependencies. ("Little" is not derogatory; just the opposite.) It
+provides just enough functionality so that you can glue it to your
+application with fairly little fuss. Here's how I'm planning to use it
+to support an OpenInteract2 feature improvement.
+
+<p>In <a
+href="http://jira.openinteract.org/browse/OIN-115">OIN-115</a> we have
+the improvement 'Break setup into individual tasks'.[1] The goal of
+this imrovement is to allow other technologies easily put themselves
+into the OI2 lifecycle. With the improvement processes we don't know
+about beforehand can get initialized at server startup, and by a
+separate process, rather than managing this state themselves. So if
+you want to establish a connection to a message queueing system when
+the server starts up you can just create a setup task to do it and the
+rest of your code can just assume it's there.</p>
+
+<p>Previously all the setup routines were in one big class, <a
+href="http://search.cpan.org/user/cwinters/OpenInteract-1.99_05/lib/OpenInteract2/Setup.pm">OpenInteract2::Setup</a>. This
+was tightly coupled to <a
+href="http://search.cpan.org/user/cwinters/OpenInteract-1.99_05/lib/OpenInteract2/Context.pm">OpenInteract2::Context</a>
+such that the context was responsible for knowing what methods to
+call, the order to call them, and what methods to skip in certain
+circumstances. (Sometimes you want to create a Context without it
+being fully-formed, such as when you're creating a new website,
+install SQL structures, or other bootstrapping actions.) Obviously
+this is no good -- not only are we limiting what's called, but we
+can't discover new behaviors at runtime to integrate these unknown
+technologies. (A <a
+href="http://jira.openinteract.org/browse/OIN-39">small change</a> in
+1.99_05 allows you to use a subclass of OpenInteract2::Setup and
+define pre/post methods, but that's a bandaid fix.)</p>
+
+<p>After some grunt work I ported each of the setup procedures from
+methods in a class to each in their own class. As a result we had a
+bunch of subclasses classes under <tt>OpenInteract2::Setup</tt>. Each
+class had to implement <tt>get_name()</tt> (to return its unique name)
+and <tt>execute()</tt> (to do its work). It could implement
+<tt>get_dependencies()</tt> (to declare what it should run after) and
+some lifecycle stuff (setup/teardown, basically). Additionally, each
+subclass is responsible for registering itself with the parent so the
+parent knows how to find them. (There's a simple example of this
+below.)</p>
+
+<p>So how can we allow OI2 to find all these setup classes at runtime
+but still maintain an order to executing them? Well, we already had
+code for the first part in <a
+href="http://search.cpan.org/user/cwinters/OpenInteract-1.99_05/lib/OpenInteract2/Manage.pm">OpenInteract2::Manage</a>,
+which walks over @INC, finds all subclasses and require()s them. Once
+brought in each subclass registers itself with the parent factory with
+a name for us humans to reference the action by. We don't need to know
+'OpenInteract2::Manage::Website::Create', just 'create_website'. (This
+is made simple by <a
+href="http://search.cpan.org/dist/Class-Factory/">Class::Factory</a>). So
+that got abstracted out to a utility method for common usage and it
+works fine.</p>
+
+<p>Now onto the ordering part (and the actual point of this
+post). Previously the caller of the setup controlled not only the
+order but also what procedures should not be run if others weren't
+run. (See the <tt>setup()</tt> method under <a
+href="http://search.cpan.org/src/CWINTERS/OpenInteract-1.99_05/lib/OpenInteract2/Context.pm">OpenInteract2::Context</a>
+for that nasty bit.) But if we're bringing in these procedures
+dynamically we can no longer proscribe the order. So we need a
+dependency tree built from the data -- name + dependencies -- made available by each class.</p>
+
+<p>I've written dependency trees before, but that's more
+infrastructure than I wanted and more code that's not aimed at the
+core purpose that can break. After hunting around CPAN a bit I found
+<a
+href="http://search.cpan.org/dist/Algorithm-Dependency/">Algorithm::Dependency</a>. It
+has a few dependencies itself (har har) but was a snap to install on
+my Powerbook. (Even for Win32 it just required a few PPDs to be
+built.)</p>
+
+<p>So here's the procedure for what I wanted:</p>
+<ol>
+  <li>find all setup tasks on the system
+  <li>ask each task for its name and dependency names
+  <li>pass the task names + associated dependency names to an object
+  <li>ask the object the order in which I should execute the tasks
+</ol>
+
+<p>In A::D-speak the last part translates to:</p>
+  
+<pre>
+my $dep = Algorithm::Dependency->new(
+    source => Some::Storage::Class->new,
+);
+unless ( $dep ) {
+    oi_error "Failed to create setup dependency object: cannot start server"
+}
+my $all_ordered_setup_tasks = $dep->schedule_all();
+</pre>
+  
+<p>Pretty straightforward, even with the 'Some::Storage::Class' in
+there. That 'source' winds up highlighting A::D's pragmatic
+assumptions from your application. It deals with IDs (or names), not
+objects. So as long as your dependencies can be referenced by a string
+(and EVERYTHING in Perl can), then you're good to go.</p>
+
+<p>But the above only takes care of item 4 from our list, with a some
+of item 3 behind the scenes as well. So how do we tell A::D about our
+dependencies? You can use a static file (and A::D includes a class for
+reading it in), but we need something dynamic -- remember, we want to
+discover these classes at runtime. Fortunately the storage class was
+very straightforward; here it is with some logging removed:</p>
+  
+<pre>
+package OpenInteract2::Setup::DependencySource;
+# ...a few imports...
+   
+sub _load_item_list {
+    my ( $self ) = @_;
+    my @ad_items = ();
+    my @all_actions = OpenInteract2::Setup->list_actions;
+    foreach my $setup_name ( @all_actions ) {
+        my $setup_item = OpenInteract2::Setup->new( $setup_name );
+        next unless ( $setup_item );
+        my @dep_names = $setup_item->get_dependencies;
+        my $dep_item = Algorithm::Dependency::Item->new( $setup_name, @dep_names );
+        unless ( $dep_item ) {
+            oi_error "Failed to create dependency item from '$setup_name'";
+        }
+        push @ad_items, $dep_item;
+    }
+    return \@ad_items;
+}
+</pre>
+  
+<p>So with that little class and a reference to the base setup action
+our A::D code becomes:</p>
+  
+<pre>
+my $dep = Algorithm::Dependency->new(
+    source   => OpenInteract2::Setup::DependencySource->new(),
+    selected => [ $DEFAULT_DEPENDENCY ],
+ );
+my $all_items = $dep->schedule_all;
+</pre>
+  
+<p>(The <tt>$DEFAULT_DEPENDENCY</tt> is simply reading the server
+configuration; everything else depends on it and we execute that
+separately to deal with some bootstrapping issues.)</p>
+
+<p>Easy enough. However, if you run this you won't get what you
+expect. A::D's documentation tells you that it doesn't return ordered
+dependencies. (I'm not sure what use unordered dependencies are, but
+ok.) It's a simple fix:</p>
+  
+<pre>
+my $dep = <font class="red">Algorithm::Dependency::Ordered</font>->new(
+</pre>
+  
+<p>Now for the slightly hard part -- what happens when you want to
+remove something from the list? This functionality is not in A::D but
+it was fairly simple to add. The pseudocode is just:</p>
+  
+<pre>
+foreach item you want to remove
+    - ask the dependency object for that item's children
+    - remove the item
+    - remove the item's children
+</pre>
+  
+<p>I coded this method up (called 'without()'), added docs and tests
+and sent it to the author Adam Kennedy. We'll see if it gets
+added. (IME patches with docs and tests are treated much better
+than code-only.) In the meantime, now it's easy to do something like
+this:</p>
+  
+<pre>
+   # don't run 'read repository' or any of its dependencies
+   OpenInteract2::Setup->run_all_actions( $context, 'read repository' );
+</pre>
+  
+<p>Since 'read packages' depends on 'read repository', it doesn't get
+run. Neither does 'read action table' or 'read spops config' since
+they depend on 'read packages', and on down the line. Even better: we
+don't have to explicitly account for and ignore other setup tasks
+added at runtime -- for instance, if <tt>Class::DBI</tt> needed to do
+some startup work you could create a class for it like this:</p>
+  
+<pre>
+package OpenInteract2::Setup::ClassDBI;
+ 
+use strict;
+use base qw( OpenInteract2::Setup );
+ 
+sub get_name         { return 'initialize Class::DBI' }
+sub get_dependencies { return ( 'read packages' ) }
+sub execute {
+    my ( $self, $ctx ) = @_;
+    # ... do my actual work here ...
+}
+ 
+OpenInteract2::Setup->register_factory_type( get_name() => __PACKAGE__ );
+</pre>
+  
+<p>Since it depends on 'read packages', it too gets skipped when we
+execute the above <tt>run_all_actions()</tt> method.</p>
+
+<p>[1] That issue is a great example of something driven by
+implementation already half-done rather than a use case beforehand. I
+think it points out a problem with knowing a system really well: need
+and implementation become interchangeable in your head. Oh well.</p>
+
+
+<p>Posted from <a href="http://www.cwinters.com/">cwinters.com</a>; <a href="http://www.cwinters.com/news/display/?news_id=3326">read original</a></p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

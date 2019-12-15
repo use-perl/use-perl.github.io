@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjore: Perl 5.10.0, (not-so) giaganto-times faster than Ruby 1.8.6</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl 5.10.0, (not-so) giaganto-times faster than Ruby 1.8.6</h1>
+<h2><a href="/user/jjore/">jjore</a> on 2009-07-03T21:00:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Earlier today I wanted to edit a lot of source code to add some Emacs hints about the tab stop. I originally wrote it in perl and it works fine, takes two seconds to edit 150MB of text across 4851 files.<br/><br/><pre>
+time find . -type f -print0 | xargs -0 /opt/perl-5.10.0/bin/perl tab-width<br/><br/>real        0m1.966s
+user        0m1.340s
+sys         0m0.354s
+</pre><br/><br/>Here's the Perl 5:<br/><br/><pre>
+undef $/;
+my $RX = qr/
+    (?<start>
+        ^(?<indent>.*)Local\ variables:.*\n
+    )
+    (?<variables>
+        (?:
+            \k<indent>.*\n
+        )*
+    )
+    (?<end>
+        \k<indent>End:
+    )
+/mix;<br/><br/>for my $fn ( @ARGV ) {
+    next if $fn =~ m{/.git};<br/><br/>    open my $fh, '+<', $fn
+        or die "Can't open $fn: $!";
+    binmode $fh
+        or die $!;<br/><br/>    my $src = <$fh>;
+    next unless $src =~ s{$RX}{$+{start}$+{variables}$+{indent}tab-width: 8\n$+{end}};<br/><br/>    seek $fh, 0, 0
+        or die $!;
+    truncate $fh, 0
+        or die $!;
+    print { $fh } $src
+        or die $!;
+    close $fh
+        or die "Can't close $fh: $!";
+}
+</pre><br/><br/>I need to know Ruby better so I wrote a Ruby version of the same program. I don't know how long it takes to run. I started it awhile ago. In the time it's taking Ruby to run this, I got up to have some Pizza and Beer, then wrote this blog post.<br/><br/><pre>
+time find . -type f -print0 | xargs -0 /opt/ruby-1.8.6/bin/ruby tab-width.rb
+	
+real	31m19.763s
+user	18m7.957s
+sys	12m5.596s
+</pre><br/><br/>Here's the Ruby:<br/><br/><pre>
+RX = Regexp.new(
+    "
+    (
+        ^(.*)Local\\ variables:.*\\n
+    )
+    (
+        (
+            \\2.*\\n
+        )*
+    )
+    (
+        \\2End:
+    )",
+    Regexp::EXTENDED | Regexp::MULTILINE
+)<br/><br/>ARGV.each do |fn|
+    next if fn =~ %r{/\.git}<br/><br/>    open( fn, 'r+' ) do |fh|
+        fh.binmode<br/><br/>        src = fh.read
+        next unless src.sub!( RX ) {|m| "#{$1}#{$3}#{$2}tab-width: 8\n#{$5}" }<br/><br/>        fh.seek 0, IO::SEEK_SET
+        fh.truncate 0
+        fh.puts src
+    end
+end
+</pre><br/><br/>Update: It's been over half an hour now.
+Update: aha, done now
+Update: got the .sub!() wrong. Fixed. Presumably I'm waiting another 30m. Going for a bike ride instead of waiting.
+Update: didn't go biking. Asked #ruby-lang for help. (?>) and (?!) to control the ruby regexp engine seem to just trigger stack overflows
+Update: this next big chunk.<br/><br/>So I talked to helpful people on #ruby-lang like larsch, rpag, and Aria. It turns out one major mistake was mis-using Regexp::MULTILINE. It's equivalent to perl's /s, not perl's /m. The docs don't actually talk about this so I had to guess. I guessed wrong.<br/><br/><b>Now</b> I find Ruby 1.8.6 is only 3x slower while 1.9 is equivalent to Perl 5.10.0</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

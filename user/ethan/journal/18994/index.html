@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: Dealing with bounces</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Dealing with bounces</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2004-05-29T07:07:40</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>When looking at the annoyance factor of unwanted mail, bounce messages (caused by some insane worms randomly sending mails with arbitrary from-addresses) seem to have overhauled ordinary spam. The problem with those is that they pass my spam filters and now I have to take steps.<br/><br/>I figure that it should be possible to get an almost flawless detection of those bounces with a specially tailored bayesian filter. Note that I don't want to use the existing bayes filter (as part of SpamAssassin for example). I would first have to train them and also, I suspect that real spam and bounces don't have much in common when looking at the used words.<br/><br/>So what I have started doing now is writing a bayesian filter for bounces. First thing I wrote was a flex-scanner that detects valid RFC822 mail addresses. The scanner gets fed one message. It opens a pipe to another process (the one that does the actual filtering) and writes the mail to this process. The only thing the scanner does is replacing every email-address it can find in the body with <code>T_MAILADDR</code> or somesuch. When reading RFC822 correctly, the below should be the rules for a valid email-address:<br/><br/><pre>
+    atom            [!#$%&'-/0-9A-Za-z_`{}|~^]*
+    dtext           [\x00-\x0C\x0E-\x5A\x5E-\x7F]*
+    qtext           [\x00-\x0C\x0E-\x21\x23-\x5B\x5D-\x7F]*
+    quoted_pair	 "\\"[\x00-\x7F]
+    quoted_string   "\""({qtext}|{quoted_pair})*"\""
+    word            {atom}|{quoted_string}<br/><br/>    domain_literal  "["({dtext}|{quoted_pair})*"]"
+    domain_ref      {atom}
+    sub_domain	  {domain_ref}|{domain_literal}
+    domain          {sub_domain}("."{sub_domain})*
+    local_part	  {word}("."{word})*<br/><br/>    addr_spec       {local_part}"@"{domain}
+</pre><br/><br/>
+This should be a huge advantage for a bayesian filter since now not every single email-address is a word for its own but rather they get mapped onto one word.<br/><br/>The idea behind that is of course, that bounce messages tend to have a lot of email addresses in their body. Some of them even include whole header fields, so I could extend the scanner to detect those and generate another token for them.<br/><br/>For now I'll prototype the program that the scanner opens a pipe to in Perl and see whether the approach makes any sense at all. If it does, I can rewrite it in C and have a fairly well-performing bayesian filter that I can plug into my <code>.procmailrc</code> before spamassassin is even triggered.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Seems Like a Lot of Work</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2004-05-29T20:14:57</h3>
+<p>I check the <code>Return-Path</code> header for <code>&lt;&gt;</code>.  That catches most of the bounces.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Seems Like a Lot of Work</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2004-05-30T04:16:57</h3>
+Actually most of my bounces don't have a <code>Return-Path</code> header at all. The attached original message usually has one, but it always contains one of my addresses.
+
+
+
+
+
+</blockquote>
+
+
+<h2>from: ne from_</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2004-05-29T20:59:12</h3>
+To know which bounces I want to keep and which I want to throw away, a while ago I thought it would be a nice experiment to see if spammers ever use the envelope from that I use. Originally, I would if I did indeed get spam on that address encode some information in the envelope from to find out how they got that information.<br> <br>But I have still not received a single message on that address that wasn't a bounce that I wanted to read.<br> <br>The mail address that I use in the headers is juerd@example.com (but with another domain), the envelope from is juerd@c4.example.com. All bounces that I receive that aren't for juerd@c4.example.com (most are for juerd@example.com, obviously), is stored in a separate folder. I'm now confident enough to send things directly to<nobr> <wbr></nobr>/dev/null, but this is an easy way get statistics<nobr> <wbr></nobr>:)<br> <br>There are, unfortunately, auto-replies that aren't bounces. They are sent to the address in the From: header. For that I don't really have a solution.<br>
+
+
+
+<blockquote>
+
+<h2>Re:from: ne from_</h2>
+<h3><a href="/user/vsergu/">vsergu</a> on 2004-05-29T22:33:58</h3>
+If you send out all your mail with  juerd@c4.example.com as the MAIL FROM, then that address will end up in some Received lines in some messages.  Some of those messages will end up on computers that get infected with worms. Some of them will end up somewhere on the web, where the address will be harvested by spammers.  So soon you'll be getting bounces to that address in response to spam and worms.  I guess that means you'll have to change the address periodically.<br> <br>Of course there are stupid mail systems out there that send bounces to the "From:" address, but they probably don't send them as &lt;&gt; anyway.
+
+
+
+<blockquote>
+
+<h2>Re:from: ne from_</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2004-05-31T20:32:22</h3>
+That's what I thought, but I've been using this for over a year now and I haven't received a single unwanted message at juerd@c4.example.com yet.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Class::Trait 0.10 now on the CPAN</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Class::Trait 0.10 now on the CPAN</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-11-18T06:59:52</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Thanks to advice from Joshua ben Jore (diotalevi), I have fixed the last known bug in <a href="http://search.cpan.org/user/ovid/Class-Trait-0.10/">Class::Trait</a>.  It's now on the CPAN and I just <em>know</em> that everyone's going to rush out and grab it because MI and mixins suck, right?</p>
+
+<p>Well, no.  Probably not.  Even though the problems with multiple inheritance and mixins are well known, no one really seems to care that much.  They like poking themselves in the eye with a stick because, hey, they don't poke themselves that often and they are used to how it feels.</p>
+
+<p>The bug, by the way, involved trait methods getting flattened into the primary class even if the trait hadn't defined them.  Anything which gets exported into the trait was going into your class and I needed to figure out the best way of knowing which methods the trait was really defining.  That's when Joshua showed me the way out.</p>
+
+<pre>use B 'svref_2object';
+
+sub _sub_package { 
+    eval { svref_2object( shift )->STASH->NAME };
+}</pre>
+
+<p>Pass that puppy a code ref and it will return the package the coderef was initially defined in.  The following bit is how I use it:</p>
+
+<pre>my %implementation_for;
+
+foreach  ( keys %{"${trait}::"} ) {
+    my $method = "${trait}::$_";
+    next unless defined &$method;
+
+    # make sure we're not grabbing sub imported into the trait
+    next unless _sub_package(\&$method) eq $trait;
+
+    if ( /(DESTROY|AUTOLOAD)/ ) {
+        die "traits are not allowed to implement $1\n";
+    }
+    $implementation_for{$_} = $method;
+}
+$trait_config->methods = \%implementation_for;</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Class::Role</h2>
+<h3><a href="/user/malte/">malte</a> on 2005-11-18T11:42:54</h3>
+Hi,<br/><br/>could you contrast Class::Trait to Class::Role?<br/><br/>Thanx!
+
+
+
+<blockquote>
+
+<h2>Re:Class::Role</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-11-18T17:58:24</h3>
+<p>Note that in the following that I do not use the word "role" even though that's the Perl 6 term.  This is deliberate to make it clear I'm only talking about Perl 5 traits.  Even when I discuss <tt>Class::Role</tt> I'll call it a trait.  Yes, I know that's awkward<nobr> <wbr></nobr>:)</p>
+
+<p>Well, first and foremost, <a href="http://search.cpan.org/dist/Class-Trait/" title="cpan.org">Class::Trait</a cpan.org> is the only Perl module to have a substantially complete implementation of traits as described in the classic "<a href="http://www.iam.unibe.ch/user/scg/Archive/PhD/schaerli-phd.pdfas" title="unibe.ch">traits paper</a unibe.ch>" that introduced most programmers to traits.</p>
+
+<p>As for <tt>Class::Role</tt>, it appears to have the same bug which <tt>Perl6::Roles</tt> also has and which <tt>Class::Trait</tt> just fixed.</p>  Namely, it grabs all code in a package without checking to see whether or not that code actually should be flattened into the parent class (I'd write a test script to verify this but I couldn't get <tt>Class::Role</tt> to work on my box.  Have you used it?)  <tt>Class::Roles</tt> gets around that by requiring a role definition to list which methods are provided.  I like that but I didn't want to change the <tt>Class::Trait</tt> interface.
+
+<p>Let's look at the sample trait at the top of the documentation for <tt>Class::Role</tt>:</p> <blockquote> <div><tt>package LongLiver;<br>use Class::Role;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # This is a role<br> <br>sub profess {<br>&nbsp; &nbsp; my ($self) = @_;<br>&nbsp; &nbsp; print $self-&gt;name . " live a long time\n";<br>}</tt></div> </blockquote> <p>Where does the <tt>name()</tt> method come from?  In the example code, that's provided in the class using the trait.  That's a problem, though.  If that method doesn't exist, it's a run-time error.  Further, if you never call the <tt>profess()</tt> method in your code, you won't discover the bug.  It would be awful if a critical production system uncovers the bug after your code goes "live".</p>
+
+<p>Here's how that would be written with <tt>Class::Trait</tt>:</p> <blockquote> <div><tt>package LongLiver;<br>use Class::Trait 'base';<br>our @REQUIRES = qw(name);<br> <br>sub profess {<br>&nbsp; &nbsp; my ($self) = @_;<br>&nbsp; &nbsp; print $self-&gt;name . " live a long time\n";<br>}</tt></div> </blockquote> <p>Now, if <tt>name()</tt> does not exist in the calling class (either directly or from some other trait being used), your code won't even compile.</p>
+
+<p> <tt>requirement (name) for LongLiver not in Donkey</tt> </p>
+
+<p>I believe that <tt>Class::Trait</tt> is the only Perl trait implementation which implements this.  Further, if you read the traits paper, I believe it's critical that this feature be present.  Here are the major features that <tt>Class::Trait</tt> is designed to support:</p>
+
+<ul>
+  <li>Only export methods defined in the trait</li>
+  <li>Conflict resolution via method renaming</li>
+  <li>Conflict resolution via denying a method (so another trait can provide it)</li>
+  <li>Requirements must be explicitly met or we fail at compile time</li>
+  <li>Respect the above behaviors even when aggregating traits into a new trait</li>
+</ul>
+
+<p>I do have more plans for <tt>Class::Trait</tt> but for right now it's fairly feature complete.  My major concern is to make "deferred" methods available.  That is, a class or trait should be able to "promise" a method and, even if it doesn't exist at compile time, it's "promised" to exist when called.  This should make <tt>Class::Trait</tt> more Perlish.</p>
+
+
+
+<blockquote>
+
+<h2>Runtime role (trait) composition</h2>
+<h3><a href="/user/Tim Bunce/">Tim Bunce</a> on 2005-11-19T12:44:22</h3>
+The Perl6::Roles module supports runtime role composition:<br><br>
+&nbsp; &nbsp; &nbsp; Name::Of::Role-&gt;apply( $some_object_of_unknown_class );<br><br>Can (does/will) Class::Traits support that?
+
+
+
+<blockquote>
+
+<h2>Re:Runtime role (trait) composition</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-11-19T16:32:17</h3>
+<p>It's possible that it will.  For the time being, I'm doing some deep internals work with it to make sure that I have everything nailed down.  After I feel truly comfortable with its current state I'll start expanding it.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Runtime role (trait) composition</h2>
+<h3><a href="/user/Tim Bunce/">Tim Bunce</a> on 2005-11-19T22:44:42</h3>
+I need runtime role composition for DBI v2 prototyping which will be layered over my JDBC module. JDBC can return handles to funky internal Java classes that vary with the driver being used.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Runtime role (trait) composition</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-11-19T23:58:47</h3>
+<p>Currently there is a workaround:</p> <blockquote> <div><tt>use Class::Trait;<br>Class::Trait-&gt;import('TTrait1', 'TTrait2');<br>Class::Trait-&gt;initialize;</tt></div> </blockquote> <p>That will properly use those traits, report conflicts, etc.  However, it only works once.  If both of those traits have identically named methods, the initialize() will fail.  The following will not work:</p> <blockquote> <div><tt>use Class::Trait 'TTrait1';<br>Class::Trait-&gt;import('TTrait2');<br>Class::Trait-&gt;initialize;</tt></div> </blockquote> <p>This is because by the time the second trait is used, the meta information for the first is not available.  Any methods in Trait2 which were already in TTrait1 will be silently ignored.  There is, however, a reflection class avaiable.  I'll see if I can use that so that eventually you can do this:</p> <blockquote> <div><tt>use Class::Trait 'TTrait1';<br> <br># later<br> <br>Class::Trait-&gt;apply('TTrait2');</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Runtime role (trait) composition</h2>
+<h3><a href="/user/Tim Bunce/">Tim Bunce</a> on 2005-11-21T11:12:33</h3>
+While that would be runtime it's not 'dynamic' (for want of a better word). I looks like I'd have to do something like this:<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; eval sprintf "package %s; Class::Trait-&gt;apply(%s);",<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ref $some_object_of_unknown_class, $trait_class;<br><br>whereas I'd like to be able to do:<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $trait_class-&gt;apply( $some_object_of_unknown_class );<br><br>(which would rebless $some_object_of_unknown_class into a new class) Both $trait_class and $some_object_of_unknown_class are unrelated to the current package.<br><br>Basically I'm after the run-time behaviour described by<br><a href="http://dev.perl.org/perl6/doc/design/syn/S12.html#roles" title="perl.org">http://dev.perl.org/perl6/doc/design/syn/S12.html#roles</a perl.org><br>---quote---<br>Run-time mixins are done with does and but. The does binary operator is a mutator that derives a new anonymous class (if necessary) and binds the object to it:<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; $fido does Sentry<br>The does operator returns the object so you can nest mixins:<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; $fido does Sentry does Tricks does TailChasing does Scratch;<br>Unlike the compile-time role composition, each of these layers on a new mixin with a new level of inheritance, creating a new anonymous class for dear old Fido, so that a<nobr> <wbr></nobr>.chase method from TailChasing hides a<nobr> <wbr></nobr>.chase method from Sentry.<br>---quote---
+
+
+
+<blockquote>
+
+<h2>Re:Runtime role (trait) composition</h2>
+<h3><a href="/user/Tim Bunce/">Tim Bunce</a> on 2005-11-21T11:16:07</h3>
+[Darn. I hit submit instead of preview.]<br><br>I just wanted to add a thank you for working on this.
+
+
+
+<h2>Re:Runtime role (trait) composition</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-11-21T18:06:45</h3>
+<blockquote><div>whereas I'd like to be able to do:<blockquote> <div><tt>$trait_class-&gt;apply( $some_object_of_unknown_class );</tt></div> </blockquote>(which would rebless $some_object_of_unknown_class into a new class) Both $trait_class and $some_object_of_unknown_class are unrelated to the current package.</div></blockquote>
+
+<p>This is where I'm not sure I'm following you.  It sounds like what you want is prototyped OO whereby one can add new methods to an instance and not just to the class itself, is that correct?  However, I'm not sure that your syntax is good.  How would that chain?  If I start from the instance, it seems clear.  So assuming that <tt>$fido</tt> is a <tt>Dog</tt> who inherits from <tt>Mammal</tt>:</p> <blockquote> <div><tt>$fido-&gt;apply('Sentry')<br>&nbsp; &nbsp; &nbsp;-&gt;apply('Tricks')<br>&nbsp; &nbsp; &nbsp;-&gt;apply('TailChasing')<br>&nbsp; &nbsp; &nbsp;-&gt;apply('Scratch');</tt></div> </blockquote> <p>(Of course, those could all be done in separate statements for those who don't like chaining).</p>
+
+<p>And then that would actually get represented as this?</p> <blockquote> <div><tt>+--------+<br>| Mammal |<br>+--------+<br>&nbsp; &nbsp; |<br>&nbsp; &nbsp; V<br>+--------+<br>|&nbsp; Dog&nbsp; &nbsp;|<br>+--------+<br>&nbsp; &nbsp; |<br>&nbsp; &nbsp; V<br>+--------+<br>|&nbsp; Anon&nbsp; | (Role:&nbsp; Sentry)<br>+--------+<br>&nbsp; &nbsp; |<br>&nbsp; &nbsp; V<br>+--------+<br>|&nbsp; Anon&nbsp; | (Role:&nbsp; Tricks)<br>+--------+<br>&nbsp; &nbsp; |<br>&nbsp; &nbsp; V<br>+--------+<br>|&nbsp; Anon&nbsp; | (Role: TailChasing)<br>+--------+<br>&nbsp; &nbsp; |<br>&nbsp; &nbsp; V<br>+--------+<br>|&nbsp; Anon&nbsp; | (Role:&nbsp; Scratch)<br>+--------+</tt></div> </blockquote> <p>If that's correct, I can make this work.  My big concern, though, is having a programmer not <em>realize</em> that <tt>TailChasing</tt> has a <tt>chase()</tt> and thereby silently and unknowingly overriding the <tt>chase()</tt> method in <tt>Sentry</tt> or <tt>Tricks</tt>.  One could argue that we have this problem when we write a subclass, but we're far more likely to know what the superclass is providing.  There's no messing with inheritance at runtime involved.  Of course, if this is just prototyped OO, then it makes sense why this is useful, but I'm still concerned, though now that I stop to think about this, just overriding the methods this way is easier than what I've been doing<nobr> <wbr></nobr>:)</p>
+
+<p>Or maybe I'm just paranoid and should trust Larry and the programmers who will use this?</p>
+
+<p>Oh, and you're quite welcome (re: your later thanks).  We've been happily using traits at Kineticode and have been pleased with the problems they have solved.</p>
+
+<p>And FYI:  it's easy to add code on use.perl.  Just use the <tt>&lt;ecode&gt;$code&lt;/ecode&gt;</tt> tags.</p>
+
+
+
+<h2>Re:Runtime role (trait) composition</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-11-21T18:40:18</h3>
+<p>D'oh!  Even better:</p> <blockquote> <div><tt>+--------+<br>| Mammal |<br>+--------+<br>&nbsp; &nbsp; |<br>&nbsp; &nbsp; V<br>+--------+<br>|&nbsp; Dog&nbsp; &nbsp;|<br>+--------+<br>&nbsp; &nbsp; |<br>&nbsp; &nbsp; V<br>+--------+<br>|&nbsp; Anon&nbsp; | (Roles:&nbsp; Sentry, Tricks, TailChasing, Scratch)<br>+--------+</tt></div> </blockquote> <p>With that, a class with a runtime trait applied will have subsequent runtime traits overriding methods in the same anonymous class.  The heirarchy is flatter, we use a LIFO strategy for trait method flattening, performance is better and (I think) behavior is the same.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Runtime role (trait) composition</h2>
+<h3><a href="/user/Tim Bunce/">Tim Bunce</a> on 2005-11-21T23:23:12</h3>
+<cite>This is where I'm not sure I'm following you. It sounds like what you want is prototyped OO whereby one can add new methods to an instance and not just to the class itself, is that correct?</cite> <p>
+
+Yes. Or more specifically, I want to get as close to S12 as possible. I'm hoping you can follow the Perl6 approach to roles (<a href="http://dev.perl.org/perl6/doc/design/syn/S12.html#roles" title="perl.org">http://dev.perl.org/perl6/doc/design/syn/S12.html#roles</a perl.org>) as closely as practical.</p><p>
+
+S12 says compile-time composition merges into one class and detects collisions (as Class::Trait does now), but run-time composition layers on extra anon classes. Very few people will want runtime composition (just me so far!) and I'd guess that most of those who do would be keen to have Perl6 semantics. (The performance difference wouldn't be significant as method lookups are cached.)</p><p>
+
+Also, I'd hope that given</p><p><blockquote> <div><tt>&nbsp; &nbsp; $fido = new Dog;<br>&nbsp; &nbsp; $fido-&gt;apply('Sentry')-&gt;apply('Tricks')-&gt;apply('TailChasing')<br> <br>&nbsp; &nbsp; $biffo = new Dog;<br>&nbsp; &nbsp; $biffo-&gt;apply('Sentry')-&gt;apply('Tricks');</tt></div> </blockquote>then $biffo could reuse part of the class tree created for $fido. But I guess that's just an optimization.
+
+
+
+<blockquote>
+
+<h2>Re:Runtime role (trait) composition</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-11-21T23:58:12</h3>
+<p>I don't see <tt>$biffo</tt> reusing part of the class tree for a few reasons.  First, I am hoping to not layer on more than on anonymous class, though I might.  Instead, I was hoping to add one anonymous class layer and flatten new traits in that class.  That makes things really, really simple.  However, there's a catch.  If I can apply a trait, I should be able to remove it, too.  That means that having a chain of anonymous classes may be the way to go (as removing a trait would effectively be like removing an item from a linked list).  This affects your example because runtime traits are specific to a given instance and removing a trait from one instance should not affect others.</p>
+
+<p>And at Kineticode, we have realised that we also need runtime trait application, so we're in the same boat.  In fact, some of the future development of Class::Trait is likely to be sponsored directly by Kineticode.</p>
+
+<p>I will read the Perl 6 approach more carefully.  Right now, I want to keep my current compile time semantics lest I break anyone's code currently using it.  Runtime semantics are fair game though.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Runtime role (trait) composition</h2>
+<h3><a href="/user/Tim Bunce/">Tim Bunce</a> on 2005-11-22T14:31:20</h3>
+I've no need to remove traits and, as far as I recall, it's not mentioned in S12. Seems like it would greatly complicate the implementation for little gain.<br><br>S12 does say <cite>You can also mixin a precomposed set of roles:<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; <tt>$fido does Sentry | Tricks | TailChasing | Scratch;</tt><br><br>This will level the playing field for collisions among the new set of roles, and guarantees the creation of no more than one more anonymous class.</cite><br><br>That sounds like it matches what you're proposing (a single anon class with collisions detected) and could be requested using<br><br>
+&nbsp; &nbsp; $fido-&gt;apply(qw(Sentry Tricks TailChasing Scratch));<br><br>whereas it seems natural (to me) that each apply() call should create a new anon class (if there isn't a matching one already).
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Class::Role</h2>
+<h3><a href="/user/malte/">malte</a> on 2005-11-19T12:45:16</h3>
+<p>We are using Class::Role in a very large production system. There were never any problems in installing it.</p>
+
+<p>You make some very good points about traits there. I was probably thinking too much in terms of "smart Java interfaces" to see the whole power of traits. The reason we originally chose to use Class::Role was the name. I really like the term role, because it creates nice pictures in my head<nobr> <wbr></nobr>:).</p>
+
+<p>Basically the only thing we are using roles for at the moment is to implement methods which are empty in the super class of the class that uses the role while only using methods within the role that are guaranteed to exist in the super class. (Does the sentence make sense?). The entities within our OR-Mapper for example can assume certain roles:</p> <blockquote> <div><tt>package Thing;<br>use base "Entity";<br>use Class::Role "Historian";</tt></div> </blockquote> <p>An entity that is also a historian will save all changes made to itself within a special history table.</p>
+
+<p>Thank you for your answer. We will probably switch to Class::Trait for future projects.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Class::Role</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-11-19T18:42:44</h3>
+<p>Are you saying, in your example above, that "Entity" is effectively a Java interface and "Historian" provides the implementations?  If so, that's a very interesting way of going about things.  I'll have to think about that.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Class::Role</h2>
+<h3><a href="/user/malte/">malte</a> on 2005-11-19T20:15:38</h3>
+That would indeed be an interesting way to go about it<nobr> <wbr></nobr>:) However, in that case Entity is an abstract class, that provides for database persistence and data relationship management (or-mapping). The abstract class provides for hooks that are filled in by the role.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Class::Role</h2>
+<h3><a href="/user/malte/">malte</a> on 2005-11-19T12:58:38</h3>
+<p>By the way: The same deficiency could be pointed out about the base pragma. If it would call import on the super class, an abstract super class could enforce its child the implement certain methods.</p>
+
+<p>I don't know if Class::Trait implements this, but it should be possible for a class that uses a trait to declare that it it is also a trait or abstract class that requires certain methods to be implemented by child classes. If both traits require a "name" method to be implemented, that should not be a compile time error.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Class::Role</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-11-20T00:09:20</h3>
+<p> <em>it should be possible for a class that uses a trait to declare that it it is also a trait or abstract class that requires certain methods to be implemented by child classes.</em> </p>
+
+<p>If I understood you correctly, it sounds like you're asking for traits to be composed of other traits and for all of those traits to specify required methods even if the composite of all of those traits does not provide them, thus requiring the class using the traits to make them available.  If that is what you mean, then yes, Class::Trait supports this.  I've recently uploaded version 0.11.  If you check the new <tt>t/99_trait_errors.t</tt> tests, you'll see code like the following:</p> <blockquote> <div><tt>#<br># Extra::TSpouse: explode [ requires lawyer() ]<br>#&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;does: Original::TSpouse: fuse explode [ requires alimony() ]<br>#<br> <br>clean_inc();<br>eval &lt;&lt;'END_PACKAGE';<br>package Polygamy;<br>use Class::Trait 'Extra::TSpouse';<br>Class::Trait-&gt;initialize;<br>sub lawyer {}<br>END_PACKAGE<br> <br>ok $@,&nbsp; &nbsp;'Trying to load a trait which does not meet requirements should fail';<br>like $@, qr/\QRequirement (alimony) for Extra::TSpouse not in Polygamy\E/,<br>&nbsp; '... and @REQUIREMENTS should bubble up correctly';</tt></div> </blockquote> <p>In this code, the trait <tt>Extra::TSpouse</tt> uses the trait <tt>Original::TSpouse</tt>.  The extra spouse requires a lawyer (note that this method is supplied) and the original spouse requires alimony.  Because of the way traits are flattened into classes, the alimony trait is shown for the extra spouse, but the problem is easy to track down.</p>
+
+<p>I trust you'll forgive my politically incorrect tests<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Class::Role</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2005-11-20T20:36:33</h3>
+That is an interesting choice of topics for a test module.
+
+
+
+<blockquote>
+
+<h2>Re:Class::Role</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2005-11-20T20:37:04</h3>
+Oh...I forget the smiley.  : )
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Class::Sniff</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Class::Sniff</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-01-30T12:13:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>So I want a <a href="http://use.perl.org/user/Ovid/journal/38363">class inspector which will let me check for some common code smells in classes</a>.  As mentioned previously, I have a class with <a href="http://use.perl.org/user/Ovid/journal/38356">255 methods spread across 27 packages</a>.  That's a bit unwieldy.  My first pass, replicating what so many before me have done:</p>
+
+<pre>package Class::Sniff;
+
+use Class::BuildMethods qw/ tree target /;
+use Tree;
+
+sub new {
+    my ( $class, $target_class ) = @_;
+    my $self = bless {} => $class;
+    $self->target($target_class);
+    $self->_initialize;
+    return $self;
+}
+
+sub _initialize {
+    my $self = shift;
+    my $target_class = $self->target;
+    $self->tree(Tree->new($target_class));
+    $self->_add_parents($self->tree);
+}
+
+sub _add_parents {
+    my ($self,@nodes) = @_;
+    for my $node (@nodes) {
+        my $class = $node->value;
+
+        no strict 'refs';
+        my @parent_classes = map { Tree->new($_) } @{"$class\::ISA"};
+
+        # Oops.  Don't "return" here
+        next unless @parent_classes;
+        $node->add_child(@parent_classes);
+        $self->_add_parents(@parent_classes);
+    }
+}
+
+1;</pre>
+
+<p>And dumping out the inheritance hierarchy:</p>
+
+<pre>my $dump = Class::Sniff->new('PIPs::ResultSource::Clip');
+
+for my $node ($dump->tree->traverse) {
+    print '  ' x $node->depth;
+    print $node->value, "\n";
+}
+__END__
+PIPs::ResultSource::Clip
+  PIPs::ResultSourceBase::ClipEpisode
+    PIPs::ResultSourceBase::ContentObject
+      PIPs::ResultSourceBase::AuditedObject
+        PIPs::ResultSourceBase::Pips
+          DBIx::Class::UndefToEmptyString
+          DBIx::Class::UTF8Columns
+          PIPs::DBIx::Class::RecordChange
+          DBIx::Class::Core
+          DBIx::Class
+          Util::Class
+      PIPs::ResultSourceBase::HaveIdentifiers
+        PIPs::ResultSourceBase::Pips
+          DBIx::Class::UndefToEmptyString
+          DBIx::Class::UTF8Columns
+          PIPs::DBIx::Class::RecordChange
+          DBIx::Class::Core
+          DBIx::Class
+          Util::Class
+    PIPs::ResultSourceBase::HasParentBrand</pre>
+
+<p>Hmm, not 27 classes there.  Either the debugger is wrong or we have packages exporting things in a few places.</p>
+
+<p>So it's clear that we have some issues with inheritance, but much of this is is DBIx::Class is designed (great module, by the way).  I am reinventing the wheel but by using a tree for tracking inheritance, I think I can gain some wins in code simplicity for more things I want to do.  We'll see.</p>
+
+<p><strong>Update:</strong>  Oops.  jplindstrom saw the output was wrong.  Turns out that <tt>return unless @parent_classes;</tt> should be <tt>next unless @parent_classes;</tt>.  That reveals a grand total of 33 classes, not counting UNIVERSAL.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

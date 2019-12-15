@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of grantm: Adventures with Squid</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Adventures with Squid</h1>
+<h2><a href="/user/grantm/">grantm</a> on 2007-05-15T09:47:11</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>One of our production servers started behaving as if it were the victim of a
+DoS attack.  I don't think it actually was an attack - that's just how it
+looked.  It may be related to a new AJAX thingy we've just deployed, or a
+browser bug, or related to problems with one of our routers or maybe even
+worms/malware on client PCs.</p>
+
+<p>What we were seeing was 90-100 TCP connections from one client machine to
+port 80 on our server.  No request was ever sent over these connections and
+they stayed connected until the server timed them out after 15 minutes.  It
+happened more than once from more than one source IP.  In each case, the access
+logs showed that a real person had been browsing the site from that IP minutes
+before.  The browser in the earlier session was always IE (6.0 or 7.0).  But in
+the case of these dodgy connections, no request was ever sent so we can't be
+certain the connections were coming from IE.</p>
+
+<p>Unfortunately our Apache config was fairly naive so lots of connections
+translated to lots of Apache/mod_perl processes, with almost all the swap space
+being used, Apache refusing connections due to reaching the MaxClients setting
+and all the while the load average was barely higher than 0.</p>
+
+<p>Putting aside the cause, it's really not acceptable for our server to be so
+vulnerable to such a simple 'attack'.  A really simple answer would be to turn
+down the Timeout value.  Unfortunately we have some large files that get
+delivered to remote clients on the far side of the world and 15 minutes really
+is about as short as we can set it without adversely affecting valid user
+sessions.</p>
+
+<p>The preferred configuration for a mod_perl server is to have some sort of
+'reverse proxy' in front of it to reduce the number of big heavy processes
+required.  In the past, I've used Apache+mod_proxy but in this case that
+wouldn't help much since a front-end apache process would use a little less
+memory but would otherwise behave exactly the same way.  Ideally, the timeout
+for the initial request phase should be configured independently of the total
+request handling time but that's been on the Apache todo list for some
+years.</p>
+
+<p>I decided to try out Squid in HTTP-Accelerator mode.  It has the dual
+advantages of a lower memory footprint per connection and an independently
+configurable timeout for the initial request phase.  It has the disadvantage of
+being unfamiliar to me and in my estimation it's not particularly well
+documented.</p>
+
+<p>Installation was a breeze.  It's a Debian server so 'apt-get install squid'
+was all that I needed.  Configuring it was not too bad except for 'acls'.
+These are very poorly explained in the manual, are used for many different
+functions (not just access control) and when they aren't right then you just
+get a 'permission denied' error with no indication of why.  A bit of googling
+eventually turned up this magic config setting:</p>
+
+<pre>
+debug_options ALL,1 33,2
+</pre>
+
+<p>With this in place, the server logs which acls the request matched and why
+the request was refused.  It immediately became obvious that I hadn't
+designated port 81 (where I'd moved Apache to) as a 'Safe' port.  With that
+fixed, I was able to access Apache but I had to fight some more to stop Squid
+from caching stuff (including "500 Server Error" responses from my buggy test script).</p>
+
+<p>The next issue was that Squid has its own access log format.  It can be
+configured to use Common Log Format but not the 'combined' format which
+includes the referrer information needed by our reporting package.  It is
+possible to log referrers separately, but requests get logged in the order they
+are received unlike the access log which is written in the order request
+handling completes, which make tying the two logs together rather tricky.  We
+could of course just continue to do the reporting off the Apache logs but as
+far as Apache is concerned, now all requests come from 127.0.0.1.</p>
+
+<p>More googling turned up <a
+href="http://stderr.net/apache/rpaf/">mod_rpaf</a> which takes the client
+details from the X-Forwarded-For header and 'fixes up' the request so Apache
+sees that as the client for logging purposes.  Once again, a simple apt-get
+was all that was needed to install the module then I pasted a couple of lines 
+into the Apache config and it was all working.</p>
+
+<p>The next hurdle is SSL.  The live server has some directories which are
+handled on an SSL connection with mod_rewrite rules to ensure a smooth
+transition between secure and not-secure sections.  Squid is capable of talking
+SSL so on the face of it I should be able to get away with only one Apache
+virtual host in the background.  The first hurdle was that the Debian build of
+Squid does not have SSL enabled.  I don't pretend to understand the politics,
+but the OpenSSL license is deemed to be incompatible with the Squid license so
+Debian can't distribute a binary package that includes both.  Thankfully it's
+pretty easy to build your own Squid package with SSL enabled:</p>
+
+<ol>
+<li>Download (and unpack) the source with: apt-get source squid</li>
+<li>Download and install build dependencies with: sudo apt-get build-dep squid</li>
+<li>cd into the source directory and edit the debian/rules file to add
+'--enable-ssl' to the ./configure command</li>
+<li>Use debchange -i to generate a new changelog entry from which the
+package version will be determined automatically</li>
+<li>Build the package(s) with: dpkg-buildpackage -rfakeroot</li>
+</ol>
+
+<p>I deployed the new packages on the staging server and was able to configure
+Squid to use an SSL certificate - or at least I would have been able to if I
+had one.  Unfortunately, we've never had SSL set up on the staging server but
+this seemed like the perfect opportunity to fix that.</p>
+
+<p>Obviously there was no question of going to Verisign to buy certs for each
+of our 4 staging environments.  I could have just used self-signed certs but
+that always ends up with messy dialogs every time you connect.  Instead, I
+signed up with <a href="http://www.cacert.org/">CACert</a>.  They allow new
+users to generate certs with a 6 month expiry but by visiting four of my
+colleagues (and presenting appropriate credentials) I was able to get fully
+"assured" and generate a two-year cert - one of the advantages of working in an
+Open Source shop :-)</p>
+
+<p>With the cert installed, the staging server is now happily running SSL.  The
+bit that's missing is the redirect magic to move between HTTP and HTTPS.
+Unfortunately, when Squid passes the request on to the Apache server, there
+doesn't seem to be any indication in the headers that the request came via SSL.
+It looks like I may be able to use acls (what else!) to get squid to
+<i>replace</i> a client header with arbitrary data if the request came in on
+the SSL port.  I haven't yet worked out how to <i>add</i> a header.  I thought 
+I'd call it quits for the day, blog it and wait for the lazyweb to solve that
+problem for me.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Self-signed Certificates</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2007-05-15T12:30:02</h3>
+<p>Sorry to hear about your squid trouble.  I have never used it but it's still on my todo list.</p>
+<p><p><div class="quote">I could have just used self-signed certs but that always ends up with messy dialogs every time you connect.</div>  
+<p>I don't know why everyone thinks that when it is not the truth.  We use self-signed certificates at work.  I never see any messy dialogs when I connect.  (Well, that's not entirely true, I never see any for the engineering servers.  The IT department installed one for the webmail server and that one gives a messy prompt every time
+anyone tries to use it, fortunately needing to use it is a rare thing for me.)</p>
+<p>For others who may stumble upon this, you just need to:
+</p><ol> <li>Make sure that the server name you use in the creation is the same name returned by DNS.</li>
+<li>Install the certs in the browser before you try to reach the site in question.  (Each browser has a slightly different way of installing them.)</li> </ol>
+
+
+
+<blockquote>
+
+<h2>Re:Self-signed Certificates</h2>
+<h3><a href="/user/grantm/">grantm</a> on 2007-05-15T20:20:50</h3>
+<p>Yes exactly, it's step 2 that's the issue.  Given that the target audience have already imported the CACert authority into their browser we can skip step 2 for any more site we set up.</p>
+
+<p>Although to be fair, my bad experience of self-signed certs is the case where the domain name doesn't match and the cert has expired.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Self-signed Certificates</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2007-05-15T20:36:59</h3>
+<p>CA signed certificates are preferred but we use self-signed at the moment because we didn't want to pay out the wazoo and then have to wait a while to get a cert from a CA.  When we ship our system, we include instructions on where to find the cert and how to install it in both IE and Firefox.</p>
+<p>CACert looks interesting.  I'm gonna check that out.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>s/Squid/Varnish/ ?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-05-15T16:53:36</h3>
+<p> <a href="http://varnish.projects.linpro.no/" title="linpro.no">Varnish</a linpro.no> is a single-purpose proxy so it gives you many fewer knobs to twiddle than Squid. And rather than explicitly putting each object on disk as a separate file (which spins the filesystem driver and works at cross purposes with the kernel VMM which has its own ideas of what to swap to disk and when), it just keeps everything in <code>mmap</code>ped virtual memory backed by a single huge file (and lets the kernel figure out the rest).</p>
+
+
+
+<h2>Apache should be fine</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-05-15T18:57:10</h3>
+Squid is perfectly good, but if you know Apache well, there's no reason not to use it as a proxy.  The processes on the front-end server will be very light and you should be able to run hundreds of them with no trouble on any decent modern PC.  You can even use the threaded MPM for your proxy if you prefer.
+
+
+
+<blockquote>
+
+<h2>Re:Apache should be fine</h2>
+<h3><a href="/user/grantm/">grantm</a> on 2007-05-15T19:15:15</h3>
+<p><blockquote> <div><i>The processes on the front-end server will be very light and you should be able to run hundreds of them</i></div> </blockquote>
+
+<p>We <i>were</i> running hundreds of Apache processes.  To cope with the number of connections we were seeing, we need to run hundreds more.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Apache should be fine</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-05-15T19:43:27</h3>
+If you compile it without modules that you aren't using, the unshared size of an apache process is typically around 100K.  That means 1000 of them in 100MB of RAM.  The worker MPM should make this even less of an issue.  Just keep it in mind if you can't get Squid to do what you want.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Waves of HTTP connections with no request</h2>
+<h3><a href="/user/denishowe/">denishowe</a> on 2007-10-09T22:38:20</h3>
+Did you ever find out where the strange request-less HTTP connections were coming from?  We're currently seeing waves of such connections - 100 at a time every 15 mins or so.  No requests received.
+
+
+
+<blockquote>
+
+<h2>Re:Waves of HTTP connections with no request</h2>
+<h3><a href="/user/grantm/">grantm</a> on 2007-10-11T07:52:58</h3>
+<p>No, we never established what was causing it.  The connections always seemed to be come from machines that had previously browsed the site with IE.</p>
+
+<p>We first noticed the problem when we added a page which embedded a map component served from another site.  The map component was supplied to us under a commercial arrangement but I'm pretty sure it used <a href="http://ka-map.maptools.org/" title="maptools.org">ka-Map</a maptools.org>.  This is an AJAXy thing with mouse events triggering requests for images tiles as the map is panned and zoomed.  In theory though, all those requests should be going direct to the other site.</p>
+
+<p>Of course since no request was ever sent it's very hard to tell if it has anything to do with the map page.  Even if it is related to the map, a browser wouldn't typically open more than two parallel connections to the same server so 100 suggests a browser bug to me.</p>
+
+<p>It's also tempting to blame it on bots - no evidence for that though.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

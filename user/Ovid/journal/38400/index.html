@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Detecting Long Methods Without PPI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Detecting Long Methods Without PPI</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-02-03T14:01:35</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>How to determine the length of a method.</p>
+
+<pre>my $start_line    = B::svref_2object($coderef)->START->line;
+my $end_line      = B::svref_2object($coderef)->GV->LINE;
+my $method_length = $end_line - $start_line;</pre>
+
+<p>The <tt>$start_line</tt> returns the line number of the <em>first expression</em> in the subroutine, not the <tt>sub foo { ...</tt> declaration.  The subroutine's declaration actually ends at the ending curly brace, so the following method would be considered 3 lines long, even though you might count it differently:</p>
+
+<pre>sub new {
+    # this is our constructor
+    my ( $class, $arg_for ) = @_;
+    my $self = bless {} => $class;
+    return $self;
+}</pre>
+
+<p>This is a very dodgy and experimental hack, but as you might guess, long methods are ... wait for it ... a CODE SMELL!</p>
+
+<p>So yes, I've just added this to <a href="http://search.cpan.org/dist/Class-Sniff/">Class::Sniff</a>.  I've set the default method length to a generous <em>fifty lines</em>, but you can set it yourself in the constructor:</p>
+
+<pre>my $sniff = Class::Sniff->new({
+    class         => 'My::ResultSource::Customer',
+    ignore        => qr/^DBIx::Class/, # we're only checking our own code
+    method_length => 20,
+});
+print $sniff->report;</pre>
+
+<p>Note that this won't work with exported methods or any method where a reference is taken prior to the method declaration, so I just skip those.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Test::Smell?</h2>
+<h3><a href="/user/Theory/">Theory</a> on 2009-02-03T16:41:46</h3>
+<p>I can see where you're going with this, Ovid. Can Test::Smell be far behind (um, pun not intended)?</p><p>I can see it testing all of the classes in your project and emitting passes or failures for inheritance patterns, hidden method, long method bodies, etc.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Test::Smell?</h2>
+<h3><a href="/user/vek/">vek</a> on 2009-02-03T18:06:30</h3>
+<p>I'm not so sure a code <i>smell</i> should be a test <i>failure</i>.  Perhaps Perl::Critic is where Ovid's sniff logic would be put to best use?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Test::Smell?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-03T18:11:56</h3>
+<p>This is like Critic, but I'm using running code, not document analysis.  Therefore, I can do something things which Perl::Critic cannot (just as it can do some things which I cannot).  For example, it's very, very hard to get a good inheritance tree from Critic.  There are a number of obscure ways of setting up inheritance (see DBIx::Class and Catalyst as examples) which PPI wouldn't find terribly well.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Test::Smell?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-03T18:09:26</h3>
+<p>Wow. I hadn't thought of that.  Personally, I'd prefer someone else write that.  These are good rules of thumb, but they don't satisfy the binary nature of tests<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Do you have data backing that up?</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2009-02-03T17:12:53</h3>
+<p>I've seen plenty of claims that long methods are a code smell.  I've repeated such claims myself.  But are you aware of any actual data demonstrating that short methods are better?  I am not, and in fact the highly limited data that I am aware of says the exact opposite.</p><p>For what it is worth, the last time I tried to get my thoughts down on this subject was several years ago in <a href="http://www.perlmonks.org/index.pl?node_id=298755" title="perlmonks.org">Short routines matter more in OO?</a perlmonks.org> and I have not read anything new on the topic since.  So I still have the cognitive dissonance of feeling that short is better, but the concrete data I have says that the optimal subroutine length is much longer than I like.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Do you have data backing that up?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-03T18:04:36</h3>
+<p>As I've said before, it's a code <em>smell</em>, not a code error.  If your method is 100 lines long but it's doing one, cohesive thing, maybe it's not an error.  Maybe trying to abstract everything into methods from that would hurt readability.  Maybe it does three things but you're happy with that.  Your mileage may vary.</p><p>If you don't like the heuristic, set your threshold to 5000 or something and don't worry about it.  I'm just trying to provide a tool and I expect people to evaluate its utility for themselves.  You're a great programmer and maybe longer methods may work better for you.  That's OK.  Shorter ones work better for me.  That's OK too<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Do you have data backing that up?</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2009-02-03T22:09:11</h3>
+<p>I think you miss my point.  It is not that I want to have long subroutines.  It is that I prefer short subroutines, but am concerned that the concrete data I have says that I really should be using longer ones.</p><p>So which is right?  My gut sense?  Or the data?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Do you have data backing that up?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-04T13:59:03</h3>
+<p>After doing a bit more reading on this (reading Code Complete's section, for example), it <em>does</em> sound like you're right and perhaps this is something wrong to put in here.  This, coupled with some implementation issues, may lead me to pull this.</p><p>Thanks for raising this issue.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

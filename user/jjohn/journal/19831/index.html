@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjohn: SQLite - the wettening</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>SQLite - the wettening</h1>
+<h2><a href="/user/jjohn/">jjohn</a> on 2004-07-13T22:20:55</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I started mucking around with DBD::SQLite.  SQLite, as you probablyknow, is an embeddable public domain SQL system with ACID support.  Matt S 
+has created a Perl interface to it that includes the SQLite source.  Installing
+DBD::SQLite from cpan is easy: 
+<code>sudo perl -MCPAN -e 'install DBD::SQLite'</code>
+<p>SQLite version 2 is a mostly typeless database system.  That is, most 
+everything appears to be stored as ASCII.  This makes your CREATE TABLE 
+statements just for documentation.  However, those that like MySQL's 
+autoincrement column type are not foresaken.  In SQLite, this feature is 
+accomplished with "INTEGER PRIMARY KEY."  
+<p>Good.
+<p>Here's my little perl script to generate two tables, populate them with 
+data and then create a DBI-like shell to interact with it.  This is a good
+introduction to SQLite, I think.  
+<pre>
+#!/usr/bin/perl --  -*-cperl-*-
+# Try out SQLite
+  
+use strict;
+use DBI;
+use Term::ReadLine;
+  
+my %sql = (create_companies => q[ CREATE TABLE companies (
+                                  id INTEGER PRIMARY KEY,
+                                  name char(64),
+                                  revenue int
+                                );
+                              ],
+           create_contacts => q[CREATE TABLE contacts (
+                                  id INTEGER PRIMARY KEY,
+                                  co_id int,
+                                  first char(64),
+                                  last char(64),
+                                  title char(64)
+                                );
+                               ],
+          );
+my $companies = [ {name => 'ABC. Corp', revenue=> '5'},
+                  {name => 'DEF. Corp', revenue=> '10'},
+                  {name => 'Arbusto', revenue=> '100'},
+                ];
+  
+my $contacts  = [ 
+                 {co_id => 1, first => 'Sam', last =>'Houston', title => 'CEO'},
+                 {co_id => 1, first => 'Tam', last =>'Bouston', title => 'VP'},
+                 {co_id => 1, first => 'Lam', last =>'Rouston', title => 'COO'},
+                 {co_id => 2, first => 'Tim', last =>'Dallas', title => 'CEO'},
+                 {co_id => 2, first => 'Rim', last =>'Malice', title => 'VP'},
+                 {co_id => 3, first => 'George', last =>'Bush', title => 'CEO'},
+                ];
+  
+my $dbh = DBI->connect("dbi:SQLite:dbname=try.db") || die "connect: $DBI::errstr\n";
+  
+print "Creating companies\n";
+$dbh->do("drop table companies");
+$dbh->do($sql{"create_companies"});
+  
+my $sql = q[INSERT INTO companies (name, revenue) VALUES (?,?)];
+my $sth = $dbh->prepare($sql);
+for my $r (@{$companies}) {
+  unless ($sth->execute($r->{name},$r->{revenue})) {
+    warn("ERROR - '$sql' : ", $sth->errstr, "\n");
+  }
+}
+  
+$dbh->do("drop table contacts");
+$dbh->do($sql{"create_contacts"});
+$sql = q[INSERT INTO contacts (co_id,first,last,title) VALUES (?,?,?,?)];
+$sth = $dbh->prepare($sql);
+for my $r (@{$contacts}) {
+  unless ($sth->execute($r->{co_id},$r->{first},$r->{last},$r->{title})) {
+    warn("ERROR - '$sql' : ", $sth->errstr, "\n");
+  }
+}
+  
+print "Going to SQL shell mode\n";
+  
+my $T = Term::ReadLine->new("SQLite Shell");
+my $Out = $T->OUT || \*STDOUT;
+  
+while (defined($_ = $T->readline("SQL> "))) {
+  chomp($_);
+  
+  last if /^\s*qu?i?t?$/i;
+  
+  $T->addhistory($_) if /\S/;
+  
+  my $sth = $dbh->prepare($_);
+  if ($sth->execute) {
+    $sth->dump_results(35,"\n"," | ",);
+  } else {
+    print "WARN - '$_': ", $sth->errstr, "\n";
+  }
+  
+}
+  
+$dbh->disconnect;
+  
+</pre> 
+</p>
+
+
+<hr/>
+
+
+
+<h2>I've been using it</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2004-07-14T02:11:33</h3>
+I really enjoy using SQLite, especially since all it takes from Perl is <tt>install DBD::SQLite</tt>, and the whole database gets embedded inside the DBD handler!
+<p>
+Between SQLite for the low end, and PostgreSQL for the high-end, there's really no need to use the crippled MySQL for any new installations. Joy.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I've been using it</h2>
+<h3><a href="/user/jdavidboyd/">jdavidboyd</a> on 2004-07-14T13:51:46</h3>
+Without getting all long and drawn out here, do you have some previous postings to point to so I can understand what leads you to state that MySQL is bad   and PostgreSQL is good?<br> <br>I've skimmed over both of them slightly, and have no real opinions either way, but I don't feel like heading down the wrong track and having to back up and start over.
+
+
+
+<blockquote>
+
+<h2>Re:I've been using it</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2004-07-14T14:13:23</h3>
+This might be slightly dated, but check out MySQL Gotchas.  I consider the lack of reporting that data is too large for the storage to be showstopping, personally, even if the rest of it weren't true.
+<p>
+Another showstopper is the licensing.  Even the MySQL website advocates a commercial license if you're doing any sort of money making with MySQL.  On the other hand, PostgreSQL is completely free, being under the free'er-than-GPL BSD license.  Since I work mainly with commercial clients, this can make a difference.
+</p><p>
+Also, large-database style features like views, subselects, foreign key referential integrity, and transactions, are <i>just</i> being added to MySQL, with the subsequent bug shakeout and optimization still early in the cycle.  PostgreSQL has had those for years.
+</p><p>
+Don't get me wrong.  MySQL was great in its day.  But its day has passed (except for legacy apps and brainspace).  PostgreSQL is the full-featured database of choice for me and my customers.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I've been using it</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2004-07-14T14:14:02</h3>
+Hmm.  What happened to my link:
+<a href="http://sql-info.de/mysql/gotchas.html" title="sql-info.de">MySQL Gotchas</a sql-info.de>.
+
+
+
+<h2>Re:I've been using it</h2>
+<h3><a href="/user/zatoichi/">zatoichi</a> on 2004-07-14T16:11:49</h3>
+<p>But no support for Windows. That is a showstopper for PostgreSQL. It is "coming" I know. I think FirebirdSQL is really good for high end stuff *and* it is cross-platform.
+
+</p><p>I really like SQLite, as you can do some quick and dirty stuff with it.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I've been using it</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2004-07-16T21:19:22</h3>
+<p>As near as I can tell, PostgreSQL has been installed on my last three windows machines at work, under Cygwin.  I have never used it, however.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:I've been using it</h2>
+<h3><a href="/user/jdavidboyd/">jdavidboyd</a> on 2004-07-14T16:20:16</h3>
+Hmm, these are good things to know.<br> <br>  I use Informix and Oracle at work, and would like a GPL database that is close to how they work.<br> <br>Sounds like PostgreSQL might be a much better fit.<br> <br>
+Thanks!
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:I've been using it</h2>
+<h3><a href="/user/gav/">gav</a> on 2004-07-16T13:03:40</h3>
+It's sad that you have nothing better to do than be our resident anti-MySQL troll.
+<br> <br>
+See also: <a href="http://use.perl.org/user/gav/journal/17666" title="perl.org">X is better than Y</a perl.org>
+<br> <br>
+I'm now adding a new reason to the list of reasons to use MySQL: "You're not associating with PostgreSQL zealots".
+
+
+
+
+
+</blockquote>
+
+
+<h2>Docs</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2004-07-14T08:23:28</h3>
+Would you mind if I add this script to the docs as a getting started example?  One of the regular complaints I get is people saying while it's trivial to install, they still have no idea how to use it.
+
+
+
+<blockquote>
+
+<h2>Re:Docs</h2>
+<h3><a href="/user/jjohn/">jjohn</a> on 2004-07-14T11:43:01</h3>
+<p> <i>Would you mind if I add this script to the docs as a getting started example?</i>
+</p><p>You're absolutely welcome to use this code or a modified version of it.  I think the Term::ReadLine stuff might confuse some people.  Maybe not.  I've only recently come to enjoy the wonders of this module.
+</p><p>I'm surprised just how compliant SQLite is.  It seemed to handle natural joins well.  I didn't try LIKE statements, but I've got a larger dataset with which to experiment.
+</p><p>SQLite appears to be an excellent solution for those standalone perl applications that need a robust data store.
+</p><p>MySQL is still my preference for larger web application applications, mostly because of its speed, admin tools and developer mind share.  I flirted with PostgreSQL, but found it a bit slow
+and ackward to maintain (how's that for flamebait?<nobr> <wbr></nobr>:-)
+</p><p>Thanks for popularizing and extending DBD::SQLite, Matt.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

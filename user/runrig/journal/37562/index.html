@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of runrig: PowerCenter XML</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>PowerCenter XML</h1>
+<h2><a href="/user/runrig/">runrig</a> on 2008-09-28T17:18:01</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Everyone I talk with says that mucking with the XML exported by Informatica's PowerCenter is not recommended, or that they tried and failed...so I had no choice but to ignore that advice when we were upgrading from version 7 to 8. I think the advice must be from people who don't quite know what they're doing, and/or "parse" with grep/awk/sed.</p>
+<p>I've been messing with more XML in the last few weeks than I have in the last few years. <a href="http://stackoverflow.com/questions/51198/what-etl-tool-do-you-use#67784">I have my own (shared) opinion about Informatica/ETL</a> (and I've taken up <a href="http://use.perl.org/user/Aristotle/journal/37454">Aristotle's call to action</a>), but at least it provides an opportunity to practice some XML-fu.  Most transformations were simple changing of some attributes, but there was one issue where after importing into v8, if you delete a group from a Union transformation, the GUI crashes. So I created a Union transformation from scratch, exported it, and compared it to what I was importing, and hey, there was some stuff missing!  So I wrote the following:<pre>
+  # Fix Union transformations
+  my $union_cnt;
+  for my $trans (
+    $root->findnodes(q[
+      //TRANSFORMATION[@TYPE="Custom Transformation" and @TEMPLATENAME="Union Transformation"]
+    ])
+  ) {
+    $union_cnt++;
+    my $name = $trans->getAttribute('NAME');
+    my $parent = $trans->parentNode();
+    print "X: Fixing Union transformation $name\n";
+    my @output;
+    for my $field (
+      $trans->findnodes(q[
+        TRANSFORMFIELD[@GROUP="OUTPUT"]/@NAME
+      ])
+    ) {
+      push @output, $field->value();
+    }
+    my %dep;
+    my $dep_cnt;
+    for my $field (
+      $trans->findnodes(q[
+        TRANSFORMFIELD[@PORTTYPE="INPUT"]
+      ])
+    ) {
+      my $name  = $field->getAttribute('NAME');
+      my $group = $field->getAttribute('GROUP');
+      my $dep_group = $output[$dep{$group}++];
+      my $new = $trans->addNewChild( '', 'FIELDDEPENDENCY' );
+      $new->setAttribute( 'INPUTFIELD', $name );
+      $new->setAttribute( 'OUTPUTFIELD', $dep_group );
+    }
+  }
+  $_->unbindNode() for $root->findnodes('//text()');
+</pre>
+<p>Warning: this code is not endorsed or guaranteed by anyone for anything!</p>
+
+The removing of all text nodes was so that the result would stay pretty-printed after output (is there a better/easier way?):<pre>
+  eval { $doc->toFile($file, 1) } or die "Could not write to $file: $@";
+</pre>
+And there are no text nodes with anything but whitespace anyway. XML::LibXML seemed hard to use at first, but once you get used to how the docs are arranged (and learn some XPath), it's quite easy.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

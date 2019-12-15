@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: New Method::Signatures: better attributes, traits, aliases</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>New Method::Signatures: better attributes, traits, aliases</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2008-10-06T07:13:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a href="http://schwern.org/src/Method-Signatures-20081006.tar.gz">New release of Method::Signatures</a> is on its way to CPAN.  I'm in a sprint to get all the sizzle implemented before <a href="http://pghpw.org/">PPW</a>.<br/><br/>This release features improved parsing of method attributes, thanks to stealing code from Florian Ragwitz's <a href="http://search.cpan.org/dist/MooseX-Method-Signatures">MooseX::Method::Signatures</a>.<br/><br/>Some parameter traits have been implemented.  "is alias" lets you work with the parameter as an alias, altering it in the caller's namespace.  Previously this was only possible by manipulating @_ directly.<br/><br/>These two are equivalent.<br/><br/><pre>
+sub strip_ws {
+    my $self = shift;
+    $_[0] =~ s/^\s+//;
+    $_[0] =~ s/\s+$//;
+    return;
+}<br/><br/>method strip_ws($str is alias) {
+    $str =~ s/^\s+//;
+    $str =~ s/\s+$//;
+    return;
+}<br/><br/>my $str = "  support the right to arm bears ";
+Class->strip_ws($str);  # works in place on $str
+</pre><br/><br/>During the initial arguments about how signatures should work on p5p one of the longest and loudest arguments was whether or not they should copy or alias by default.  Perl 6 aliases, but Perl 6 is an "everything is an object" language which passes by reference all over the place.  Perl 5 is not.  Like it or not, Perl 5 copies.  So copying is the default.  But every once in a while you want aliasing, so here it is.<br/><br/>"is ro" makes a parameter read only (using the Readonly module).  Now you can apply some strictness to your subroutines.<br/><br/><pre>
+method echo($msg is ro) {
+    return $msg;
+}
+</pre><br/><br/>If echo() tried to alter $msg it would throw an error.<br/><br/>Required and optional parameters are finally implemented.  All positional parameters are required by default.  Parameters with defaults are optional.<br/><br/><pre>
+# $x and $y are required.  $z is optional and defaults to 0
+method print_position($x, $y, $z=0) {
+    print "$x, $y, $z";
+}<br/><br/># $url is required.  $user and $pass are optional.
+method get($url, $user?, $pass?) {
+    ...
+}
+</pre><br/><br/>The code generated for the required argument check is redundant (use B::Deparse to see it) and could be tightened up to improve performance.  If someone wants to try out some relatively low hanging fruit, that's it.  It's on <a href="https://github.com/schwern/method-signatures/tree">Github</a> so feel free to make a fork and work on it.<br/><br/>Next version will implement named parameters.  After talking it over with Florian I think I'm going to go with his semantics from MooseX::Method::Signatures.  Named parameters are declared with :$foo as in Perl 6.  They are optional by default.  Positional parameters can only be called positionally.  Named parameters can only be called named.  Disallowing mixing resolves ambiguities that Perl 6 needs a heap of special syntax to resolve.<br/><br/><pre>
+# year is required.  The rest are optional and have defaults.
+# They are all readonly.
+method date2epoch(:$year! is ro,  :$month = 1 is ro, :$day = 1 is ro,
+                  :$hour = 0 is ro, :$min = 0 is ro, :$sec = 0 is ro) {
+    ...
+}<br/><br/># Jan 1st, 2008 00:00:00
+my $epoch = Date->date2epoch( year => 2008 );<br/><br/># One minute after midnight
+my $epoch = Date->date2epoch( year => 2008, min => 1 );<br/><br/>
+# $text is positional, the rest are named and optional
+method format($text, :$justify = "left", :$quality) {
+    ...
+}<br/><br/># left justified
+Class->format("mu");<br/><br/># right justified, Livejournal quality poetry.
+Class->format(<<'POETRY', justify => "right", quality => "LJ");
+...
+POETRY
+</pre><br/><br/>Just how much code does this save?  Here's date2epoch() written out long-hand.<br/><br/><pre>
+sub date2epoch {
+    my $self = shift;
+    my %args = @_;<br/><br/>    croak "date2epoch() missing required argument \$year"
+       unless exists $args{year};<br/><br/>    Readonly my $year  = $args{year};
+    Readonly my $month = $args{month} || 1;
+    Readonly my $day   = $args{day}   || 1;
+    Readonly my $hour  = $args{hour}  || 0;
+    Readonly my $min   = $args{min}   || 0;
+    Readonly my $sec   = $args{sec}   || 0;<br/><br/>    ...
+}
+</pre><br/><br/>Wow, even I'm surprised!  Do you really need all that?  No, you could do without Readony and you could leave everything in %args.  But with Method::Signatures you no longer need to compromise with verbosity.  You can have all the features and compact code.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Looks good!</h2>
+<h3><a href="/user/deepfryed/">deepfryed</a> on 2008-10-06T08:46:05</h3>
+wow, looks really good. Looking forward to seeing this on CPAN.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

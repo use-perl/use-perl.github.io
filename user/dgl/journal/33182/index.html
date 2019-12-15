@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of dgl: Perl's lack of setgroups</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl's lack of setgroups</h1>
+<h2><a href="/user/dgl/">dgl</a> on 2007-05-03T01:12:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><small>(Hi, I thought I'd start a blog..)</small>
+<br><br>
+<p>
+I want a process (started as root) to put itself in some additional groups
+before it changes to an unprivileged user. perldoc <a
+href="http://perldoc.perl.org/perlvar.html">perlvar</a> states this isn't
+possible via setting $GID or $(:
+
+<blockquote>  "However, a value assigned to $( must be a single number used to set the real
+  gid.  So the value given by $( should not be assigned back to $( without
+  being forced numeric, such as by adding zero."
+</blockquote>
+Next stop is <a href="http://perldoc.perl.org/POSIX.html">POSIX</a>, it
+helpfully contradicts perlvar:
+<blockquote>
+  "setgid [..] Similar to assigning a value to the PerlÃ¢â¬â¢s builtin $) variable,
+  see "$GID" in perlvar, except that the latter will change only the real user
+  identifier, and that the setgid() uses only a single numeric argument, as
+  opposed to a space-separated list of numbers."
+</blockquote>
+POSIX also provides the function getgroups, but there's no sign of setgroups!
+Even more helpfully yet another part of the Perl documentation implies this
+feature was <a
+href="http://perldoc.perl.org/perl5004delta.html#Group-vector-changeable-with-'%24)'">added
+in perl 5.004</a>.
+</p>
+<br><br>
+<p>
+I gave up and just tried it (with Perl 5.8.8 on Ubuntu):
+<blockquote><code>
+  # perl -MEnglish -e'$EGID = $GID = "1000 10"; $EUID = $UID = 65534; system("id")'<br>
+  uid=65534(nobody) gid=1000(dgl) groups=0(root)
+</code></blockquote>
+It doesn't work. Also notice it keeps the additional group root around, which
+is a bit scary too.
+</p>
+<br>
+<p>
+Perl does provide some help though -- through syscall() it's possible to work
+around the lack of setgroups. Unfortantely syscall() depends on knowing the
+number of the system call, which varies according to the architecture (even
+x86-64 is different to x86) and operating system in use.
+</p>
+<p>
+setgroups is simply (on Linux x86):
+<blockquote><code>
+  sub setgroups {<br>
+    &nbsp;&nbsp;syscall 206, scalar @_, pack("L" x @_, @_);<br>
+  }<br>
+</code>
+</blockquote>
+This has the desired effect:
+<blockquote><code>
+  # perl -MEnglish -MPOSIX -e'sub setgroups { syscall 206, scalar @_, pack("L" x @_, @_); } setgroups(1000,10); $EGID = $GID = 1000; $EUID = $UID = 65534; system("id")'<br>
+  uid=65534(nobody) gid=1000(dgl) groups=10(uucp),1000(dgl)
+</code>
+</blockquote>
+Maybe it would be better written as a module for CPAN although personally I'd
+rather see this fixed in the Perl core. As it leaves additional groups around
+with no way to get rid of them, I wouldn't be surprised if it results in a security issue in Perl programs trying to drop privileges.
+</p>
+<br><br>
+<p>
+Note under Linux the syscall number can be found by looking in
+/usr/include/&lt;arch&gt;/syscall.h (where &lt;arch&gt; is your architecture, e.g. x86).
+It might be easier to grep /usr/include for __NR_setgroups32 (or __NR_setgroups if it's a newer architecture).
+
+</p>
+
+<p>
+<b>Update</b>: Ignore this post, I realised it's very simple, $EGID is the thing to set first..
+i.e. $GID = $EGID = "10 1000"; works fine..
+</p></p>
+
+
+<hr/>
+
+
+
+<h2>Updating posts</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-05-03T12:19:43</h3>
+<p>Hint: if you put that sort of update at the top of the post, it would spare many of your readers the effort of fully reading the entire post in detail. (I would have switched to skimming mode if I knew you went down a garden path.)</p>
+
+<p>Thanks in advance.<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+<blockquote>
+
+<h2>Re:Updating posts</h2>
+<h3><a href="/user/dgl/">dgl</a> on 2007-05-03T17:30:53</h3>
+Good point.
+<br> <br>
+BTW, is there a way (or greasemonkey script..) to make this entry box bigger?
+
+
+
+<blockquote>
+
+<h2>Re:Updating posts</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-05-03T21:11:29</h3>
+<p>I use the <a href="http://userstyles.org/" title="userstyles.org">Stylish</a userstyles.org> extension to impose this site-specific style:</p> <p><blockquote> <div><tt>@namespace url(http://www.w3.org/1999/xhtml);<br>@-moz-document domain("use.perl.org") {<br>&nbsp; textarea[name="postercomment"], textarea[name="article"] {<br>&nbsp; &nbsp; width: 45em !important;<br>&nbsp; &nbsp; height: 40em !important;<br>&nbsp; }<br>}</tt></div> </blockquote>  <p>Another option would be <a href="https://addons.mozilla.org/en-US/firefox/addon/3818" title="mozilla.org">Resizable Textareas</a mozilla.org>, I guess.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

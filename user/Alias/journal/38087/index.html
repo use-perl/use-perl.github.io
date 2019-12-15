@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: ORLite::Migrate - SQLite/ORLite database schema migration</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>ORLite::Migrate - SQLite/ORLite database schema migration</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2008-12-15T03:15:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>One of the more interesting problems I've had the opportunity to address this year at $work has been database schema migration.<br/><br/>Database schema migration itself is not interesting, there's various ways to do it, some better than others.<br/><br/>What makes it interesting for me is the constraints the solution needed to work under.<br/><br/>For starts, this is an Oracle database, and a big one at that.<br/><br/>It weighs in 100-200gig on disk, with pretty almost all the data being active data and very little archival of log data.<br/><br/>There are 163 tables with 313 indexes, 71 triggers, and about 10 PL/SQL packages, some of which are pretty damned large (one implements a highly complex search engine for some very specific structural data).<br/><br/>It holds canonical authentication data, some financial data, order data, and supports on-the-fly generation of custom products.<br/><br/>It's mission critical enough that the storage the database runs on has been allocated a private fibre dark fibre strand across the Sydney harbour bridge to the disaster recovery site, ensuring every single disk block write that hits the disk is provably written simultaneously to physical platters on either side of the city.<br/><br/>Most interesting though, the deployment of new releases occurs in a 4 hour window, but it takes 15 hours to fully restore the database from backups. If a new software release fails (which typically happens as we hit peak load) and the database has to be rolled back, it has to do so WITHOUT losing any data that has been added to the data since it was rolled forwards.<br/><br/>The current implementation of our migration system, built over the last year, takes most of these issues into account.<br/><br/>The migration process is conceptually based on <a href="http://wiki.rubyonrails.org/rails/pages/understandingmigrations">ActiveRecordMigration</a>. Or at least, it is to the extend that it implements version control for schemas.<br/><br/>History begins at the point that a schema_info table was created to store the schema metadata (we've declared there was no history before that point) and moves forwards.<br/><br/>Each schema changes comes as a pair of patches (forwards and backwards). All changes must be logical changes and each pair must be able to round-trip itself.<br/><br/>A few subtleties also allow From and To versions, allowing situations like having 3 or 4 forward scripts to set up a new structure, but have one rollback patch to clean up all of them.<br/><br/>So far, mostly the same as ActiveRecordMigration.<br/><br/>Where we differ is that where ActiveRecordMigration are logical abstracted changes are written in Ruby, we define each patch in raw SQL (for maximum control). This allows not just PL/SQL changes, but also to shift tables between table spaces, allow the DBAs to provide some performance tweaking patch pairs, and so on.<br/><br/>Perl script patches are supported, but only raw DBI code is permitted. The main reason for this is that your object model is going to be evolving, but your patches describe all of known history. If you need to bring a 2 year old instance forwards 5 or 10 releases (which could easily involve 50 schema patches) you can't allow the migration at old points in history to be influenced by the current code structure. Data and code MUST be controlled separately from each other.<br/><br/>For each migration, the migration planner will attempt to resolve a migration plan from the current schema version to the target destination. For convenience, we support things like HEAD (further increasing the similarity to version control).<br/><br/>Since the new migration system was implemented, we've had a practically flawless migration history.<br/><br/>The plan is to donate this migration system back to CPAN, once it's complete.<br/><br/>Missing features include additional pre and post checks on the database integrity, and (more exciting) branch traversal support.<br/><br/>Schema branch support will involve expanding the schema metadata to include not only the version, but also the root of the svn tree for the code that matches the database.<br/><br/>On something like the test server, when a release is pushed out that has a different branch to the current schema branch, the migration planner will examine BOTH the patch directory for the current branch and the patch directory for the target branch.<br/><br/>It will then compare the two and discover the Last Common Ancestor (the most recent patch pair that is common between the two branches) and then produce a migration plan that rolls backwards on the current branch to the last common ancestor, and then forwards down the target branch to the destination version.<br/><br/>We see this as a key part of improving our development process, as is makes the process of implementing new code on branches SIGNIFICANTLY easier, because now we can change the database on a branch as easily as we change the code and push these arbitrary branches to a test server. The 100gig database copies on the test servers will then just Do The Right Thing and move themselves to the state they need to.<br/><br/>As an initial (VERY limited) release of this migration system, I've created <a href="http://search.cpan.org/perldoc?ORLite::Migrate">ORLite::Migrate</a>.<br/><br/>ORLite::Migrate provides a highly simplified implementation of our schema migration system, specifically intended to work with the <a href="http://search.cpan.org/perldoc?ORLite">ORLite</a> light weight ORM system.<br/><br/>The intended use for this migration system is, of course, Padre.<br/><br/>Padre uses ORLite to implement a limited ORM layer over the embedded SQLite database that holds Padre's persistent data. Until now, we haven't been able to use the full ORM functionality because there was no good way to upgrade the database to gain new tables or columns.<br/><br/>From 0.22 Padre should start taking advantage of ORLite::Migrate to automatically upgrade the SQLite database whenever you upgrade Padre itself.<br/><br/>With upgrade issues solved, we can start using the full ORM functionality, which will greatly improve the usability in the Padre database layer.<br/><br/>Following on from ORLite::Migrate, some time next year (once we've got branches working) I hope to release the full implementation of our database migration system to CPAN. But for now, this limited implementation should make upgrading embedded databases a LOT easier.<br/><br/>(This is still not The Sekrit)</p>
+
+
+<hr/>
+
+
+
+<h2>Cool!</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2008-12-15T13:58:28</h3>
+<p>That sounds very intresting.</p><p>And pretty similar to what we're doing at work. But your handling of changes in different branches seems better. We basically use numbered migration levels and then sort out renumbering when merging to trunk.</p><p>That's a bit annoying when also dealing with maintenance branches.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Cool!</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-12-16T00:33:41</h3>
+<p>We still need to do some renumbering when we merge to trunk.</p><p>We manage the problem (not solve, just manage) BASIC-style by incrementing the SQL version by 100 each release.</p><p>If someone it working on a branch, they'll having their own area of the 100...</p><p>migrate-2250-2251.sql<br>migrate-2251-2252.sql<br>(and so on for another 10 patches)</p><p>They may need to rename the first two numbers onto the final version for the release that they end up merged onto, but at least they don't need to do so while they are living on the branch.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

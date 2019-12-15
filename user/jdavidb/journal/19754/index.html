@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jdavidb: Observed</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Observed</h1>
+<h2><a href="/user/jdavidb/">jdavidb</a> on 2004-07-08T16:09:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Running massive deletes (on the order of tens of millions of records, probably a hundred million records when it's all done) on an Oracle table.  I'm pulling the relevent key information in a select, looping for each record returned and sending the key information back in a delete, committing every 500 or 1000 rows.  My DBA suggested I instead selected the ROWID as that is faster.  The DBD::Oracle <a href="http://search.cpan.org/user/timb/dbd-summaries/dbd-oracle.pod">summary</a> says a ROWID "can be treated as a string and used to rapidly (re)select rows."</p>
+
+<p>However, switching to the use of ROWIDs appears to slow my program down about 50-100%.  I haven't rigorously measured this, and there could of course be many other factors.  But 500 rows in the original program take about .1333 seconds to delete on average, while 500 rows in the ROWID version of the program often take .3333 seconds.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Re: Observed</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2004-07-08T18:03:57</h3>
+Sounds weird. Is it the same if you do it from PL/SQL? Is the query plan what you would expect with/without the rowid in the query?<br> <br>If performance is very important, you could perhaps consider these things:<br> <br>Why first select and then delete? Is there a client-side decision whether a row should stay or go? It's probably more efficient to do it in the delete where clause.<br> <br>Delete in parallel from many processes. Oracle can probably handle more load than serialized deletes. At least it can do somehting useful during idle network latency time.<br> <br>Minimize the number of calls by doing a "delete from x where y in (pk1, pk2, pk3, pk4,<nobr> <wbr></nobr>...). If you're lucky, maybe you can delete where x between y and z.<br> <br>If most rows should go, it may be faster to copy the remaining rows to another table and rename it into place, then truncate the original table.<br>
+
+
+
+<blockquote>
+
+<h2>Re: Observed</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2004-07-08T19:57:00</h3>
+<p> <i>
+If most rows should go, it may be faster to copy the remaining rows to another table and rename it into place, then truncate the original table.</i> </p>
+
+<p>Bingo.  I think I should'a done that.</p>
+
+<p> <i>Delete in parallel from many processes.</i> </p>
+
+<p>I am.  I've currently got one running for every day between June 3rd and June 16th, inclusive.  Seems to be going much faster now than it was before (although I've been on June 3rd forever... fortunately, I suspect there are an abnormally enormous number of records on that day compared to the later days).</p>
+
+<p> <i>Why first select and then delete?<nobr> <wbr></nobr>... It's probably more efficient to do it in the delete where clause.</i> </p>
+
+<p>Well, a single delete was blowing up due to exceeding the size of the rollback segment.  I'm sure now that Oracle probably has some feature where I can say "commit every 500 rows" during a delete, and that's probably what I should be using.  I originally tried this with a single delete statement and came back the next day to discover it had blown up.</p>
+
+<p> <i>Is it the same if you do it from PL/SQL?</i> </p>
+
+<p>Well, I should have mentioned my suspicion: that ROWID being an internal binary type is being serialized to text for the DBI and then reconverted in the delete statement.  I think PL/SQL would solve that, and perhaps I should look that route.  I figured I'd put out the early indications in people's minds that ROWID use in DBI may not be very efficient, though.</p>
+
+<p>Thanks for the feedback.  I think I'm going to reevaluate my approach.</p>
+
+
+
+<blockquote>
+
+<h2>Re: Observed</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2004-07-08T22:04:10</h3>
+<i>a single delete was blowing up due to exceeding the size of the rollback segment</i> <br> <br>I remember Thomas Kyte (of <a href="http://asktom.oracle.com/" title="oracle.com">http://asktom.oracle.com/</a oracle.com> fame) recommending someone to... increase the rollback segment in a case like this<nobr> <wbr></nobr>:)<br> <br>Here's a <a href="http://asktom.oracle.com/pls/ask/f?p=4950:8:16908242392937102557::NO::F4950_P8_DISPLAYID,F4950_P8_CRITERIA:2345591157689," title="oracle.com">discussion </a oracle.com> about deleting gazillion rows where they also mention that it may be clever to drop the index before deleting.<br>
+
+
+
+<blockquote>
+
+<h2>Re: Observed</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2004-07-09T14:20:51</h3>
+<p> <i>increase the rollback segment in a case like this</i> </p>
+
+<p>Well, yeah, there is the obvious solution, but there's also the issue of being one step further removed from those kinds of actions than I would like.  Plus I worried that the rollback segment might need to be increased by more than one order of magnitude and that it wouldn't be practical.<nobr> <wbr></nobr>:)</p>
+
+<p>Thanks for your help.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

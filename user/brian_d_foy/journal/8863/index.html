@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: Read the journals, save the pain</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Read the journals, save the pain</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2002-11-10T22:33:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I have been reading most of the journals in use.perl lately, and the experience is rather frustrating.  For me, the blogging experience is amazingly tedious.  I do not mind writing every day, but the web interfaces and crappy local tools seem like they were invented with people who do not mind computers that get in their way.  <br/><br/>No more! The use.perl journal system has been SOAP-aware for a while, even if I have not been.  <a href="http://use.perl.org/user/pudge/journal/3294">Chris Nandor</a> added SOAP support around March, and Joe Johnston recently showed everyone how to post journals from emacs (and this week I want to port that to BBEdit).  That is great, but I do not want to click or point more than once to read all of the journals I have not read yet.  I also do not want to spend any time waiting for journal entry to make it across the network.<br/><br/>I wrote a simple program to fetch all of the entries since the last time I read use.perl.  I started simply, but then figured that I could use this in all sorts of time-saving ways so I started to generalize it.<br/><br/>I threw in Text::Template so I could control the presentation in some other way and in multiple ways from the same program.  Many people have written templating systems, and most of them are too complicated for me.  I do not want to set up all sorts of things.  Text::Template is low-tech, flexible, and easy-to-use.  It is certainly one of my favorite modules nowadays.  Thanks Dominus!  (When is the last time you thanked the author of your favorite module?).<br/><br/>I started with Tie::MLDBM for more flexibility.  I will probably start shoving more info into that structure if I decide I really should have a local copy of entry. Already I have wanted to search through entries while I have done something away from a network connection. For now, Tie::MLDBM is overkill because I have no M in my L.<br/><br/>I make heavy use of environment variables rather than command line switches.  If I translate this to mod_perl, I can set the things I need to set with PerlSetEnv directives, and each URL which ultimately uses this can have its own environment.  I love mod_perl.  Thanks Doug!<br/><br/><pre>
+#!/usr/bin/perl -w
+use strict;<br/><br/>use File::Spec::Functions;
+use SOAP::Lite;
+use Text::Template;
+use Tie::MLDBM;<br/><br/>my $Debug       = $ENV{USE_PERL_JOURNAL_DEBUG}    || 0;
+my $Template    = $ENV{USE_PERL_JOURNAL_TEMPLATE} || 
+	catfile( $ENV{HOME}, ".journal.tmpl" );
+my $Counter     = $ENV{USE_PERL_JOURNAL_COUNTER}  || 
+	catfile( $ENV{HOME}, ".journals" );<br/><br/>die "Could not open template\n" unless -r $Template;<br/><br/>my $host        = 'use.perl.org';
+my $uri         = "http://$host/Slash/Journal/SOAP";
+my $proxy       = "http://$host/journal.pl";<br/><br/>dbmopen my %hash, $Counter, 0640 or die $!;<br/><br/>my $id          = $ENV{USE_PERL_JOURNAL_START} || $hash{next_id}
+	|| die "$0: I need to know where to start!";
+my $start_id    = $id;<br/><br/>print STDERR "$0: Starting at ID [$id]\n" if $Debug;<br/><br/>my $journal  = SOAP::Lite->uri( $uri )->proxy( $proxy );
+my $template = Text::Template->new( SOURCE => $Template );<br/><br/>while( my $hash  = $journal->get_entry( $id )->result )
+	{
+	print $template->fill_in( HASH => { entry => $hash } );<br/><br/>	$hash{next_id} = ++$id;
+	}<br/><br/>print "No recent journals\n" if $id == $start_id;<br/><br/>print STDERR "$0: Ending at ID [$id]\n" if $Debug;
+</pre><br/><br/>Of course, I have to make this work from Mac OS X.  My favorite editor, BBEdit, which I gladly pay for and do not care about the source code (mostly), has a command line tool. I can pipe input to it and the text shows up in a BBEdit window.  I start the process in the background because SOAP thingys tend to be slow.  I am not going to wait for this to finish---a window with all of the entries will pop up when it is done.  Anything I print to standard error still shows up in the terminal window.<br/><br/><pre>
+% perl journals.pl | bbedit &
+</pre><br/><br/>Now I can read the latest entries without a web browser, without clicking on things, and without waiting.  If I decide I want to respond to something, I can switch to a web browser, but the added work probably protects me from myself by discouraging me from saying stupid things.<br/><br/>Long live plain text!
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

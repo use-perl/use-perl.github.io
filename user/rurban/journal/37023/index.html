@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rurban: parrot and perl6 on cygwin</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>parrot and perl6 on cygwin</h1>
+<h2><a href="/user/rurban/">rurban</a> on 2008-07-27T17:53:13</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>The parrot and perl6 packages had been updated for cygwin.<br/><br/>Packaging was a major struggle because from my limited point of view there are still some major architectural hurdles running a self-hosting rakudo  perl6.exe and the languages.
+The test-suite from within the source directory works just fine. And working within the source directory also.<br/><br/>It will get problematic when you start to try a make install, which is not yet supported. Now I know why. In parrot we have a global _config hash, just like in the perl5 module Config.pm.
+But parrot is more self-containing, i.e. perl6.exe already contains this hash in a frozen state.<br/><br/>And there are even two different binaries: perl6.exe which only works inside the source dir, and installable_perl6.exe which accesses /usr/lib/parrot/include/... and not <build_dir>/runtime/parrot/include<br/><br/>The problem is that the runtime subdirs are mapped to /usr/lib/parrot, not all required files are installed on make reallyinstall, and the worst,
+that some installable_* exe files still try to access /usr/runtime/parrot/include/config.pir (the global hash which is already linked into the binary), using a non-FHS compliant path (it should be /usr/lib/parrot/include/config.pir at least)<br/><br/>The build system is quite clever linking to a seperate install_config.o for those installables.
+But some important functions like .include or load_bytecode still try to access /usr/lib/parrot/include/config.pir even if the hash is already loaded. And _config is only required to get the lib_path, to be able to traverse the dirs. A typical chicken-and-egg bootstrapping problem.<br/><br/>I wonder how to fix this the easiest way.
+1. Maybe I just missed some trick and it should work ootb right now.
+2. check if a a global _config hash exists and use it in load_bytecode and include and avoid loading config.pir in _config() if so.<br/><br/>This has a API limitation. 
+a. _config() is a function, not a hash, and
+b. _config has no sideeffects, it just returns a hash into a local $P0 e.g. so you never know how to access the frozen hash at install_config.o.<br/><br/>If _config would be a global hash, you could just check for it, and avoid loading the file with the definition of _config. Since _config() is a global function I see no major problem changing the API from a global function to a global hash.
+Maybe that's what interpinfo .INTERPINFO_RUNTIME_PREFIX is for. Haven't found the idea behind that yet.<br/><br/>Note: All this is just needed so that frozen states don't do unnecessary file accesses to files in wrong lib_paths (/usr/runtime/parrot). Once _config is initialized, the lib_path is correct and no wrong stats are done. 
+And runtime/parrot/include is also gone. 
+But this patch is still hardcoded into some libs. BAD!<br/><br/>A basic module system, like require would also help. Then I would just say .require 'config'<br/><br/>The idea to remove to formerly interpreter global config hash was re-entrancy (as explained by particle on irc). At least it worked before. 
+The current idea is to freeze the sub _config() and not the hash. So when the frozen _config is linked it is already available and find_sub('_config') can be used to check its existance and avoid unnecessary attempts to find 'include/config.pir' in a non-existing lib_path.<br/><br/>Tickets: <URL:http://rt.perl.org/rt3/Ticket/Display.html?id=56996>
+<a href="http://rt.perl.org/rt3/Ticket/Display.html?id=57236><br">http://rt.perl.org/rt3/Ticket/Display.html?id=57236><br</a><br/>There are more major hurdles for installable parrot languages.
+make install e.g. is missing for the languages also, and make test-installable to test against a installable_$lang.exe without accessing the build_dir, only accessing an already installed parrot.<br/><br/><URL:http://rt.perl.org/rt3/Ticket/Display.html?id=56554> contains some info, but most info is in the cygwin parrot source package, the cygport file and the patches. The source is now online at <URL:http://code.google.com/p/cygwin-rurban/source/browse/#svn/trunk/release/parrot>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

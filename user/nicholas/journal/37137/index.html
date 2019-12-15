@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of nicholas: [OT] Parallel tests for the win</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>[OT] Parallel tests for the win</h1>
+<h2><a href="/user/nicholas/">nicholas</a> on 2008-08-09T10:02:56</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><a href="http://cpan.uwinnipeg.ca/htdocs/Test-Harness/Test/Harness.html"><code>Test::Harness 3</code></a> has the ability to run regression tests in parallel. Until recently, in parallel mode, it would treat all tests as being in one pool, and choose any order of running tests, to maintain the desired number of jobs running concurrently. This is certainly KISS-approved, and useful if any arbitrary pair of your tests can run simultaneously without tripping over each other, due to using the same resources, such as test databases or temporary files. However, some distributions have tests such as <code>00-setup.t</code> and <code>99-teardown.t</code>, and rely on the tests running in order. The perl core is a broad church, and contains such distributions (as well as its own tests that trip over each other). So not something we could use yet.</p>
+<p>Aware of this, <a href="http://www.hexten.net/">Andy Armstrong</a> and others worked on a way of giving a set of rules to the harness, to describe what can, and more importantly <b>can't</b>, run in parallel. This appeared in release 3.11, but there were some bugs and leaks, and wasn't really good to go until 3.13, which <a href="http://public.activestate.com/cgi-bin/perlbrowse/p/34169">I merged into core</a> 10 days ago.</p>
+<p><a href="http://www.xray.mpe.mpg.de/mailing-lists/perl5-porters/2008-07/msg00756.html">Nothing happened</a>. Well, obviously, because if you want a job doing, you have to do it yourself.</p>
+<p>So first I experimented on the work code. Our unit tests ran in about 15 minutes on my machine. As an aside, I'd also tried running <a href="http://code.google.com/p/perl-devel-nytprof/"><code>Devel::NYTProf</code></a> on the tests, and identified a big bottleneck (specifically, "why are we regenerating these test <a href="http://cpan.uwinnipeg.ca/module/DBD::SQLite">SQLite</a> databases from fixed data at the start of several tests, when we could generate them once earlier, and just copy them on disk in the test, prior to opening the temporary copy), which my colleague fixed, and got us down closer to 10 minutes.</p>
+<p>I tried running them all in parallel, but things broke - like the core, because of temporary file names that clashed. But I noticed that at least 50% of the time was spent in tests with names such as <code>000-strict.t</code> (which verifies that everything uses <code>strict</code>) and suchlike - meta tests that validate constraints, and definitely don't write to ill-named temporary files or talk to databases. So I wrote a little program that searched for tests, partitioned them into two groups, and ran the groups in parallel. Initially, I had the meta tests running in series, but soon tweaked it to run them all in parallel. Run time went down from 10 minutes to about 6. WIN. Arguably I could post the script here, but it's at work and I'm not, so FAIL. Oops.</p>
+<p>As an another aside, it transpired that our inability to run in parallel was because the recently added copy functionality used a fixed name! Fortunately he'd written it very cleanly with the name generation in a method, and simply adding <code>$$</code> to the filename there was enough to make us run everything in parallel, so we could just move over to using the <a href="http://search.cpan.org/user/andya/Test-Harness-3.13/bin/prove"><code>--jobs</code> option to <code>prove</code></a>. Except that my colleague was considering parsing <code>/proc/cpu</code> to automatically work out how many jobs to run, which understandably a portable too like <code>prove</code> shouldn't do, so we'll probably stick with our program.</p>
+<p>So then I tried transferring my skills to the Perl core tests. I knew that tests in <code>t/op/*.t</code> as is wouldn't run in parallel, so initially, I tweaked the harness script to run tests in each directory in series, with directories in parallel. Also, because of the way the tests are set up, I still wanted all the lower level tests (<code>t/*/*.t</code>) to run before starting all the extensions' and libraries' tests, which in practice meant that there was a big wait until the slow tests in <code>op</code> finished. (Serial offenders). Tests all passed, but there was no big speedup. OK, to be accurate, tests all passed once <a href="http://public.activestate.com/cgi-bin/perlbrowse/p/34173">I tweaked the temporary</a> <a href="http://public.activestate.com/cgi-bin/perlbrowse/p/34179">file name generation</a> in <code>t/test.pl</code> that is used by the <code>runperl</code> function (and derivatives) to run something in a fresh <code>perl</code>. Turns out that <b>that</b> was the biggest source of temporary file names clashing.</p>
+<p>However, performance wasn't that great. It seemed that running tests in parallel wasn't any faster than running them in series. So I set about auditing <code>t/*/*.t</code> to find every use of temporary files. <a href="http://public.activestate.com/cgi-bin/perlbrowse/p/34176"><code>t/{uni,mro,lib}/*.t</code> were already clean</a> but <a href="http://public.activestate.com/cgi-bin/perlbrowse/p/34180"><code>t/op/*.t</code> needed some fixing to use non-conflicting names</a>. (<code>grep</code>ping for <code>unlink</code> will actually find more than <code>grep</code>ping for <code>open</code>, assuming that the code was well behaved and already cleaned up all its litter behind it.)</p>
+<p>So, <a href="http://public.activestate.com/cgi-bin/perlbrowse/p/34181">with <code>t/op/*.t</code> in parallel</a> timings got better, but still not wow. <a href="http://public.activestate.com/cgi-bin/perlbrowse/p/34184">So I found and fixed the races</a> <a href="http://public.activestate.com/cgi-bin/perlbrowse/p/34182">in <code>t/{cmd,comp,run,io}/*.t</a> too, so that <a href="http://public.activestate.com/cgi-bin/perlbrowse/p/34185">they can <b>all</b> run in parallel</a>. Which turned out to be useful, as several tests in <code>t/io/*.t</code> do <code>sleep</code> to generate specific age differences, which understandably makes those tests take a long elapsed time even on a fast CPU. Now they can run in parallel with something else actually doing work. (And just running <code>t/op/*.t</code> in parallel, queued as by default in lexical order, it's an eye-opener seeing how late through the alphabet the results of <code>t/op/alarm.t</code> show up - another <code>sleep</code> addict.)</p>
+<p>So, what does it look like? Here's the before and after on a Macbook - a dual core machine, running a complete clean build, <code>make -j3</code>, and the tests. Before is without parallel tests, after is with 3 tests in parallel with <code>TEST_JOBS=3</code>. There's a <code>touch pie</code> before anything starts, <code>ls -l pie</code> at the end, and the last number is that time in seconds, care of <code>perl -wle '$a = (stat"pie")[9]; print time - $a'</code></p>
+<dl><dt>Serial tests</dt>
+<dd><pre>All tests successful.
+Files=1553, Tests=209393, 992 wallclock secs (70.33 usr 11.47 sys + 644.42 cusr 59.71 csys = 785.93 CPU)
+Result: PASS
+      998.01 real       719.09 user        72.77 sys
+Fri  8 Aug 2008 19:24:49 BST
+-rw-r--r--  1 nick  admin  0  8 Aug 19:06 pie
+1124
+</pre></dd>
+<dt>Parallel Tests</dt>
+<dd><pre>All tests successful.
+Files=1553, Tests=209393, 460 wallclock secs (92.08 usr 13.23 sys + 630.34 cusr 59.47 csys = 795.12 CPU)
+Result: PASS
+      466.46 real       726.69 user        74.25 sys
+Fri  8 Aug 2008 19:56:46 BST
+-rw-r--r--  1 nick  admin  0  8 Aug 19:46 pie
+591
+</pre></dd></dl>
+<p>So the <b>total time</b> drops from 1124 seconds to 591. A saving of 533 seconds, <b>almost 9 minutes</b>, almost 50%. Time for a tweak, recompile (<a href="http://ccache.samba.org/">ccache for the win</a>) and retest is way more than halved. WIN. Probably even <b>EPIC WIN</b>. "Dear Sun, about that <a href="http://log.perl.org/2006/03/not_the_termina.html">32 core box you kindly loaned us a couple of years ago</a>. Could we have it back please? We now have the technology to exploit it properly".</p>
+<p>Of course, there are still improvements that could be made, if anyone is interested. In particular, right now, it would be useful to check all the test files at the top level of <code>lib</code>, <i>ie</i> <code>lib/*.t</code>, and change any that use custom temporary file routines to use <a href="http://cpan.uwinnipeg.ca/module/File::Temp"><code>File::Temp</code></a>. I'm not sure how much more it would gain us, but it's easy to do in small bursts, and it won't be in the wrong direction.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

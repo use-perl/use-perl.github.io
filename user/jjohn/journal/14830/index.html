@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjohn: child processes and filehandles</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>child processes and filehandles</h1>
+<h2><a href="/user/jjohn/">jjohn</a> on 2003-09-22T11:00:04</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><i>Note: I may have stolen this idea from Gnat and Tom's <b>Perl Cookbook</b> or some other high profile source.  However, this tidbit
+is useful to publicize. The code below is my own.</i>
+<p>Here's a random Perl tip that you may find helpful.  In certain 
+flavors of UNIX, including Linux and Solaris, the ownership of open filehandles
+is inherited by child processes.  Although this doesn't seem all that useful
+at first, consider the case in which you have a forking server that writes to 
+a log file.  You'd like all the child processes to write to that log file too, 
+but the children run as a different user.  One solution is to open a 
+filehandle in the parent as a globally visible variable (both lexically 
+scoped scalars and package-global filehandles work).   After the parent forks
+and changes real and effective UIDs, the child process has that same open 
+filehandle.  Take a look at the code sample below.  There is no tricky Perl
+here (except for setting the autoflush to prevent a weird extra copy of 
+sample string from appearing in the outfile when the process forks 
+[I don't know why I had to do this, but it seems to be an stdio buffering 
+issue]).
+
+<pre>
+#!/usr/bin/env perl
+#
+
+unless ($> == 0) {
+  print "need to be root to run this (child process changes UID)\n"; 
+  exit;
+}
+
+$&lt; = $> = 0;
+unlink 'testing';
+
+print "Current real ID: $>\n", "Opening filehandle\n";
+open my $in, ">testing" or die "can't open 'testing' $!\n";
+select((select($in), $|++)[0]);
+
+print $in localtime() . ": $&lt; says 'hello' from $$\n"; 
+
+my ($nobody_uid) = (getpwnam('nobody'))[2]; 
+print "ID of 'nobody': $nobody_uid\n";
+
+print "Forking and changing real and effective ID to $nobody_uid\n";
+
+$SIG{CHLD} = sub { wait };
+my $pid = fork;
+
+if ($pid) {
+  sleep(1);
+  print $in localtime() . ": $&lt; says 'hello' from $$\n"; 
+  close $in;
+  exit;
+}       
+
+sleep(3);
+$&lt; = $> = $nobody_uid;
+
+print $in localtime() . ": $&lt; says 'hello' from $$\n"; ;
+close $in;
+
+# try appending to file as this user
+open my $try, ">>testing" or die "can't open 'testing': $!\n";
+print $try "I can write to this file and I'm $&lt;\n";
+close $try;
+
+</pre>
+
+<p>If you run this code on a compatible system, your 'testing' outfile should
+have two lines in it from different processes and different UIDs.  Of course, 
+you need to be aware of the lurking dangers of multiple processes trying to 
+write to the same file at the same time.  This resource contention issue may
+be solved with a variety of IPC synchronization techniques, such as semaphores
+and lock files.  I like to use lock files, although I find flock a bit 
+cumbersome.  Unfortunately, semaphores are even more troublesome, as 
+a quick look at the <i>perlipc</i> manpage reveals.  Conceptually simple, 
+semaphors require some weird <code>pack</code> and <code>unpack</code> 
+formats and <code>IPC::SysV</code> constants to work.  
+<p>Eek.
+<p>Now, you have one less excuse to run your perl daemons as root. 
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

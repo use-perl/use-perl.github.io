@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of richardc: evolving - Monday 17th November, 2003</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>evolving - Monday 17th November, 2003</h1>
+<h2><a href="/user/richardc/">richardc</a> on 2004-02-20T23:48:18</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><h2>Overly and repeatedly dumb.</h2> <p>So today I figured it'd be a good enough time to try and speedup
+ Timesink some.  For those not keenly stalking me or my pet projects
+ <a href="http://unixbeard.net/svn/richardc/timesink">Timesink</a> is my web-based
+ RSS aggregator which I wrote a while back on migrating away from
+ a dying mac and NetNewsWire.</p>
+ <p>Anyway, there are a couple of parts of it which are kinda slow, one is
+ the "what's unseen" calculation in the web frontend, and another is
+ the scraper.</p>
+ <p>Now the unseen code looks like this:</p>
+ <pre> package Timesink::DBI::Subscriber;</pre>
+ <pre> sub unseen {
+      my $self = shift;
+      my $feed = shift;</pre>
+ <pre>     my ($sub) = Timesink::DBI::Subscription->search({ feed => $feed,
+                                                        subscriber => $self });
+      my %seen = map { $_->item => 1 } $sub->seen;
+      return grep { !$seen{ $_ } } $feed->items;
+  }</pre>
+ <p>That is; given the subscriber find out how many items in a given feed
+ are unseen by that subscriber.  That you get the actual objects is
+ somewhat a side effect as the web inferface only really cares about
+ the final count.</p>
+ <p>Okay I think, after determining that this is the slow spot with
+ <a href="http://search.cpan.org/perldoc?Devel::Profiler">Devel::Profiler</a>, time to rewrite that as a quick SQL query.  </p>
+ <p>Small flaw in that plan, my live instance runs on mysql 4.0.16, and
+ won't get upgraded till 4.1 until <a href="http://debian.org">debian unstable</a>
+ does that for me, so I'm stuck with <a href="http://www.mysql.com/doc/en/Rewriting_subqueries.html">painful rewriting to emulate it</a>.  After
+ about half an hour of that, I eventually admited defeat and added this
+ comment:</p>
+ <pre> +# XXX I be the slowest routine in Christendom.  a sub-select would
+  +# probably help, if mysql 4.0 wasn't lame.</pre>
+ <p>So moving on to the second step.  Work on the speed of the scraper.</p>
+ <p>Now the scraper itself is fairly quick, it's only really waiting on
+ upstream servers handing out RSS documents to parse, so if I could
+ just parallelise the downloading that it's going to take less time,
+ even if it's not really quicker.</p>
+ <p>Now I could see two ways around that, something finicky with
+ <a href="http://search.cpan.org/perldoc?LWP::Parallel">LWP::Parallel</a> or the brute force forking of <a href="http://search.cpan.org/perldoc?Proc::Queue">Proc::Queue</a>.</p>
+ <p>Given that I didn't want to rewrite <a href="http://search.cpan.org/perldoc?LWP::Simple">LWP::Simple</a>'s mirror routine I
+ decided to plump for forking, just so long as I remembered to
+ disconnect the dbh I'd be fine, or so I reasoned.  So this was my
+ first stab:</p>
+ <p>Before:</p>
+ <pre> for my $feed (@feeds) {
+     my $rss = $self->get_rss( $feed ) or next;                         
+     $self->scrape_feed( $feed, $rss );   
+  }</pre>
+ <p>After:</p>
+ <pre> for my $feed (@feeds) {
+      my $pid = fork;
+      die "couldn't fork $!" unless defined $pid;
+      if ($pid == 0) {
+          my $rss = $self->get_rss( $feed ) or next;
+          $self->scrape_feed( $feed, $rss );
+          exit;
+      }
+  }
+  1 while wait != -1; # reap the kids</pre>
+ <p>Spot the deliberate mistake?  Well even if you did, I didn't for a
+ time.  Then <a href="http://rafael.net0.nerim.net/blog">Rafael</a> asked me why I
+ was grabbing his RSS 30 times a minute.</p>
+ <p>So I scratched my head, and eventually saw my mistake.  Back in the
+ old single process model if get_rss didn't return new rss that was
+ your clue to check the *next* rss feed.  Once I'd moved that into a
+ multi-process model the job of the child is not to try again, but to
+ exit gracefully.  The fix was as simple as:</p>
+ <pre> -         my $rss = $self->get_rss( $feed ) or next;
+  +         my $rss = $self->get_rss( $feed ) or exit;</pre>
+ <p>Case solved I thought, and went off to watch teevee.</p>
+ <p>Of course it doesn't end there.  But there's bonus points if you guess
+ my next (and hopefully final mistake of the evening).  </p>
+ <p>Yes that's right, I'd forgotten to install the fixed version of the
+ module, so come the next time the script ran it picked up the old
+ DoS-happy version of the module and looped all over again.  D'oh.</p>
+ <p><b>---</b></p>
+ <h2>Nothing for months, and then two modules come along in one day.</h2>
+ <p><a href="http://search.cpan.org/perldoc?IO::Automatic">IO::Automatic</a> and <a href="http://search.cpan.org/perldoc?Parse::Debian::Packages">Parse::Debian::Packages</a> pretty much sprung to
+ my fingers unbidden today, the latter a side effect of adding debian
+ support to Leon's cool new <a href="http://search.cpan.org/perldoc?Module::Packaged">Module::Packaged</a> module, the former is a
+ TT-like trick extracted from some code I found myself banging on.  </p>
+ <p>Enjoy.</p>
+ 
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

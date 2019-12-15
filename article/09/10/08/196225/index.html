@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org story by AndyArmstrong: Measuring copy-on-write on Linux</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Measuring copy-on-write on Linux</h1>
+<h2><a href="/user/AndyArmstrong/">AndyArmstrong</a> on 2009-10-08T19:26:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p> <a href="http://perlmonks.org/?node=Corion">http://perlmonks.org/?node=Corion</a> asked about measuring memory allocation in IRC but I was reminded of something I've poked at recently which is measuring how much memory is copy-on-write shared between forked mod_perl processes. Thus far, when on Linux the only answer I know of is to use the exmap kernel module. The main page is <a href="http://www.berthels.co.uk/exmap/">http://www.berthels.co.uk/exmap/</a> but Dave Olszewski wrote some bug fixes for it at <a href="http://github.com/cxreg/exmap">http://github.com/cxreg/exmap</a>. exmap uses a kernel module to add a new /proc/exmap file. To read physical page stats, write the PID to this file, then read the results. The exmap distribution comes with a C++ and perl GTK program to interpret the kernel data. Below is what I know of the format for the kernel data.</p><p>To use:</p><blockquote><div><p> <tt>$ echo $pid &gt; /proc/exmap<br>$ cat /proc/exmap<br>VMA 400000 87<br>1 0 1c6e7<br>1 0 1c6e8<br>1 0 1d328<br>...</tt> </p></div></blockquote><blockquote><div><p> <tt>$ grep 400000 /proc/$pid/maps<br>00400000-00457000 r-xp 00000000 08:01 722755 /usr/bin/screen</tt> </p></div></blockquote><p>The sections provided by /proc/exmap correspond to each of the chunks in /proc/$pid/maps. Each line then details a page, whether it is swapped, and whether it is writable.</p><blockquote><div><p> <tt>(<br>&nbsp; &nbsp; VMA $address $page_count<br>&nbsp; &nbsp; ( $resident $writable $page_id )+<br>)+</tt> </p></div></blockquote><p>Anyway, just thought I'd share. If you know a better trick, I'd love to hear of it. When I next get around to improving my search servers I'll likely actually try to use this but for now this is just a tool I think I plan to use but haven't done serious work with yet.</p></p>
+<p></p>
+
+
+<hr/>
+
+
+
+<h2>Try smem</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2009-10-06T21:05:29</h3>
+<p><a href="http://www.selenic.com/smem/" title="selenic.com">http://www.selenic.com/smem/</a selenic.com></p>
+
+
+
+<blockquote>
+
+<h2>Re:Try smem</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2009-10-06T21:34:15</h3>
+<p>Bummer, smem wants 2.6.27+ but Ubuntu LTS, the server distro, is only at 2.6.24. In theory, the 10.4 Ubuntu release will be the next LTS update and my opportunity to use smem.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>mod_perl guide has memory tracking references</h2>
+<h3><a href="/user/bsb/">bsb</a> on 2009-10-09T02:18:52</h3>
+<p>I found the old mod_perl guide informative on this topic:</p><p><a href="http://perl.apache.org/docs/1.0/guide/performance.html#How_Shared_Is_My_Memory_" title="apache.org">http://perl.apache.org/docs/1.0/guide/performance.html#How_Shared_Is_My_Memory_</a apache.org></p><p>One thing I've long wondered about is the effect of reference counting on memory sharing.  Does all the incrementing and decrementing of refcounts unshare the entire page the object is on?  Can anything be done about this, either within Perl or below?</p>
+
+
+
+<blockquote>
+
+<h2>Re:mod_perl guide has memory tracking references</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-10-09T03:53:21</h3>
+<blockquote><div><p> <em>Does all the incrementing and decrementing of refcounts unshare the entire page the object is on?</em></p></div> </blockquote><p>I can't imagine how it wouldn't.</p><blockquote><div><p> <em>Can anything be done about this, either within Perl or below?</em></p></div> </blockquote><p>The standard trick in GCs is to move the fields used to track liveness from the objects themselves into a special-purpose structure which tracks multiple objects.  The corresponding memory pages get unshared, but the number of pages modified is far fewer.</p><p>This also improves cache behavior during GC operations.</p>
+
+
+
+<h2>Re:mod_perl guide has memory tracking references</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2009-10-09T13:29:34</h3>
+<p>Funny you should ask... The chart <a href="http://diotalevi.isa-geek.net/user/josh/090909/memory-0.png" title="isa-geek.net">http://diotalevi.isa-geek.net/user/josh/090909/memory-0.png</a isa-geek.net> from <a href="http://use.perl.org/user/jjore/journal/39604" title="perl.org">http://use.perl.org/user/jjore/journal/39604</a perl.org> shows that at least in that sample program, all the reference counts are tightly clustered. You can write off those pages as unshared *but* you can also likely reasonably expect they aren't taking other pages with them.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Linux::Smaps</h2>
+<h3><a href="/user/robinsmidsrod/">robinsmidsrod</a> on 2009-10-12T17:15:41</h3>
+<p>Have you tried <a href="http://search.cpan.org/perldoc?Linux::Smaps" title="cpan.org">Linux::Smaps?</a cpan.org></p><p>From the CPAN description: <i>"The<nobr> <wbr></nobr>/proc/PID/smaps files in modern linuxes provides very detailed information about a processes memory consumption. It particularly includes a way to estimate the effect of copy-on-write. This module implements a Perl interface."</i> </p>
+
+
+
+<blockquote>
+
+<h2>Re:Linux::Smaps</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2009-10-13T12:54:43</h3>
+<p>I'd recalled<nobr> <wbr></nobr>/proc/#/smaps <i>also</i> wasn't available on the 2.6.10. Taking a quick look at Linux::Smaps, it appears I can consume text of the format:</p><blockquote><div><p> <tt>00602000-00c39000 rw-p 00602000 00:00 0&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; [heap]<br>Size:&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;6364 kB<br>Rss:&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 6340 kB<br>Shared_Clean:&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 0 kB<br>Shared_Dirty:&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 0 kB<br>Private_Clean:&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;0 kB<br>Private_Dirty:&nbsp; &nbsp; &nbsp; 6340 kB<br>Referenced:&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;1064 kB</tt></p></div> </blockquote><p>Apparently a page is counted in Private_* if the only the process being examined has that page. If any other processes also use the page, it is counted in Shared_*. Caveats if you're swapping.</p><p>I don't yet know how smem works.</p><p>exmap will let me fully find out exactly what's being shared. Or not.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Linux::Smaps</h2>
+<h3><a href="/user/ysth/">ysth</a> on 2010-03-01T21:12:07</h3>
+But for practical purposes of controlling apache process growth, just counting the private memory is the right thing to do (or counting all the root process's memory + just private from the kids to get a reasonable total.)
+<p>
+I'm curious to know just what you are seeing shared in apache children that isn't copy-on-write memory?</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

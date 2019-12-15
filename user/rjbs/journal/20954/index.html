@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: querylet</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>querylet</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2004-09-20T02:50:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I work from home on Mondays.  I find it's a good way to avoid having people barge in on me while I'm trying to get in the zone.  At work, my office is, I think, one of the nicest in the building, as far as atmosphere goes.  I have a nice lamp, a good arrangement of furniture, and good music.  People stop in to ask me questions and give me information I need, and I really do enjoy the fact that my office seems to make them feel at ease.<br/><br/>That said, I can't get hard work done when people are wandering in, and people don't always understand that a closed door might mean "go away."  So, I work from home on Mondays.<br/><br/>Despite that, I got an urgent call last week: one of our engineers needed to run a query, and wanted me to run it for him.  This annoyed me, because not only was it my day off, but running a query is so ''simple''!  "Look," I said, "just take half an hour to learn SQL and you'll be able to take care of this stuff yourself."<br/><br/>Well, to his credit he did, and then said, "How do I ''use'' this now?"  He could have used Excel or Access, but they both ruin your SQL formatting and encourage you to use the dreadful MS query design utilities.  I didn't want to point them out, so I wrote a really simple script to run an SQL query from a text file and produce CSV output for use in Excel.<br/><br/>I cannot explain how exciting this was to the engineer.  He seemed to think it was going to change his ability to do his job!  It probably will, too: if you need to analyze data to do your job, but have never had the ability to query the data in any powerful fashion, a simple tool like an SQL query must seem amazing.<br/><br/>It seemed to me like it might be worth my time to give that tool a little more power.  "What if you could makes the queries more abstract," I asked, "and then give it parameters when you run it, like date ranges and lists of reactors to query?"  He approved of the idea, and I thought I'd make it a three part text file:  SQL query, names to use when prompting for bind values, and raw Perl to run before output, just in case.<br/><br/>Somewhere, though -- and I really can't recall where, now -- I had an incredible fit of hubris.  I came to believe that the simplest and most rational thing to do would be to write a source filter that would convert a simple syntax for querying and data munging into real Perl, enabling the engineers to write powerful reports with only a rudimentary knowledge of Perl syntax.<br/><br/>This became Querylet.<br/><br/>I'll give an example, using a querylet that I'm using quite a bit, now.<br/><br/><pre>
+database: dbi:SQLite2:dbname=cpants.db<br/><br/>query:
+  SELECT dist, extracts_nicely, has_version, has_readme, has_manifest,
+    has_meta_yml, has_buildtool, no_symlinks, has_tests, proper_libs,
+    no_pod_errors, is_prereq
+  FROM kwalitee
+  WHERE dist IN (SELECT dist FROM dist WHERE author = '[% cpanid %]')
+  ORDER BY dist
+</pre><br/><br/>This should be pretty straightforward.  It's the beginning of the querylet, and it sets up the DBI connection and creates a query template.  Right now, it uses TT2 for the query, but I'll be changing that in the near future to use more traditional bind values -- I think.<br/><br/>Then, I tell it how to fill in the template:<br/><br/><pre>
+munge query:
+  cpanid => uc($ARGV[0] || 'rjbs')
+</pre><br/><br/>So, unless I say otherwise at the command line, use my cpanid.<br/><br/>This is simple enough already:  it queries CPANTS for all my modules, and shows me their kwalitee markers.  I don't want to see markers that I've never failed to get, though, so I do a bit of munging:<br/><br/><pre>
+delete columns where:
+  not(grep { ($_||'0') ne '1' } @values)
+</pre><br/><br/>Now columns that have nothing but 1's will be dropped.<br/><br/>I also don't want to see perfect distributions:<br/><br/><pre>
+delete rows where:
+  not(grep { ($_||0) == 0 } 
+    @$row{grep { $_!~ /dist|is_prereq/ } keys %$row})
+</pre><br/><br/>That is, delete any row that's never got a zero in the useful kwalitee marker columns.  (I'm not worried about is_prereq, since I've got no prereq modules (yet).)<br/><br/>Now, I can run this program and get a nice CSV file of my needed improvements.<br/><br/>That's not so great for the command-line, though, so I might want to use an output plugin.  I can just add two lines to my querylet:<br/><br/><pre>
+use Querylet::Output::Text;<br/><br/>output format: text
+</pre><br/><br/>and now I get a nicely formatted plaintext table, courtesy of Text::Table.<br/><br/>These queries are fantastic, and I can just save my utility SQL scripts for future use.  Of course, back at work it's not the best thing ever, since even bright physicists sometimes get daunted by the command interpreter. Fortunately, I can do a little rewriting for them, too.  I remove the old "munge query" line and add:<br/><br/><pre>
+use Querylet::CGI;<br/><br/>input type: cgi<br/><br/>input: cpanid<br/><br/>munge query:
+  cpanid => $input->{cpanid}
+</pre><br/><br/>Now, the querylet will run as a CGI application.  If the "cpanid" CGI input can't be found, it will present a web form asking for it.  If it can -- and any other inputs we might ask for can, too -- it will run the query and produce an HTML table output.<br/><br/>There's a lot of polish to be done, especially as regards using TT2 to produce nicer output.  I need to finalize the query munging and parameterization.  Even so, though, this is clearly going to make my life a lot easier.<br/><br/>If you'd like to see it in action, I've got the above querylet in place, for now.  You can see <a href='http://rjbs.manxome.org/cpants/cpants.ql.txt'>the source</a> or <a href='http://rjbs.manxome.org/cpants/cpants.ql'>a demo</a>. </p>
+
+
+<hr/>
+
+
+
+<h2>Cool!</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2004-09-20T17:35:19</h3>
+It sounds extremely cool, but your demo link gives me an internal server error.
+
+
+
+<blockquote>
+
+<h2>Re:Cool!</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2004-09-20T17:45:33</h3>
+Haha!  You must've tried that in the 30 seconds while I updated to Querylet 0.21_01!<br> <br>This gives me an opportunity to say:  bind parameters are implemented.  The query is now more like this:<blockquote><div> <tt>query:<br>&nbsp; SELECT * FROM table WHERE row = ?<br>
+&nbsp; <br>query parameter: $input-&gt;{cpanid}</tt> </div></blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

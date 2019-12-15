@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of dpuu: The Bowling challenge</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>The Bowling challenge</h1>
+<h2><a href="/user/dpuu/">dpuu</a> on 2008-12-24T04:13:37</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Having played with the "pairs" challenge, I looked through the other beginners events. Most dealt with files and databases: I didn't want to tackle that right now. So I skipped to challenge-10: interpret a bowling game that is input as an array.
+<p>
+For this one, my thought was to exploit "multi" subs: there're only so many patterns to each frame: I can just code them explicitly. Lets start with my solution:
+<p>
+
+<code>
+my @scores = 2,5,7,"/",8,1,"X",9,"/",5,3,7,0,4,5,"X",2,0;
+
+my $total = 0;
+
+multi frame_score ( Str $a, Str $b, Str $c ;; *@next ) { 30 }
+multi frame_score ( Str $a, Str $b, Int $c ;; *@next ) { 20 + $c }
+multi frame_score ( Str $a, Int $b, Str $c ;; *@next ) { 20 }
+multi frame_score ( Str $a, Int $b, Int $c ;; *@next ) { [+] 10, $b, $c }
+multi frame_score ( Int $a, Str $b, Str $c ;; *@next ) { 20 }
+multi frame_score ( Int $a, Str $b, Int $c ;; *@next ) { 10 + $c }
+multi frame_score ( Int $a, Int $b ;; *@next ) { $a + $b };
+
+while @scores {
+    $total += frame_score |@scores;
+    say "score now $total";
+
+    @scores.shift unless @scores[0] eq "X";
+    @scores.shift;
+}
+</code>
+
+<p>
+
+So what went wrong? Actually, this one went pretty smoothly. I probably should use specific string values, instead of relying on just the fact that "/" and "X" are generic strings (and it doesn't matter which). That's something I need to investigate. The one thing that feels a bit clunky is that logic at the bottom that decides how many bowls were bowled in each frame (and therefore how many to shift off the array. I'd really like to be able to use a "for" loop to iterate the array.
+
+<p>
+The're two features missing that don't permit that: one is that it's not possible to do multi pointy-blocks. That would need a syntax something like:
+<p>
+<code>
+for @x:
+  Int $x -> { ... },
+  Str $x -> { ... }
+;
+</code>
+<p>
+That specific syntax possibly wouldn't work, but you get the idea...
+<p>
+the other thing missing is the ability to pass non-consumed args to the pointy-block. Something like:
+<p>
+<code>
+for @a -> $x, $y ;; $z { ... }
+</code>
+<p>
+where "$x" would not be consumed: only two items would be consumed from the list. ";;" wouldn't be the right syntax for the separate though, because there's not necessary relation between the usage of args for selecting between multi-pointies, and the args that are to be consumed.
+<p>
+Overall, this challenge was felt good in perl6!</p>
+
+
+<hr/>
+
+
+
+<h2>Suboptimal</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-12-26T02:38:04</h3>
+<p>The code is really hard to follow. It takes a lot of careful scanning and thinking to understand which cases will invoke which variant of the sub. At first I thought you hadn&#8217;t handled the case where a strike is followed by a spare.</p><p>Also, the logic for how much to advance is confusingly written. A little extra work would make this 10&#215; easier to read:</p><blockquote><div><p> <tt>subset Strike of Any where { $_ eq 'X' };<br>subset Spare&nbsp; of Any where { $_ eq '/' };<br>subset&nbsp; Some&nbsp; of Any where { $_ ne 'X' &amp; '/' };<br> <br>multi frame_score ( Strike $a, Strike $b, Strike $c<nobr> <wbr></nobr>;; *@next ) { 30 }<br>multi frame_score ( Strike $a, Strike $b,&nbsp; &nbsp;Some $c<nobr> <wbr></nobr>;; *@next ) { 20 + $c }<br>multi frame_score ( Strike $a,&nbsp; &nbsp;Some $b,&nbsp; Spare $c<nobr> <wbr></nobr>;; *@next ) { 20 }<br>multi frame_score ( Strike $a,&nbsp; &nbsp;Some $b,&nbsp; &nbsp;Some $c<nobr> <wbr></nobr>;; *@next ) { [+] 10, $b, $c }<br>multi frame_score (&nbsp; &nbsp;Some $a,&nbsp; Spare $b, Strike $c<nobr> <wbr></nobr>;; *@next ) { 20 }<br>multi frame_score (&nbsp; &nbsp;Some $a,&nbsp; Spare $b,&nbsp; &nbsp;Some $c<nobr> <wbr></nobr>;; *@next ) { 10 + $c }<br>multi frame_score (&nbsp; &nbsp;Some $a,&nbsp; &nbsp;Some $b&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>;; *@next ) { $a + $b }<br> <br>my @scores = 2,5,7,"/",8,1,"X",9,"/",5,3,7,0,4,5,"X",2,0;<br>my $total = 0;<br> <br>while @scores {<br>&nbsp; &nbsp; $total += frame_score |@scores;<br>&nbsp; &nbsp; say "score now $total";<br>&nbsp; &nbsp; if @scores.shift ne 'X' { @scores.shift }<br>}</tt></p></div> </blockquote><p>I am not satisfied with the solution as it stands, but various attempts to improve upon it ran into various traps, the biggest one being that Rakudo will extend an array if you take a slice that overshoots the end of the array. I don&#8217;t know whether the spec prescribes this, but it sure is damn inconvenient.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Suboptimal</h2>
+<h3><a href="/user/dpuu/">dpuu</a> on 2008-12-27T02:37:07</h3>
+<p>Thanks for the subset suggestion. I'd tried putting "where" clauses inline, but that was very clunky. Subsets definitely solve that.</p><p>I'm not sure, however, I like your version of the consumption logic any better than mine: using a modifier-op ("shift" in both the conditional and consequent confuses me (I like conditionals to be pure). I would tend to agree, though, that my form was equally confusing. It might be best to be explicit:<br><code><br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $bowls_this_frame = @scores[0] eq "X" ?? 1 !! 2;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; @scores.shift for ^$bowls_this_frame<br></code></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

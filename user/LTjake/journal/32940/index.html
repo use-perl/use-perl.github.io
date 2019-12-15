@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of LTjake: Catalyst + Exception::Class</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Catalyst + Exception::Class</h1>
+<h2><a href="/user/LTjake/">LTjake</a> on 2007-04-08T03:28:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've been doing exception handling with perl in the way most people expect</p>
+<pre>
+eval { code that might throw an exception };
+
+if( $@ ) {
+    handle the issue
+}
+</pre>
+<p>This code tends to be a bit fragile when it comes to deciphering particular type of failure. Was it a "file not found" error? You can do a simple regex to find out. However, what if error messages are localized? Ugh.</p>
+<p>It wasn't until recently that I truly learned the power of "exceptions as objects" in programming. In particular, its usage in a web framework.</p>
+<p>I can't really take the credit for this. It comes from my fellow Catalyst developer Christian Hansen and his <a href="http://dev.catalystframework.org/browser/trunk/Isotope/lib/Isotope/Exceptions.pm">Isotope code</a>.</p>
+<p>If you've browsed that last link, you should notice something. It looks a lot like an HTTP response. That was kind of a mind blowing concept to me. This means that we can throw exceptions that aren't necessarily fatal, but, uh, exceptional in some manner for lack of a better word -- all the while staying in the HTTP world.</p>
+<o>Adapting the above to Catalyst is pretty easy.</p>
+<pre>
+package MyApp::Exceptions;
+
+use strict;
+use warnings;
+
+BEGIN {
+    $Catalyst::Exception::CATALYST_EXCEPTION_CLASS = 'MyApp::Exception';
+
+    my %classes = (
+        'MyApp::Exception' => {
+            description => 'Generic exception',
+            fields      => [ qw( headers status status_message payload ) ],
+            alias       => 'throw'
+        },
+        'MyApp::Exception::FileNotFound' => {
+            isa            => 'MyApp::Exception',
+            description    => '404 - File Not Found',
+        },
+        'MyApp::Exception::AccessDenied' => {
+            isa            => 'MyApp::Exception',
+            description    => '401 - Access Denied',
+        },
+    );
+
+    my @exports = grep { defined } map { $classes{ $_ }->{ alias } } keys %classes;
+    
+    require Exception::Class;
+    require Sub::Exporter;
+    
+    Exception::Class->import(%classes);
+    Sub::Exporter->import( -setup => { exports => \@exports  } );
+}
+
+package MyApp::Exception;
+
+use strict;
+use warnings;
+no warnings 'redefine';
+
+use HTTP::Headers ();
+use HTTP::Status  ();
+use Scalar::Util  qw( blessed );
+
+sub headers {
+    my $self    = shift;
+    my $headers = $self->{headers};
+
+    unless ( defined $headers ) {
+        return undef;
+    }
+
+    if ( blessed $headers && $headers->isa('HTTP::Headers') ) {
+        return $headers;
+    }
+
+    if ( ref $headers eq 'ARRAY' ) {
+        return $self->{headers} = HTTP::Headers->new( @{ $headers } );
+    }
+
+    if ( ref $headers eq 'HASH' ) {
+        return $self->{headers} = HTTP::Headers->new( %{ $headers } );
+    }
+
+    MyApp::Exception->throw(
+        message => qq(Can't coerce a '$headers' into a HTTP::Headers instance.)
+    );
+}
+
+sub status {
+    return $_[0]->{status} ||= 500;
+}
+
+sub is_info {
+    return HTTP::Status::is_info( $_[0]->status );
+}
+
+sub is_success {
+    return HTTP::Status::is_success( $_[0]->status );
+}
+
+sub is_redirect {
+    return HTTP::Status::is_redirect( $_[0]->status );
+}
+
+sub is_error {
+    return HTTP::Status::is_error( $_[0]->status );
+}
+
+sub is_client_error {
+    return HTTP::Status::is_client_error( $_[0]->status );
+}
+
+sub is_server_error {
+    return HTTP::Status::is_server_error( $_[0]->status );
+}
+
+sub status_line {
+    return sprintf "%s %s", $_[0]->status, $_[0]->status_message;
+}
+
+sub status_message {
+    return $_[0]->{status_message} ||= HTTP::Status::status_message( $_[0]->status );
+}
+
+my %messages = (
+    400 => 'Browser sent a request that this server could not understand.',
+    401 => 'The requested resource requires user authentication.',
+    403 => 'Insufficient permission to access the requested resource on this server.',
+    404 => 'The requested resource was not found on this server.',
+    405 => 'The requested method is not allowed.',
+    500 => 'The server encountered an internal error or misconfiguration and was unable to complete the request.',
+    501 => 'The server does not support the functionality required to fulfill the request.',
+);
+
+sub public_message {
+    return $messages{ $_[0]->status } || 'An error occurred.';
+}
+
+sub as_public_html {
+    my $self    = shift;
+    my $title   = shift || $self->status_line;
+    my $header  = shift || $self->status_message;
+    my $message = shift || $self->public_message;
+
+return <<EOF;
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<html>
+  <head>
+    <title>$title</title>
+  </head>
+  <body>
+    <h1>$header</h1>
+    <p>$message</p>
+  </body>
+</html>
+EOF
+
+}
+
+sub has_headers {
+    return defined $_[0]->{headers} ? 1 : 0;
+}
+
+sub has_payload {
+    return defined $_[0]->{payload} && length $_[0]->{payload} ? 1 : 0;
+}
+
+sub has_status_message {
+    return defined $_[0]->{status_message} ? 1 : 0;
+}
+
+sub full_message {
+    my $self    = shift;
+    my $message = $self->message;
+
+    if ( $self->has_payload ) {
+        $message .= sprintf " %s.", $self->payload;
+    }
+
+    return $message;
+}
+
+package MyApp::Exception::FileNotFound;
+
+sub status {
+    return $_[0]->{status} ||= 404;
+}
+
+package MyApp::Exception::AccessDenied;
+
+sub status {
+    return $_[0]->{status} ||= 401;
+}
+
+1;
+</pre>
+<p>Now to use the classes and handle exceptions.</p>
+<pre>
+package MyApp;
+
+# ...
+
+use MyApp::Exceptions;
+use Scalar::Util ();
+
+# ...
+
+sub finalize {
+    my ( $c ) = shift;
+    $c->handle_exception if @{ $c->error };
+    $c->NEXT::finalize( @_ );
+}
+
+sub handle_exception {
+    my( $c )  = @_;
+    my $error = $c->error->[ 0 ];
+
+    if( !Scalar::Util::blessed( $error ) or !$error->isa( 'MyApp::Exception' ) ) {
+        $error = MyApp::Exception->new( message => "$error" );
+    }
+
+    # handle debug-mode forced-debug from RenderView
+    if( $c->debug && $error->message =~ m{^forced debug} ) {
+        return;
+    }
+
+    $c->clear_errors;
+
+    if ( $error->is_error ) {
+        $c->response->headers->remove_content_headers;
+    }
+
+    if ( $error->has_headers ) {
+        $c->response->headers->merge( $error->headers );
+    }
+
+    # log the error
+    if ( $error->is_server_error ) {
+        $c->log->error( $error->as_string );
+    }
+    elsif ( $error->is_client_error ) {
+        $c->log->warn( $error->as_string ) if $error->status =~ /^40[034]$/;
+    }
+
+    if( $error->is_redirect ) {
+        # recent Catalyst will give us a default body for redirects
+
+        if( $error->can( 'uri' ) ) {
+            $c->response->redirect( $error->uri( $c ) );
+        }
+
+        return;
+    }
+
+    $c->response->status( $error->status );
+    $c->response->content_type( 'text/html; charset=utf-8' );
+    $c->response->body(
+        $c->view( 'HTML' )->render( $c, 'error.tt', { error => $error } )
+    );
+    
+    # processing the error has bombed. just send it back plainly.
+    $c->response->body( $error->as_public_html ) if $@;
+}
+
+$SIG{ __DIE__ } = sub {
+    return if Scalar::Util::blessed( $_[ 0 ] );
+    MyApp::Exception->throw( message => join '', @_ );
+};
+</pre>
+<p>That's a fair bit of code, but it's pretty straight-forward. We've added a __DIE__ handler to convert string-based exceptions to our object, and we also, make sure we get the type of object we expect near the top of our error handling routine. RenderView has a special debug-mode exception that we want to pass through.</p>
+<p>The rest of the code preps the response. A redirect is basically passed through, everything else is rendered via a template (which could be customized in our exception if we wanted to add that bit of logic). There's even a little fallback mechanism in case template rendering is where our problems lie.</p>
+<p>As a quick-n-dirty usage example, we can throw exceptions quite simply:</p>
+<pre>
+MyApp::Exception::FileNotFound->throw( message => "Widget $id not found." );
+</pre>
+<p>Nice!</p>
+<p>I hope you've found this bit of code as interesting as i have.</p></p>
+
+
+<hr/>
+
+
+
+<h2>neat!</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2007-04-09T13:12:19</h3>
+Nice little solution.  Also, I have to say, I still get a little giddy every time I see someone using Sub::Exporter.  3
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

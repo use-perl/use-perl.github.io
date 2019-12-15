@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of chromatic: Refcounting Isn't All Bad</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Refcounting Isn't All Bad</h1>
+<h2><a href="/user/chromatic/">chromatic</a> on 2008-04-22T06:50:04</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>A lot of people complain about reference counting as a memory management strategy in Perl 5, and they have a point.  Unless you're very careful, reference counting spreads its tendrils throughout your system.  Unless you're very disciplined, you'll forget to increase a reference count somewhere, and you'll end up collecting things in the wrong places.</p>
+
+<p>The paper <a href="http://portal.acm.org/citation.cfm?id=1035292.1028982">A
+Unified Theory of Garbage Collection</a> discusses the most popular modern GC
+strategies to demonstrate how reference counting and tracing garbage collection
+are roughly equivalent, especially as concerns about performance, correctness,
+and conservativeness increase.</p>
+
+<p>I explain this because I added reference counting to a small part of Parrot
+today as an optimization -- 11.73% on my Rakudo-building benchmark.</p>
+
+<p>Parrot has an internal data structure called a stack.  This represents a
+particular environment within the call graph.  If you think of a normal program
+flow, where function A calls function B calls function C which returns to B and
+returns to A, you'll have a sense of a normal call stack.  Parrot's stack is
+similar, except that we use continuation passing style (CPS), where it's not a
+stack, it's a graph, and control flow doesn't have to be that linear.</p>
+
+<p>There's plenty of literature on CPS (including Luke Palmer's <a
+href="http://groups.google.com/group/perl.perl6.language/msg/b0cfa757f0ce1cfd">how
+to get a free sandwich with continuations</a>, but the important idea is that
+function A sets a bookmark inside and passes that bookmark along to function B.
+B does the same thing when it calls C.  At any point, you can look up any
+bookmark you happen to have and magically teleport (okay, it's just a jump
+instruction in your processor -- someday I'll explain how very low level
+languages have <code>eval</code> and very high level languages have
+<code>eval</code> and it's just the poor jerks in the middle who can't do
+anything useful without feeding the world's pointiest programming language into
+their AbstractFactoryFactoryFactories) to the point of that bookmark.</p>
+
+<p>Ranty story short, our stack is a mostly-acyclic graph represented as a
+linked list, and stack entries -- or chunks -- are garbage collectable
+entities.</p>
+
+<p>If you've even sat next to one of my "Let's Make Parrot Go Faster!" entries
+on a bus somewhere, or heard it playing softly in an elevator, you know that
+one good way to make Parrot go faster is to use fewer garbage collectable
+entities.  One way to make an O(2n) algorithm faster is to make it an O(log n)
+algorithm.  Another way is to make <em>n</em> smaller, and that's easier for
+now, especially because all I have to do is watch over Andrew Whitworth who's
+going to write a nice new garbage collector and keep track of Senaka Fernando,
+who's going to connect the nice garbage collector from Apache Harmony into
+Parrot.</p>
+
+<p>One nice feature of reference counting (ah, now you see the connection!) is
+that you can recycle dead objects as soon as you know they're dead.  One sad
+misfeature of a conservative garbage collector is that dead bodies stack up for
+a while until you can mulch them.  One horrible thing about a stop-the-world
+full mark-and-sweep garbage collector (and try to guess what Parrot has at the
+moment) is that if you're out of memory in <em>one</em> of the arenas you care
+about, you have to mark all of the living GCable entities in your system and
+sweep all of the pools in all of the arenas to find everything that's alive and
+to recycle everything that isn't.</p>
+
+<p>If you want to go fast, you want to avoid this until it's absolutely
+necessary.</p>
+
+<p>Here's the interesting thing about stack chunks: Parrot stores them in one
+place in one function (<code>stack_push</code>) and unstores them in one place
+in one function (<code>stack_pop</code>).  Again, the names are really bad
+because it's a graph and not a stack, but you get the point.</p>
+
+<p>I noticed this when I profiled the Rakudo-building benchmark again and saw
+that <code>stack_push</code> was one of the most expensive inclusive calls,
+apart from the garbage collector.  It calls a function which calls a function
+which calls a function which asks for a new stack chunk from the GC.  When
+there are no more free stack chunks, the GC runs again, and that eats up
+precious cycles.</p>
+
+<p>After a few minutes of thinking, I realized that the
+<code>stack_push</code>/<code>stack_pop</code> pair formed a boundary around a
+stack chunk's lifespan.  Popping a chunk off of the stack meant that nothing
+else needed it.  That chunk is immediately identifiably a dead object, suitable
+for recycling.</p>
+
+<p>Rather than waiting for a full GC run to find every live object in the
+system and then run across this dead object and recycle it, I added a couple of
+lines of code to recycle it automatically then and there.</p>
+
+<p>There was my immediate 11.73% speedup.</p>
+
+<p>There was also a problem in the Continuation PMC tests; I noticed this only
+after I patted myself on the back for moving the bottleneck in my benchmark
+elsewhere.  I'm sure you'll see it if you think for a moment, especially about
+how I kept writing that the stack isn't a stack, it's a graph implemented as a
+linked list.</p>
+
+<p>The problem is that there's not a single linked list.  If you take a
+continuation at various points in the call graph, you can have several linked
+lists that all share the same tail.  If you exhaust one of those call chains,
+you may pop a stack chunk that's part of another call graph elsewhere.  Your
+reference to it goes away, but it's still live elsewhere, so if you recycle it
+then and there, you may end up reusing the chunk and storing inappropriate data
+in it while something else expects it to stay pristine.</p>
+
+<p>If you're very clever, you've figured out the solution.</p>
+
+<p>I added a reference count to the stack chunk structure, incremented it on
+<code>stack_push</code>, decremented it on <code>stack_pop</code>, and recycled
+the chunk in the latter function only if the refcount is zero.</p>
+
+<p>Is this a long-term solution?  Probably not; I posted my initial
+investigation to the parrot-porters list, and we had a nice discussion on
+alternate techniques.  We'll have to refactor the code more heavily once we
+find a better approach, but for now, I'll live with this optimization.</p>
+
+<p>(Seneca Cunningham found what appears to be a crash related to this, but I
+think I've found the culprit and fixed it by adding another reference count
+pair to the Continuation PMC.  See?  I told you reference counting made itself
+pervasive.)</p></p>
+
+
+<hr/>
+
+
+
+<h2>refcounting good</h2>
+<h3><a href="/user/bart/">bart</a> on 2008-04-22T19:33:19</h3>
+I'm not sure why it couldn't be the basis for a permanent solution. All I can see that's wrong about refcounting is that occasionally it misses releasing memory that technically could be released, due to circular references.
+<p>So, a combination of refcounting for the quick releases and mark-and-sweep for the stuff that it overlooked, looks like a perfect marriage to me.</p>
+
+
+
+<blockquote>
+
+<h2>Re:refcounting good</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-04-22T19:55:17</h3>
+<p>If we can keep the refcounting simple and hidden behind a single interface that every consumer of the refcounted objects use, it's fine and good.  My goal is to keep refcounting from spreading throughout the system, to avoid creating subtle bugs.  Circular references aren't a problem here.  Premature freeing (based on refcounts) is.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>New GCs?</h2>
+<h3><a href="/user/RasterBurn/">RasterBurn</a> on 2008-04-23T04:07:58</h3>
+c, could you in a future post go into more detail about what to expect in the new GC?  I've never heard of Apache Harmony before.
+
+
+
+<h2>BrowserUk&amp;#8217;s thoughts on GC and refcounting</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-04-23T05:21:39</h3>
+<p> <a href="http://www.perlmonks.org/index.pl?node_id=394440" title="perlmonks.org">&#8220;I believe there is a third way (And no, I&#8217;m not talking about Tony<nobr> <wbr></nobr><tt>:)</tt> )&#8221;</a perlmonks.org> </p>
+
+
+
+<blockquote>
+
+<h2>Re:BrowserUk&amp;#8217;s thoughts on GC and refcountin</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-04-23T05:58:56</h3>
+<p>It's a decent idea.  It allows for a copying/compacting collector, which is very handy.  I don't immediately see how to decrease refcounts, but it'll probably come to me in a little while.</p>
+
+<p>The whiteboard in my office has some notes on a similar system I've toyed with a little bit.  My existing code there implements a bootstrapping garbage collector (that is, the memory used to store GC info is itself garbage collected).</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

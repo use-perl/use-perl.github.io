@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of agent: Filter::QuasiQuote 0.01 is now on CPAN</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Filter::QuasiQuote 0.01 is now on CPAN</h1>
+<h2><a href="/user/agent/">agent</a> on 2008-08-05T10:27:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>After reading Audrey's <a href="http://pugs.blogs.com/pugs/2008/07/pugshs-is-back.html" target="_blank">blog post</a> mentioning GHC's upcoming quasiquoting feature (as well as <a href="http://www.eecs.harvard.edu/%7Emainland/ghc-quasiquoting/mainland07quasiquoting.pdf" target="_blank">that quasiquoting paper</a>), I quickly hacked up a (simple) quasiquoting mechanism for Perl, hence the Filter::QuasiQuote module already on CPAN:<br><br/><br/><br><a href="http://search.cpan.org/perldoc?Filter::QuasiQuote" target="_blank">http://search.cpan.org/<wbr>perldoc?Filter::QuasiQuote</a><br><br>I'm looking forward to using sensible filters in my production code (e.g. <a href="http://search.cpan.org/dist/OpenResty/" target="_blank">OpenResty</a>) and eliminating ugly Perl code for with embedded DSL. For example, instead of writing<br><br/><br/><br>&nbsp;&nbsp;&nbsp; my $sql = "alter table " . quote_identifer($table) . " drop column " . quote($column) . ";";<br><br>I can simply write<br><br>&nbsp;&nbsp;&nbsp; use OpenResty::QuasiQuote::SQL;<br>&nbsp;&nbsp;&nbsp; my $sql = [:sql| alter table $table drop column $column; |];<br><br/><br/><br>Also, a JSON-like DSL can be used to describe valid Perl data structures and to generate the Perl code doing validation.<br><br>Filter::QuasiQuote supports subclassing, so the OpenResty::QuasiQuote::SQL module mentioned above could be derived from it. Also, multiple concrete filter classes could be composed in a single Perl source file. Just put a series of use statements together:<br><br/><br/><br>&nbsp;&nbsp;&nbsp; use MyQuote1;<br>&nbsp;&nbsp;&nbsp; use MyQuote2;<br><br>and it should work. Because it's required that filters always return Perl source aligned in a single line, line numbers won't get corrupted.<br><br>Of course, lots of nice consequences of the Haskell quasiquotations will be lost in my implementation, such as type safety. But the Perl version is much more flexible and powerful (by some definition) ;)<br><br/><br/><br>It's still in alpha and could be buggy. Feel free to report bugs or send wishlist to the CPAN RT site or directly to me ;)<br><br>Enjoy!</p>
+
+
+<hr/>
+
+
+
+<h2>Don't use that on a high volume site</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-08-05T18:44:26</h3>
+<p>At least not against a good database.  (eg Oracle, PostgreSQL, etc - but MySQL would be fine.)</p><p>The problem is that there is a trade-off between time spend preparing a query and query performance.  It would not be inappropriate to think of preparing a query as a "compile and optimize this SQL" step.  MySQL spends very little energy preparing, and therefore its ability to handle complex queries suffers.  Most other databases put a lot of energy into preparing, and so it is very important to try to avoid recompiling the same query over and over again.</p><p>When you use placeholders you get the opportunity to let the database reuse query plans, which cuts query preparation costs.  But your approach quotes things over and over again, which results in a lot of extra prepares, which can result in a database falling over because it runs out of CPU.  I've seen it happen - it is not pretty.</p><p>It would be good if you could build the same thing with an option to do some kind of late binding.</p><p>Personally at work I faced a problem kind of like that, and my solution was to pass my SQL through a template engine (allowing me to do things like conditionally include complex chunks of SQL) and then pass variables in by name (I'm using DBD::Pg, which supports binding variables by name).  I've been very happy with how it has worked out for me.  However that suggests that you might want to think about how to set things up to expand a quasi-quoted thing multiple times...</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don't use that on a high volume site</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-08-05T21:30:05</h3>
+<p>Also, source filters. Yes, Module::Compile, but still, yuck.</p><p>Personally I prefer <a href="http://search.cpan.org/perldoc?SQL::Interp" title="cpan.org">SQL::Interp</a cpan.org> (via <a href="http://search.cpan.org/perldoc?DBIx::Simple" title="cpan.org">DBIx::Simple</a cpan.org> actually), which lets me write code very nearly like the quasiquoting snippet, except it&#8217;s still plain Perl and it uses placeholders and does binding under the covers. It&#8217;s a fabulous duo.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don't use that on a high volume site</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-08-05T23:40:11</h3>
+<p>If my situation was simpler then that would look good to me as well.  Unfortunately I have big chunks of SQL that are included or not based on one condition, and if included require specific parameters to be bound or not as well.  Templating syntax works well for this, but standard template tools only return a string, so I really, really want to work with a string by itself, not a string plus parameters.</p><p>Using<nobr> <wbr></nobr>:param_name isn't portable, but it is highly effective for my job.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don't use that on a high volume site</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-08-06T07:44:58</h3>
+<p>That is actually exactly the situation that SQL::Interp addresses. It lets you do something like this:</p><blockquote><div><p> <tt>my ( $sql, @bind_value ) = sql_interp(<br>&nbsp; &nbsp; 'SELECT foo FROM bar'<br>&nbsp; &nbsp; ( $do_include_baz<br>&nbsp; &nbsp; &nbsp; &nbsp; ? ( 'LEFT JOIN baz ON baz.foo = foo.id AND baz.quux =', \$quux )<br>&nbsp; &nbsp; &nbsp; &nbsp; : ()<br>&nbsp; &nbsp; ),<br>&nbsp; &nbsp; 'WHERE', \%condition,<br>);</tt></p></div> </blockquote><p> <code>sql_interp</code> will combine all those SQL snippets into a single string, duly putting in with placeholders for all the variables, and shuffling all the values into a single list according to the positions of their corresponding placeholders. (It&#8217;ll also translate that hash into a list of <code>AND</code>ed equality comparisons.) So despite the fact that the database sees positional placeholders, you don&#8217;t need to repeat the conditional logic from building the SQL in building the bind list, and the query is written with the Perl variables inline &#8211; precluding any bugs in lining up placeholders with bind values, no matter how complex the query composition gets.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don't use that on a high volume site</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-08-06T15:14:08</h3>
+<p>Yes, you <i>can</i> do that - but the result is unreadable.  Which would you prefer to read?<br><code><br>my ( $sql, @bind_value ) = sql_interp(<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 'SELECT foo ',<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ( $include_bar<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ? ', bar'<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; : ()<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ),<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ' , count(*) as records '<br>
+&nbsp; &nbsp; , 'FROM some_table<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; WHERE x = ', \$x<br>
+&nbsp; &nbsp; , ' GROUP BY foo '<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ( $include_bar<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ? ', bar'<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; : ()<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ),<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ' ORDER BY foo '<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ( $include_bar<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ? ', bar'<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; : ()<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ),<br>);<br></code><br>(Geez, I can't even figure out how to indent that usefully.  Certainly the output isn't indented properly!) or<br><code><br>push @queries,<br>
+&nbsp; &nbsp; {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; sql =&gt; qq{<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SELECT foo<br>[% IF include_bar -%]<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; , bar<br>[% END -%]<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; FROM some_table<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; WHERE x =<nobr> <wbr></nobr>:x<br>[% FOREACH section = ["GROUP", "ORDER" -%]<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; [% section %] BY foo<br>[% &nbsp;&nbsp;IF include_bar -%]<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; , bar<br>[% &nbsp;&nbsp;END -%]<br>[% END -%]<br>
+&nbsp; &nbsp; &nbsp; &nbsp; },<br>
+&nbsp; &nbsp; &nbsp; &nbsp; params =&gt; {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; x =&gt; $x,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; },<br>
+&nbsp; &nbsp; &nbsp; &nbsp; template_vars =&gt; {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; include_bar =&gt; $include_bar,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; };<br></code><br>Now pretend for a second that you have a whole bunch of these variables, a large group by section, and you're writing a <i>lot</i> of these.  Oh, and that the GROUP BY and ORDER BY sections are kind of long.  Oh, and that during debugging you need to look at the generated SQL.</p><p>If you're imagining all of that, then you'll start to see what my life is like.<nobr> <wbr></nobr>:-)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don't use that on a high volume site</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-08-07T09:18:49</h3>
+<p>Neither.<nobr> <wbr></nobr><tt>:-)</tt> </p><p>But the first example shows why I specifically pointed out that the list you pass is a normal Perl list and so is amenable to all of the facilities Perl provides. You can factor it just in the same way you would factor any other part of the code:</p><blockquote><div><p> <tt>my $columns = join ', ', 'foo', ( $include_bar ? 'bar' : () );<br> <br>push @queries, [<br>&nbsp; &nbsp; 'SELECT $columns, count(*) as records',<br>&nbsp; &nbsp; 'FROM some_table',<br>&nbsp; &nbsp; 'WHERE', { x =&gt; $x },<br>&nbsp; &nbsp; map { "$_ BY $columns" } qw( GROUP ORDER ),<br>];</tt></p></div> </blockquote><p>And then processing <code>@queries</code> consists merely of passing each entry through <code>sql_interp</code>.</p><p>This does leave the SQL indenting issue, admittedly. I wish <a href="http://www.perlmonks.org/?node_id=668678" title="perlmonks.org">SQL::Tidy</a perlmonks.org> had gone anywhere, but it appears not to have.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Don't use that on a high volume site</h2>
+<h3><a href="/user/agent/">agent</a> on 2008-08-06T02:54:54</h3>
+<p>Actually I am going to use it on a very very busy site<nobr> <wbr></nobr>;) SQL preparing does not make much sense for me since our platform will usually work in the context of PostgreSQL PL/Proxy cluster *AND* the query could be dynamic enough to defeat ordinary DBI param binding.</p><p>Actually runtime performance is the reason to choose source-filter solutions in the first place<nobr> <wbr></nobr>;)</p><p>Also, the SQL example is, well, merely an example...Filter::QuasiQuote's power reveals in the context of true DSLs<nobr> <wbr></nobr>;)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don't use that on a high volume site</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-08-06T04:43:04</h3>
+<p>My experience says that with a sane design you can run one of the top couple thousand busiest websites on the internet on a handful of webservers, paying only a modest amount of attention to performance of the code on your webservers.</p><p>That same experience says that tiny mistakes in how you handle your database can cause that same site to melt unexpectedly.</p><p>The lesson is to not worry about webserver performance, but be paranoid about database performance.  Which means use placeholders properly.  If you do it dynamically, sure, you might get query variants that are not in cache, and you have to pay the overhead of preparing.  But what matters is that <i>most</i> of the time for <i>most</i> of your queries you avoid that overhead.</p><p>Sure, clustering the database helps.  But from what I've heard, splitting such a cluster after you run out of headroom is not really fun.  And why buy yourself problems that you don't need to have?  There are plenty of ways to dynamically build complex queries and pass in parameters.  There is a huge performance benefit to doing so.  That performance benefit comes at a known major bottleneck.  Why <i>wouldn't</i> you do this?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don't use that on a high volume site</h2>
+<h3><a href="/user/agent/">agent</a> on 2008-08-06T06:15:51</h3>
+<p>I must say that all you say is indeed true for an ordinary web application<nobr> <wbr></nobr>:)</p><p>But unfortunately I can't use prepare+execute in my OpenResty platform in particular. Why? Because it must scale by design to serve lots of apps here in Yahoo! China and Alibaba. So it must be a cluster or something like that.</p><p>The PL/Proxy database server requires frontend queries to be of the following form:</p><p>
+&nbsp; &nbsp; &nbsp; select xquery('account', 'select * from posts...', 1);</p><p>That is, the user sql query itself must be a dynamic string (by definition), and passed to a PL/Proxy function ("xquery" here).</p><p>Silly me, I don't see how preparing such things in advance would help in terms of performance<nobr> <wbr></nobr>;)</p><p>Also, we use PgBouncer extensively. According to the DBD::Pg documentation, "programs such as PgBouncer which cache connections at a low level should not use prepared statements via DBD::Pg".</p><p>Furthermore, in other contexts like importing lots of data into Pg, I've found directly sending multiple insert statements at a time could be *much* faster than first preparing an insert statement, then executing the statement handle to do the actual insertion one by one. And yeah, it's a "special" case<nobr> <wbr></nobr>:)</p><p>I believe, however, preparing a common-use not-so-tricky SQL query first for many subsequent reuses will indeed be a big win<nobr> <wbr></nobr>;) I won't argue against this<nobr> <wbr></nobr>;)</p><p>But my project sadly falls out of that category, it seems. Or am I taking things terribly wrong here?</p><p>Thanks!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don't use that on a high volume site</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-08-06T06:43:43</h3>
+<p>Responding out of order.</p><p>On sending multiple insert statements at once.  Yes, that can be a big win because you're cutting down on round trips to the database.  Each round trip takes unavoidable resources on the client, server, and network.  With network latency typically being the biggest deal.  However there is an upper limit to the win from that.  A compromise that works fairly well is to prepare a bulk insert that inserts multiple records, thereby bypassing the prepare and reducing round trips.  YMMV.  But better still is to use the COPY functionality.  If need be, COPY to a temp table, then run an insert from that.  It is more work because you will need to create said table though, and get the datatypes right.  Also with the version of DBD::Pg that I'm using you have to guess the size of buffer to use.  But I think the new one automagically gets it right.</p><p>I haven't used PgBouncer.  What I've found sufficient for my needs is just having a limited number of pre-forked Apache servers, and then have proxies in front of them in accelerator mode.  The children reuse their connections from request to request.  Avoiding the complexities of connection pooling simplifies things and seems like a design win to me, though I grant that there are situations where you would want connection pooling.</p><p>I have not used PL/Proxy.  Glancing at the documentation it does seems that it does not support preparing queries.  I guess that the resulting overhead is gained back from having multiple machines.  However my immediate reaction is to think that you're not going to be able to use it with any relational features of the database.  And once you give up the relational features of the database, I'd be inclined to stop pretending to be relational and look for a more exotic database that did exactly what I wanted.</p><p>If you're doing an insert rarely, select often, then what would be really nice to have is a queryable hot backup.  The technology for that exists in Oracle and is really good.  It doesn't exist for postgres.  $work is willing to help fund a PostgreSQL hacker to add it, but the core pg team hasn't found anyone to take it.  (More precisely, they have found someone who is working on it, but he won't be tackling that part of the project any time soon...)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don't use that on a high volume site</h2>
+<h3><a href="/user/agent/">agent</a> on 2008-08-06T07:17:42</h3>
+<p>Right, preparing a bunch of insert statements first would be faster<nobr> <wbr></nobr>:) Merely have to deal with the last few specially<nobr> <wbr></nobr>:) Thanks for the tip.</p><p>We use PgBouncer at the PL/Proxy level to cache connections to the data nodes. On the FastCGI level, a pre-forked lighttpd is used. Database connection to the PL/Proxy nodes are reused across fastcgi loops in a similar fashion as you described<nobr> <wbr></nobr>:)</p><p>Well, I don't think the use of PL/Proxy necessarily means loss of relationality. Relational constraints still hold for data residing on the same data node. We just partition the relational data according to application or even actual queries. For example, if two tables in a single app never join in any query, we then have a choice to put them on two different nodes.</p><p>Moving stuff intelligently and automatically across data nodes in the same big cluster and automatically producing backup nodes to distribute loads on hot spots is something we'll be working on<nobr> <wbr></nobr>;)</p><p>Regarding the queryable hot backup technique, yeah, some members of our team are actively working on it. Not sure if it'll get opensourced though.</p><p>Thanks!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don't use that on a high volume site</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-08-06T14:45:49</h3>
+<p>Tell me if a donation could help the open-sourcing decision.  I'm btilly, at gmail dot com.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Don&amp;#8217;t use that on a high volume site</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-08-06T07:49:23</h3>
+<p>You are aware of <a href="http://search.cpan.org/perldoc?DBD::Gofer" title="cpan.org">DBD::Gofer</a cpan.org> I suppose?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don&amp;#8217;t use that on a high volume site</h2>
+<h3><a href="/user/agent/">agent</a> on 2008-08-06T08:38:09</h3>
+<p>Oh, not yet<nobr> <wbr></nobr>:)) Thanks for the info, I'll try it out to see if it'll fit in my OpenResty architecture<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don&amp;#8217;t use that on a high volume site</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-08-06T09:03:54</h3>
+<p>Then be sure to check out <a href="http://search.cpan.org/CPAN/authors/id/T/TI/TIMB/Gofer-200707.pdf" title="cpan.org">the slides from Tim&#8217;s OSCON &#8217;07 DBD::Gofer talk</a cpan.org>.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

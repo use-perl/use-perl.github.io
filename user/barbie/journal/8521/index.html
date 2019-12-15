@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of barbie: more File::Spec woes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>more File::Spec woes</h1>
+<h2><a href="/user/barbie/">barbie</a> on 2002-10-22T14:44:10</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I have an HTML form, which includes a file field that is passed to my CGI script. In order to store it in the system I just need the filename from the variable given. Liking the idea of using existing modules to do the work, I thought I'd use splitpath() from File::Spec's repetoire.
+<P>
+Unfortunately it breaks :(
+<P>
+The reason is due to the fact that File::Spec cannot cope with different file specifications when used in a cross platform way. In the scenario above the user is using a browser on a Win32 box, but the code is running on a Unix box, thus the File::Spec::Unix.pm is loaded.
+<P>
+The following code:
+<blockquote>
+my $source = "c:\mydirs\myfile.doc"; # the value from the HTML file form field<br>
+my ($volume,$directories,$filename) = splitpath($source);<br>
+print
+"volume=[$volume]\ndirectories=[$directories]\nfilename=[$filename]\n";<br>
+</blockquote>
+<P>
+results in:
+<P><blockquote>
+volume=[]<br>
+directories=[]<br>
+filename=[c:\mydirs\myfile.doc]<br>
+</blockquote>
+<P>
+So that when I try to save "/var/www/mysite/html/downloads/c:\mydirs\myfile.doc" if fails miserably.
+<P>
+I now use a simple regex to extract everything from the last directory delimiter (if there is one) to the end of the string. I guess it was a bit pointless calling another function to do it, but at least it highlighted the problem.</p>
+
+
+<hr/>
+
+
+
+<h2>File::Spec</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2002-10-23T02:42:16</h3>
+Can't you specify a platform-specific version? For instance, the following works ok on my linux workstation:<blockquote><div> <tt>my @elements = File::Spec::Win32-&gt;splitpath( $foo );</tt> </div></blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:File::Spec</h2>
+<h3><a href="/user/barbie/">barbie</a> on 2002-10-24T16:52:02</h3>
+No because that'll break when a Linux user posts a file from their browser of choice.
+<p>
+The problem is that File::Spec ridigly describes the path format for one system. If you specify an Win32 system, no other system will work.
+</p><p>
+Thanks to <a href="http://use.perl.org/user/muttley/" title="perl.org">muttley</a perl.org> I now use the following:
+</p><p><blockquote><div>
+use File::Basename;<br>
+fileparse_set_fstype("MSWin32");	# just in case it's in Windows style<br>
+my $realname = basename($source);<br>
+</div></blockquote>
+<p>
+And that seems to work a treat.</p>
+
+
+
+<blockquote>
+
+<h2>Re:File::Spec</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2002-10-25T01:19:27</h3>
+Right, but you can generally get this information from whatever the browser passes as the UserAgent. But that's likely a little too much work just to get a filename without associated directory<nobr> <wbr></nobr>:-)
+
+<p>I was just responding to the perceived "I need to parse a filename from another type of filesystem" need.</p>
+
+
+
+<blockquote>
+
+<h2>Re:File::Spec</h2>
+<h3><a href="/user/barbie/">barbie</a> on 2002-10-25T10:11:01</h3>
+<blockquote><div> <i><nobr> <wbr></nobr>...get this information from whatever the browser passes as the UserAgent.
+</i> </div></blockquote>
+Thats a big assumption of the fact that the client platform information (a) is there and (b) is accurate.
+<p>
+Admittedly for the majority of our purposes it will be there, but there are those few cases when it could pose a problem. At least with the way muttley suggested we now cover a bigger majority of platforms that will be accessing our systems. If we could cover Macs too, then I think we'd have the lot.</p>
+
+
+
+<blockquote>
+
+<h2>Re:File::Spec</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-10-25T17:23:24</h3>
+<p>Does CGI.pm handle file uploading in a cross-platform way?  I'm suggesting, but I've never tried it myself.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

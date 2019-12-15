@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: DISTINCTly UnSETtling</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>DISTINCTly UnSETtling</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-01-17T04:13:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>In a <a href="http://perlmonks.org/index.pl?node_id=515776">recent Perlmonks thread</a>, I managed to tick a lot of programmers off by pointing out some problems with SQL ignoring set theory.  I showed how what superficially appear to be a bunch of logically equivalent queries return different results.  However, they all return the correct results if the "DISTINCT" keyword is used.</p>
+
+<p>Unfortunately I used an unnormalized schema as an example in order to keep things simple.  Many programmers focused on this.  When I write things "off the cuff", I have an annoying tendency to think that providing a simplistic example will make the problem clearer.  This is often true, but people frequently focus an obvious problem and ignore the larger ones.  I sometimes do this myself.  On the plus side, if I never posted anything controversial, that would suggest that either I'm following the herd or I'm not thinking enough, so on with the controversy!</p>
+
+<p>The problem is that SQL returns bags of data instead of sets.  Rarely do we ever want bags.  Some argue that we really are getting sets instead of bags because "under the hood" the query engine is fetching off all of the data and merely masking out the data we don't want.  The problem with this logic is that most people merely want to use SQL, not worry about the fiddly bits inside.  Do you really want to write more garbage collection code in C?  I don't want to have to stop at every query and wonder about whether or not I need to throw a "DISTINCT" in there.  So the counter-example I provided was this a fictional story about an accountant who should be fired.</p>
+
+<blockquote>So a salesperson walks up to an accountant and says "Bob, for our customers with excellent credit ratings, what cities do they live in? I need to plan flights through those cities."<br>
+<br>
+"What do you mean by 'excellent credit rating', Alice?"<br>
+<br>
+"For the sake of argument, let's include everyone with a credit rating greater than 700."<br>
+<br>
+"OK, let's see ... there's London. Oh, and there's London. And Paris. And London. London again, Athens, London, Paris, Moscow, London and Paris."<br>
+<br>
+"That's a hell of a flight."</blockquote>
+
+<p>Needless to say, you'd be pretty irritated if your accountant did that.  However, that's the equivalent of the following SQL:</p>
+
+<pre>SELECT city
+FROM   city, customer
+WHERE  city.id = customer.city_id
+  AND  customer.credit_rating > 700</pre>
+
+<p>To make that do what you probably want, you need a "SELECT DISTINCT" in there.  That's what SQL should do by default, with an optional "NODISTINCT" or something similar in there.</p>
+
+<p>Ben Tilly offered an interesting rebuttal.  He mentioned how he was once a junior programmer bitten by Microsoft Access's default behavior of returning distinct results.  He was summing receipts, but Access, having DISTINCT on by default, was discarding duplicate <em>values</em>, not duplicate <em>results</em>.  That's silly.  It's like saying all guys named "Bob" are the same guy.   The Microsoft programmers had the right idea and the wrong implementation.  Further, since so many Access databases I've worked on have been poorly designed, I suspect this was a common problem.</p>
+
+<p>For this to work properly, DISTINCT should discard duplicate elements <em>from the same tuple</em>.  If you truly have duplicates from different tuples, you have a denormalized database and you need to either normalize it or adjust your query to take this into account.  (For example, a customer table might list "CITY" instead of "CITY_ID").</p>
+
+<p>The argument I hear against this is an all too common one.  Every piece of data should theoretically be tagged with the data value <em>and</em> the tuple of origin (and also the data type, but the reasons behind this are beyond the scope of this post).  This means that queries would be more memory intensive and thus slower.</p>
+
+<p>Does this sound familiar?  We usually call this "premature optimization".  Database vendors have focused so long on making things fast and worried about making things correct as an afterthought.  The original relational theory proposed by Codd and evangelized by Date did not have this problem, but SQL won the query language wars and we seem to be stuck with it.</p>
+
+<p>Can anyone provide a counter-argument?  What I mean, specifically, can you argue that the default behavior should be to return true duplicates?  Do we really want bags more often than sets?  Obviously, the following query might return apparent duplicates if we had a properly implemented "DISTINCT" on by default:</p>
+
+<pre>SELECT total FROM order;</pre>
+
+<p>However, that apparent duplication would only be there because you really can have multiple orders totalling to $100.00 (yes, that's probably an unnormalized example.  Imagine that I referenced an <tt>ORDER_ITEM</tt> table and summed the line items.)</p>
+
+<p>Frankly, I can't imagine why anyone would want bags of results other than the obvious fact that most databases frequently fail to optimize queries with "DISTINCT" in them.  But that's telling me I'm supposed to worry about the implementation details again.  I just want to focus getting the results I want, not how I'm getting them.  SQL is a declarative language and those languages' greatest strength is that they are result oriented.</p></p>
+
+
+<hr/>
+
+
+
+<h2>DISTINCT or ORDER BY ?</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2006-01-17T15:45:35</h3>
+A wise man said any SQL query without an ORDER BY clause is a stealth bug waiting to emerge when the implicit order dependency explodes into view.
+
+<p>In the customer-visit itinerary, ORDER BY may actually be a better solution than DISTINCT -- the repetition value in the BAG will be needed to help plan how long to lay over in each city, as it measures how many visits are required there.  GROUP BY (City) COUNT(Customer) might be better, and would get you the equivalent of DISTINCT.</p>
+
+
+
+<blockquote>
+
+<h2>Re:DISTINCT or ORDER BY ?</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2006-01-17T16:50:05</h3>
+If you need to know counts that's what "GROUP BY" is for, so we can do:<blockquote> <div><tt>SELECT city, COUNT(customer_id) as customer_count<br>&nbsp; FROM Customer<br>GROUP BY city<br>ORDER BY city</tt></div> </blockquote>This will have no dupes and gives you the same numerical information as a dupe-containing result, but in a nice sane way, with no need to count dupes programatically in the program that executes that query.<br>
+
+
+
+<h2>Re:DISTINCT or ORDER BY ?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-01-17T17:08:24</h3>
+<p>You've come up with a rather artificial reason why one might, in this case, want a bag instead of a set, but your example is arbitrary.  Who knows why Alice is in a particular city?  Maybe she has some weird contractual agreement that she needs to at least <em>be</em> in those cities once a year?  The point is the same:  if I ask for information, why should I want my query, by default, to repeat itself rather than just give me the information I ask for?</p>
+
+<p>Don't focus on the specifics of this particular problem because it's artificial.  However, if you can prove that the specifics of this problem (Alice needs to know how long she should stay) generalize to the majority of queries, than I'll stand corrected.  This could be some weird parallel to the Einstein/Bohr debates (on a far lower intellectual level) where Einstein thought Bohr was merely guilty of picking apart the particular examples he used but in the end, Bohr turned out to be right. Still, there would have to be some generalizable preference for repetition for this to work.</p>
+
+
+
+<blockquote>
+
+<h2>DISTINCTly DisORDERed</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2006-01-17T19:12:52</h3>
+I think we're in violent agreement that naive SQL is bad, and we're just arguing over which form of naivety is worst!
+
+<p>This is <b>not</b> just a artificial quibble on the artificial example. I gave a different, more general rule that explains why the artificial example is wrong at an even deeper level. I claim that in general both general rules need to be addressed together.
+
+</p><p>I <b>agree</b> that SQL having been designed abstractly by mathematicians (with whom I happily self-identify) so that it encourages thinking SETs yet was implemented so it often returns BAGs is a problem of abstraction.   Having a SHOW DUPS keyword instead of a DISTINCT keyword, reversing the defaults, would be more practical yet theoretically sound. <b>Furthermore, both</b> SET and BAG are the wrong abstractions:  a <b>ORDERED SET</b> is the usually <b>right</b> return type for all queries.  And when a BAG is what is desired, it should be a Multiplicity-encoded Ordered Multiset, not an unordered Bag with repetition. (Obviously(?), a totally order is to be preferred over a partial order -- in SQL terms, that means using a long enough composite key.)
+
+
+</p><p>To repeat, both <b>SET and BAG</b> are <b>unordered, pure mathematical</b> concepts (dear to my heart), but in practical programming, we need order.  Any query returning a true (unordered) SET with DISTINCT but no ORDER BY is just as broken if not more broken as one returning a true (unordered) BAG (without DISTINCT) which you've objected to. Just as BAGginess is fixed with DISTINCT (or COUNT<nobr> <wbr></nobr>.. GROUP BY<nobr> <wbr></nobr>..), DisORDER is cured by ORDER (or GROUP BY).
+
+</p><p>If in the artificial example the query weilder had used ORDER BY [as <b>all</b> practical SQL queries <b>should</b> be written whether desiring BAG or SET, to avoid getting bitten by hidden order dependencies], the artificially weird result would not have looked so weird, and the multiplicity of cities in the artificial example would have had emergent semantics, and the accountant wouldn't need firing (emotional statement in original artificial example). And the desirability of applying COUNT<nobr> <wbr></nobr>... GROUP BY would have suggested itself.
+
+</p><p>There is more than one way to convert a BAG to a SET with <code>COUNT(... )FROM with ORDER BY<nobr> <wbr></nobr>... GROUP BY<nobr> <wbr></nobr>...</code> , which is the MultiSet impelmentation of BAG, where the multiplicity is an attribute of the element rather than manifested by repetition, is a semantics preserving subsitute for DISTINCT.
+
+</p><p>I agree with your basic thesis that all results should be converted to SET form. However, I would prefer COUNT<nobr> <wbr></nobr>... GROUP rather than DISTINCT and further require the result be ORDERED.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

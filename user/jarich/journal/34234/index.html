@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jarich: PHP oddity</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>PHP oddity</h1>
+<h2><a href="/user/jarich/">jarich</a> on 2007-08-27T11:00:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+The <a href="http://perl.net.au">PerlNet Wiki</a> uses Mediawiki which is written in PHP so too are the plugin scripts we use to manage it.  As the wiki is open to anonymous edits, we have a fun arms race with spammers.  Most of the time, they get caught by our blacklist and their edits don't even get saved.  However recently one spammer has done something clever...
+</p>
+<p>
+When I first spotted this afternoon's spam I checked it for common urls and found that most links pointed to <code>ifrance.com</code>.  I would have added it to our <a href="http://perl.net.au/wiki/PerlNet:Spam_blacklist">blacklist</a> but it was already there!  So I checked that the anti-spam bot was still active and it was.  Why wasn't this page being picked up?  I took a copy of the cleanup script, printed out the regex and ran that with some of the page text: yup it matched!
+</p>
+<p>
+I printed out what the script was seeing as the text and it matched the page content.  I printed that to a file and ran a simple regex over it, yup it matched.  I ran the bigger regex over it, no match.
+</p>
+<p>
+I looked at the data again.  Couldn't see anything special about it except that all of it was on one line.  Well... surely it couldn't be a memory issue.  I was reading the whole text into memory before performing the regex, how would line boundaries make a difference?  I wasted time looking into other possibilities.
+</p>
+<p>
+I eventually came back to the fact that it was a _very_ long single line... that a simple regex could match.  Could that be it anyway?  I removed a few thousand characters and wow!  It started matching again.
+</p>
+<p>
+I eventually found that (for the size of regular expression we're using) strings of 13808 characters or less would match, but any more and the match would fail.... silently.  I did this with the following code:
+</p>
+<pre>
+<?php
+# defines $test
+include( '/tmp/spam.txt' );
+
+# Shorten the process a little....
+$test = substr($test, 0, $length-1160);
+
+# $re removed for brevity
+# while I can't match, shorten the string
+while(! preg_match($re, $test, $match)) {
+
+        $length = strlen($test);
+
+        print "$length\n";
+
+        $test = substr($test, 0, $length-1);
+}
+# Yay I matched!
+print "match\n";
+</pre>
+<p>
+My string started with 14979 characters!
+</p>
+<p>
+I wondered how much of this was because it was a very long _line_ as opposed to a very long string.  So I edited the data file to add newlines after each url.  It matched immediately!
+</p>
+<p>
+I thought about the length of the regular expression (it's 2584 characters).  The simple regular expression <code>ifrance\.com</code> had worked, so I wondered if the failure was due to alternation or capturing.  I added in a small hunk of the real regex for about 30 characters (4 alternations) and it still matched. Removing a third of the real regex length (string length, not necessarily alternation opportunities) resulted in matching the string one character earlier but that was it.
+</p>
+<p>
+Odd.
+</p></p>
+
+
+<hr/>
+
+
+
+<h2>Seems like a bug</h2>
+<h3><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2007-08-27T15:31:23</h3>
+<p>
+This seems like a bug, and needs to be reported. Can you supply the offending string and regex? It may be a bug in <a href="http://en.wikipedia.org/wiki/PCRE" title="wikipedia.org">PCRE</a wikipedia.org>, which is the regex engine that PHP uses for doing that. Trying the same with an equivalent ANSI C program using PCRE, may be instructive in pin-pointing the problem.
+</p>
+
+<p>
+Regards,  Shlomi Fish.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Seems like a bug</h2>
+<h3><a href="/user/jarich/">jarich</a> on 2007-08-28T05:12:07</h3>
+<p>
+That's what I think too.  Mind you, I'm using PHP 4.3.10-22 so maybe it's already been fixed.  I mentioned it only because it seemed so unlikely.
+</p>
+<p>
+If you have a more up to date version of PHP or just want to have a play, then you can download my test script and two test files (both which fail at first and then match as they lose length) from <a href="http://perltraining.com.au/user/jarich/php-pcre.tgz" title="perltraining.com.au">http://perltraining.com.au/user/jarich/php-pcre.tgz</a perltraining.com.au>.
+</p>
+<p>
+The two files are <code>clean.txt</code> and <code>dirty.txt</code>.  dirty.txt is one page of the spam that was successfully tricking the regular expression; the spam is obnoxious and sexually explicit, certainly not safe for work.  When using dirty.txt you'll probably want to chop off the last 1150 characters straight away just to speed up the success time.  clean.txt is some generated text, which oddly had to be much, much bigger than dirty.txt in order to make the regex fail.  For more data points: all the spam on 28th August 2007 from <a href="http://perl.net.au/" title="perl.net.au">http://perl.net.au/</a perl.net.au> cleaned up between 2 and 3pm (Australian Eastern Standard Time) which mentions ifrance.com cause this problem.
+</p>
+<p>
+Passing the same data to Perl with an exactly equivalent regular expression resulted in a match straight away.
+</p>
+<p>
+All the best,
+</p>
+<p>
+jarich
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Seems like a bug</h2>
+<h3><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2007-08-28T10:11:28</h3>
+<p>
+Running a slightly modified test script against php-cli-5.2.3-10mdv2008.0 with libpcre0-7.2-1mdv2008.0, I'm getting:
+</p> <p><blockquote> <div><tt>746<br>745<br>744<br>743<br>742<br>741<br>740<br>739<br>738<br>737<br>Matched spam.</tt></div> </blockquote>  <p>
+So it got worse. I can later try it with grep -P or with pcregrep.
+</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Kind of a known bug.... sort of</h2>
+<h3><a href="/user/jarich/">jarich</a> on 2007-08-28T07:39:01</h3>
+<p>
+I brought this up with Ben Balbo (an excellent PHP programmer) and he mentioned that there are two similar bugs which have been submitted in the past.
+</p>
+<ul>
+<li> <a href="http://bugs.php.net/bug.php?id=34530" title="php.net">http://bugs.php.net/bug.php?id=34530</a php.net> </li>
+<li> <a href="http://bugs.php.net/bug.php?id=37550" title="php.net">http://bugs.php.net/bug.php?id=37550</a php.net> </li>
+</ul>
+<p>
+As he says:
+</p> <p><blockquote><div>The first suggests it's a limitation of PCRE, and the second simply dismisses it as not implying a bug in PHP itself.</div>
+</blockquote>
+<p>
+As <a href="http://www.pcre.org/" title="pcre.org">the PCRE website</a pcre.org> appears to be having problems, I'm at a loss how to get this issue fixed.  I've worked around it, but really I'd just rather it behaved properly.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

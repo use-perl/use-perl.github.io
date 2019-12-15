@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: Multi-level hashes without eval or modules</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Multi-level hashes without eval or modules</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2004-04-28T20:18:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Last night a friend passed along a short problem to me.  I need to take the keys for a multi-level hash, say $hash{a}{b}{c}{d}, and create that structure from just the list qw(a b c d), without using eval or a module, and it had to be really short, and it had to be delivered right away<br/><br/>After my initial solution, I came up with this concept (the argument checking and so on to be done by someone else).  I use two hash references.  One references the top level of the hash I want to create, and the other one is something like a cursor inside that hash so I can move around in it.<br/><br/><pre>
+sub set_multi_level_hash
+	{
+	my( $hash, $tiers, $value ) = @_;<br/><br/>	my $work_hash = $hash;
+	foreach my $tier ( @$tiers )
+			{
+			$work_hash->{ $tier } = {} unless exists $work_hash->{ $tier };
+			$work_hash = $work_hash->{ $tier };
+			}
+			
+	$work_hash = _get_multi_hash_last_level( $hash, $tiers );<br/><br/>	$work_hash->{ $tiers->[-1] } = $value;
+	}
+</pre><br/><br/>I do not really like that part where I have to back up a bit to figure out where to assign the value.  I am sure there is a better way to do this, but I got the problem at 1 am and I needed to deliver it right away.<br/><br/>The _get_multi_hash_last_level routine uses the same trick as the earlier routine, but I do not have to remember anything about the original hash. I just need to drill-down to the right level.<br/><br/><pre>
+sub _get_multi_hash_last_level
+	{
+	my( $hash, $tiers ) = @_;
+			
+	foreach my $tier ( @{$tiers}[0..$#$tiers-1] )
+		{
+		$hash = $hash->{ $tier };
+		}
+		
+	$hash;
+	}<br/><br/></pre><br/><br/>That may look short, but it was longer before because I had made a mistake that required me to handle two special cases.  The original version worked, but before I was able to become unconscious in bed, I came up with that version.<br/><br/>Somewhere else, somebody else created the code to read the multi-level hash under the same restrictions, I think, but I did not get to see that code.  I wonder what it does to get to the right place.</p>
+
+
+<hr/>
+
+
+
+<h2>make use of the indices of the $tiers</h2>
+<h3><a href="/user/danboo/">danboo</a> on 2004-04-28T21:25:37</h3>
+The only real innovation is using only one hash, and using the tier indices to avoid the backing up.<br> <code> <br>use strict;<br>use warnings;<br> <br>use Data::Dumper;<br> <br>my $hash = {};<br> <br>set_multi_level_hash($hash, [qw/ a b c d<nobr> <wbr></nobr>/], 'potato');<br> <br>print Dumper $hash;<br> <br>sub set_multi_level_hash<br>
+&nbsp; &nbsp; &nbsp; {<br>
+&nbsp; &nbsp; &nbsp; my ( $hash, $tiers, $value ) = @_;<br> <br>
+&nbsp; &nbsp; &nbsp; for (0<nobr> <wbr></nobr>.. $#$tiers)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $hash-&gt;{$tiers-&gt;[$_]} ||= ( $_ == $#$tiers ? $value : {} );<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $hash = $hash-&gt;{$tiers-&gt;[$_]};<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; }<br> </code>
+
+
+
+<blockquote>
+
+<h2>Re:make use of the indices of the $tiers</h2>
+<h3><a href="/user/danboo/">danboo</a> on 2004-04-28T21:44:36</h3>
+Oops, to be able to change the value, I suppose the first line in the for loop should be split into:<br> <br> <code>$hash-&gt;{$tiers-&gt;[$_]} = {} unless exists $hash-&gt;{$tiers-&gt;[$_]};<br>$hash-&gt;{$tiers-&gt;[$_]} = $value if $_ == $#$tiers;<br> </code>
+
+
+
+<h2>Re:make use of the indices of the $tiers</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2004-04-28T22:21:01</h3>
+Yeah, I thought about something like that, but then I should go through 0..$#$tiers-1, and do the special case for the last value.<br> <br>Oh well, too late now.  It is out of my hands.<br> <br>Thanks for the code<nobr> <wbr></nobr>:)<br>
+
+
+
+<blockquote>
+
+<h2>Re:make use of the indices of the $tiers</h2>
+<h3><a href="/user/jhi/">jhi</a> on 2004-04-29T06:30:09</h3>
+I think one needs to specify what happens in this case:<br> <br>set_multi_level_hash($h, [qw(a b c)], 42);<br>set_multi_level_hash($h, [qw(a b)], 66);<br> <br>Oops, we just nuked the first value and the whole "subhash".<br> <br>In other words, is the level of multiness going to stay the same?<br> <br>Personally, I would either create a class that guards against the multiness changing, or would make the data structure to be an array reference of hash references, keyed off in the array reference on the depth of $tiers (the latter can of course be wrapped into a class, too.)<br> <br>Also, after this<br> <br>set_multi_level_hash($h, [qw(a b c)], 42);<br> <br>what should this return:<br> <br>get_multi_level_hash($h, [qw(a b)]);<br> <br>Are we supposed to get the "subhash", or not, or should we have two different functionalities, "get one value" and "get a subhash with potentially multiple values"?<br>
+
+
+
+<blockquote>
+
+<h2>Re:make use of the indices of the $tiers</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2004-04-29T06:52:38</h3>
+What you are "supposed" to get depends on what your requirements are.  In this case, you assign a different value to a hash key, you replace the value, just like you do if you had written it out as "$h-&gt;{a}{b} = 42".<br> <br>I suppose you could create a class to limit operations, but then, you probably would have need ed a lot more time to deliver the code.  One of the requirements was "right now".  I didn't build in a lot of extra stuff to make variables not be variable.<br> <br>There is no get_multi_level_hash function, so it shouldn't return anything.  If you write one, you can decide what it should do.<nobr> <wbr></nobr>:)<br> <br>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Got a similar problem</h2>
+<h3><a href="/user/BooK/">BooK</a> on 2004-05-04T12:01:35</h3>
+<p>I had to do someting similar to create a multilevel hash table that returns a list of
+"cached" things given a list of parameters that
+represent the hashing value.</p>
+<p>The main problem was not creating the various
+anonymous hashes, but that the last item is not
+a <tt>{}</tt> but a <tt>[]</tt>. The trick was to keep a reference to the previous step, to be able
+to go back and turn a newly created hash reference
+into an anonymous array.</p> <blockquote><div> <tt># $thing is a hash reference<br># @keys is the list of $thing attributes I'm using for the hashing algorithm<br># $hashtable is a reference to the hash table itself<br>my $list = $hashtable;<br>my $last;<br>($last, $list) = ( $list, $list-&gt;{$thing-&gt;{$_}} ||= {} ) for @keys;<br>$list = $last-&gt;{$thing-&gt;{$keys[-1]}} = [] if ref $list eq 'HASH';<br># and now $list points to the list of interesting items<br># which was created (empty) if needed</tt> </div></blockquote> <p>Using <tt>$list</tt>, <tt>$last</tt> adds extra obfuscation points, but that wasn't intended, since those are fitting names.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

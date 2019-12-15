@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: sort in scalar context</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>sort in scalar context</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2006-02-04T02:47:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'm going to crack this endless argument open once again because I was bitten by it yet again yesterday and I see myself getting bitten again and again in the future.  I wrote "return sort ..." and I've been programming Perl for over 10 years.  I grepped our code base at work and found 34 instances of 'return sort', each of them subtle bug waiting to strike.  Try grepping your own code for it.  The Perl core has 24 instances (9 are in the debugger alone).<br/><br/>For those who don't know, the behavior of sort in scalar context is undefined.  I believe its because folks have never agreed on what it should do.  The arguments fall into three camps:<br/><br/><b>1)  sort should return the number of items in the list.</b><br/><br/>
+<b>For</b>:     Then it will work just like map and grep which sort looks and behaves very simlar to.
+<b>Against</b>: If all you want to know is the length of the list, why sort at all?
+<b>For</b>:     Because this is very common:  return sort @foo;
+<b>Against</b>: You can't assume that because a function returns a list in list context
+         that it will return the length of the list in scalar context.
+<b>For</b>:     Its a pretty safe assumption.  return map, grep or @array all work that way.  Its extremely common in real world code and a solid default behavior.<br/><br/><b>Against</b>: <a href="http://www.perlmonks.org/index.pl?node_id=347416">There's lots of things which return lists in list context but not their length in scalar context.</a>
+<b>For</b>:  The argument that "X should be inconsistent because Y and Z are inconsistent" is dubious at best, particularly in Perl where there's plenty of inconsistencies to dredge up.  But let's look at those inconsistencies, are they really all that inconsistent?  Those which don't return their length can be split into several categories:  Things which always return a fixed size list (each, getpw*, gm/localtime, select, stat, times, caller);  iterators (glob, readline, readdir);  list behavior (as opposed to array behavior);  other (unpack, qx).  For things which return fixed sized lists, its not useful for it to return the length and unlikely to surprise anyone that they do something different.  Iterators are a well known pattern.  The behavior of lists has always been odd and full of traps for the unwary, so using it as an argument is dubious.  As for the handful of outriders, they are just that.  Of the things which do return their length in scalar context there is a clear pattern that "foo BLOCK/REGEX, LIST" (map, grep, split) returns length.  sort is the exception.<br/><br/><b>For</b>:     What if I'm the subroutine author and want my function to return a sorted list in list context but a length in scalar?  I have to write either "my @sorted = sort @foo;  return @foo;" or use the archane "force list context" trick of "() = sort @foo;"  Neither is natural.<br/><br/><b>For</b>:     People write "return sort" all the time without thinking.  Its in the Perl core.  Its all over CPAN.  Close that trap!<br/><br/><b>For</b>:     Its a trivial patch.<br/><br/>
+<b>2)  sort should do <i>insert escoteric functionality here</i>.</b><br/><br/>
+<b>For</b>:      sort can <a href="http://use.perl.org/comments.pl?sid=28802&pid=43638">return a ratio of already sorted adjacent pairs</a>!  (or whatever)
+<b>Against</b>:  That sounds about as useful as keys() returning the bucket ratio.<br/><br/>
+<b>3)  Leave it undefined.</b><br/><br/>
+<b>For</b>:      We leave it undefined in case a clear solution presents itself in the future.
+<b>Against</b>:  IT IS THE FUTURE!  How much longer are you going to wait?<br/><br/><b>Against</b>:  People write "return sort" all the time.  By leaving this undefined a large trap has been created.<br/><br/><b>For</b>:      Unlike map or grep, "scalar sort @foo" will return the exact same value as "scalar @foo".  So why use sort in scalar context at all?
+<b>Against</b>:  "return sort @foo".<br/><br/><br/><br/>That's how I see it.  Feel free to add your own arguments.</p>
+
+
+<hr/>
+
+
+
+<h2>Well, duh ...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-02-04T09:05:39</h3>
+<p>Sort in scalar context should return bunnies.  Then everybody would be happy.  Bunnies are fluffy and cute.  If you don't think that, you'll find that they're awfully tasty.  If you're a vegetarian, they conveniently return a ratio of already sorted pairs.  You can't lose!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Well, duh ...</h2>
+<h3><a href="/user/educated_foo/">educated_foo</a> on 2006-03-08T06:19:21</h3>
+This is scalar context, so you mean "bunny", right?
+
+
+
+
+
+</blockquote>
+
+
+<h2>Perl::Critic</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2006-02-04T11:28:05</h3>
+In the meanwhile, it sounds like a good thing to add to <a href="http://search.cpan.org/user/thaljef/Perl-Critic-0.14/lib/Perl/Critic.pm" title="cpan.org">Perl::Critic</a cpan.org>...
+
+<p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Perl::Critic</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2006-02-04T14:10:53</h3>
+I'd second that, as it is what I was going to suggest. I see return sort<nobr> <wbr></nobr>.. in a same way as return undef just because one doesn't want something to be returned. It's ambiguous and in my opinion the developer should be aware of that. Would be a lot easier with a Perl-Critic policy, though I don't know how spread that already is "in the wild."
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-02-04T11:55:01</h3>
+<p>It&#8217;s interesting that neither argument against returning the list length presents a use case that would be precluded; both just argue on principles. And the leave-it-undefined stance takes the same basic position.</p>
+
+<p>The magnitude of sorted pair ratios != 1.0 is meaningless, so that&#8217;s not even as useful as <code>keys</code> in scalar context.</p>
+
+<p>We have exactly one real-world use case, <code>return sort @foo</code>, so there is exactly one meritorious argument, and it has no compelling counter. Why is anyone even arguing about this?</p>
+
+
+
+<h2>the &quot;obvious&quot; unexciting thing</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-02-04T18:01:54</h3>
+I've always thought the obvious behavior would be to return the first element.  It doesn't gain much (saves you typing two parens, maybe), but it's just what I always thought made sense...
+
+
+
+<blockquote>
+
+<h2>Re:the &quot;obvious&quot; unexciting thing</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-02-04T18:06:18</h3>
+I also always want to call the first element returned from sort the "most sorted element."  I just like the sound of it.
+
+
+
+<h2>Re:the &quot;obvious&quot; unexciting thing</h2>
+<h3><a href="/user/bart/">bart</a> on 2006-02-04T19:18:52</h3>
+The first (min)... or the last (max)?<br><br>Both would have their uses.
+
+
+
+<blockquote>
+
+<h2>Re:the &quot;obvious&quot; unexciting thing</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-02-04T20:05:22</h3>
+The first.  If you want the last, you'd reverse $a and $b in your sort.
+
+
+
+<h2>Re:the &quot;obvious&quot; unexciting thing</h2>
+<h3><a href="/user/BooK/">BooK</a> on 2006-02-06T19:15:05</h3>
+<p>Except that it's bound to be used as a shortcut for <tt>min()</tt> or <tt>max()</tt> (I've seen people write <tt>(sort @list)[-1]</tt>), which is rather inefficient compared to using <tt>List::Util</tt> (now in the core) or rolling
+you own <tt>min()</tt> or <tt>max()</tt>.</p>
+<p> <a href="http://articles.mongueurs.net/magazines/perles/perles-10.html#h2" title="mongueurs.net">Code
+examples</a mongueurs.net> and <a href="http://articles.mongueurs.net/magazines/perles/perles-11.html#h2" title="mongueurs.net">benchmarks</a mongueurs.net>
+available there, in French (sorry).</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:the &quot;obvious&quot; unexciting thing</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2006-02-08T09:34:55</h3>
+Here's a short mental gauntlet for any proposal to run though:<br><br>If sort() should do X, why not map and grep?<br><br>Why is X useful as an implicit behavior?<br><br>Why not use a user defined function (in this case List::Util's max/min)? (bonus: no argument about if it should return the first or last element)<br><br>Will it help in the common "return sort<nobr> <wbr></nobr>..." gotcha?<br><br>Can you think of common cases where you want to return the entire list in list context but only do X in scalar?<br>
+
+
+
+
+
+</blockquote>
+
+
+<h2>__</h2>
+<h3><a href="/user/Abigail/">Abigail</a> on 2006-02-04T22:57:33</h3>
+First of all, I use 'return sort<nobr> <wbr></nobr>...' in my code on a regular bases. I don't consider this a bug. If I write a function that's supposed to return a (sorted) list, and someone calls the function in scalar context, then it's the calling code that's buggy, not the subroutine. If I wanted the function to behave sensible when used in scalar context, I'd make it so. But I doubt that it would then return the number of elements of the list. I'm with rjbs on this one - the first (or last) element would be more useful.
+<p>
+Now, what really would be cool is the return an iterator, returning the elements of the list in sorted order. The function wouldn't be called again until the list was exhausted. Example:</p><blockquote> <div><tt>my @list = qw [foo bar baz];<br>sub sortlist {<br>&nbsp; &nbsp; print "Hello, world\n";<br>&nbsp; &nbsp; return sort @list;<br>}<br>for (1<nobr> <wbr></nobr>.. 5) {<br>&nbsp; &nbsp; print scalar sortlist, "\n";<br>}<br>__END__<br>Hello, world<br>bar<br>baz<br>foo<br>Hello, world<br>bar<br>baz</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:__</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2006-02-08T09:28:24</h3>
+<blockquote><div><cite><br>If I wanted the function to behave sensible when used in scalar context, I'd make it so.<br></cite></div></blockquote> <br><br>The other way to look at that is "I want my functions to behave insensibly in scalar context unless I remember to make it so" which strikes me as a little peevish and definately not DWIM.<br><br>That aside, here's something more concrete--how do you do that?  Take this sample for example, which is much like the code I recently stumbled over...<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; return sort { $a cmp $b }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; map  { normalize_date($_) }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; keys %days_processed;<br><br>How do you rewrite that so it returns the number of elements in scalar context without making it A) convoluted, B) repeat code or C) inefficient?<br><br><blockquote><div><cite><br>Now, what really would be cool is the return an iterator, returning the elements of the list in sorted order.<br></cite></div></blockquote> <br><br>That would be cool (though I'd make the iterator more explicit, your example reminds me too much of each()) except it would work completely unlike every other Perl 5 built-in, particularly the other list processing functions map and grep.<br><br>I believe Perl 6 is going the iterator route.
+
+
+
+<blockquote>
+
+<h2>Re:__</h2>
+<h3><a href="/user/Abigail/">Abigail</a> on 2006-02-08T22:12:12</h3>
+<blockquote>
+<div>The other way to look at that is "I want my functions to behave insensibly in scalar context unless I remember to make it so" which strikes me as a little peevish and definately not DWIM.</div>
+</blockquote>
+That sounds like for all functions that I design to return a list, I should take the trouble of figuring out what it they should do in list context.
+<p>
+Sorry, but I pass. For functions where it makes sense, I do so. But for many, I won't. Consider the context to be a pre-condition - just like the arguments being passed in.
+</p><p><blockquote>
+<div>That aside, here's something more concrete--how do you do that? Take this sample for example, which is much like the code I recently stumbled over...<blockquote> <div><tt>&nbsp; &nbsp; &nbsp; &nbsp; return sort { $a cmp $b }<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; map { normalize_date($_) }<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; keys %days_processed;</tt></div> </blockquote></div> </blockquote>
+Assuming that <tt>normalize_date</tt> returns a single value, I'd write that as:<blockquote> <div><tt>&nbsp; &nbsp; return wantarray ? sort {$a cmp $b}<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;map&nbsp; {normalize_date $_}<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;keys %days_processed<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;: keys %days_processed;</tt></div> </blockquote>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-02-08T18:15:31</h3>
+<p>That would require of Perl to do extra magic when it encounters <code>return sort</code>, and it&#8217;s non-reentrant. I vote no. If you want an iterator, then an iterator object/closure should be returned. Let&#8217;s not create more instances of the <code>each</code> trap.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>boolean test</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2006-02-06T16:05:35</h3>
+My vote for the meaning of sort in scalar context is to return whether the list was already sorted.<p><blockquote> <div><tt>unless( sort @list ) {<br>&nbsp; &nbsp; # @list is not sorted, deal with it...<br>&nbsp; &nbsp;<nobr> <wbr></nobr>...<br>}</tt></div> </blockquote> <p>
+If you want to go beyond a simple boolean, the index of the first out of order element sounds a lot more useful than the proprtion of sorted neighbours - and, like the boolean result, it can short circuit the scan of the list as soon as an out of order pair is found.</p>
+
+
+
+<blockquote>
+
+<h2>Re:boolean test</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2006-02-06T19:47:20</h3>
+<i>to return whether the list was already sorted</i>
+<p>An <code>is_sorted @list</code> predicate would be an interesting builtin/XS/Inline function, and should run faster than sort (if coded equally well). It should run about the same speed as a <code>least @list</code> sort-variant optimized to <code>return (sort @_)[0]</code>.
+
+</p><p>However, I'm not sure <code>is_sorted</code> should be called <code>scalar sort</code>, that doesn't seem any better than calling <code>least</code> as <code>scalar sort</code>.
+
+Changing <code>sort</code> from verb-transitive to verb-predicate when going from list to scalar context is rather drastic.  Someone who expected to get the size of the list -- not knowning the list returned by the function that code containing <code>return sort soemthingelse @_</code> is returned by sort -- might foolishly trust the 0 and 1 as list size.  In merlyn's context of <code>return sort @somelist</code>, I suggest the right answer is either what "everyone" expects (list ops return size in scalar context unless something else is monstrously obvious, however monstrously wrong that assumption is) is the only valid option other than the current <code>undef</code>-and-<code>warn</code>-if-warnings, which is highly defensible, it at least announces it's broken (unless -w is off, in which case the caller is borked anyway).</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Debugger okay</h2>
+<h3><a href="/user/pemungkah/">pemungkah</a> on 2006-02-06T20:52:41</h3>
+All of the <tt>return sort</tt>'s in the debugger are called in list context - Term::Readline's completion function in most cases, and a similar bit of code in the options handlling. It's probably not worth patching it.
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-02-08T18:24:12</h3>
+<p>Three times a year, a new person is caught by surprise by <code>sort</code> in scalar context. The rest of the time, noone cares or notices. Why not spare these three guys the surprise and just give it a reasonable default? Noone will notice if it&#8217;s patched.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

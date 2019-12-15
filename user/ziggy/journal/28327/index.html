@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: Standards and Regexes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Standards and Regexes</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2006-01-12T16:42:17</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'm working on a project of a certain vintage, and of a certain age, that uses upwards of five programming languages to get stuff done.  Annoying, but nowhere near uncommon.  (There's a <a href="http://www.jroller.com/page/slava?entry=the_hotspot_source_code_is">story</a> about how JScheme is included in the JDK sources, because the code to generate CORBA classes for Java are written in Scheme...)<br/><br/>Luckily for me, I had a feature to add that traces through most of those languages all at once:  Haskell <tt>-></tt> Tcl <tt>-></tt> XSLT <tt>-></tt> Tcl.  (The Perly bits form the backend system, not the frontend runtime components.)  Thankfully, it was a simple fix: add wordbreak barriers around a regex being output from a Haskell program and sent upstream to heaven knows where.<br/><br/>Should be simple, right?  Just replace <tt>"..."</tt> with <tt>"\\b(...)\\b"</tt>, or some variant thereof.  Easy peasy.<br/><br/>Except that the <tt>\b</tt> metacharacter is Perl syntax, and the regex isn't going to be processed by Perl.  At one point, I though that this regex was going to be processed by a component written in C, using the GNU Regex library.  Turns out that Perl, GNU Regex and PCRE all agree that <tt>\b</tt> is a word boundary.  (POSIX regexes don't appear to know what a word boundary is...)<br/><br/>Yet none of the standard regex magic was working.  Tracing through the code, I discovered that Tcl's regex engine was the one being used (by way of XSLT; about as convenient as a direct flight from Sydney to New York by way of Mars).  <br/><br/>Looking over Tcl's regex docs, it turns out that <tt>\b</tt> is a <b>backspace character</b>!<br/><br/>Because matching backspace characters is <i>such</i> a common operation within a regex, Tcl preserves the C-style escape for <tt>\b</tt>, and uses <tt>\y</tt> for word boundaries.<br/><br/><b>WHAT ON EARTH WERE THEY THINKING?</b></p>
+
+
+<hr/>
+
+
+
+<h2>From the MRE book</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2006-01-12T19:03:26</h3>
+<cite>
+And what about this !\b" business? This is a regex thing: in Perl regular expressions,
+!\b" nor mally matches a word boundary, but within a character class, it
+matches a backspace. A word boundary would make no sense as part of a class,
+so Perl is free to let it mean something else. The warnings in the first chapter
+about how a character class's (sub language) is different from the main regex language
+certainly apply to Perl (and every other regex flavor as well).
+</cite>
+
+<p>So the Tcl people weren't wrong, just different from Perl.</p>
+
+
+
+<h2>Prior art</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-01-12T19:55:17</h3>
+I believe \b as backspace significantly predates \b as word boundary.  I know that \b means backspace in PDF.  Most ASCII charts that show escapes use \b for backspace (0x08).  \b is backspace in ANSI C.<br><br>So, Perl is the usurper, not TCL.  That's not to say that Perl is wrong, of course.<nobr> <wbr></nobr>:-)
+
+
+
+<blockquote>
+
+<h2>Re:Prior art</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2006-01-12T20:16:05</h3>
+<p>Not wrong, just different. The problem is when we Perl folks try to hold up Perl as "the" regex standard and it is not. The MRE book explains that different language regex implementations are a wee bit different from each other.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Prior art</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2006-01-12T20:41:05</h3>
+Different and annoying.<br><br>The problem is that Perl's regex syntax is adopted as the gold standard whenever another language/library needs to beef up its regex handling.  There's a very large common subset shared between Perl, PCRE, GNU Regex, and probably some Java library.  In general, this is a <i>good</i> thing, because it means that regexes generally become normalized, at least for the common cases.  There <i>should</i> be one (common) way to find word boundaries, but all bets are off on variable capture and executing code in a replacement.  (GNU Regex allows <tt>\&lt;</tt> to match the start-of-word boundary and <tt>\&gt;</tt> to match the end of word boundary.  It's perfectly reasonable that such extensions exist, but core features, like <tt>*</tt> meaning<nobr> <wbr></nobr><tt>.*</tt> within a regex engine are simply wrong.)<br><br>We get <tt>\b</tt> as a mnemnonic because Perl is context sensitive.  And context sensitivity is a good thing, if somewhat baffling to remember that <tt>"\b"</tt> and <tt>qr"\b"</tt> aren't the same thing.  I'd say that Larry made the right choice, because when you're printing something <tt>\b</tt> as backspace makes sense (inherited from C), and <tt>\b</tt> as a word boundary makes sense (quite unlikely that you want to match a backspace character).<br><br>I've dug into Tcl's internals before, and while they are quite well engineered, there are some problems with the overall language design.  As a result, it has two significant shortcomings: <tt>\b</tt> (or any other metacharacter) can have one and only one translation, and there is no such thing as context sensitivity as we know it.<br><br>Even if that weren't true, there's also a case for backward compatability.  I'm pretty sure that <tt>\b</tt> wasn't in Perl1.  Therefore, it had to be added at some point, and because a regex isn't a string (until recently, with the <tt>qr{}</tt> loophole), there was never a conflict of interpretation.  However, because regexes in Tcl are strings, and strings treat <tt>\b</tt> as whitespace, introducing the Perl semantic would have broken existing Tcl programs.  Thus, the only viable solution was to introduce something else to mean <tt>\b</tt>.<br><br>Since you were going to break some eggs, better to err on the side of backward compatability with your own community instead of compatability with the rest of the universe.  A justifiable decision, especially when you realize both choices suck.<br><br>Therefore, because there is no C-like ASCII metacharacter <tt>\y</tt>, the string <tt>"\y"</tt> prints the character <tt>y</tt> (as you would expect) while <tt>"\y"</tt> matches a word boundary when used as a regex.  All of which means that while Tcl eschews specialized contexts, it still has them.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>perhaps necessary</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2006-01-12T20:15:01</h3>
+I don't know tcl except for snippets I've absorbed over the years, but doesn't tcl use strings rather extensively?  And does that not mean that the regex is entered as a string that later gets used as a regex (rather than being parsed as a regex when tcl first analyses the characters of the script)?  That would mean that usurping \b for word boundary within a regex would also usurp \b for backspace in all other strings too.  So, at the very least, you'd have to write it as \\b.  (Having the string be processed separately as a string first and then as a regex later has other problems - you also want \\b to mean a backslash followed by a b - so either tcl does arrange to distinguish between string and regex at the initial parse or you end up having to use \\\\x to match a backslash followed by x and \\x to match the meta meaning of x.)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

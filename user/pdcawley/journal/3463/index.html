@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pdcawley: More things worth stealing from Smalltalk</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>More things worth stealing from Smalltalk</h1>
+<h2><a href="/user/pdcawley/">pdcawley</a> on 2002-03-12T16:48:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've spent the day working on what has since become called Pixie, the object oriented database framework based around <a href="/user/james/journal">James</a>'s clever trick. Both I and the Fotango people have been working on 80/20 type solutions, but we appear to have different ideas about what constitutes the important 80%. So, I think I'll be merging tonight.<br/><br/>While I was beavering away on this, I finally <em>got</em> one of the classic OO commandments. This one's about constructors:
+<blockquote><i>Your basic constructor, <b>new</b> should not take any arguments and should simply return an empty object</i></blockquote>
+This seems somewhat counter intuitive; you're <em>always</em> going to set the attributes to <em>something</em> or other, or you're going to something else at instantiation time. Well, yes. And that's what <i>factory methods</i> are for. A <tt>new</tt> that takes an argument is an accident waiting to happen once you start doing the funky inheritance thing; you're going to have to remember what kind of mangling will go on elsewhere in the class hierarchy and your head is going to ache. 'Simple' constructors can also help with things like Class::MethodMaker's very lovely 'object' directive.<br/><br/>If you've got object invariants to worry about, don't. You can get 'round that by only calling the constructor via factory methods in the class (invariants should only be checked when flow of control leaves the object's methods after all).<br/><br/>If you combine this with Smalltalk type methods (which return <tt>$self</tt> unless there's a very good reason to return something else; even setter methods return $self) then you get to write nice code like the following:
+<code>
+package Object;
+use Data::UUID;
+use Time::Piece;<br/><br/>sub new {
+  my $class = shift;
+  my $self = bless {}, $class;
+  $self->initialize;
+  return $self;
+}<br/><br/>sub initialize {
+  my $self = shift;
+  $self->init_oid
+    &nbsp;->init_timestamp;
+}<br/><br/>sub init_oid {
+  my $self = shift;
+  $self->{_oid} = Data::UUID->new->create_str;
+  $self;
+}<br/><br/>sub init_timestamp {
+  my $self = shift;
+  $self->{timestamp} = Time::Piece->new;
+  $self;
+}<br/><br/>package Derived;<br/><br/>use base 'Object';<br/><br/>sub initialize {
+  my $self = shift;<br/><br/>  $self->SUPER::initialize
+    &nbsp;->init_foo;
+}<br/><br/>sub init_foo {
+  ...
+}
+</code>
+By returning <tt>$self</tt> even for setting methods (how often do you really use the return value of a setting method?) you can move to code like:
+<code>
+sub factory_method {
+  my $proto = shift;
+  my ($foo, $bar) = @_;<br/><br/>  $proto->new->set_foo($foo)
+       &nbsp;->set_bar($bar);
+}
+</code>
+which, to these old eyes at least looks neater (modulo the &lt;code&gt; tag screwing up my formatting) and takes less time to type. In perl 6 it'll probably look even neater.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Returning $self</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-03-12T17:31:19</h3>
+Returning $self is something I'm very mixed on, but I think that's mostly because I do coding in such mixed environments - spending some of my time in C, and some in Perl. In C, the classic idiom of a setter is to return the old value. I'm not entirely sure that's worth it, as the use-cases seem to be few and far between. So I'm starting to use the return $self idiom far more often.<br> <br>One module to note on this is SOAP::Lite, which does almost nothing BUT return $self on each call. And it seems to do pretty well for it!
+
+
+
+<blockquote>
+
+<h2>Re:Returning $self</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2002-03-12T17:58:33</h3>
+One of the modules in Alzabo does (the SQL constructor) so I can write code like this:<br> <br>$sql-&gt;select(@things)-&gt;from(@tables)-&gt;where(@conditions)-&gt;order_by(@ other_things)-&gt;limit(10);
+
+
+
+<blockquote>
+
+<h2>Re:Returning $self</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-03-12T19:31:54</h3>
+Sheesh! All that to avoid writing SQL??? Man, some modules need to get a life<nobr> <wbr></nobr>;-)
+
+
+
+<blockquote>
+
+<h2>Re:Returning $self</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2002-03-12T22:08:49</h3>
+All that to be able to write SQL in a cross-platform manner.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Returning $self</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2002-03-14T18:42:14</h3>
+Just in case you're only following replies to your own messages, see my hint above regarding Robin Houston's <i>Want</i> module.  You can return $self or another value based on context that way.
+<p>
+I should have read down further myself, as I just saw the remarks about ECODE.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>CODE tag</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-03-12T20:32:30</h3>
+FWIW, a CODE tag doesn't do any formatting.  It doesn't preserve formatting.  It is just like using the TT tag or something.
+
+
+
+<blockquote>
+
+<h2>Re:CODE tag</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-03-12T22:33:19</h3>
+Weird. 'cos where I typed a two space indent I'm seeing four spaces in the output. Very annoying.
+
+
+
+<blockquote>
+
+<h2>Re:CODE tag</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-03-12T22:36:27</h3>
+And, on closer inspection of the page source, spaces in the input have been replaced by '&amp;nbsp; ', that extra space appears to be what's screwing things up. (Unless it's 'Plain old text' and &lt;code&gt; failing to get on)
+
+
+
+<blockquote>
+
+<h2>Re:CODE tag</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-03-12T22:42:05</h3>
+I dunno.  I will soon be adding ECODE (it is there now, but I need a few more fixes for it) which will allow you to seamlessly integrate blocks of code with regular text in plain text or HTML modes.  Maybe tomorrow morning (I have some more testing to do with that and one other thing).
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Factory methods and deffered binding</h2>
+<h3><a href="/user/dws/">dws</a> on 2002-03-12T21:00:29</h3>
+Factory methods do indeed return newly created and initialized instances (something you've gotten wrong in your example), but they also have the effect of deferred binding. The calling method is no longer explicitly naming a class. Rather, this detailed is hidden in the factory method, which is free to have either bind a class (package) name at compile time, or choose one at runtime. You'll see some of this in Smalltalk (at least in Objectworks and its successors) using a predecessor to the Strategy pattern. When invoking a factory method to create a UI widget, a "Policy" object is consulted to determine what "type" of widget to return.<br> <br>
+
+
+
+<blockquote>
+
+<h2>Re:Factory methods and defered binding</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-03-12T22:49:09</h3>
+Bugger. I could have <em>sworn</em> I typed <br> <code> <br>$class-&gt;new-&gt;set_foo($foo)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; -&gt;set_bar($bar);<br> </code> <br>[fx: Hits 'edit' and fixes the code]<br> <br>And I am aware of the late binding stuff. Perl makes that sort of thing so easy it's almost second nature now. In the Pixie::Proxy stuff I've been working on I have subclasses <b>Pixie::Proxy::HASH</b>, <b>Pixie::Proxy::ARRAY</b> etc. <tt>Pixie::Proxy::make_proxy($target, $store)</tt> looks at the target object to find out which subclass to instantiate, then does<br> <code> <br>
+&nbsp; &nbsp; $class-&gt;new<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; -&gt;set_target($proxy)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; -&gt;store($store);<br> </code> <br>and returns a proxy object in the appropriate class. It's lovely.<br> <br>I've never really understood why people don't seem to get factory methods; surely they're obvious. I remember reading <i>Design Patterns</i> and looking at the factory method pattern and wondering why they'd bothered to write it down.
+
+
+
+
+
+</blockquote>
+
+
+<h2>smaltakeetakee</h2>
+<h3><a href="/user/TorgoX/">TorgoX</a> on 2002-03-13T07:27:54</h3>
+The problem that I see with returning $self when you don't need to
+return anything else is basically that the user's expectations of when
+you need to do it, might not match yours. Does $wooz-&gt;save() return
+$foo, or the success of saving it? Well, you run perldoc WoozleWuzzle,
+and look up its "save" method, but by time you've done that, you
+could've just written "$wooz-&gt;save; $wooz-&gt;print;" instead of bothering
+to find out whether you could score style points by writing "$wooz-&gt;save-&gt;print;".
+
+<p>One also never knows whether accessors like $wooz-&gt;name("foo") "should" return
+nothing, return $wooz, return "foo", or return the old value of
+$wooz-&gt;name().
+If it's an arbitrary choice, I usually figure that relying on it just
+for style, is usually a bad idea.  But that's just me.
+
+</p><p>As to options in constructors, I agree. Just about the only
+constructor that I appreciate taking an option is HTTP::TokeParser's
+-&gt;new(\$document) or -&gt;new("filename"). But that's 'cause TokeParser is
+a model of whipupitude, not internal neatness or subclassability. If I
+were to do it over, I'd make a parameterless -&gt;new(), and then make
+a shortcut -&gt;new_from_source($source) (and call it such in the docs)
+which is just this
+<br>sub new_from_source {
+<br>&nbsp;my($class, $source) = @_;
+<br>&nbsp;my $x = $class-&gt;new;
+<br>&nbsp;$x-&gt;source($source);
+<br>&nbsp;return $x
+<br>}</p>
+
+
+
+<blockquote>
+
+<h2>Re:smaltakeetakee</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-03-13T09:22:21</h3>
+<blockquote><div>Does <tt>$wooz-&gt;save()</tt> return <tt>$foo</tt> or the success of saving it</div></blockquote>Applying the 'die early' pattern I'd have to say that I'd implement it with something like:<br> <code> <br>
+&nbsp; &nbsp; sub save {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $self = shift;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; $self-&gt;_do_real_save or <br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; die IOException-&gt;new<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-&gt;obj($self)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-&gt;msg("Couldn't save $self");<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return $self;<br>
+&nbsp; &nbsp; }<br> </code> <br>And I if I found myself using that exception idiom a lot, I'd be tempted to write a method somewhere up at the top of my class tree (UNIVERSAL perhaps) like:<br> <code> <br>
+&nbsp; &nbsp; sub throw {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $self = shift;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $exception = shift;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; die $exception-&gt;object($self);<br>
+&nbsp; &nbsp; }<br> </code> <br>And refactor Exception's methods a little so that a typical one would look like:<br> <code> <br>
+&nbsp; &nbsp; sub set_attr {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $proto = shift;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; $proto = ref($proto) ? $proto : $proto-&gt;new;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $attr = shift;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $value = shift;<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; $proto-&gt;{$attr} = {$value};<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return $proto;<br>
+&nbsp; &nbsp; }<br>
+&nbsp; &nbsp; <br>
+&nbsp; &nbsp; sub msg {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $self = shift;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; <br>
+&nbsp; &nbsp; &nbsp; &nbsp; @_ ? $self-&gt;set_attr(msg =&gt; shift) : $self-&gt;{msg};<br>
+&nbsp; &nbsp; }<br> </code> <br>Hmm... that's a bit ugly. I'm actually more likely to seperate getters and setters. <br> <br>Anyhow, the original example becomes<br> <code> <br>
+&nbsp; &nbsp; sub save {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $self = shift;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; $self-&gt;_do_real_save or<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $self-&gt;throw(IOException-&gt;msg("Couldn't save $self"));<br>
+&nbsp; &nbsp; }<br> <code> <br>Mmm... lovely.<br> <br>As for the 'should setting methods return the new/old value or the object question, remember that generally the only thing that should be manipulating an objects attributes is the object itself. Outside objects monkeying with an object's state directly is often a 'Code smell'. So write the accessors/setters to do what is <em>useful</em> to you. Document that fact and let the rest of the world go hang. If you find you're doing <tt>$self-&gt;attrib($value)-&gt;attrib</tt> more often than doing <tt>$self-&gt;attrib1($value)-&gt;attrib2($value2)</tt> then don't return the object, return the value, or write your attribs as lvalue subs, or whatever...</code> </code>
+
+
+
+<blockquote>
+
+<h2>Re:smaltakeetakee</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2002-03-14T14:13:49</h3>
+<blockquote><div>
+Does $wooz-&gt;save() return $foo or the success of saving it
+</div></blockquote>
+<p>
+Here is where Robin Houston's <i>Want.pm</i> module gives you the power you need to decide - CONTEXT.
+</p><p>
+$wooz-&gt;save;
+<br>
+$wooz-&gt;save-&gt;print;
+<br>
+$val = $wooz-&gt;save;
+<br>
+someMethod($wooz-&gt;save);
+<br>
+@val = $wooz-&gt;save;
+</p><p>
+These can all be differentiated with <i>Want</i>.  So, using TorgoX's example, I'd code it like this:
+</p><p>
+<code>
+use Want;<br> <br>
+   sub save{<br>
+      my $self = shift;<br>
+      $self-&gt;_do_real_save or die "Blah...";<br>
+      if(want('OBJECT')){ return $self }<br>
+      return 1;<br>
+   }
+</code>
+</p><p>
+Sorry about the lack of indentation.  The CODE tag doesn't seem to work as expected.  How do people indent code here?</p>
+
+
+
+<blockquote>
+
+<h2>Re:smaltakeetakee</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-03-14T15:05:26</h3>
+<blockquote><div> <i>How do people indent code here?</i> </div></blockquote>In my case I use the CODE tag, the occasional &amp;nbsp;, and multiple drafts.
+
+
+
+<blockquote>
+
+<h2>Re:smaltakeetakee</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-03-15T17:26:32</h3>
+The new ECODE tag is now supported!
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:smaltakeetakee</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-03-14T15:14:56</h3>
+<tt>want('OBJECT')</tt> works? Oh <em>wonderful</em>. That means it might be possible to do Smalltalk type method selectors:<br> <code> <br>
+&nbsp; &nbsp;<nobr> <wbr></nobr>...<br>
+&nbsp; &nbsp; $dictionary-&gt;at($index)-&gt;insert($value);<br>
+&nbsp; &nbsp;<nobr> <wbr></nobr>...<br>
+&nbsp; &nbsp; $foo = $dictionary-&gt;at($index);<br>
+&nbsp; &nbsp;<nobr> <wbr></nobr>...<br> </code> <br>Class::Smalltalk anyone?<br> <br>No, I will <em>not</em> be working on such a class myself in the immediate future, but it would be a neat hack.
+
+
+
+<blockquote>
+
+<h2>Re:smaltakeetakee</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2002-03-14T16:29:33</h3>
+<blockquote><div>
+want('OBJECT') works? Oh wonderful.
+</div></blockquote>
+<p>
+Yep!  I discovered <i>Want</i> somewhat by accident, when people told me that the kind of contextual information I wanted wasn't possible.  That's when I decided to scour CPAN.  My search paid off.
+</p><p>
+It was his module (and Ruby) that inspired my <i>Set::Array</i> and <i>Set::String</i> modules.
+</p><p>
+The only problem right now with <i>Want</i> is that it doesn't get along with <i>overload</i>.  You can do boolean tests with overloaded ops, but that's about it.  Anything else will cause a crash.  Using the debugger with <i>Want</i> will almost certainly cause it to crash as well.
+</p><p>
+Robin is aware of these issues.  I eagerly await<nobr> <wbr></nobr>.06!</p>
+
+
+
+<blockquote>
+
+<h2>Re:smaltakeetakee</h2>
+<h3><a href="/user/robin/">robin</a> on 2002-03-14T20:17:05</h3>
+Thanks for reminding me!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

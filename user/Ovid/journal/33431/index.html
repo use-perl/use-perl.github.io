@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Dead Subroutines</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Dead Subroutines</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-06-05T07:48:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>When working with older code bases and doing heavy refactoring, it's amazing how many tools you write to analyze code.  Sometimes these tools are hacks but they get the bulk of the work done and that's what counts when refactoring.  I've fixed up some code I wrote to list which subroutines defined in the current file and expanded it to list how many times they are <em>used</em> in the current file.  It skips POD and naively skips comments (the comment skipping is probably OK unless you have something which looks like a comment in a quoted string).</p>
+
+<pre>#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use IO::Scalar;
+use Pod::Stripper;
+
+my $file = shift or die "usage: $0 perl_file";
+
+open my $fh, '<', $file or die "Cannot open ($file) for reading: $!";
+my @subs;
+
+my $DOC = '';
+my $fileh = IO::Scalar->new;
+
+my $stripper = Pod::Stripper->new;
+$stripper->parse_from_filehandle($fh, $fileh);
+seek $fileh, 0, 0;
+while (<$fileh>) {
+    push @subs => $1 if /^\bsub\s+([[:word:]]+)/;
+    $DOC .= $_ unless /^\s*#/;   # naively skip comments
+}
+
+my $longest_sub_name = 0;
+@subs
+  = map {
+      $_->[0]
+    . ( ' ' x ( $longest_sub_name + 2 - length $_->[0] ) )  # pad with spaces
+    . $_->[1]
+  }
+  sort by_count_and_then_name
+  map { decorate_sub_name($_) }
+    @subs;
+$" = "\n";
+print "@subs";
+
+sub by_count_and_then_name {
+    return is_private($a->[0]) cmp is_private($b->[0])
+      || $a->[1] <=> $b->[1]
+      || $a->[0] cmp $b->[0];
+}
+
+sub decorate_sub_name {
+    my $sub = shift;
+    my $count = @{ [ $DOC =~ /\b(?<![\$\@\%])\Q$sub\E\b/g ] };
+    $longest_sub_name += length $sub if length $sub > $longest_sub_name;
+    return [ $sub, $count ];
+}
+
+sub is_private { '_' eq substr shift, 0, 1 }</pre>
+
+<P>It's not a brilliant piece of code (gotta love package-scoped lexicals, eh?), but more than once I've worked on some code only to find out that that some subs are defined and never used.  It's a dead giveaway when it's a private sub that I have dead code.  Of course, I use it so much that it's mapped to a key in vim:</p>
+
+<pre>noremap ,s  :!subs %<cr></pre>
+
+<p>It's also really handy when you can't <em>quite</em> remember the name of the subroutine you're looking for.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Erm... Devel::Cover?</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2007-06-05T08:16:37</h3>
+... of course you need a test suite for that<nobr> <wbr></nobr>:-)
+
+
+
+<blockquote>
+
+<h2>Re:Erm... Devel::Cover?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-06-05T08:36:37</h3>
+<p>Devel::Cover doesn't work here specifically because of the test suite problem.  Our code coverage is up to about 36%, but some of the older code is virtually untestable due to how fragile tests become when I struggle to load some of these files.  This became the 20% solution which delivers the 80% of results (see <a href="http://en.wikipedia.org/wiki/Pareto_rule" title="wikipedia.org">Pareto Rule</a wikipedia.org>, for those unfamiliar with this).</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>private subs, you must be kidding</h2>
+<h3><a href="/user/gabor/">gabor</a> on 2007-06-05T20:15:42</h3>
+so you have private subs in your code!
+<p>
+Good for you.
+</p><p>
+The code I am maintaining has no _private functions.
+Actually it seems virtually every functions is called from at least 2 other modules. Preferably in a circular manner.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: We call him &quot;Dances with Halting Problem&quot;</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>We call him &quot;Dances with Halting Problem&quot;</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2006-10-04T15:19:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Working with POE is sometimes a real struggle. Things I want to do that seem perfectly normal to me are apparently weird exotic things things that are impossible and can't be added and why on earth would you want that anyway, you can solve the trivial example case different, you use AIX right?<br/><br/>Todays example was wanting to test that a program has shut down properly and cleaned up itself, SPECIFICALLY such that POE::Kernel->run should naturally finish.<br/><br/>So basically I want to know when something will end.<br/><br/>With both mjd (in his "You Can't Get There From Here" talk) and myself (in my "Nothing Can Possibly Go Wrong" talk, and my PPI talk) harping on about the Halting Problem, I think people are maybe making it more powerful than it is.<br/><br/>Now, granted, if I didn't know what the code was, and I wanted to write a generic function, it would be impossible.<br/><br/>But really, I don't. I want to know if POE will stop.<br/><br/>Now, the naive way is to do something like this.<br/><br/>  POE::Kernel->run;
+  pass( "POE stopped" );<br/><br/>The more astute of you will have noticed straight away that the problem with this is if the test fails. Because the test never fails. Either the test passes, or it deadlocks and the tests hang. BAD!<br/><br/>We could maybe use a hard alarm(), but POE might be trapping it, and alarm() I'm told isn't working right on Win32, so that's out.<br/><br/>That leaves playing games with fork() (oops, bad on Win32, nope) or some form of IPC (most of which suck on Win32) or doing it INSIDE of POE itself.<br/><br/>Which creates a problem... now, the obvious approach is to set an alarm (in POE via $poe_kernel->delay_set( 'program_stops' => 10 ) or similar.<br/><br/>Except that POE can't finish because of the very alarm we are using to test that everything is done.<br/><br/>HOWEVER, we can now ask not WHEN the program will finish, but is this alarm event (when it fires) the very last thing that POE will do and do we have the specific conditions to stop NOW.<br/><br/>And we can do that via introspection. Since POE doesn't have much introspection capability by default, we need to add a dep on the extremely useful POE::API::Peek by sungo++.<br/><br/>If we are in the last even, there should be no other sessions by ours, be nothing in the queues, be no signals handlers, and no event generators like file handles. If so, the test passes, and we allow POE to continue and shut down.<br/><br/>But if the test FAILS and we find something, now we can do something about it. We can just call a hard-stop on the kernel, and we finish as well, with a fail case.<br/><br/>Problem solved, and the Halting Problem avoided.<br/><br/>You can find this solution on the CPAN as Test::POE::Stopping.<br/><br/>Of course, if you're thinking ahead, you'll have realised what I've really made is a really crude and almost useless POE leak detector that doesn't report what actually leaked.<br/><br/>So the next step, if nobody has done it already, is take a similar approach, but boil down the introspection data into a simple report structure, and dump it out as a nice readable YAML report, so that you can see exactly what it is that leaked, and who it belongs to.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Er, separate process?</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-10-04T15:42:14</h3>
+It has *got* to be easier to start your POE process in a child with IPC::Open3 or IPC::Run than this thing you've invented.<br><br>Seriously. Or just do a "Oops! We're on Win32. Use CreateProcess() instead."
+
+
+
+<blockquote>
+
+<h2>Re:Er, separate process?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2006-10-05T00:10:56</h3>
+Sounds great, wrap all that platform abstraction up into something something simple that actually works everywhere, and then I'll look into it. It would be really nice if IPC::Open3 was finally sane everywhere.<br><br>Further, how do you handle debugging?<br><br>I mean, if you are just killing your process, what's the point?<br><br>With Test::POE::Stopping, we only need to add a few minor enhancements and we can start getting it to not only say that it won't end, but spit out full diagnositics of the specifics of the POE resources (aliases, handles, alarms, etc) that are actually leaking.<br><br>This takes it into another realm of usefulness entirely.<br><br>Just killing off the process doesn't give you that.<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:Er, separate process?</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-10-05T00:42:24</h3>
+IPC::Open3 isn't sane everywhere? Drat. People have been recommending it in my presence lately and I figured it was ok.<br><br>Oh well.<nobr> <wbr></nobr>:-/
+
+
+
+<blockquote>
+
+<h2>Re:Er, separate process?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2006-10-05T08:22:15</h3>
+You might be thinking of IPC::Run3, which is most certainly sane everywhere.<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

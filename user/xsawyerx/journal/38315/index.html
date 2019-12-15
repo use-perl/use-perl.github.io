@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of xsawyerx: POE Explained... sort of. part 2 - events!!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>POE Explained... sort of. part 2 - events!!</h1>
+<h2><a href="/user/xsawyerx/">xsawyerx</a> on 2009-01-19T09:22:33</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><address> (Sorry for the massive delay in posting) </address><br/><br/><br/><br/>I don't know if I'll keep up the <code>$num_of_exclamation_marks = $no_of_part</code> title thing, but this subject is perhaps the hardest thing to understand when approaching POE. If you heard about event-based programming, and you figure "okay that's simple enough, I get it" then you probably don't!<br/>
+<br/>
+The problem is that even though we figure it's a pretty basic concept (and really, it is), it's harder to understand what it means. What it really means is that you need to think differently. Understanding the idea vs. thinking differently.<br/>
+<br/>
+Anyway, event-based programming is basically saying that a function is called only when an event happens, and not because the next line of code has been issued. You define events and what happens when an event occurs. That's when callbacks become useful. You can define that if the event <code> falling_off_the_chair </code> happens, you provide a callback (AKA code reference) to <code> sub { print "hahaha\n"; } </code>.<br/>
+<br/>
+An example would help understand better:<br/>
+Imagine a web server. The web server takes requests from browsers (or rather, clients) that want certain pages. It listens for incoming connections and whenever a connection arrives, he asks them "What the $@#* do you want?" and they say "give me that $!#%&*^ page over there!" and he goes to get the page, when he gets there, he (the server) gives the client the page and says "here you go, now take it and shove it up your %!@" and closes the connection to him. Web serving is a very violent profession, as you can tell.<br/>
+<br/>
+Looking at the example, we see several events (and a few places to get counseling), which are:<br/>
+<ul>
+<li> <b>a connection was made</b> - a client connected to our socket </li>
+<li> <b>a request</b> by that client was made </li>
+<li> after being asked for a page, we try and reach it - <b>reaching it</b> is an event </li>
+<li> the client confirming that he <b>got the page</b> </li>
+<li> the <b>connection closes</b></li>
+</ul>
+<br/>
+In event-based programming, we set up functions (either as subroutines at the top/bottom or straight away as anonymous subroutines) and then we set up whatever listens and provide it with references to the subroutines we wrote in case of certain events.<br/>
+<br/>
+For the webserver, we'll have to write small functions in certain cases:<br/>
+<pre>
+sub incoming_client {
+    my $client = shift;
+    print_to_client( $client, "yo yo yo. what page will you be askingz for?" );
+}<br/><br/>sub asked_for_page {
+    my ( $client, $request ) = @_;
+    my $page = get_page($request);
+    give_client_the_page( $client, $page );
+}<br/><br/>sub accept_thankyou {
+    my $client = shift;
+    print_to_client( $client, "no, thank you!\n" );
+}
+</pre>
+Now this won't help us much if no one is going to be waiting for incoming connections, right? So we need to set up a TCP server, that accepts connections and forwards it according to the event. Obviously, the TCP server will have to understand what each event means. For example, if a client sends (using HTTP) a code that requests a file, our TCP server will need to say "oh oh, it's trying to get a file, I'll forward it to the correct subroutine". So, we'll use the fictional TCP server Sawyers::TCP::Server::That::Understands::HTTP. Yes, I like lots of namespaces. Dont::Event::Get::Me::Started.<br/>
+<br/>
+This is the code for starting the TCP server and telling it what to do in any event:<br/>
+<pre>
+use Sawyers::TCP::Server::That::Understands::HTTP;<br/><br/>my $server = Sawyers::TCP::Server::That::Understands::HTTP;
+$server->set_up_events( {
+    incoming_connection => \&incoming_client,
+    incoming_request    => \&asked_for_page,
+    closing_connection  => \&accept_thankyou,
+    echo_hello          => sub { print "hi!\n"; },
+} );<br/><br/>$server->start;<br/><br/>print "yay!\n";
+</pre>
+Now, the trick here is that any code that comes after the <code>$server->start</code> won't be executed. Why? Simple, because <code>$server</code> will be running forever. Keeps an open connection and keeps waiting for events. So, there is really very little point waiting for the "yay" line, because it won't be there. Unless we set up an event that closes <code>$server</code> and when it will be closed, the remaining lines of code will run.<br/>
+<br/>
+Any questions?</p>
+
+
+<hr/>
+
+
+
+<h2>HTTP servers just wait</h2>
+<h3><a href="/user/rcaputo/">rcaputo</a> on 2009-01-19T19:42:12</h3>
+Unlike many other protocols, HTTP servers don't transmit a banner when clients connect.  They just quietly sit there waiting for the client's request.
+
+
+
+<blockquote>
+
+<h2>2 fold answer</h2>
+<h3><a href="/user/xsawyerx/">xsawyerx</a> on 2009-01-20T08:14:41</h3>
+1. Fair enough. Perhaps HTTP server wasn't the best example for multi-events, since it also doesn't have a lot of events.<br>
+2. MY HTTPD WILL HAVE A BANNER, albeit I might have to write a new HTTP protocol...<br>
+<br>
+BTW, thanks so much for all the help on #poe a while ago, this is what encouraged me to write these short articles and helped me understand POE altogether!
+
+
+
+<h2>Re:HTTP servers just wait</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-01-20T12:56:51</h3>
+<p>The event is probably worth still having through, because once the connection is created, the server might need to do some internal accounting related to the connection. For example, firing off a new child process if we're getting close to running out of available children to handle connections (although in this case it's async so you wouldn't do that anyways).</p><p>But you get what I mean.</p>
+
+
+
+<blockquote>
+
+<h2>Re:HTTP servers just wait</h2>
+<h3><a href="/user/xsawyerx/">xsawyerx</a> on 2009-01-20T13:30:59</h3>
+It could check the incoming client's IP against an ACL, and decide to refuse it before even getting the request. Sort of like ACL blocking pre-HTTP but post-iptables/kernel-socket-connection.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

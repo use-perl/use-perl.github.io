@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Eliminating lookup tables</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Eliminating lookup tables</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-10-20T03:12:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>One common problem with those new to databases is how they often stick something like <tt>field1</tt>, <tt>field2</tt>, <tt>field3</tt>, etc, in a table definition.  Typically this if foolish.  It violates first normal form by repeating information (if it doesn't, the fields are probably named poorly).  For example, I once had to work on a database which had recipes for pears.  The recipes table had eight fields for ingredients.  If you had nine ingredients, you were out of luck.</p>
+
+<p>At first blush, someone might create an ingredients table and list all of the ingredients and add a recipe id for each ingredient.  Of course, this still does not work.  You can probably reuse those ingredients in multiple recipes (such as the pears, duh!).  So you create a lookup table.  This table two two fields:  recipe ID and ingredient ID (yes, we're keeping this deliberately simple).</p>
+
+<p>Want the ingredients for a recipe?</p>
+
+<pre>SELECT i.name 
+FROM   ingredients i, recipe_ingredient ri, recipes r
+WHERE  r.id = ri.recipe_id
+  AND  r.id = i.ingredient_id
+  AND  r.id = ?</pre>
+
+<p>The problem is, it's easy to get that wrong.  Do you see where I goofed?  Wouldn't it be nice if we could do away with that lookup table?</p>
+
+<p>You can.  It's called a "multivalued" database.  UniData, Pick, Universe and others violate first normal form and support "multivalued" columns.  Instead of lookup ids, you create references to the fields in the corresponding table.  The syntax is different (I have the books for UniQuery somewhere but I can't find them), but they essentially allow you to do this:</p>
+
+<pre>SELECT ingredients FROM recipes WHERE recipe.id = ?</pre>
+
+<p>That's much easier to get right.  If you delete an ingredient from the ingredients table, it automatically goes away in a corresponding recipe unless you have a constraint to protect it.</p>
+
+<p>Unfortunately, these require specialized programming and query languages and they're generally proprietary (anyone know of an open-source one?).  However, there's something else interesting they allow:  another step closer to logic programming.</p>
+
+<p>Consider the following Prolog facts:</p>
+
+<pre>likes( john, [cheese, money] ).
+likes( mary, [cheese, running] ).</pre>
+
+<p>That's really close to how a multivalue database would store records in a table named likes/2.  It becomes trivial to join on these values and you can get much richer relational data.  Unfortunately, I don't recall that multivalue databases support recursion.  Also, the multivalued columns (iirc) must point to a single table.  This makes optimization much easier but also reduces the utility.  Rats.</p>
+
+<p>You can also create custom datatypes by integrating your database language directly into the table definitions, though my experience has been that this can slow things to a crawl.  I really wish I had another multivalue database to play with.  As it turns out, there's an open-source mvRDBMS named <a href="http://www.maverick-dbms.org/">MaVerick</a>.  Regrettably, the documentation is sparse and it looks like I'd have to dig out my UniData books to even play with it.  Now where could they be?</p></p>
+
+
+<hr/>
+
+
+
+<h2>Other databases</h2>
+<h3><a href="/user/drhyde/">drhyde</a> on 2005-10-20T09:36:16</h3>
+I believe that PostgreSQL and Oracle both support this kind of thing.  But naturally, they support it in incompatible ways.
+
+
+
+<blockquote>
+
+<h2>Re:Other databases</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-10-20T19:58:44</h3>
+<p>Can you point to me where in the Postgres docs this is described?  I've found references to it on the Web but I'm having trouble finding it in the documentation.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Other databases</h2>
+<h3><a href="/user/drhyde/">drhyde</a> on 2005-10-20T20:28:47</h3>
+Likewise, I've seen it described but not looked for it in the docs.  Nor have I used it, and I don't have a Postgres install handy to fiddle with.
+
+
+
+<h2>Re:Other databases</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2005-10-21T01:02:53</h3>
+Is this the section you're looking for: <a href="http://www.postgresql.org/docs/8.0/static/arrays.html" title="postgresql.org">Arrays</a postgresql.org>?
+
+
+
+<blockquote>
+
+<h2>Re:Other databases</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-10-21T03:55:53</h3>
+<p>I suspect that's what was meant.  Thanks!  Unfortunately, it shows that Postgres really can't be used an MV database unless you push a lot of stuff into the application layer.  Thus, one could think of it as the MySQL of MV databases (in other words, a fancy toy).</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Use a view</h2>
+<h3><a href="/user/Thos Davis/">Thos Davis</a> on 2005-10-20T14:31:55</h3>
+<p>While it still requires that you type the query correctly once, <strong>views</strong> are portable across relational databases (finally even MySQL as of 5.0)</p> <blockquote> <div><tt>CREATE VIEW recipe_ingredient_list AS<br>&nbsp; SELECT r.id, i.name<br>&nbsp; FROM&nbsp; &nbsp;ingredients i, recipe_ingredient ri, recipes r<br>&nbsp; WHERE&nbsp; r.id = ri.recipe_id<br>&nbsp; &nbsp; AND&nbsp; i.id = ri.ingredient_id</tt></div> </blockquote> <p>so that you could use this query:</p> <blockquote> <div><tt>SELECT name<br>FROM&nbsp; &nbsp;recipe_ingredient_list<br>WHERE&nbsp; id = ?</tt></div> </blockquote> <p>And if you use PostgreSQL as the backend (some other RDBMSes have similar support, but MySQL does not), you can even make the view an <em>updatable</em> view by creating <em>rules</em> that will add appropriate entries to the base table whenever you send an <code>INSERT</code>, <code>UPDATE</code>, or <code>DELETE</code> instruction. And PostgreSQL will let you write the rules in Perl.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Use a view</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-10-20T15:20:31</h3>
+<p>Aside from the "write rules in Perl" part, we actually use "updateable" views with Postgres (and SQLite) all the time where I work.  It's very handy.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>See also</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2005-10-20T19:46:06</h3>
+<p>Randal's <a href="http://use.perl.org/user/merlyn/journal/17773" title="perl.org">post about ANSI SQL92 JOIN syntax.</a perl.org></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjohn: balls and socket</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>balls and socket</h1>
+<h2><a href="/user/jjohn/">jjohn</a> on 2003-06-02T21:29:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Even though this is a web site devoted to technical content, readers of this blog will have noticed by now that I don't talk about technical 
+matters much in my blog.  That's because I have other interests besides 
+computers, despite the volumes of pornography and spam it provides me with. 
+This entry is a different.  I want to talk about some of the problems and 
+solutions I've found while working with the perl class IO::Socket.
+<p>I confess that I'm not as strong as I'd like to be network programming. 
+Sure I've read (most) of Lincoln Stein's excellent 
+<a href="http://modperl.com:9000/perl_networking/">Network Programing 
+with Perl</a>, thumbed through 
+<a href="http://www.oreilly.com/catalog/cookbook/">Perl Cookbook</a> and even <a href="http://www.perldoc.com/perl5.8.0/pod/perlipc.html">Read The Fine Manual</a> but there are lots of issues that come up when I try to do socket level
+stuff.  Debugging at this level is painful.  Recently I wrote some an XMLRPC
+server based on HTTP::Daemon and Frontier::RPC2.  Why didn't I use 
+Frontier::Daemon?  I needed much finer grained control than that pre-baked 
+class provides.  I've used HTTP::Daemon before and it appears to be a jolly
+good module.  
+<p>And then entered Red Hat 8.0. 
+<p>Mysterious, my sub-class of HTTP::Daemon which had worked fine on 
+RH 7.x seem to hang on RH 8.0.  I traced to the cause to a select() function
+that never detected that the client socket was ready to read.  So select() 
+blocked until it timed out (180 seconds later).  This bug sent the 
+(Leostream) team and me back to vanilla socket filehandles (abandoning 
+HTTP::Daemon all together). 
+<p>Time passes.
+<p>The vanilla socket code that replace my IO::Socket extravaganza looked like
+this:
+<p><pre>
+  # ... socket initization code omitted
+  while (accept(NS,S)) {
+    my $cpid;
+    defined ($cpid = fork) or next;
+    if ($cpid) {
+	next;
+    }
+
+    while (<NS>) {
+	# read in request
+    }
+  }
+</pre>
+<p>Ok, this is a forking web server.  The forking code makes the socket stuff
+a little weirder, but this code worked swimmingly in older projects.  Yet in 
+the lab, this code would successfully read from (NS) the first connection but 
+fail to accept any further connections.  This is baffled us mightily until 
+we were a bit more pedantic in closing our socket handles.
+<pre>
+   while (accept(NS,S)) {
+      my $cpid;
+      defined ($cpid = fork) or next;
+      if ($cpid) {
+	close(NS);
+	next;
+      }
+      close(S);
+      while (<NS>) {
+      }
+   }
+</pre>
+<p>This code works as advertized.  
+<p>Time passes.
+<p>The next socket problem that appear in this seemingly unassuming code
+to does a socket connect to make sure that there's some server listening 
+on the other end. 
+<p><pre>
+   return IO::Socket->new(PeerAddr => $host,
+			  PeerPort => $port,
+	                  Timeout  => 2,
+			  Domain   => AF_INET,
+			  Proto    => 'tcp',
+			 ) ? 1 : 0;
+</pre> 
+<p>Seems simple enough.  The code creates a client socket to connect to
+<code>$host:$port</code>.  If a valid socket connection is made, the function
+returns 1.  Otherwise, it returns 0.  What could possibly go wrong?
+<p>It appears that when a this code talks talks to RH 8.0 server that 
+new() doesn't return until the timeout.
+<p>The solution was to close the socket explicitly. 
+<p>While I haven't isolated the select() "bug," I feel it must be related to 
+sloppy socket code that doesn't close dead sockets explicitly. 
+<p>The moral of this cautionary tale is to <i>always</i> explicitly close 
+sockets, even if they seem to go out of scope on their own.
+<p>I don't know if the problem is really related to RH 8.0 or not.
+<p>Has anyone else run into similar socket problems?
+ 
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

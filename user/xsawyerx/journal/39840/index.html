@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of xsawyerx: Extensive POE Testing PT. 7 - Testing, Event Parameters PT.2</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Extensive POE Testing PT. 7 - Testing, Event Parameters PT.2</h1>
+<h2><a href="/user/xsawyerx/">xsawyerx</a> on 2009-11-04T15:47:36</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><address>There is actually a limit on the length of the subject, this should actually be entitled: <b>Extensive POE Testing PT. 7 - Testing, Unordered Event Parameters</b></address>
+
+<p><a href="http://use.perl.org/user/xsawyerx/journal/39811">Last post</a> talked about <b>Ordered Event Parameter testing</b> which is basically setting a set of parameters that should be for each event, in the order in which they are suppose to be run.</p>
+
+<p>A weak point that remains in this rather strong testing feature is the ability to make it unordered. That is, to say <i>"I know the event <b>next</b> will be called with each of these parameter sets, but I don't know <b>which</b> one will come before the other.</p>
+
+<p>A good example would be two events (one could even be an alarm) were to reach the same event, each with different parameters:</p>
+<pre>
+package Session;
+use MooseX::POE;
+sub START {
+    $_[KERNEL]->alarm( 'mine_alarmz', time() + int rand 2 );
+    # ... other stuff
+    $_[KERNEL]->yield( 'next', 'from START' );
+}
+
+event 'mine_alarmz' => sub {
+    $_[KERNEL]->yield( 'next', 'from alarmz' );
+};
+</pre>
+
+<p>The race condition here manifests by having two codes (START, alarm) running the same event (next) and not knowing for sure which will reach it first.</p>
+
+<p>In this case, testing for the set of parameters <i>next</i> will be called with (especially in a specific order) will be worthless. Taking into account that we don't really care what set of parameters is called first, setting <b>possible sets of parameters</b> for <i>next</i> will make sure that when it is called, it will not be called with anything that isn't defined as a set of parameters and will allow this race condition to exist, without causing trouble. This is actually the preferable method of testing event parameters for most people.</p>
+
+<p>When using <a href="http://search.cpan.org/perldoc?POE::Test::Helpers">POE::Test::Helpers</a> to do it, you merely have to override another attribute to set it. Here is a sample:</p>
+<pre>
+package Session;
+use Test::More tests => 4;
+use MooseX::POE;
+with 'POE::Test::Helpers';
+has '+event_params' => (
+    default => sub { {
+        'next' => [ [ 'hello', 'world' ], [ 'goodbye' ] ],
+        'more' => [ [] ],
+} } );
+
+# this is the new attribute to override
+has '+event_params_type' => ( default => 'unordered' );
+
+my $flag = 0;
+sub START           { $_[KERNEL]->yield( 'next', 'goodbye' ) }
+event 'next' => sub { $_[KERNEL]->yield( 'more'            ) };
+event 'more' => sub {
+    $flag++ || $_[KERNEL]->yield( 'next', 'hello', 'world' );
+};
+
+package main;
+use POE::Kernel;
+Session->new();
+POE::Kernel->run();
+</pre>
+
+<p>Next post (hopefully won't be in too long) will cover writing some tests with <a href="http://search.cpan.org/perldoc?POE::Test::Helpers">POE::Test::Helpers</a></p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

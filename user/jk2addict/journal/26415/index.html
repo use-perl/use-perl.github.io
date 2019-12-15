@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jk2addict: A Growing Dislike for SQL-OOP Mappers</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>A Growing Dislike for SQL-OOP Mappers</h1>
+<h2><a href="/user/jk2addict/">jk2addict</a> on 2005-08-22T13:59:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+    First, this isn't a statement about the quality of Class::DBI or
+    DBIx::Class. They do what they're intended to do; well at that.
+    I use Class::DBI and I'm starting to use DBIx::Class. If it weren't for
+    sql->oop mappers, I never would have gotten this far this fast with Handel.
+</p>
+<p>
+    With that said, I'm really starting to dislike them. I think there's a dark
+    side of them that no one talks about most of the time.
+</p>
+<p>
+    Yesterday I started a new quick and dirty photo gallery project under
+    Catalyst. Before I even started anything web related, I wanted to get the
+    core modules out of the way. For the point of this conversation, two of the
+    main modules are Gallery and Photo; each tied to the galleries and photos
+    tables in the database. One of the side goals was to be able to use
+    Class::DBI or DBIx::Class as my sql abstraction layer. Through some use of
+    base clases and some symbol table tom foolery, this actually worked without
+    too much hassle.
+</p>
+<p>
+    But, here's where the dark side somes in: these mappers tend to have their
+    own new/create subs and use them in their internals. That means that if you
+    want you're own new/create sub to do things in addition to creating a new
+    record, there's a good chance it just won't work right. Here's an example:
+</p>
+<pre>
+    package MyApp::DBI;
+    use base 'Class::DBI';
+    __PACKAGE__->connection(...);
+    1;
+
+    package MyApp::Gallery;
+    use base 'MyApp::DBI';
+    __PACKAGE__->table('galleries');
+    __PACKAGE__->columns(...);
+
+    sub create {
+        my ($self, $ops) = @_;
+
+        my $dir = $ops->{'directory'};
+
+        if (-e $dir) {
+            die 'directory exists';
+        else {
+            mkdir $directory;
+            $self->find_or_create($data);
+        };
+       return;
+    };
+    1;
+</pre>
+<p>
+    MyApp::Gallery->create will fail hard every time because the CDBI internals
+    call create, but not the one you wish it would. In the case of Handel, I
+    used new to create a new object (what a name for a constructor). A this
+    point, It's just luck I didn't want a custom create() sub in my public API.
+    More on public APIs later.
+<p>
+    A similiar problem exists when using DBIx::Class and new:
+</p>
+<pre>
+    package MyApp::DBI;
+    use base 'DBIx::Class';
+    __PACKAGE__->connection(...);
+    1;
+
+    package MyApp::Gallery;
+    use base 'MyApp::DBI';
+    __PACKAGE__->table('galleries');
+    __PACKAGE__->add_columns(...);
+
+    sub new {
+        my ($self, $ops) = @_;
+
+        my $dir = $ops->{'directory'};
+
+        if (-e $dir) {
+            die 'directory exists';
+        else {
+            mkdir $directory;
+            $self->find_or_create($data);
+        };
+       return;
+    };
+    1;
+</pre>
+<p>
+    Since I'm trying to use either CDBI or DBIC, my problem is doubly compounded
+    in terms of new/create. I would also have to tweak my new() to call insert()
+    under DBIC, which breask the whole point of encapsulating the DBI layer.
+</p>
+<p>
+    So, here's my beef. These SQL->OOP mappers need to make their create/new
+    subs private (_new, _create) in some way shape or form; yet still be
+    subclassable. Breaking new() for the consumer is a sin in my book since it's
+    the most common creation idiom out there. Using a mapper should NOT decrease
+    my options in terms of what public subs I want in my API. The only thing I
+    really need an sql->oop mapper to do is to provide methods to get/set
+    fields, otherwise stay out of my way. There, I feel better.
+</p>
+<p>
+    Even if I weren't trying to use either/or dbi mapper, using one or the other
+    with a custom new/create still could cause problems. There is a solution,
+    but it means an extra layer of abstraction; sort of like the old n-tier
+    approach under windows. MyApp::Gallery, MyApp::DBI::Gallery subclassing
+    MyApp::DBI.
+</p>
+<p>
+    Let's look back to the CDBI example:
+</p>
+<pre>
+    package MyApp::DBI;
+    use base 'Class::DBI';
+    __PACKAGE__->connection(...);
+    1;
+
+    package MyApp::DBI::Gallery;
+    use base 'MyApp::DBI';
+    __PACKAGE__->table('galleries');
+    __PACKAGE__->columns(...);
+    1;
+
+    package MyApp::Gallery;
+    BEGIN {
+        use 'MyApp::DBI::Gallery';
+
+    };
+
+
+    sub create {
+        my ($self, $ops) = @_;
+
+        my $dir = $ops->{'directory'};
+
+        if (-e $dir) {
+            die 'directory exists';
+        else {
+            mkdir $directory;
+            return MyApp::DBI::Gallery->find_or_create($data);
+        };
+       return;
+    };
+    1;
+</pre>
+<p>
+    Now I've seperate my Gallery object from it's DBI layer. No sub name
+    collisions. No CDBI/DBIC internals calling my subs when they really want
+    theirs. Yeah!
+</p>
+<p>
+    With some tweaking, you could rebless that new gallery dbi instance into the
+    current package and map the column accessors into the current package.
+    Either way, there's no longer a collision of ideas. Gallery->new and
+    Gallery->create are always mine and mine alone. There are no internals
+    anywhere accidentally calling my subs.
+</p>
+<p>
+    Of course, I could be wrong. :-)
+</p>
+<p>
+    Now for my second sql->oop mapper rant. They foster bad software design.
+    Before you flame me, think about this:
+</p>
+<pre>
+    package MyApp::DBI;
+    use base 'Class::DBI';
+    __PACKAGE__->connection(...);
+    1;
+
+    package MyApp::SomeTable;
+    use base 'MyApp::DBI';
+    __PACKAGE__->table('sometable');
+    __PACKAGE->has_many(tablelegs => 'MyApp::TableLegs');
+
+    1;
+</pre>
+<p>
+    Now, how does the consumer of your module add legs to a table? That's right,
+    the CDBI specific method ->add_to_tablelegs({}). That's silly. What if I
+    change the DB layer? You're stuck with a cruddy API, even if you map
+    add_to_tablelegs to SomeOtherDBILayer::add_child_object(). MyApp::SomeTable
+    should just have an add() method to abstract that out. How many people do
+    that that use CDBI? Who knows. The same goes for find_or_create,
+    searc_linke, and all the others. They're convience methods for the module
+    writer, but should NEVER be exposed to the module consumer. The
+    MyApp::Gallery, MyApp::DBI::Gallery ==> MyApp::DBI example above keeps the
+    author and the consumers honest to a purposeful API.
+</p>
+
+<p>
+<strong>more thoughts..</strong>
+</p>
+<pre>
+   package MyApp::Gallery;
+   use MyApp::DBI::Gallery;
+
+   sub new {
+     my ($class, $opts) = @_;
+     my $gallery = MyApp::DBI::Gallery->create($data);
+
+     bless {gallery => $gallery), $class;
+   }
+
+   sub AUTOLOAD {
+      my $self = shift;
+      my $name = our $AUTOLOAD;
+
+      if (UNIVERSAL::can($self->{gallery}, $name) {
+          $self->{gallery}->$name(shift);
+       };
+   };
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Has-a, not is-a</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2005-08-22T15:10:40</h3>
+That's one of the main problems with those two modules, they force you into an is-a relationship.  The right way to do it, IMO, is a has-a relationship.  Your OO module, which provides your public API, should _have_ some sort of SQL-ish module to do the work.<br><br>Now that mapper can create whatever methods it wants, and you don't care.  I don't think this has much to do with mappers in general as much as the ones you've chosen, which force you to subclass them.
+
+
+
+<blockquote>
+
+<h2>Re:Has-a, not is-a</h2>
+<h3><a href="/user/tmtm/">tmtm</a> on 2005-08-22T20:34:08</h3>
+I'm confused by this statement. Class::DBI doesn't force you into an is-a model at all. A Class::DBI class merely represents a database table. It can quite happily be the class that your nice pure OO model class 'has'. Class::DBI provides your "sort of SQL-ish module to do the work". It's not trying to be part of some nice OO system.<br><br>Tony<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:Has-a, not is-a</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2005-08-22T21:59:53</h3>
+What you say is true.  It'd probably be good if the docs recommended this sort of usage, for exactly the reasons that the original journal entry mentioned.<br><br>But in that case most of your C::DBI classes would _just_ be the declarations, which isn't how I've ever seen anyone use it.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Use Method Dispatch!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2005-08-22T16:08:34</h3>
+<p>I agree with you and Dave about the fragile inheritance problem (and wonder if <a href="http://www.martinfowler.com/bliki/CallSuper.html" title="martinfowler.com">adding hook methods</a martinfowler.com> or migrating to a <a href="http://search.cpan.org/perldoc/Class::Std" title="cpan.org">Class::Std</a cpan.org>-based object model would solve some of these problems.</p>
+
+<p>However, one of your suggestions makes a similarly unwarranted assumption, specifically:</p> <blockquote> <div><tt>if (UNIVERSAL::can($self-&gt;{gallery}, $name) {<br>&nbsp; &nbsp; $self-&gt;{gallery}-&gt;$name(shift);<br>};</tt></div> </blockquote> <p>What if I want to overload <code>can()</code>?  It's a method.  Why shouldn't I be able to do that?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2005-08-22T16:30:20</h3>
+I'm not sure how to take or answer that question. So I should never use UNIVERSAL::can because you may want to override it?<nobr> <wbr></nobr>:-)<br><br>Of course, I didn't have to check the method I'm referenceing exists at all. It just seemed like a safety measure. But then again, if you override anything in UNIVERSAL, its effects are your problem, not the modules authors problem right?<br><br>Or, was this comment geared towards the UNIVERSAL::can vs. $object-&gt;can debate that flares up from time to time?<nobr> <wbr></nobr>:-)
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2005-08-22T18:52:57</h3>
+<p>Yes, it's the great "Why in the world are you explicitly calling the parent implementation of a method on an instance of a known-derived class?" debate.  Someday I'm going to write <code>UNIVERSAL::new</code> and write code that calls that directly instead of the actual constructors just to show how stupid a debate it is.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2005-08-22T19:40:20</h3>
+Easy killer.<nobr> <wbr></nobr>:-)<br><br>I'll admit, I'm a tard when it comes to that debate. I've heard mutterings and seen people use can both ways. In an effort to make me less stupid, care to elaborate on the difference between the two in the context of that debate?
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2005-08-22T20:20:19</h3>
+<p> <code>can()</code> is an object method.  There's a default implementation in the <code>UNIVERSAL</code> base class so that classes that don't need to define their own implementations can inherit it.</p>
+
+<p>Classes for which the default implementation is unsuitable can override it with their own implementations -- and there are good reasons for doing so, such as if you have a proxying or delegation relationship you want to keep transparent, if you autogenerate methods you can't know at compile time and don't necessarily want to install them in the symbol table before other code calls them, and so on.  As long as the overridden method provides the same interface as <code>UNIVERSAL::can()</code>, the location of the implementation and the mechanics of the implementation are transparent to the caller.  That's one important point of OO.</p>
+
+<p>By calling <code>can()</code> as a method on an invocant, everything is fine.  This will dispatch the right method regardless of whether the class has inherited the method from <code>UNIVERSAL</code>, from a parent somewhere, or has implemented its own.  A class that has no special needs for this method will always answer the question "Do you respond to a method of this name?" appropriately.  So will a class that needs to do different work to answer the question correctly.</p>
+
+<p>Calling <code>UNIVERSAL::can()</code> as a function on an invocant explicitly <em>forbids</em> the invocant's class from overriding <code>can()</code>, even if it makes sense for that class to do so -- even if the class has already done so!  This will sometimes answer the question incorrectly and sometimes will break perfectly legitimate code written by other people.</p>
+
+<p>The other position in the debate is basically "So what?  I don't care if code breaks", which I completely fail to understand and consider myself unqualified to summarize in more detail.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2005-08-22T20:28:38</h3>
+Thanks for that. Now I get it.<br><br>Would it be safe to assume that I should always use -&gt;can against other classes, but if I was overriding and making my own can() sub, that the guts of my new and improved can() should use UNIVERSAL::can; or should it use $self-&gt;SUPER::can?
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2005-08-22T21:37:22</h3>
+<p>It's a normal method, so treat it as you would handle any inherited method.  If you use <code>SUPER</code>, the implementation in the parent can change but the child can continue to work without change.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2005-08-23T12:02:52</h3>
+Using UNIVERSAL::can() as a function is unfair to objects, which might implement their own can method.  Using the can method, however, is a real pain, because one can't just say:<blockquote> <div><tt>if ($scalar-&gt;can("explode")) {</tt></div> </blockquote>because the program will die unless <code>$scalar</code> is an object or package name.  If it's an unblessed reference or a simple scalar, calling a method throws an exception, so one ends up writing:<blockquote> <div><tt>if (ref $scalar and blessed($scalar) and $scalar-&gt;can("explode")) {</tt></div> </blockquote>which is just a lot of typing, and we know how Perl progammers feel about lots of typing.  Maybe Scalar::Util needs to provide <code>able($scalar, $method)</code> that does the above.
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2005-08-23T12:36:52</h3>
+The first ref($scalar) there is redundant, so it's a *bit* less typing<nobr> <wbr></nobr>;-)
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2005-08-23T13:03:55</h3>
+You're right, this is my fault for waffling.  I was going to say:<blockquote> <div><tt>if (ref $scalar and (not grep { ref $scalar } @std_types) and $scalar-&gt;can('explode')) {</tt></div> </blockquote>but then I decided that it was fine to assume, for the example, that Scalar::Util was available, and that I was being overly snarky.<br><br>By the way, note the use of UNIVERSAL::isa in perldoc -f ref.
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2005-08-23T15:37:59</h3>
+<p>Don't worry; Rafael applied my patch to perlfunc a little while ago.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/malte/">malte</a> on 2005-08-30T11:19:40</h3>
+<p>able is a good idea. Plus we need an option for Scalar::Util:</p>
+
+<code>use Scalar::Util export =&gt; "able", to_namespace =&gt; "Customer::ProjectName"</code>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2005-08-25T01:55:39</h3>
+I think that you're unfairly summarizing the other position in the debate.<br><br>The other position as I see it can be summarized as, <i>I think it more likely that some idiot who doesn't know about UNIVERSAL::can will write a can method that does the wrong thing, than that some smart guy will write a can method that works where UNIVERSAL::can would have failed.</i><br><br>Which is a vote of non-confidence in others, not a desire to see things break.
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2005-08-25T17:39:31</h3>
+<p>I can only see that argument as "Because someone else <em>might</em> write broken code, I'll <em>deliberately</em> write broken code."</p>
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2005-08-28T02:59:21</h3>
+Just because the argument looks silly doesn't mean that it is wrong.<br><br>See <a href="http://www.perlmonks.org/?node_id=342804" title="perlmonks.org">this thread</a perlmonks.org> where multiple good programmers, having <b>just been told</b> what some of the problems are trying to mix AUTOLOAD and can, tried to write a can routine and got it wrong.<br><br>If good programmers who have just been told some of the big pitfalls can't do it, then why should I expect that anyone else will get it right?<br><br>The problem isn't with the maintainance programmer.  It is with how a couple of independent features do not combine in any reasonable way.
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2005-08-28T08:26:16</h3>
+<p>If someone needs to override <code>can()</code> and does it incorrectly, calling <code>UNIVERSAL::can()</code> will give the wrong answer.  You can't fix that without fixing their code.  That's their bug.</p>
+
+<p>If someone needs to override <code>can()</code> and does it correctly, calling <code>UNIVERSAL::can()</code> will <em>still</em> give the wrong answer.  How is that possibly good?  What possible legitimate reason is there for recommending it?  This technique has no chance of working correctly in the face of an overridden <code>can()</code>!  That's your bug.</p>
+
+<p>For the record, I'm not talking about a multiple inheritance situation here.  I know I could not easily write code that behaved correctly with important <code>AUTOLOAD()</code> methods in multiple parents.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Use Method Dispatch!</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2005-08-28T10:26:21</h3>
+I think that I said it fairly well <a href="http://www.perlmonks.org/?node_id=343125" title="perlmonks.org">here</a perlmonks.org>.  From my point of view, can is not to be considered fully trustworthy or reliable.  Since I don't consider it reliable, I do not rely on it, and I don't waste much energy worrying about whether I'm breaking it.<br><br>By contrast you view it as something that is documented and supposed to work.  If someone breaks it, you expect them to fix it.  And since you expect people to fix it, you get upset if someone else bypasses that fix.<br><br>To me that seems like a lot of stress and effort to go through to try to reintroduce a level of certainty that I start with by assuming that can is unreliable.<br><br>I know that my position upsets you.  But from my point of view, you're like the people who want to use return codes for errors who complain that people don't get the fact that if they are just careful enough, that this is as reliable as anything else.  I know that I'm not that careful, nor do I think that I can reasonably expect others to be.  So I'll pick a technique that I know works.  (In the case of errors, exceptions.  In the case of can, other than in toy code, I've never actually needed it.)
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Sick</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2005-08-22T17:29:24</h3>
+Here's the really sick part about the MyApp::Gallery, MyApp::DBI::Gallery ==&gt; MyApp::DBI example above...<br><br>I could use Class::DBI, DBIx::Class, Rose::DB::Object, or my own raw SQL. I can change DBI layers at will and not have to fight my MyApp::Gallery class or whatever is-a relationship it would've had normally.<br><br>There's nothing new about this approach. True n-tier development does that forever. But in the lasd of "just use base 'Class::DBI' in your class and go", it's somewhat  interesting.
+
+
+
+<h2>Get out of the way</h2>
+<h3><a href="/user/tmtm/">tmtm</a> on 2005-08-22T20:39:26</h3>
+<blockquote><div>The only thing I really need an sql-&gt;oop mapper to do is to provide methods to get/set fields, otherwise stay out of my way.</div></blockquote>
+
+<p>You really don't want to be using Class:DBI, then...</p>
+
+<p>Tony</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

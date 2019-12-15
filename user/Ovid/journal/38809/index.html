@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Not All Features Are Useful (Moose Roles)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Not All Features Are Useful (Moose Roles)</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-04-14T14:17:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>One feature of Moose roles that is if a role provides a method and a class uses that role, if a class defines a method that the role provides, it silently overrides the role's version of said method.  This makes it easy to customize your behavior per class.</p>
+
+<p>However, did you get the "silently overrides" part?  Regardless of this being in the original traits papers, how it's implemented in Perl 6 and how it's implemented in Moose roles, it's a mistake.  I have <em>again</em> lost quite a bit of time debugging this "feature".  I'm really tired of this silent overriding of behavior.  This is what roles are supposed to help with!</p>
+
+<p>The Moose maintainers have not expressed a desire to change this (it's been discussed in this blog) and in fairness to them, Moose is absolutely fantastic in most regards.  However, when working with the larger systems that roles help out with, it's ridiculously frustrating to keep getting bitten by this over and over.  I've discovered that this is a common problem when converting a base class into a role.  You would think that since the child class is overriding the base class, this would be a non-issue, but we often have calls to <tt>$self-&gt;next::method</tt> and everything falls down and goes boom.</p>
+
+<p>It we didn't have a great test suite, this would have hurt our customers badly.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Is it a bug or a feature?</h2>
+<h3><a href="/user/nxadm/">nxadm</a> on 2009-04-14T15:29:20</h3>
+<p>Not completely into Moose yet, but isn't a role the equivalent of a Java interface?</p><p>In that case, the behaviour you describe has been implemented there as a intended feature: a regular class *implements* the interface.</p><p>Additionally, a role seems to also have the function of an abstract class as well. In Java, overriding concrete methods is, again, a feature you want.</p><p>If you don't want to override a method simply do not include a overloading method in the implementing class.</p><p>It looks like a (sensible) design decision to me.</p><p>C.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-04-14T16:09:59</h3>
+<p>Roles are far more than interfaces.  I strongly recommend reading up on them to understand what they do.  The protect (usually) against method collision and they provide a default implementation.  If you want to use one like an interface, it's simple:</p><blockquote><div><p> <tt>package MyRole::DoesSomething;<br> <br>use Moose::Role;<br>requires qw(<br>&nbsp; &nbsp; save<br>&nbsp; &nbsp; search<br>);</tt></p></div> </blockquote><p>And now your classes (or some other role composed into said classes) must provide <tt>save</tt> and <tt>search</tt> methods.</p><p>However, if you have this:</p><blockquote><div><p> <tt>package MyRole::DoesSomething;<br> <br>use Moose::Role;<br>requires qw(<br>&nbsp; &nbsp; save<br>&nbsp; &nbsp; search<br>);<br> <br>sub is_deletable {<br>&nbsp; &nbsp; my ($self,$id) = "_;<br>&nbsp; &nbsp; return if $self-&gt;search( children =&gt; $id );<br>&nbsp; &nbsp; return 1;<br>}</tt></p></div> </blockquote><p>And the class using the role also has an 'is_deletable' method, than this potentially very important behavior is silently discarded.  You need to rewrite it as something like this:</p><blockquote><div><p> <tt>package MyRole::DoesSomething;<br> <br>use Moose::Role;<br>requires qw(<br>&nbsp; &nbsp; is_deletable<br>&nbsp; &nbsp; save<br>&nbsp; &nbsp; search<br>);<br> <br>around is_deletable =&gt; sub {<br>&nbsp; &nbsp; my ($is_deletable,$self,$id) = "_;<br>&nbsp; &nbsp; return if not $self-&gt;$is_deletable;<br> <br>&nbsp; &nbsp; return if $self-&gt;search( children =&gt; $id );<br>&nbsp; &nbsp; return 1;<br>};</tt></p></div> </blockquote><p>And that solves your problem.  However, silently discarding behavior is not something I expect from roles.  So yes, this is defined as a "feature", but it's one that has repeatedly led to many hours of debugging for me.</p><p>If there was simply a normal "method collision" when the roles are composed, I could easily resolve this in my role composition declarations and maintainers of my code would see it when they edit the file.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/nxadm/">nxadm</a> on 2009-04-14T17:02:30</h3>
+<p>So it's indeed also like an Abstract class in Java. The solution for the problem in the Java world is the @Override annotation before the overriding method.</p><p>It overrides silently, but it's clear in your code and your IDE will warn you if you don't add the @Override annotation.</p><p>Something like that would indeed save debugging time.</p><p>C.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-04-14T17:54:07</h3>
+<blockquote><div><p> <em>So it's indeed also like an Abstract class in Java.</em></p></div> </blockquote><p>A role is like an abstract class in Java in the same way lightning is like a lightning bug.</p>
+
+
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-04-15T08:28:09</h3>
+<p>No, it's not like an abstract class.  I can compose several roles into my class in Perl, but I can't multiply inherit from several abstract classes in Java.  Further, if I have two roles which provide the same method name, this fails at composition time but roles (particularly with Moose) offer you a rich variety of ways of resolving conflicts.  You don't get that benefit with abstract classes.</p><p>You also mention the silent overriding and the "clear in your code" and "your IDE will warn you".  Two problems with this.  First, if you add a method to an abstract class and miss one of the classes using it, it's not "clear in your code" because you never saw it.  Plus, what if someone is using a different IDE than you are and the <tt>@Override</tt> annotation doesn't mean anything?  Now you're not just forcing a programming language on me and all the programmers who follow you on the project (which isn't a bad thing), but you're also forcing an IDE on me and all the programmers who follow you on the project (which is a bad thing).  Serious issues like this should be resolved in the language itself, not in a third-party tool.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/nxadm/">nxadm</a> on 2009-04-15T22:04:07</h3>
+<p>I see your point about multiple inheritance.</p><p>However, annotations are a language feature and not something IDE-centric.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-04-15T22:10:01</h3>
+<p>Ah, my apologies about misunderstanding the annotations.  It's been too long since I've programmed Java (er, or something like that<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-04-14T17:58:33</h3>
+<blockquote><div><p> <em>And the class using the role also has an 'is_deletable' method, than this potentially very important behavior is silently discarded.</em></p></div> </blockquote><p>For a definition of "silently" which means "Code I explicitly wrote in my class itself", perhaps.</p><p>What if you extracted <em>all</em> behavior into roles and composed them into classes?  I think that would produce the desired results.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/zby/">zby</a> on 2009-04-14T18:13:25</h3>
+Still if you redefine a sub in standard procedural code - just as explicitely - you'll get a warning if you have warnings on.
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-04-14T20:10:55</h3>
+<blockquote><div><p> <em>Still if you redefine a sub in standard procedural code - just as [explicitly]...</em></p></div> </blockquote><p>If you override a method in OO code (the paradigm under discussion) explicitly, you get no warning or error.</p><p>Changing this default behavior is like resolving method dispatch at compile time.  That's fine for certain languages, none of which have "Perl" in their names.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/zby/">zby</a> on 2009-04-15T11:49:18</h3>
+Overriding methods in subclasses is a standard technique - there is no warning, because it is needed and there is no other way.  In the case of roles there is a different way (as the recently anounced solution shows).  So why not have this useful warning?
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-04-15T18:09:31</h3>
+<p>Class-local overriding of composed role methods is a standard technique too.  It's been in the Perl 6 role specification for <em>years</em>.  I have code which relies on it -- and that code predates Moose.</p><p>I fail to understand the value of adding a default warning for intended, specified, useful behavior -- especially behavior you can't accidentally back into.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-04-15T19:18:48</h3>
+<p>We get warnings for undefined variables because that <em>might</em> be a problem.  It's trivial to suppress if you really meant it.</p><p>If your class silently overrides a role's method, that <em>might</em> be a problem.  By issuing a warning, I can be alerted to a potential issue and it's trivial to suppress the warning if I really meant it.  I've lost too many hours debugging this silent behavior to think I'll be convinced otherwise.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-04-15T22:11:02</h3>
+<blockquote><div><p> <em>If your class silently overrides a role's method....</em></p></div> </blockquote><p>How do you <em>silently</em> write a method?  Every time I've written a method, I've done so deliberately.</p><p>Should there be a warning if you accidentally inherit from the wrong class?  How about a warning if you mistype the name of your class?  What if the name of the file and its directory path doesn't match the name of the package or class contained?  I've made all of those mistakes, and they've all been difficult to debug -- but I don't know any usable heuristic which can distinguish between honest mistakes and deliberate design decisions.</p><p>Class-local implementations of provided role methods have always been in the specification.  The design decision to allow them was very deliberate.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2009-04-16T12:17:03</h3>
+<p><div class="quote"><p>How do you silently write a method? Every time I've written a method, I've done so deliberately.</p></div><p>He didn't say silently <em>write</em> a method he said silently <em>override</em> a method. Big difference. On a big project if there are several classes using a Role and that Role in the future adds a method the author now has to check every class that uses that Role to make sure there are no name clashes. If he ads a method that clashes with other Roles being used at the same time he'll get an error. But if that clash is with an class method he gets no such help.</p><p>Now imagine the author of the Role has no control over classes that use it (they are in another project or the Role is on CPAN and is being used by other CPAN modules), now the author of the Role is stuck. He can't add any new methods to his Role. That's the potential problem that this warning will<nobr> <wbr></nobr>.. um<nobr> <wbr></nobr>.. warn about.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2009-04-15T22:05:23</h3>
+chromatic,
+<p>
+FWIW, I agree with you, however a warning cannot hurt and can possibly make it easier to spot problems during heavy role refactoring. And if we find it is more annoying then expected and/or not as helpful as expected, we can remove it as easily as we put it in. The decision made on #moose was that it was a simple enough change and an innocuous enough thing that it was at least worth giving a try. Roles are still a new "thing" and so I still feel like we are exploring some unknown territory here even after using and exploring them for almost 5+ years now (I released Class::Trait 0.01 in 2004).
+</p><p>
+- Stevan
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-04-15T22:12:32</h3>
+<blockquote><div><p><nobr> <wbr></nobr><em>... a warning cannot hurt...</em></p></div> </blockquote><p>That's completely untrue.  This particular warning <em>may</em> not hurt (I don't believe that, but I acknowledge the possibility), but warnings can hurt.  I should write a longer post about this.  For now, consider take Vista's UAC for examples of supposedly helpful warnings that do, in fact, hurt.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-04-15T02:26:56</h3>
+<p>You know, I've considered that, but only to work around this issue. I don't want to extract behavior into roles unless I intend and need for that behavior to be shared.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Is it a bug or a feature?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-04-14T16:18:48</h3>
+<p>Oh, and I forgot to respond to this bit:</p><p><div class="quote"><p>If you don't want to override a method simply do not include a overloading method in the implementing class.</p></div><p>Easier said than done. When I am overriding a role's method but I <em>don't know I'm overriding it</em>, I would like to know that.  Really.  It's important to me.  That's a huge part of the OO inheritance mess that roles are designed to avoid and here's one relatively common edge case that is ignored.  So maybe I should just remember all of my method names?  I don't think so:</p><blockquote><div><p> <tt>$ find lib/ -name '*.pm' |wc -l<br>&nbsp; &nbsp; &nbsp;549</tt></p></div> </blockquote>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Mechanism vs Policy</h2>
+<h3><a href="/user/Tim Bunce/">Tim Bunce</a> on 2009-04-14T15:41:54</h3>
+<p>If Moose developers won't change the default behaviour (I don't know the issues well enough to argue either way) then I'd hope they'd be open to providing a mechanism to let you do it yourself.</p><p>Perhaps you already can by sub-classing Moose::Role.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Mechanism vs Policy</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-04-14T16:11:27</h3>
+<p>I'm pretty sure I can subclass <tt>Moose::Role</tt>, but I've never tried.  Sounds like the way to go.</p><p>And at this point, even if they did agree this behavior is wrong (I don't believe they do), this has been part of the interface long enough that I doubt they would change it (kind of like how Perl 5's SUPER:: bug has never been fixed).</p>
+
+
+
+<blockquote>
+
+<h2>Re:Mechanism vs Policy</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2009-04-14T17:31:43</h3>
+<p>Note I am not pretending to even play a Moose core developer on TV. I'm just giving my two cents being an active part of the Moose developer community.</p><p>If it was decided that this was the right decision it would be changed with a long deprecation cycle. The Moose team isn't above deprecating bad features. However something like this would need to be "proven" in a MooseX:: class for a while I would think.</p><p>The right answer I think would be to override the Moose::Meta::Role::Application::ToClass class to add the preferred behavior. I've not dug into those bits directly so I'm not sure how easy or hard that would be. But I'd be happy to help, as would anybody on #moose on irc.perl.org.</p>
+
+
+
+<h2>Re:Mechanism vs Policy</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2009-04-14T18:06:41</h3>
+<p>
+Okay, after much discussion on #moose (soon to be summarized on the mailing list) we will be adding a warning so that when a class method silently overrides the role method it will warn you that this is happening. In order to silence the warning you will have to explictly exclude the method from the role (see <a href="http://search.cpan.org/user/drolsky/Moose-0.74/lib/Moose/Cookbook/Roles/Recipe2.pod" title="cpan.org">Moose::Cookbook::Roles::Recipe2</a cpan.org> for information on this feature).
+</p><p>
+For more details, watch for my summary mail on the mailing list.
+</p><p>
+- Stevan
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Mechanism vs Policy</h2>
+<h3><a href="/user/sartak/">sartak</a> on 2009-04-14T19:12:51</h3>
+<p>And here's the <a href="http://www.nntp.perl.org/group/perl.moose/2009/04/msg683.html" title="perl.org">mailing list summary</a perl.org>.</p>
+
+
+
+<h2>Re:Mechanism vs Policy</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-04-15T02:28:15</h3>
+<p>You've made me a ridiculously happy man right now<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

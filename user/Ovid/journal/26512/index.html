@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: &quot;use constant&quot; versus ReadOnly</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>&quot;use constant&quot; versus ReadOnly</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-08-30T19:13:10</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I just blew a nice chunk of time debugging the following problem:</p>
+
+<pre>use constant DEFAULT_ARGS => [qw/some data/];
+
+...
+
+unless (@_) {
+    $self->{args} = DEFAULT_ARGS;
+}</pre>
+
+<p>Later on in my code, I had this:</p>
+
+<pre>my $args = $self->args;
+while ( defined (my $curr_arg = shift @$args) ) {
+    # do something while blithely ignoring 
+    # the havoc we're wreaking
+}</pre> 
+
+<p>See the bug?  The two accidentally coupled lines of code were 214 lines apart and appeared to be unrelated.  That was a bugger to track down.  The fix I used was to simple clone those args when needed, but my longer-term fix is to not use constants.  Use ReadOnly:</p>
+
+<pre>#!/usr/bin/perl
+
+use strict;
+use warnings;
+use Data::Dumper::Simple;
+use ReadOnly;
+
+use constant FOO => [qw/bar baz/];
+my $data = FOO;
+shift @$data;
+print Dumper(FOO);
+
+Readonly::Scalar my $foo => [qw/bar baz/];
+$data = $foo;
+shift @$data;
+print Dumper($foo);</pre>
+
+<p>And the output:</p>
+
+<pre>$FOO = [
+  'baz'
+];
+Modification of a read-only value attempted at constant.pl line 15</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Constant?</h2>
+<h3><a href="/user/HollyKing/">HollyKing</a> on 2005-08-30T20:58:55</h3>
+That doesn't seem very constant.  Thanks for the tip.
+
+
+
+<h2>Great minds think alike.</h2>
+<h3><a href="/user/Louis_Wu/">Louis_Wu</a> on 2005-08-30T21:09:30</h3>
+Damian says the same thing in <a href="http://www.oreilly.com/catalog/perlbp/index.html" title="oreilly.com">Perl Best Practices</a oreilly.com>.  And for pretty much the same reason.
+
+
+
+<blockquote>
+
+<h2>Re:Great minds think alike.</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-08-30T21:40:09</h3>
+<p>And mediocre minds steal from great ones.  Where do you think I learned about the <tt>Readonly</tt> package?<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-08-31T05:03:07</h3>
+<p>I don&#8217;t know if the real code did something significantly different, but to me that&#8217;s just an example against consuming when you merely need to iterate. Or more abstractly: &#8220;avoid side effects.&#8221; I can&#8217;t remember ever having run into this sort of issue.</p>
+
+<p>I always cringe when I see people use <code>shift</code> on <code>@_</code> &#8211; the only time I do that is when I really intend to modify the array, which boils down to <code>my $self = shift;</code> and precious little else.</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-08-31T18:02:25</h3>
+<p>I didn't show all of the code.  There's a relatively common idiom of treating an array like a set of pairs, or an ordered hash:</p> <blockquote> <div><tt>while (defined (my $key = shift @array)) {<br>&nbsp; my $val = shift @array;<br>&nbsp; # do something<br>}</tt></div> </blockquote> <p>In this case, this data needs to be represented as an array (hence my not using an ordered hash) except in this one odd corner case.  Due to the nature of the code, this must always be the last step, so I didn't think destroying the array would be bad.  I don't like it and it's definitely a code smell but it has to do with the way we receive external requests.  Another option is to iterate over the array by 2:</p> <blockquote> <div><tt>for (my $i = 0; $i &lt; @array; $i += 2) {<br>&nbsp; my ($key, $value) = @array[$i, $i + 1];<br>&nbsp; # do something<br>}</tt></div> </blockquote> <p>I suppose the latter syntax is not as bad as I thought, but I hate C-style for loops as it's so easy to write them incorrectly.</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-08-31T19:14:56</h3>
+<p>Ah &#8211; yeah, stepping through an array in steps of two is annoyingly complicated, and I admit to having used consumption to iterate in those cases as well:</p> <blockquote> <div><tt>while( my ( $k, $v ) = splice @array, 0, 2 ) {<br>&nbsp; &nbsp; #<nobr> <wbr></nobr>...<br>}</tt></div> </blockquote> <p>And you&#8217;re right about C-style loops, I avoid them like the plague myself.</p>
+
+<p>Hmm, what would be a good idiom to establish for the purpose&#8230; maybe this?</p> <blockquote> <div><tt>for my $i ( 0<nobr> <wbr></nobr>.. $#array / 2 ) {<br>&nbsp; &nbsp; my ( $k, $v ) = @array[ $i * 2, $i * 2 + 1 ];<br>&nbsp; &nbsp; #<nobr> <wbr></nobr>...<br>}</tt></div> </blockquote> <p>Cumbersome&#8230; but the best that can be done in Perl 5, I think?</p>
+
+<p>It works the same for any set size if you just change the factor, of course; if you want to ignore an incomplete set at the end of the array, then the loop must run only to <code>@array / 2 - 1</code>.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Constant versus ReadOnly</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2005-08-31T15:29:24</h3>
+I guess the big question is, why make it a constant? The big reason, so far as I can tell, is compile-time optimisation.<br><br>If you can define constants such that they will be compiled out, and in doing so make your code smaller, faster or simpler, then constants are a good thing.<br><br>use constant UNIX =<nobr> <wbr></nobr>...;<br><br>eval UNIX ? 'END_UNIX' : 'END_OTHER';<br><br>etc<br>etc<br><br>And so now you have smaller faster unix-specific code paths...
+
+
+
+<blockquote>
+
+<h2>Re:Constant versus ReadOnly</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2005-08-31T15:30:05</h3>
+Yuck, it killed my &lt;&lt; chars<nobr> <wbr></nobr>:(
+
+
+
+<blockquote>
+
+<h2>Re:Constant versus ReadOnly</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-08-31T18:47:48</h3>
+<p>Use the <code>ecode</code> tags, Luke.<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

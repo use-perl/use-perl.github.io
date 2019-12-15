@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of liol: Convert from/to UTF8 TT2 filter plugin (unreleased).</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Convert from/to UTF8 TT2 filter plugin (unreleased).</h1>
+<h2><a href="/user/liol/">liol</a> on 2004-12-21T18:09:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>This is not released on CPAN module. After discussion in Template Toolkit mailing list it was decided not to publish it. Neighthertheless I'm saving it here. In two words, this is a wrapper around Unicode::MapUTF8. It provides two filters <b>from_utf8</b> and <b>to_utf8</b>.</p>
+
+<pre>#==================================================== -*-Perl-*-
+#
+# MyOrg::Template::Plugin::Unicode::MapUTF8
+#
+# DESCRIPTION
+#   Wrapper around Unicode::MapUTF8 module which converts 
+#   text in different charsets into UTF8
+#
+# AUTHOR
+#   Igor Lobanov   <*@*>
+#
+# COPYRIGHT
+#   Copyright (C) 2004 Igor Lobanov.  All Rights Reserved.
+#
+#   This module is free software; you can redistribute it and/or
+#   modify it under the same terms as Perl itself.
+#
+#===============================================================
+
+package MyOrg::Template::Plugin::Unicode::MapUTF8;
+
+use strict;
+use vars qw( $VERSION );
+use Template::Plugin;
+use Template::Exception;
+use base qw( Template::Plugin );
+use Unicode::MapUTF8 qw( to_utf8 from_utf8 utf8_supported_charset );
+
+$VERSION = sprintf("%d.%02d", q$Revision: 0.01 $ =~ /(\d+)\.(\d+)/);
+
+# Use this charset in filters by default
+my $DEFAULT_CHARSET = 'ISO-8859-1';
+# Type name of TT exception
+my $EXCEPTION_TYPE = 'MapUTF8';
+
+# Hash with filter subs for each requested charset
+my $filter_set = {};
+
+sub new {
+	my ( $class, $context ) = @_;
+	$context->define_filter( 'to_utf8', [ \&to_utf8_filter, 1 ] );
+	$context->define_filter( 'from_utf8', [ \&from_utf8_filter, 1 ] );
+	bless {}, $class;
+}
+
+sub to_utf8_filter {
+	my ( $context, $charset ) = @_;
+	$charset ||= $DEFAULT_CHARSET;
+	utf8_supported_charset( $charset )
+		or die Template::Exception->new(
+			$EXCEPTION_TYPE,
+			"character set '$charset' is not supported" );
+	# Create filter sub for charset only once and reuse it later
+	$filter_set->{$charset}->{'utf8'} ||= sub {
+		my $text = shift;
+		to_utf8( -string => $text, -charset => $charset );
+	};
+	return $filter_set->{$charset}->{'utf8'};
+}
+
+sub from_utf8_filter {
+	my ( $context, $charset ) = @_;
+	$charset ||= $DEFAULT_CHARSET;
+	utf8_supported_charset( $charset )
+		or die Template::Exception->new(
+			$EXCEPTION_TYPE,
+			"character set '$charset' is not supported" );
+	$filter_set->{'utf8'}->{$charset} ||= sub {
+		my $text = shift;
+		from_utf8( -string => $text, -charset => $charset );
+	};
+	return $filter_set->{'utf8'}->{$charset};
+}
+
+1;
+
+__END__
+
+=head1 NAME
+
+MyOrg::Template::Plugin::Unicode::MapUTF8 - Template Toolkit
+plugin wrapper around Unicode::MapUTF8.
+
+=head1 SYNOPSIS
+
+code:
+
+ use Template;
+ ...
+ my $template = new Template(
+ 	...
+ 	PLUGIN_BASE	=> 'MyOrg::Template::Plugin'
+ 	...
+ );
+
+template:
+
+ [% USE Unicode::MapUTF8 %]
+
+ [%# From cyrillic KOI8-R to UTF-8 #%]
+ [% FILTER from_utf8( 'koi8-r' ) %]
+ ...
+ here UTF8 text
+ ...
+ [% END %]
+
+ [%# From ISO-8859-1 (by default) to UTF-8 #%]
+ [% FILTER to_utf8 %]
+ ...
+ here ISO-8859-1 text
+ ...
+ [% END %]
+
+=head1 DESCRIPTION
+
+This Template Toolkit plugin implements two filters for
+conversions to and from arbitrary character sets and UTF8.
+Plugin uses Benjamin Franz module L<Unicode::MapUTF8>.
+
+=head2 to_utf8
+
+ [% FILTER to_utf8( charset ) %]
+ ...
+ here text in
+ ...
+ [% END %]
+
+Converts text inside block to UTF8 from the specified source
+charset. Default B<charset> value is I<ISO-8859-1>.
+
+=head2 from_utf8
+
+ [% FILTER from_utf8( charset ) %]
+ ...
+ here UTF8 text
+ ...
+ [% END %]
+
+Converts text inside block from UTF8 to the specified source
+charset. Default B<charset> value is I<ISO-8859-1>.
+
+=head1 SEE ALSO
+
+L<Template|Template>, L<Unicode::MapUTF8|Unicode::MapUTF8>
+
+=head1 AUTHOR
+
+Igor Lobanov, E<lt>*@*E<gt>
+
+=head1 COPYRIGHT
+
+Copyright (C) 2004 Igor Lobanov. All Rights Reserved.
+
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+
+=cut</pre></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

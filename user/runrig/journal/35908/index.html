@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of runrig: Building perl and libs on HP-UX</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Building perl and libs on HP-UX</h1>
+<h2><a href="/user/runrig/">runrig</a> on 2008-03-14T21:53:01</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I must keep this somewhere in one place semi-permanent...boring stuff plus hoops to jump through to get XML(LibXML and LibXSLT), and DBD::Oracle and DBD::Sybase working on HP-UX (I have no explanation for having to run 'perl Makefile.PL' over and over). I don't remember if I needed to use 'chatr' to change some of the shared libraries to get them to load:<pre><br/><br/>----------------------------------------
+Notes on Building perl 5.10.0 and various
+libraries on HP-UX (11.11)<br/><br/>All of the following was installed under
+/users/foo
+Adjust all prefix parameters accordingly
+to install in another directory (or remove
+to install in default location).
+----------------------------------------<br/><br/>First perl itself:<br/><br/>> which cc
+must be /opt/softbench/bin/cc compiler
+(default HP /usr/bin/cc compiler will not work)
+(gcc compiler can work, but everything here was done
+with softbench compiler).<br/><br/># Add prefix to install in non-standard path
+sh Configure -Dprefix=/users/foo<br/><br/>keep default of building non-threaded perl, but
+add '-lcl -lpthread' to beginning of libraries to include.
+(So that DBD::Oracle will build dynamically later).<br/><br/>make
+make test
+make install<br/><br/>----------------------------------------
+XML::LibXML and XML::LibXSLT:
+----------------------------------------
+First install shared libraries:<br/><br/>install binaries of zlib(libz), iconv, and gettext
+libraries, unless you really feel like building them
+(install in local directory if necessary..e.g./users/foo/lib
+and include files in /users/foo/include).<br/><br/>Build source for libxml library:
+Set env variables:
+export CC=cc
+export LDFLAGS="-L/users/foo/lib -I/users/foo/include"<br/><br/>./configure --prefix=/users/foo --without-threads --without-thread-alloc --with-iconv=/users/foo --with-zlib=/users/foo<br/><br/>make
+make install<br/><br/># Fix permission on config info file:
+chmod +x /users/foo/bin/xml2-config<br/><br/>----------------------------------------
+Build source for libxslt library:
+Set env variables:
+export CC=cc
+export LDFLAGS="-L/users/foo/lib -I/users/foo/include"<br/><br/>./configure --prefix=/users/foo
+make
+make install<br/><br/># Fix permission on config info file:
+chmod +x /users/foo/bin/xslt-config<br/><br/>----------------------------------------
+Build source for XML::LibXML::Common:
+perl Makefile.PL
+  (doesn't always work first time..repeat until Makefile is created)<br/><br/>make
+make test
+make install
+  
+----------------------------------------
+Build source for XML::NamespaceSupport:<br/><br/>perl Makefile.PL
+make
+make test
+make install
+----------------------------------------
+Build source for XML::SAX:<br/><br/>perl Makefile.PL
+make
+make test
+make install
+----------------------------------------
+Build source for XML::LibXML:<br/><br/>perl Makefile.PL (repeat until Makefile is created)
+make
+make test
+make install
+----------------------------------------
+Build source for XML::LibXSLT:<br/><br/>Change the following lines (this might be fixed in a future
+version):
+#xsystem("$Config{make} $file test 'OTHERLDFLAGS=$opt'");
+xsystem("$Config{make} $file test");<br/><br/>#$result = try_link(<<"SRC", $libs);
+$result = try_link(<<"SRC", undef);<br/><br/>perl Makefile.PL LIBS=-L/users/foo/lib INC="-I/users/foo/include -I/users/foo/include/libxml2"
+make
+make test
+  (a couple of tests, e.g. exslt tests, will fail, install exslt library
+  if you need exslt)
+make install
+----------------------------------------
+Build source for DBI<br/><br/>perl Makefile.PL
+make
+make test (many tests are skipped)
+make install
+----------------------------------------
+Build source for DBD::Oracle (1.20)<br/><br/>perl Makefile.PL<br/><br/>edit Makefile:
+# Look for
+$(LD) -Wl,+b"$(LD_RUN_PATH)"  $(LDDLFLAGS) $(LDFROM) $(OTHERLDFLAGS) -o $@ $(MYEXTLIB)  \
+# Remove "-Wl,"
+$(LD) +b"$(LD_RUN_PATH)"  $(LDDLFLAGS) $(LDFROM) $(OTHERLDFLAGS) -o $@ $(MYEXTLIB)  \<br/><br/>make
+make test
+  (many 'connects' fail unless you set env vars for a test db)
+  (many charset tests skipped on old versions of Oracle)
+make install
+----------------------------------------
+Build source for DBD::Sybase (1.08)<br/><br/>Edit Sybase.pm:
+# Look for:
+sub dl_load_flags { if($^O eq 'aix') { 0x00 } else { 0x01 }}
+# Change to:
+sub dl_load_flags { if($^O eq 'aix') { 0x00 } else { 0x00 }}<br/><br/>update: patch to display line numbers on RaiseError:
+*** ../DBD-Sybase-1.08/dbdimp.c Thu Apr 19 11:31:19 2007
+--- dbdimp.c    Thu Jun 19 14:09:45 2008
+***************
+*** 545,550 ****
+--- 545,551 ----
+        else
+            retcode = CS_SUCCEED;<br/><br/>+       sv_catpv(DBIc_ERRSTR(imp_dbh), " ");
+        return retcode;
+      } else {
+        if(srvmsg->msgnumber) {<br/><br/>
+perl Makefile.PL (prompts for test server/db and user/passwd)
+make
+make test
+make install
+</pre></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: More On Maintaining State with Traits</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>More On Maintaining State with Traits</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-05-09T17:14:39</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><P>On my O'Reilly blog, I wrote about <a href="http://www.oreillynet.com/onlamp/blog/2006/10/using_traits_to_maintain_state.html">problems with maintaining state with traits</a>.  The original traits model did not have a provision to handling state and this, I think, is a serious oversight.  It's a limitation I've run into several times now and I need to fix it.  Fortunately, I've not had a problem because the applications I've written using stateful trait methods have been applications with a very short runtime (such as test suites or small command-line programs), but in a persistent environment, when traits attempt to maintain state, they don't have any clean way of cleaning up when the object goes out of scope.</p>
+
+<p>My thought was to try overriding <tt>DESTROY</tt>, if present, but this presents a difficult technical problem:</p>
+
+<pre>#!/usr/bin/perl -l
+
+use strict;
+use warnings;
+
+{
+    package Foo;
+
+    sub new { bless {}, shift }
+
+    sub DESTROY {
+        use Data::Dumper;
+        print Dumper \@_;
+    }
+}
+
+my $foo = Foo->new;
+
+__END__
+# prints
+$VAR1 = [
+          bless( {}, 'Foo' )
+        ];</pre>
+
+<p>So if I do that, I get an instance of Foo to play with.  However, if I attempt to override:</p>
+
+<pre>#!/usr/bin/perl -l
+
+use strict;
+use warnings;
+
+{
+    package Foo;
+
+    sub new { bless {}, shift }
+
+    sub DESTROY {
+        use Data::Dumper;
+        print Dumper \@_;
+    }
+}
+
+my $foo = Foo->new;
+my $destroy = *Foo::DESTROY{CODE};
+{
+    no warnings 'redefine';
+    *Foo::DESTROY = sub { print 'boo hoo'; $destroy->($foo) };
+}
+__END__
+# prints
+boo hoo
+$VAR1 = [
+          undef
+        ];</pre>
+
+<p>Damn.  No instance.  I don't know that I can override DESTROY safely.  The only other thought I can think of is specifying that a user state that they're using a 'stateful' trait and, if the trait is applied at compile or runtime, run the appropriate checks, and in either case, bless the class into an anonymous subclass which has its own DESTROY.  That will let me use DESTROY, but "Yuck!"</p>
+
+<p><strong>Update</strong>:  sheesh.  I feel really stupid today.  I can fix that with this:</p>
+
+<pre>    *Foo::DESTROY = sub { print 'boo hoo'; $destroy->(shift) };</pre></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

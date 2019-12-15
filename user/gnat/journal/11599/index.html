@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of gnat: $RS as Regex</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>$RS as Regex</h1>
+<h2><a href="/user/gnat/">gnat</a> on 2003-04-11T16:18:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I thought "how hard can this be, really?" and wrote some code to read records from a filehandle where the record separator is specified by a regular expression.  How hard?  Let me quote from my braindump into the Cookbook recipe:
+
+<blockquote>The basic logic is simple: keep a buffer of text read from the file.
+Try to find a match for the record separator.  If we can't find a
+match, read more text and try again.  If we do get a match, then
+whatever came before the record separator was the record.  Stop
+when you can't match and there's no more data to read into the
+buffer.<p>
+ 
+The code is complicated, however, by special cases.  When your regular
+expression matches the empty string, you should get back your data one
+character at a time.  If you find a match for the record separator and 
+have consumed all the data currently in the buffer, you can't be sure
+that there isn't more of the record separator waiting to be read from
+the filehandle.  So if there's a successful match, you need to put the
+record and separator back into the buffer, read more data, and try
+again.  And keep trying until you run out of data in the filehandle or
+you get a match that leaves data in the buffer.
+</blockquote>
+
+Tom's sanity-checking my code now, but when he's done I'd like to find someone willing (foolish?) to turn it into a CPAN module.  I don't have time to do the distro framework, write more tests (I used Test::More when writing the code, and T::M
+truly rocks), or package it usefully.  (I have a stab at a tied filehandle interface so that you can get <TT>&lt;FH&gt;</TT> even when $RS is a regex).<p>
+
+Any volunteers?<p>
+
+<i>--Nat</i><br>
+(you can tell it's a first draft because I bounce around between <I>we</i> and <i>you</i>, one of my weaknesses)</p>
+
+
+<hr/>
+
+
+
+<h2>how is greediness handled?</h2>
+<h3><a href="/user/wickline/">wickline</a> on 2003-04-11T17:55:30</h3>
+I'm wondering how this takes regex greediness into account.<br> <br>What if you have a regex<blockquote><div> <tt>qr/(?:01)*/</tt> </div></blockquote>and you have a file which is several MB of random zeros and ones. If you read in<blockquote><div> <tt>111101010</tt> </div></blockquote>into your buffer, how can you know that the zero at the end of your buffer isn't about to be followed by another one?<br> <br>It seems that if you have greedy regex elements, then you may have to slurp in the whole file to be able to tell whether you've matched the longest posible record separator. One could write even more pathalogical cases like<blockquote><div> <tt>qr/.*(?=.)/s</tt> </div></blockquote>or somesuch. That would match whenever your buffer had at least one character in it, but it technically shouldn't match until near the end of the file.<br> <br>Hmmm... it looks like you also have to be careful to increment the pos() even if the regex match doesn't... and keep the pos() in sync with your buffer manipulation. You wouldn't want something with a lookahead (like the example above) to generate (in that case) an infinite sequence of empty records due to bookkeeping issues.<br> <br>-matt<br>
+
+
+
+<blockquote>
+
+<h2>Re:how is greediness handled?</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2003-04-12T01:29:49</h3>
+Greediness: if we get a match that leaves nothing in the buffer, then read some more into the buffer and try again until we either exhaust the file (for a regexp like<nobr> <wbr></nobr><tt>/.*/s</tt>) or have a match that leaves something in the buffer.<p>
+
+Pathological cases will cause the entire file to be read into memory, but I don't see a way around that.  If your record separator is<nobr> <wbr></nobr><tt>/.*/s</tt> then you're saying to Perl "the entire file is my record separator".  I don't see a way to handle this except by reading the whole file.  That's your own silly fault for having such a bogus record separator.</p><p>
+
+<i>--Nat</i></p>
+
+
+
+<blockquote>
+
+<h2>Re:how is greediness handled?</h2>
+<h3><a href="/user/wickline/">wickline</a> on 2003-04-12T16:50:25</h3>
+&gt; if we get a match that leaves nothing in the buffer<br> <br>But the point I was attempting to make was that <strong> <em>whether or not something is left in the buffer</em> is not the best indication of whether or not the RS matched enough stuff</strong>. Maybe I'd have to see the actual code, but from the description of it, it sounds like it could behave differently depending on how input matched up with buffer size. You could use the same data and RS and get different results depending on your buffer size.<blockquote><div> <tt>my $record_sep = qr/(?:01)*/;<br>my $data = '11110101010101000001111001011110';<br># RS should be&nbsp; ^^^^^^^^^^&nbsp; &nbsp; ^^&nbsp; &nbsp; ^^^^<br># but if buffer goes to ^ then we'll have a problem<br># code will use ^^^^^^^^ as the first separator</tt> </div></blockquote>The regex will match four '01' pairs and leave a '0' in the buffer not realizing that had it only read in a bit more text, it could have matched one more '01' pair as part of that first RS.<br> <br>In this next case, the problem isn't that it would slurp in the whole file, the problem is that it <strong>should</strong> slurp in the whole file, but from the description, it sounds like it might not actually do enough slurping, because there would still be unmatched text in the buffer. It's another example to show how 'text left in the buffer' may not be the best indicator given that regexes can be greedy.<blockquote><div> <tt>my $record_sep = qr/.*(?=.)/s<br>my $data = 'abcdefghijklmnopqrstuvwxyz';</tt> </div></blockquote>Suppose your buffer size is five characters. First the buffer reads in<blockquote><div> <tt>abcde</tt> </div></blockquote>It applies the regex to that buffer and gets a match. The match indicates that the RS is<blockquote><div> <tt>abcd</tt> </div></blockquote>and that there is text still left unmatched in the buffer<blockquote><div> <tt>e</tt> </div></blockquote>So, it declares a success. There's an empty string for the first record, and <tt>'abcd'</tt> as the first record separator. What happens after that depends on how you manage the buffer, but chances are that the end result would be something other than the expected result which would be two records: <tt>''</tt> and <tt>'z'</tt>. My guess would be that you'd end up with extra <tt>''</tt> records, and that the number of extras would depend on the buffer and data size. For small buffers and/or larger data sizes, you'd have more extra <tt>''</tt> records.<nobr> <wbr></nobr>...but all of this is just guessing without looking at code<nobr> <wbr></nobr><tt>:)</tt> <br> <br>-matt<br> <br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

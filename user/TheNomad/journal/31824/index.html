@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of TheNomad: Thinking about Accessors</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Thinking about Accessors</h1>
+<h2><a href="/user/TheNomad/">TheNomad</a> on 2006-12-06T12:21:46</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've been trying to maintain some legacy code that badly needs updating.  One of the main sins committed in this code is direct object access, so $obj->{attribute} = 'value', rather than $obj->set_attribute('value');</p>
+
+<p>To fix this, I need to choose a way to implement accessors.  There are a few problems.  Firstly, the 'perl' way of doing this seems to be a moving target. A few years ago, people used Class::MethodMaker, but the essential (in my opinion) 'new_with_init' option has gone.  Now, people seem to be choosing either Class::Accessor.  Of course, what's really trendy now is inside-out objects, and the module of choice (because it's mod_perl compatible) is Object::InsideOut.</p>
+
+<p>I like Object::InsideOut.  I like the interface. The problem is, because I'm using legacy code, I will need to assume the objects are blessed hashes for some time yet.  Object::InsideOut wants the objects to be blessed scalars and croaks if they are anything else.</p>
+
+<p>Class::Accessor's new method at least returns a hash.  At the moment it's probably what I'll have to use. But it doesn't automatically sanity check. For example:</p>
+
+<p><pre>package GoodbyeThere;
+use base 'Class::Accessor';
+__PACKAGE__->follow_best_practice;
+__PACKAGE__->mk_accessors(qw/a b c/);
+
+use strict;
+use warnings;
+
+sub do_stuff {
+    my $self=shift;
+
+    $self->set_b('ssss');
+    $self->set_c('tttt');
+    print "Output " . $self->get_a . $self->get_b. $self->get_c . "\n\n";
+
+
+}
+1;
+</pre></p>
+
+<p>If you go:<pre>
+perl -MGoodbyeThere -e '$h = GoodbyeThere->new({a => 1}); print "$h\n";$h->do_stuff'</pre>
+
+<p>The output is:<pre>
+GoodbyeThere=HASH(0x814f750)
+Output 1sssstttt
+
+</pre>
+So far so good. But if you go:<pre>
+perl -MGoodbyeThere -e '$h = GoodbyeThere->new({a => 1, query => 9}); print "$h\n";$h->do_stuff; print $h->{query}'
+</pre>The output is:
+<pre>
+GoodbyeThere=HASH(0x81b9d44)
+Output 1sssstttt
+
+9
+
+</pre>See 'query' is still there.  It would be better if it just threw it away. Which brings me to another point.  With Class::Accessor, 'super' doesn't work as you might expect, so you need to write an accessor that sanity checks the input hash.  I suppose there are worse things in life though...</p>
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>Is it broken?</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2006-12-06T13:26:56</h3>
+<blockquote><div>I've been trying to maintain some legacy code that badly needs updating. One of the main sins committed in this code is direct object access, so $obj-&gt;{attribute} = 'value', rather than $obj-&gt;set_attribute('value');</div></blockquote>
+
+<p>Is this actually broken? In that, is this direct access causing you sufficient hassles that it's worth the code churn to change it?</p>
+<p>Change means the potential for breakage, and clouds the revision history given by your version control change annotation. There is a great temptation as the first act to reformat all code and update to current standards, which seems really good in the short term, but there's a long term cost that is only revealed later, by which time it's too late to repent.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it broken?</h2>
+<h3><a href="/user/TheNomad/">TheNomad</a> on 2006-12-06T13:53:18</h3>
+<blockquote><div>Is this actually broken? In that, is this direct access causing you sufficient hassles that it's worth the code churn to change it?</div>
+</blockquote>
+
+<p>It's caused a little bit of trouble as some coders have lazily stored values in the objects that shouldn't be there. It took me ages to debug these things (although it's easy now I know about them). If they'd been forced to used accessors the design would have been tweaked and would be much better as a result.</p>
+
+<p> Anyway,  I don't intend to change all the code at once.  Instead, any new functionality or any rewrites should use the accessors.  Old code will be updated to accessors when it comes up.  The code will have to go through a massive refactoring reasonably soon. This will inevitably break lots of things.  I may as well take the opportunity to switch over to accessors. But it means I need to plan how to implement the accessors now.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it broken?</h2>
+<h3><a href="/user/Abigail/">Abigail</a> on 2006-12-06T15:22:12</h3>
+<p> <em>Instead, any new functionality or any rewrites should use the accessors. </em>
+</p><p>
+Is that a requirement specifically for this project, or do you always want this?
+</p><p>
+I don't often write accessors. I only write an accessor if I explicitely want to expose an attribute to the outside world. Otherwise, I won't provide an accessor. The problem, IMO, is that there's no such thing as private methods - any method is automatically part of the API. Which means that whenever your removing an attribute that has an accessor from your implementation, your API changes in an non-backwards compatible way.
+</p><p>
+Which is why I usually don't use accessors, but use the attributes directly. But since I'm using Inside-Out Objects, I cannot have the problem of willy-nilly added attributes - they all have to be declared in the class.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it broken?</h2>
+<h3><a href="/user/DAxelrod/">DAxelrod</a> on 2006-12-06T17:26:55</h3>
+<p><div class="quote"> <p>The problem, IMO, is that there's no such thing as private methods - any method is automatically part of the API.</p> </div>  <p>I disagree that this is always the case.</p>
+<p>Your API is what you document it to be. It's perfectly valid to either document "private" methods elsewhere, or put them in a part of the documentation that has the disclaimer "The behavior of the following is unspecified. This is how these might work now, these are all subject to change without notice, I guarantee nothing."</p>
+<p>I suspect that you know that, and are instead arguing "In practice, people will use methods <em>as if</em> they were a documented part of the API."</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it broken?</h2>
+<h3><a href="/user/Abigail/">Abigail</a> on 2006-12-07T08:42:15</h3>
+<p>
+I disagree.
+</p><p>
+The problem is just as I said. There are no private methods. Suppose class 'A' defines a method 'foo', and class B inherits A. No matter how often A documents 'foo' to be private, B is robbed from having a method 'foo' and do away with it freely. That's the essense of not having private methods - all methods <em>will</em> be inherited by a subclass. Programmers (can) read the documentation, but perl will not.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Is it broken?</h2>
+<h3><a href="/user/DAxelrod/">DAxelrod</a> on 2006-12-07T15:06:30</h3>
+Ah, OK. I concede that that's a good consideration.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Is it broken?</h2>
+<h3><a href="/user/TheNomad/">TheNomad</a> on 2006-12-06T20:40:13</h3>
+<blockquote><div>Is that a requirement specifically for this project, or do you always want this?</div></blockquote>
+
+<p>It's for this project.  There are good reasons why accessors are needed for the project.</p>
+
+<p>However, generally I'm lazy and can't be bothered with any sort of accessors. And in small projects direct access hasn't created any problems.</p>
+
+<p>When I first heard about inside-out objects, I thought they were solving problems that hardly ever arose.  I've become a convert though!</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>overload</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-12-06T16:03:18</h3>
+<p>You don't have to have a blessed hash; you only need something that supports hash dereferencing.  (Of course, then you have the joy of fixing all of the code that assumes that <code>ref</code> returns something meaninful.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:overload</h2>
+<h3><a href="/user/TheNomad/">TheNomad</a> on 2006-12-06T20:32:14</h3>
+<blockquote><div>You don't have to have a blessed hash; you only need something that supports hash dereferencing. (Of course, then you have the joy of fixing all of the code that assumes that ref returns something meaninful.)</div></blockquote><br/><br/>Brilliant! I might have a play with that and see what I manage to come up with.
+
+
+
+<blockquote>
+
+<h2>Re:overload</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-12-07T08:27:40</h3>
+<p>Perl Hack #87 has another trick, this time using restricted hashes to catch people poking in object innards unwisely.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Pimping Ruby</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2006-12-10T15:44:50</h3>
+<p><div class="quote">I
+'ve been trying to maintain some legacy code that badly needs updating. One of the main sins committed in this code is direct object access, so $obj-&gt;{attribute} = 'value', rather than $obj-&gt;set_attribute('value');</div> This is one of those areas where Ruby's Uniform Access Principle demonstrates just how clunky Perl's OO and accessors really are.  To wit:<p><blockquote> <div><tt>class Foo<br>&nbsp; &nbsp;attr_accessor<nobr> <wbr></nobr>:attribute<br>end<br> <br>obj = Foo.new<br>obj.attribute = 'value'</tt></div> </blockquote> "But, wait!", you cry.  "Accessing the attribute like that is an encapsulation violation!"
+<p>
+You're not accessing the attribute directly.  The syntax just makes it *look* like you are.  In reality you're calling the Foo#attribute= method. This longhand example should clarify things:</p><p><blockquote> <div><tt>&nbsp; &nbsp;class Foo<br>&nbsp; &nbsp; &nbsp; attr_reader<nobr> <wbr></nobr>:attribute<br>&nbsp; &nbsp; &nbsp; def initialize<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;@attribute = 7<br>&nbsp; &nbsp; &nbsp; end<br>&nbsp; &nbsp; &nbsp; def attribute=(value)<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;puts "Hello World!"<br>&nbsp; &nbsp; &nbsp; end<br>&nbsp; &nbsp;end<br> <br>&nbsp; &nbsp;obj = Foo.new<br>&nbsp; &nbsp;puts obj.attribute # 7<br>&nbsp; &nbsp;obj.attribute = 99 # "Hello World!"<br>&nbsp; &nbsp;puts obj.attribute # 7 - wasn't touched</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Pimping Ruby</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-12-10T17:34:15</h3>
+<p><blockquote> <div><tt>def initialize<br>&nbsp; &nbsp; @attribute = 7<br>end</tt></div> </blockquote>  <p>This is one of those areas where Perl 6's Uniform Access Principle demonstrates just how clunky and non-uniform Ruby's instance attributes are.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Pimping Ruby</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2006-12-10T19:33:58</h3>
+I assume you mean the fact that Perl 6 provides default read-only (though configurable) accessors on attributes.  That's what I get from Exegesis 12, anyway, unless something has changed.
+<p>
+Personally, I think it's a misfeature, because I don't always want users to have access to the instance variables I'm using.  I'm sure that's configurable, too, but I'd rather be explicit than implicit in this case.  Or, just write a custom 'is' method that lets me imitate the Perl 6 syntax.
+</p><p>
+The topic of autogenerating accessors for instance variables has come up on ruby-talk from time to time, and I think you can get third party libraries that do this (presumably by overriding Class#initialize).  The fact that there has never been a clamoring for it among the Ruby community ought to be telling, though.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Pimping Ruby</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-12-10T22:12:28</h3>
+<p>I actually meant that most of the Ruby code I've seen accesses instance variables directly within the class, despite the presence of an autogenerated accessor.  There's a subclassing problem there.  (Actually it's not only a problem for subclassing, but I use that as a convenient shorthand because I don't have a good way to say "allomorphic instance modification".)</p>
+
+<blockquote> <div><em>The fact that there has never been a clamoring for it among the Ruby community ought to be telling, though.</em></div> </blockquote>
+
+<p>I've never seen a clamoring for a saner <code>require</code> either, but I don't take that as evidence that it's a particularly clear, clean, or well-defined feature.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Pimping Ruby</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2006-12-11T13:39:01</h3>
+<p><div class="quote">I actually meant that most of the Ruby code I've seen accesses instance variables directly within the class, despite the presence of an autogenerated accessor. There's a subclassing problem there.</div> I'm afraid I don't follow. Unless you have a custom writer, doing "self.attribute = 'value'" instead of "@attribute = 'value'" is a wasted method lookup.  I fail to see what subclassing problem you would have.<p><div class="quote">I've never seen a clamoring for a saner require either, but I don't take that as evidence that it's a particularly clear, clean, or well-defined feature.</div> My only gripe with <i>require</i> is that it doesn't look in its own directory first, and so all the library authors end up doing $LOAD_PATH.unshift(File.dirname(__FILE__)) in each file.  Otherwise, I'm not sure what you're referring to.
+
+
+
+<blockquote>
+
+<h2>Re:Pimping Ruby</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-12-11T18:42:24</h3>
+<blockquote> <div><em>I fail to see what subclassing problem you would have.</em></div> </blockquote>
+
+<p>It's only a problem if a subclass wants to do something different with an attribute.  I run into that once in a while.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Pimping Ruby</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2007-01-03T21:04:57</h3>
+Can you provide an example that demonstrates the issue?
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Class::InsideOut</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-12-19T00:42:02</h3>
+<blockquote>
+  <div><p>Object::InsideOut wants the objects to be blessed scalars and croaks if they are anything else.</p></div>
+</blockquote>
+
+<p>Object::InsideOut does way too many things and breaks a major principle of inside-out objects (the exact one that is causing you to disregard it). Take a look at Class::InsideOut instead, which does only the minimum needed for a solid, <em>proper</em> inside-out implementation.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

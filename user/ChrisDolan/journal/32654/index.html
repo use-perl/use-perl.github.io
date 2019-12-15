@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ChrisDolan: Template::Toolkit wantarray gotcha</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Template::Toolkit wantarray gotcha</h1>
+<h2><a href="/user/ChrisDolan/">ChrisDolan</a> on 2007-03-12T06:32:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I wanted to experiment with some DBIx::Class syntax tonight in my Catalyst app tonight.  Normally, I'd add the code to a .pm file, restart my app server, refresh the browser and look at the result.<br/><br/>Well, as any Template::Toolkit user knows, the TT backing code gets recompiled any time you change the .tt file.  So an easy way to test some quick code is to write it in the .tt file and refresh the browser, saving the server restart time.<br/><br/>My code involved some multi-step DBIx::Class searches.  DBIx::Class::ResultSet has a very cool feature that the search is performed as late as possible, so you can further constrain your search by calling search() again.  A silly example:<br/><br/><pre>
+  my @products = $c->model('Products')->search({color => 'red'})->search({size => 'Large'});
+</pre><br/><br/>The search() method is smart in that it returns a ResultSet instance in scalar context, but in list context it performs the search and returns the database rows as DBIx::Class::Row instances.<br/><br/>So, I translated that code into TT syntax for a quick test:<br/><br/><pre>
+  <ul>
+  [% FOR p=c.model('Products').search({color='red'}).search({size='large'}) %]
+   <li>[% p.title %]</li>
+  [% END %]
+  </ul>
+</pre><br/><br/>That showed no results.  Funny, I see some large, red things in the database.  So, I removed the second search:<br/><br/><pre>
+  <ul>
+  [% FOR p=c.model('Products').search({color='red'}) %]
+   <li>[% p.title %]</li>
+  [% END %]
+  </ul>
+</pre><br/><br/>That worked.  Then I tried <code>.search({color='red'}).all()</code> to force list context.  Suddenly, the query stopped returning results, but no errors.  That made a light turn on.<br/><br/>I realized that Template::Toolkit is evaluating each method call individually in list context and then calling the next method.<br/><br/>So, <code>c.model('Products').search({color='red'})</code> was returning an array of products, then TT tried to call <code>.search({size='large'})</code> on that <strong>array</strong>.  The solution was to turn off the wantarray smarts of the resultset instance via the search_rs() method which forces search to return a ResultSet:<br/><br/><pre>
+  <ul>
+  [% FOR p=c.model('Products').search_rs({color='red'}).search({size='large'}) %]
+   <li>[% p.title %]</li>
+  [% END %]
+  </ul>
+</pre><br/><br/>So, the lesson is that while Template::Toolkit feels like Perl sometimes, it most certainly is not Perl.  And that's a good thing!  My hackery aside, it's a bad thing to code too much in your template.</p>
+
+
+<hr/>
+
+
+
+<h2>Well...</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2007-03-12T16:09:50</h3>
+<p>...I actually don't consider chained method calls as "too much Perl in the view," and it would be nice if Perl's specialities would be respected int hat regard, but for me TT is still the sanest templating out there. So all's forgiven<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Once Again, Perl Makes Me Scream</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Once Again, Perl Makes Me Scream</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-02-22T08:55:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><pre>foreach (@$elements) {
+    $_->{ delete $_->{name} } = delete $_->{value};
+    $_ = {
+        $class->_reformat(
+            Array::AsHash->new( { array => [%$_] } )
+        )->get_array
+    };
+}</pre>
+
+<p>Just because that's exactly what I needed for the problem at hand doesn't make me feel any better.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Why did you write it this way?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-02-22T11:47:00</h3>
+<p>That&#8217;s very dense. Putting a new key/value pair in the hash at the same time as extracting it from the self-same hash is a real stumbler. The other statement is a lot less terrible, but reading a multiply nested multi-line expression is never fun. And it&#8217;s all in situ modifications. And all on <code>$_</code>. Just using an actual variable name and linearising things a bit helps a heap:</p> <p><blockquote> <div><tt>foreach ( @$elements ) {<br>&nbsp; &nbsp; my $elt = Array::AsHash-&gt;new( { array =&gt; [ %$_ ] } );<br> <br>&nbsp; &nbsp; my @kv = $elt-&gt;delete( 'name', 'value' );<br>&nbsp; &nbsp; $elt-&gt;put( @kv );<br> <br>&nbsp; &nbsp; $_ = { $class-&gt;_reformat( $elt )-&gt;get_array };<br>}</tt></div> </blockquote>  <p>The real train wreck is in flattening a hash only to pass it to Array::AsHash so the flat array can be treated like a hash by a method that will return something we can get as a flat list from which eventually a hash will be constructed&#8230; err, can busywork ever be more obviously such? I&#8217;d take a long hard look at why <code>_reformat</code> method couldn&#8217;t take a hash directly (even if only to pass it into Array::AsHash implicitly&#8230;), and why there is not <code>get_hash</code> method. Just to see the difference:</p> <p><blockquote> <div><tt>for my $elt ( @$elements ) {<br>&nbsp; &nbsp; my ( $name, $value ) = delete @{ $elt }{ 'name', 'value' };<br>&nbsp; &nbsp; $elt-&gt;{ $name } = $value;<br> <br>&nbsp; &nbsp; $elt = $class-&gt;_reformat( $elt )-&gt;get_hash;<br>}</tt></div> </blockquote>  <p>Compare with your original code.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why did you write it this way?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-02-22T12:09:27</h3>
+<p>I agree your code is clearer and it's certainly something I need to seriously rethink.  It's part of Bermuda and I've been struggling with the YAML and JSON implementation.  Basically, I've found that since we (the BBC) primarily need this for our XML representation, I've focused much energy on this.  We'd like to take the same island file which maps an object to XML and use the same island to produce multiple serializations in XML, YAML, and JSON.  Unfortunately, it's not extremely clear how to transform XML to the latter two formats since they don't have a natural representation of 'attributes'.</p>
+
+<p>This confusion is getting reflected in my code as I continually struggle to make this work.</p>
+
+<p>Also, I've noticed that your code and mine both contain the same bug, but that's only because you copied my logic without knowing the underlying data structure.  An element might look like this:</p> <p><blockquote> <div><tt>{<br>&nbsp; attributes =&gt; { foo =&gt; 'bar' },<br>&nbsp; name&nbsp; &nbsp; &nbsp; &nbsp;=&gt; 'attributes',<br>&nbsp; value&nbsp; &nbsp; &nbsp; =&gt; 'huh?',<br>}</tt></div> </blockquote>  <p>Oops.</p>
+
+<p>As I continue to refactor my code, I recognize that elements and attributes are virtually identical in how they're handled internally and my failure to pay attention to this up front is causing problems.  For example, I thought that merely flattening the data structure would suffice for YAML and JSON, but it doesn't work when attributes and elements have the same name:</p> <p><blockquote> <div><tt>&lt;card name="primary"&gt;<br>&nbsp; &lt;name&gt;John Q. Public&lt;/name&gt;<br>&lt;/card&gt;</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Why did you write it this way?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-02-22T12:30:56</h3>
+<p>A general serialisation of XML to JSON is a fool&#8217;s errand. It has come up <em>numerous</em> times in the Atom camp, and every time the discussion goes nowhere. You can of course define a full mapping of XML to JSON, but the result is nothing at all like how you&#8217;d express the same data if you were writing JSON by hand &#8211; you get one or two extra layers of indirection along every step of the way.</p>
+
+<p>The only approach that yields <em>usable</em> results is to define a first-class serialisation of your domain model to JSON.</p>
+
+<p>If you want specify both the XML and the JSON serialisation of a model using the same schema, then you&#8217;ll have to impose restrictions on the models your schema can express so that both serialisations are reduced to a common denominator. Then you won&#8217;t be able to specify arbitrary XML or JSON grammars with your schema language. (Then again, I already doubt you can handle all of XML. Processing instructions, anyone?)</p>
+
+<p>But you can&#8217;t have it both ways, I&#8217;m afraid. That&#8217;s just how it is.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

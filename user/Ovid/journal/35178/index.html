@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: ExtUtils::MakeMaker and Debugging Makefiles</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>ExtUtils::MakeMaker and Debugging Makefiles</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-12-21T10:30:41</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've been going absolutely nuts trying to debug a CPAN script we use at work.  In order to make sure that we have complete control over our dependencies, we bundle them with our application.  We do this with a <tt>setup_cpan</tt> shell script.  Unfortunately, it doesn't <em>quite</em> do what we want and many hours of struggle has gotten me closer, but not quite there.  To test it, I have a shell script which forces an install of YAML:</p>
+
+<pre>#!/usr/bin/bash
+
+# setup cpan
+./script/setup_cpan.sh
+
+# force install YAML
+perl -I/home/ovid/work/trunk/deps/perl5lib/ /opt/bin/cpan -fi YAML
+
+# remove YAML
+builtin cd deps
+svn status | grep '^?' | sed -e 's/^?//' | xargs rm -fr
+for file in `svn status | grep '^M' | sed -e 's/^M//'`; do
+    svn revert $file
+done</pre>
+
+<p>I've bound that to a key in vim which allows me to constantly tweak our <tt>setup_cpan</tt> script and rerun the configuration.  The closest I can get is to set <tt>INSTALLDIRS</tt> to <tt>site</tt>, but that gives me this error:</p>
+
+<pre>!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+ERROR: Can't create '/opt/lib/perl/site_perl/auto/YAML'
+Do not have write permissions on '/opt/lib/perl/site_perl/auto/YAML'
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!</pre>
+
+<p><tt>&ExtUtils::Install::install</tt> gets the following first argument:</p>
+
+<pre>$VAR1 = {
+          'blib/arch' => '/opt/lib/perl/site_perl',
+          'blib/lib' => '/home/ovid/work/trunk/deps/perl5lib',
+          'blib/man3' => '/home/ovid/work/trunk/deps/perl5lib/man/man3',
+          'read' => '/opt/lib/perl/site_perl/auto/YAML/.packlist',
+          'blib/script' => '/home/ovid/work/trunk/deps/perl5lib/bin',
+          'blib/man1' => '/home/ovid/work/trunk/deps/perl5lib/man/man1',
+          'write' => '/opt/lib/perl/site_perl/auto/YAML/.packlist',
+          'blib/bin' => '/home/ovid/work/trunk/deps/perl5lib/bin'
+        };</pre>
+
+<p>As you can see, the <tt>read</tt> and <tt>write</tt> keys are wrong, but after trolling through make files, adding a 'dump' target, reading through <tt>ExtUtils::MakeMaker</tt>, I'll be damned if I can figure out how to set those correctly.  Once I finally figure this out, then I'll have to turn my attention to <tt>Module::Build</tt>. Oh, now that I look, I see that the man/ and bin/ directories are wrong, too.  Sigh.</p>
+
+<p>What we want is the following:</p>
+
+<pre>$ROOT/deps/man/man1/
+$ROOT/deps/man/man3/
+$ROOT/deps/bin/
+$ROOT/deps/perl5lib/</pre>
+
+<p>This shouldn't be hard, but it is :(  Oh, and I guess that doesn't account for architecture dependent files.<p></p>
+
+
+<hr/>
+
+
+
+<h2>Steal some code from Smolder (or Krang)</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2007-12-21T13:34:33</h3>
+Smolder does this too (and it stole the code/ideas from Krang). Feel free to borrow them as you'd like:<br><br>It's done by the smolder_build script which uses the Smolder::Platform module. You're probably most interested in the build_perl_module() sub.<br><br>I don't know if you deal with different platforms in your build, but Smolder and Krang do. If something needs to be changed for a certain platform then that's overridden in a subclass of Smolder::Platform that's loaded by smolder_build.<br><br><a href="http://smolder.svn.sourceforge.net/viewvc/smolder/trunk/bin/smolder_build?view=markup" title="sourceforge.net">http://smolder.svn.sourceforge.net/viewvc/smolder/trunk/bin/smolder_build?view=<nobr>m<wbr></nobr> arkup</a sourceforge.net><br><a href="http://smolder.svn.sourceforge.net/viewvc/smolder/trunk/lib/Smolder/Platform.pm?view=markup" title="sourceforge.net">http://smolder.svn.sourceforge.net/viewvc/smolder/trunk/lib/Smolder/Platform.pm<nobr>?<wbr></nobr> view=markup</a sourceforge.net>
+
+
+
+<h2>local::lib</h2>
+<h3><a href="/user/mgrimes/">mgrimes</a> on 2007-12-22T16:32:54</h3>
+<p>I'm not sure I exactly understand the problem, but might <code>local::lib</code> solve this? It sounds too simple, but it just sets:</p>
+
+
+export MODULEBUILDRC=/home/username/perl/.modulebuildrc
+export PERL_MM_OPT='INSTALL_BASE=/home/username/perl'
+export PERL5LIB='/home/username/perl/lib/perl5:/home/username/perl/lib/perl5/i386-linu<nobr>x<wbr></nobr> '
+export PATH="/home/username/perl/bin:$PATH"
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

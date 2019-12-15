@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Thoughts on UNIVERSAL::isa</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Thoughts on UNIVERSAL::isa</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-12-07T17:31:19</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Were it not for the latest release of <tt>UNIVERSAL::isa</tt>, we might have removed <tt>Test::MockObject</tt> from out test suite due the the huge numbers of warnings emitted.  From our <tt>deps/</tt> directory (these are all CPAN modules .. we ship our own dependencies):</p>
+
+<pre>$ ack -l 'UNIVERSAL::isa\(' perl5lib/|wc -l
+     103</pre>
+
+<p>No, we don't have time to analyze 103 different packages and submit patches (with tests) which may or may not fix bugs but are really only sent to silence warnings in our test suite.  We have the test suite to catch bugs and not one of those warnings appeared to be a bug.  However, they could be.  Here's another check:</p>
+
+<pre>ack  'sub isa ' perl5lib/
+perl5lib/Exception/Class.pm
+585: sub isa { shift->rethrow }
+
+perl5lib/Contextual/Return.pm
+898:sub isa {</pre>
+
+<p>Rethrowing an exception for <tt>Exception::Class</tt> is a bit surprising, but I can understand why it's done there.  <tt>Contextual::Return</tt> also does the right thing.  Unfortunately, we have over 100 CPAN dependencies which would handle these wrong if they encountered them.  Sigh.  Of course, we only use a small subset of the CPAN.  Anyone happen to know offhand how many CPAN modules override <tt>isa</tt> and how many get it wrong?  I can check when I get home, I suppose.</p>
+
+<p>So with the new version of <tt>UNIVERSAL::isa</tt>, we can stay happy and get some safety against the insanity of calling this as a function without having unusable test results.</p>
+
+<p>If you really must do that (usually you don't), you can do this (thanks to merlyn for this trick):</p>
+
+<pre>if ( eval { $thing->isa($class) } ) {</pre></p>
+
+
+<hr/>
+
+
+
+<h2>err, that's pod</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2007-12-07T20:40:03</h3>
+That bit of code supposedly from Exception::Class is just an example of something you could do in the pod. It's not actually in the code itself. I'm not insane.
+
+
+
+<blockquote>
+
+<h2>Re:err, that's pod</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-12-07T20:48:23</h3>
+<p>Oops<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Thanks for Testing!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2007-12-08T05:04:43</h3>
+<p>I'll take that as one vote to release the developer version as stable, then.</p>
+
+
+
+<h2>eval?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-12-08T22:58:21</h3>
+You surely mean of course (defined $it and blessed $it and $it-&gt;isa('Foo'))...
+
+
+
+<blockquote>
+
+<h2>Re:eval?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-12-09T01:37:42</h3>
+<p>That's a lot longer to type and while it's theoretically clearer, I don't think it wins over an <tt>eval</tt>.  Did I miss something obvious?</p>
+
+
+
+<blockquote>
+
+<h2>Re:eval?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-12-09T03:09:24</h3>
+<p>In general, using <code>eval</code> willy nilly is not good because you might swallow an exception that should have bubbled up. But a properly working <code>isa</code> is not expected to throw exceptions (or so I hope), so this idiom seems just fine.</p>
+
+
+
+<blockquote>
+
+<h2>Re:eval?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2007-12-10T16:56:40</h3>
+<p>You're absolutely right.  An overridden <code>isa()</code> that throws an would violate the Liskov substitution principle, so it would not in fact work properly.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:eval?</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2007-12-11T00:25:37</h3>
+No, I think you meant <p><blockquote> <div><tt>defined( blessed $it ) and $it-&gt;isa( '...' )</tt></div> </blockquote> . blessed() is not a sufficient boolean on its own. There are two false classes in perl.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of mugwumpjism: What people Love about their VCS - Part 3 of 4. git</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>What people Love about their VCS - Part 3 of 4. git</h1>
+<h2><a href="/user/mugwumpjism/">mugwumpjism</a> on 2006-08-14T06:33:09</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>It is clear that the earlier posts in this series are light on
+details and teasers, whereas this post goes into much detail on each
+new feature.  For this bias I offer no apology.  There is no mistaking
+that within the period of one year, I have gone from being an
+outspoken SVK advocate to extolling the virtues of the content
+filesystem, <tt>git</tt>.  And I am not alone.
+
+<p><strong>Content Addressible Filesystem</strong>
+
+<p>There are many good reasons that super-massive projects like the
+Linux Kernel, XFree86, Mozilla, Gentoo, etc are switching to <tt>git</tt>.
+This is not just a short term fad, <tt>git</tt> brings a genuinely new (well,
+stolen from <tt>monotone</tt>) concept to the table - that of the
+<em>content addressable filesystem</em>.
+
+<p>In this model, files, trees of files, and revisions are all hashed
+with a specially pre-seeded SHA1 to yield <em>object identifiers</em>,
+that uniquely identify (to the strength of the hashing algorithm) the
+type and contents of the object.  The full ramifications of this take
+some time to realise, but include more efficient delta compressionÃÂ¹,
+algorithmically faster merging, less error prone file history
+detectionÃÂ², but chiefly, much better identification of revisions.  All
+of a sudden, it does not matter which repository a revision comes from
+- if the SHA1 object ID matches, <em>you have the same object</em>, so
+the system naturally distributes <em>by model</em>, with no
+requirement for URIs or surrogate repository UUIDs and revision
+numbers.
+
+<p>Being content-keyed also means you are naturally transaction-safe.
+In terms of the core repository, you are only ever adding new objects.
+So, if two processes try to write to the same file, this will succeed
+because it means that they are writing the same contents.
+
+<p>It also makes cryptography and authentication easy - you can sign
+an <em>entire project and its revision history</em> just by signing
+text including a commit ID.  And if you recompute the object
+identifiers using a stronger hash, you have a stronger guarantee.
+
+<p><strong>The matter of speed</strong>
+
+<p>The design of the <tt>git-core</tt> implementation is very OS
+efficient.  People might scoff at this as a key feature, but consider
+this performance comparison;
+
+<p><b>SVK:</b>
+
+<pre>
+wilber:~/src/git$ time svk sync -t 11111 /pugs/openfoundry
+Syncing http://svn.openfoundry.org/pugs
+Retrieving log information from 1 to 11111
+Committed revision 2 from revision 1.
+Committed revision 3 from revision 2.
+Committed revision 4 from revision 3.
+  [...]
+Committed revision 11110 from revision 11109.
+Committed revision 11111 from revision 11110.
+Committed revision 11112 from revision 11111.
+
+real    227m36.096s
+user    3m47.281s
+sys     5m0.577s
+</pre>
+
+<p>That's 13,656 seconds to mirror 11,111 revisions.
+
+<p>Compare that to <b><tt>git</tt></b>:
+
+<pre>
+wilber:~/src$ time git-clone git://git.kernel.org/pub/scm/git/git.git git.git
+Checking files out...       
+ 100% (688/688) done
+
+real    1m54.932s
+user    0m2.825s
+sys     0m0.468s
+</pre>
+
+<p>That was 115 seconds to mirror 6,511 revisions.  The key bottleneck
+was the network - which was saturated for almost all of the execution
+time of the command, not a laborious, revision by revision dialogue
+due to a server protocol that just didn't seem to think that people
+might want to copy entire repositoriesÃÂ³.  The server protocol simply
+exchanged a few object IDs, then using the <em>merge base
+algorithm</em> to figure out which new objects are required, it
+generated a delta-compressed pack that just gives you the new objects
+you need.  So, <tt>git</tt> does not suffer from high latency networks
+in the same way that <tt>SVN::Mirror</tt> does.
+
+<p>But it's not just the server protocol which is orders of magnitude
+faster.  Git commands overall execute in incredibly short periods of
+time.  The reason for this speed isn't (just) because "it's written in
+C".  It's mainly due to the programming style - files are used as
+<em>iterators</em>, and <em>iterator functions</em> are combined
+together by way of <em>process pipelines</em>.  As the computations
+for these iterator functions are all completely independent, they
+naturally distribute the processing, and UNIX with its pipe buffers
+was always designed to make mincemeat of this kind of highly parallel
+processing task.
+
+<p>There is a lot to be learnt from this style of programming;
+generally the habit has been to try to avoid using unnecessary IPC in
+programs in order to make best use of traditional straight line CPU
+performance, where task switching is a penalty.  Combining iterative
+programming with real operating system filehandles can bring the
+potential of this speed enhancement to adequately built iterative
+programs.  I expect it will only be a matter of time before someone
+will produce a module for Perl 6 that will automatically auto-thread
+many iterative programs to use this trick.  Perhaps one day, it will
+even be automatic.
+
+<p>But that aside, we have yet to touch on some of the further
+ramifications of the content filesystem.
+
+<p><strong>Branching is more natural</strong>
+
+<p>Branches are much more natural - instead of telling the repository
+ahead of time when you are branching, you simply commit.  Your commit
+can never be invalid (there is no "transaction out of date" error) -
+if you commit in a different way to somebody else, then you have just
+branched the development.
+
+<p>Branches are therefore <em>observed</em>, not <em>declared</em>.
+This is an important distinction, but is actually nothing new - it is
+the <em>paradigm shift</em> that was so loudly touted by those
+<tt>arch</tt> folk who irritatingly kept suggesting that systems like
+CVS were fundamentally flawed.  Beneath the bile of their arguments,
+there was a key point of decentralisation that was entirely missed by
+the Subversion design.  Most of the new version control systems out
+there - bazaar-NG, mercurial, codeville, etc have this property.
+
+<p>Also, the repository itself is normally kept alongside the
+checkout, in a single directory at the top called <tt>.git</tt> (or
+wherever you point the magic environment variable <tt>GIT_DIR</tt> at
+- so you can get your 'spotless' checkouts, if you need them).  As the
+files are saved in the repository compressed via gzip and/or delta
+compressed into a pack file, with filenames that are essentially SHA1
+hashes, the '<tt>grep -r</tt>' problem that Subversion and CVS
+suffered from is gone.
+
+<p>It means that you can explain that to make a branch, you can just
+copy the entire checkout+repository:
+
+<pre> $ cp -r myproject myproject.test</pre>
+
+<p>Not only that, but you can combine repositories back together just
+by copying their objects directories over each other.
+
+<pre> $ cp -ru myproject.test/.git/objects myproject/.git/
+ $ git-fsck-objects
+ dangling commit deadbeef...
+ $ git-update-ref refs/heads/test deadbeef</pre>
+
+<p>Now, that's crude and illustrative only, but these sorts of
+characteristics make repository hacks more accessible.  Normally you
+would just <tt>fetch</tt> those revisions:
+
+<pre> $ git-fetch ../myproject.test test:refs/heads/test</pre>
+
+<p><strong>Merges are truly merges</strong>
+
+<p>Unlike in Subversion, the repository itself tracks key information
+about merges.  When you use `<tt>svn merge</tt>', you are actually
+copying changes from one place in the repository to another.  Git does
+support this, but calls it "pulling" changes from one branch to
+another.  The difference is that a merge (by default) creates a
+special type of commit - a <em>merge commit</em> that has two parents
+(a "parent" is just a SHA1 identifier to the previous commit).  Thus,
+the two branches are truly converged, and if the maintainer of the
+other branch then pulls from the merged branch, they're not just
+identical - they <em>are</em> the same branch.  <em>Merge base
+calculations</em> can just look at two commit structures, and find the
+earliest commits that the two branches have in common.
+
+<p>To compare the model of branching and merging to databases and
+transactional models, the Subversion model is like auto-commit,
+whereas distributed SCM such as <tt>git</tt> provides is akin to
+transactions, with the diverged branch's commits being like SQL
+savepoints, and merges being like full "commit" points.
+
+<p><strong>"Best of" merging - cherry picking</strong>
+
+<p>There is also the concept of piecemeal merging via <em>cherry
+picking</em>.  One by one, you can pluck out individual changes that
+you want instead of just merging in all of the changes from the other
+branch.  If you later pull the entire branch, the commits which were
+cherry picked are easily spotted by matching commit IDs, and do not
+need to be merged again.
+
+<p><strong>The plethora of tools</strong>
+
+<p>Another name for <tt>git</tt> is the <em>Stupid</em> content tracker.  This
+is reference to the fact that the <tt>git-core</tt> tools are really
+just a set of the small "iterator functions" that allow you to build
+'real' SCMs atop of it.  So, instead of using the <tt>git-core</tt> -
+the "plumbing" - directly, you will probably be using a "porcelain"
+such as <a href="http://git.or.cz/gitwiki/Cogito">Cogito</a>, <a
+href="http://www.cyd.liu.se/user/freku045/gct/">(h)gct</a>, <a
+href="http://digilander.libero.it/mcostalba/">QGit</a>, <a
+href="http://www.darcs.net/DarcsWiki/DarcsGit">Darcs-Git</a>, <a
+href="http://www.procode.org/stgit/">Stacked Git</a>, <a
+href="http://www.isisetup.ch/">IsiSetup</a>, etc.  Instead of using
+<tt>git-log</tt> to view revision history, you'll crank up <a
+href="http://git.or.cz/gitwiki/Gitk">Gitk</a>, <a
+href="http://git.or.cz/gitwiki/GitView">GitView</a> or the
+curses-based <a href="http://jonas.nitro.dk/tig/">tig</a>.
+
+<p>The <a
+href="http://git.or.cz/gitwiki/InterfacesFrontendsAndTools">huge list
+of tools</a> which interface with <tt>git</tt> already are a product of the
+massive following that it has received in its very short lifetime.
+
+<p><strong>The matter of scaling</strong>
+
+<p>The scalability of <tt>git</tt> can be grasped by browsing the many Linux
+trees visible on <a
+href="http://kernel.org/git/">http://kernel.org/git/</a>.  In fact, if
+you were to combine all of the trees on <tt>kernel.org</tt> into one
+<tt>git</tt> repository, you would measure that the project as a whole has
+anywhere between 1,000 and 4,000 commits every month.  <a
+href="http://members.cox.net/junkio/200607-ols.pdf">Junio's OLS <tt>git</tt>
+presentation</a> contains this and more.
+
+<p>In fact, for a laugh, I tried this out.  First, I cloned the
+mainstream <tt>linux-2.6</tt> tree.  This took about 35 minutes to
+download the 140MB or so of packfile.  Then I went through the list of
+trees, and used '<tt>git fetch</tt>' to copy all extra revisions in
+those trees into the same repository.  It worked, taking between a
+second and 8 minutes for each additional branch - and while I write
+this, it has happily downloaded over 200 heads so far - leaving me
+with a repository with over 40,000 revisions that packs down to only
+200MB.  (<b>Update:</b> Chris Wedgwood writes that he has a revision history of the Linux kernel dating all the way back to 2.4.0, with almost 97,000 commits, which is only 380MB)
+
+<p>Frequently, scalability is reached through distribution of
+bottlenecks, and if the design of the system itself elimates
+bottlenecks, there is much less scope for overloaded central servers
+like Debian's <tt>alioth</tt> or the OSSF's
+<tt>svn.openfoundry.org</tt> to slow you down.  While Subversion and
+SVK support "Star" and "Tree" (or heirarchical) developer team
+patterns, systems such as <tt>git</tt> can truly, both in principle
+and practice, be said to support <em>meshes</em> of development teams.
+And this is always going to be more scalable.
+
+<p><strong>Revising patches, and uncommit</strong>
+
+<p>The ability to undo, and thus completely forget commits is
+sometimes scorned at, as if it were "wrong" - that version control
+systems Should Not support such a bad practice, and therefore that
+having no way to support it is not a flaw, but a feature.  "Just
+revert", they will say, and demand to know why you would ever want
+such a hackish feature as <tt>uncommit</tt>.
+
+<p>There is a point to their argument - if you publish a revision then
+subsequently withdraw that revision from the history without
+explicitly reverting it, people who are tracking your repository may
+also have to remove those revisions from their branches before
+applying your changes.
+
+<p>However, this is not an unsurmountable problem when your revision
+numbers uniquely and unmistakably identify their history - and when
+you are working on a set of patches for later submission, it is
+actually what you want.  In the name of hubris, you only care to share
+the changes once you've made them each able to withstand the hoards of
+the Linux Kernel Mailing List reviewers (or wherever you are sending
+your changes, even to an upstream Subversion repository via
+<tt>git-svn</tt>).
+
+<p>In fact, the success of Linux kernel development can also be
+attributed in part to its approach of only committing to the mainline
+kernel, patches that have been reviewed and tested in other trees,
+don't break the compile or add temporary bugs, etc.  As they are
+refined, the changes themselves are modified before they are
+eventually cleared for inclusion in the mainline kernel.  This
+stringent policy allows them to do things such as <em>bisect</em>
+revisions to perform a binary search between two starting points to
+locate the exact patch that caused a bug.
+
+<p>Before <tt>git</tt> arrived, there were tools such as <a
+href="http://savannah.nongnu.org/projects/quilt">Quilt</a> that
+managed the use case of revising patches, but they were not integrated
+with the source control management system.  These days, <a
+href="http://www.spearce.org/category/projects/scm/pg/">Patchy Git</a>
+and <a href="http://www.procode.org/stgit/">Stacked Git</a> layer this
+atop of <tt>git</tt> itself, using a technique that amounts to being
+commit reversal.  In fact, the reversed commits still exist - it's
+just nothing refers to them - they can still be seen by
+<tt>git-fsck-objects</tt> before the next time the maintenance command
+<tt>git-prune</tt> is run.
+
+<p>So, Stacked Git has a command called <tt>uncommit</tt> that takes a
+commit from the head and moves it to your patch stack, <tt>refresh</tt> to update the current patch once it has been suitably revised, a pair of
+commands <tt>push</tt> and <tt>pop</tt> to wind the patch stack, a
+<tt>pick</tt> command to pluck individual patches from another branch,
+and a <tt>pull</tt> command that picks entire stacks of patches, which
+is called "rebasing" the patch series.  And of course, being a porcelain only, you can mix and match the use of <tt>stgit</tt> with other <tt>git</tt> porcelain.
+
+<p>Far from being "so 20th century", patches are a clean way to
+represent proposed changes to a code base that have stood the test of
+time - and a practice of reviewing and revising patches encourages
+debate of the implementation and makes for a tidier and more tracable
+project history.
+
+<p>The polar opposite to reviewing every patch - a single head that
+anyone can commit to - is more like a Wiki, and an open-commit policy
+Subversion server suits this style of colloboration well enough.
+There is no "better" or "more modern" between these two choices of
+development styles - each will suit certain people and projects better
+than others.
+
+<p>Of course, those tools that made distributed development a key
+tenet of their design make the distributed pattern more natural, and
+yet it is just as easy for them to support the Wiki-style development
+pattern of Subversion.
+
+<p>In fact there are no use cases for which I can recommend Subversion
+over <tt>git</tt> any more.  In my opinion, those that attack it on
+the grounds of "simplicity" (usually on the topic of the long, though
+able to be abbreviated, revision numbers) have not grasped the beauty
+of the <a href="http://utsl.gen.nz/img/git-model.png">core model</a>
+of <tt>git</tt>.
+
+<p>Footnotes:
+
+<p>Many people, especially those with time, effort and ego invested in
+their own VCS, judged the features of <tt>git</tt> in very early days.
+Without being able to see where it would be today, they each gave
+excuses as to why this new VCS <tt>git</tt> offered their users less
+functionality.  So, a lot of FUD exists, a few points of which I address here.
+
+<ol>
+
+<li>git <em>does</em> do delta compression to save space (as a
+separate step)
+
+<li>git <em>can</em> track renames of files, though it does not record
+this in the meta-data, and pragmatically the observation is that this
+is, overall speaking, just as good, if not better, than tracking them
+with meta-data.
+
+<li>git <em>is not</em> forced to hold the entire project history, it
+is quite possible to have partial repositories using <em>grafts</em>,
+though this feature is still relatively new and initial check-outs
+cannot easily be made grafts.  Patches welcome <tt>;-)</tt>.
+
+</ol>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Index</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2008-01-22T21:46:04</h3>
+<ul>
+<li> <a href="http://use.perl.org/user/mugwumpjism/journal/30574" title="perl.org">Part 1. SVN</a perl.org></li>
+<li> <a href="http://use.perl.org/user/mugwumpjism/journal/30614" title="perl.org">Part 2. SVK</a perl.org></li>
+<li> <a href="http://use.perl.org/user/mugwumpjism/journal/30615" title="perl.org">Part 3. git</a perl.org></li>
+<li> <a href="http://use.perl.org/user/mugwumpjism/journal/30616" title="perl.org">Part 4. darcs</a perl.org></li>
+</ul>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

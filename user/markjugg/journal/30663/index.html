@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of markjugg: refactoring CGI::App for Perl6:'given' as a switch statement</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>refactoring CGI::App for Perl6:'given' as a switch statement</h1>
+<h2><a href="/user/markjugg/">markjugg</a> on 2006-08-17T01:52:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'm porting <a href="http://www.cgi-app.org">CGI::Application</a> to Perl6 as a way to learn about Perl6. I'm going to share some of these "real world" refactors here to demonstrate some Perl6 features. 
+<P>
+<b>Before:</b><br>
+We have a a typical Perl5 if/else chain. The dangling "if" and "die" and at the end should have really be part of the chain, but I did say this was real-world code...<br/><br/><pre>
+sub _send_headers {
+    my $self = shift;
+    my $q = $self->query();<br/><br/>    my $header_type = $self->header_type();<br/><br/>    if ($header_type eq 'redirect') {
+        return $q->redirect($self->header_props());
+    } elsif ($header_type eq 'header' ) {
+        return $q->header($self->header_props());
+    }<br/><br/>    # croak() if we have an unknown header type
+    croak ("Invalid header_type '$header_type'") unless ($header_type eq "none");<br/><br/>    # Do nothing if header type eq "none".
+    return "";
+}<br/><br/></pre><br/><br/><b>After:</b><br>
+Of course, "my $self = shift" is gone, (Wahoo!), but notice now the new 'given' switch statement cleans things up nicely:<br/><br/><pre>
+method _send_headers {
+    my $q = self.query;
+    given self.header_type {
+        when 'redirect' { return $q.redirect(self.header_props)      }
+        when 'header'   { return $q.header(self.header_props)        }
+        when 'none'     { return ""                                  }
+        default         { die "Invalid header_type '$header_type'" }
+    }
+}<br/><br/></pre><br/><br/>In total: 18 lines reduced to 9, with a clarity gained!</p>
+
+
+<hr/>
+
+
+
+<h2>A Perl5 refactoring</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-08-17T02:29:34</h3>
+Here's a way to refactor the code legibly in Perl5 without 'given':<br><br><code><br>
+&nbsp; &nbsp; &nbsp; &nbsp; sub _send_headers {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $self = shift;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $q = $self-&gt;query();<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $header_type = $self-&gt;header_type();<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; return<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $header_type eq 'redirect' ? $q-&gt;redirect($self-&gt;header_props())<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; : $header_type eq 'header'   ? $q-&gt;header($self-&gt;header_props())<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; : $header_type eq 'none'     ? ''<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; : croak("Invalid header_type '$header_type'")<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br></code><br>
+
+
+
+<blockquote>
+
+<h2>Re:A Perl5 refactoring (winner!)</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2006-08-17T13:04:54</h3>
+Thanks Chris, I like this refactor the best.<br><br>I commited a variation of this to the CGI::Application p5 source tree.
+
+
+
+<blockquote>
+
+<h2>Re:A Perl5 refactoring (winner!)</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-08-17T14:17:46</h3>
+Thank Damian Conway.  I picked up this hanging ternary style of indentation from his "Perl Best Practices" book.  I use it instead of if/elsif/else whenever possible now.<br>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>More perl 5 refactoring</h2>
+<h3><a href="/user/xanthippe/">xanthippe</a> on 2006-08-17T04:22:41</h3>
+<tt>sub send_headers {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; my $q = $self-&gt;query;<br>&nbsp; &nbsp; my %actions = ( redirect&nbsp; =&gt; sub { $q-&gt;redirect( $self-&gt;header_props ) },<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; header&nbsp; &nbsp; =&gt; sub { $q-&gt;header($self-&gt;header_props()) },<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; none&nbsp; &nbsp; &nbsp; =&gt; sub { return '' },<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; _default_ =&gt; sub { croak "Invalid header_type " . $self-&gt;$header_type } );<br><br>&nbsp; &nbsp; return $actions{ $self-&gt;header_type || '_default_' }-&gt;();<br>}</tt>
+
+
+
+<blockquote>
+
+<h2>Re:More perl 5 refactoring</h2>
+<h3><a href="/user/reneeb/">reneeb</a> on 2006-08-17T06:34:15</h3>
+That's not correct in detail. The _default_ action will be executed if the headertype is undef or 0, but what about "illegal" headertypes - e.g. 'foo' ?<br/><br/>This would be better:<br/><br/>
+sub send_headers {
+    my $self = shift;
+    my $q = $self-&gt;query;
+    my %actions = ( redirect  =&gt; sub { $q-&gt;redirect( $self-&gt;header_props ) },
+                    header    =&gt; sub { $q-&gt;header($self-&gt;header_props()) },
+                    none      =&gt; sub { return '' },
+                    _default_ =&gt; sub { croak "Invalid header_type " . $self-&gt;$header_type } );<br/><br/>    my $headertype = exists $actions{$self-&gt;header_type} ? $self-&gt;header_type  : '_default_';
+    return $actions{ $headertype }-&gt;();
+}
+
+
+
+<blockquote>
+
+<h2>Re:More perl 5 refactoring</h2>
+<h3><a href="/user/reneeb/">reneeb</a> on 2006-08-17T06:37:14</h3>
+Sorry, pushed the wrong button...<blockquote> <div><tt>sub send_headers {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; my $q = $self-&gt;query;<br>&nbsp; &nbsp; my %actions = (<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; redirect&nbsp; &nbsp; &nbsp;=&gt; sub { $q-&gt;redirect( $self-&gt;header_props ) },<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; header&nbsp; &nbsp; &nbsp; &nbsp;=&gt; sub { $q-&gt;header($self-&gt;header_props()) },<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; none&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;=&gt; sub { return '' },<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; _default_&nbsp; &nbsp; =&gt; sub { croak "Invalid header_type " . $self-&gt;$header_type } );<br> <br>&nbsp; &nbsp; my $headertype = exists $actions{$self-&gt;header_type} ? $self-&gt;header_type : '_default_';<br>&nbsp; &nbsp; return $actions{ $headertype }-&gt;();<br>}</tt></div> </blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

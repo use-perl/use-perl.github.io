@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: putting perl on diet</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>putting perl on diet</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2003-02-19T11:10:51</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I got this idea from a thread on comp.lang.perl.misc (and notably some encouraging from Janek Schleicher who considered the idea very cool): Creating a module that allows storing of data zlib-compressed.<br/><br/>I initially thought this could be done via <code>tie()</code> but Perl's tying interface is too limited to do that effectively. For scalars you only have <code>FETCH()</code> and <code>STORE()</code>. This defeats the purpose of compression for example in the following code:<br/><br/><code>
+    $string = "string" x 1_000_000;
+    print substr $string, 1, 1;
+</code><br/><br/>Obviously, via <code>tie()</code> this would result in uncompressing the whole data in memory. It would also be very slow.<br/><br/>The obvious solution therefore is (apart from adding <code>SUBSTR</code> and all the other string-operators to the tie-interface) a class of its own with a little bit of overloading of <code>""</code>, <code>.=</code> etc.<br/><br/>It sounds much more trivial than it is as I had to realize. I started hacking away the XS part till I could at least store and get the data. The string becomes a linked list of buffers with the original large string divided into CHUNK_SIZE-large pieces which are then compressed into the aforementioned buffers. After that I was eager to do a little benchmark:<br/><br/><code>
+    my $uncompressed;
+    my $compressed = String::Compress-&gt;new;<br/><br/>    cmpthese (-2, {
+            compressed =&gt; sub {
+                $compressed-&gt;store("hallo" x 1023);
+                my $d = $compressed-&gt;get;
+            },
+            uncompressed =&gt; sub {
+                $uncompressed = "hallo" x 1023;
+                my $d = $uncompressed;
+            },
+        });
+</code><br/><br/>Urmmh, here's the embarrassing part now:<br/><br/><code>
+    compressed:  5 wallclock secs ( 1.02 usr +  1.18 sys =  2.20 CPU) @ 509.09/s (n=1120)
+    uncompressed:  4 wallclock secs ( 2.05 usr +  0.00 sys =  2.05 CPU) @ 40707.32/s (n=83450)
+                    Rate   compressed uncompressed
+    compressed     509/s           --         -99%
+    uncompressed 40707/s        7896%           --
+</code><br/><br/>So it's <b>slightly</b> slower.
+   
+On the other hand, <code>"hallo" x 1_000_000</code> eats about half the memory an ordinary Perl scalar would need. When increasing CHUNK_SIZE to a real large value such as 500_000 (it's just 4096 right now) it could probably be further dropped to less than 10kb (for a repetitive string like the above only, of course).<br/><br/>But my actual concern is something else: I reimplement the string operators as methods which is at least feasible for thinks like <code>chomp</code>, <code>substr</code> etc. But what about regular expressions? I'd need to reimplement Perl's RE-engine (working on segmented compressed little strings which form one large string!). I think I'll leave that to someone else (Janek perhaps:-).
+</p>
+
+
+<hr/>
+
+
+
+<h2>Magic</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2003-02-19T12:26:24</h3>
+I wonder whether it's possible to implement this using magic. Look up <tt>PERL_MAGIC_uvar</tt> in the perlguts manpage to see what I mean.
+
+
+
+<blockquote>
+
+<h2>Re:Magic</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2003-02-19T14:49:35</h3>
+<i>I wonder whether it's possible to implement this using magic. Look up PERL_MAGIC_uvar in the perlguts manpage to see what I mean.</i> <br> <br>I am not sure whether the U magic is powerful enough. The <code>ufuncs</code> struct simply contains a pointer to a get and set function. The third member, <code>uf_index</code>, is just an <code>IV</code> that doesn't seem to be used for anything else other than as an identifier (that is what grepping through the 5.8.0 sources suggests).<br> <br>There is a whole mot more of magic available, but I am not sure whether I am supposed to diddle with it. For instance, there is <code>vtbl_susbtr</code>. So am I allowed to to take an <code>SV</code> and decorate it with my own custom <code>MAGIC</code> structures? And then adding <code>MAGIC-&gt;mg_moremagic</code> if I so wish?<br> <br>I am rather reluctant as to that because Perl's magic is so thinnly documented. perlguts seems to imply that only 'U' and '~' is available for extensions.<br> <br>But if I am free to roll my own set of magics and attach it to an <code>SV</code> it would be much cooler since then a scalar could really be used like an ordinary variable without the limitations of <code>tie()</code>.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

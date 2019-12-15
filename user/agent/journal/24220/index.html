@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of agent: Actual Implementation of Math::Model</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Actual Implementation of Math::Model</h1>
+<h2><a href="/user/agent/">agent</a> on 2005-04-16T08:01:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>=from     2005.4.14.8:00.AM
+=to       ...4.14.9:45.AM<br/><br/>Now I decide to sit down to consider seriously the matter of hacking on Math::Model. The basic code can be borrowed from the existing CirSys.pm module. I think a procedural design will be appropriate here.<br/><br/>Math::Model should offer the following subroutines:<br/><br/><ul>
+<li/> reg_eq
+<li/> unreg_eq
+<li/> reg_var
+<li/> unreg_var
+<li/> reg_eqs
+<li/> get_eqs
+<li/> get_vars
+<li/> use_solve
+<li/> new_layer
+<li/> bye_layer
+</ul>The last two functions are completely new. They provide the magic of assuming and backtracking. Once the user invokes new_layer, Math::Model will create a new layer (or a new "copy") for the math model, so any subsequent updates to the model won't spoil the original one. When the user calls bye_layer some time later, Math::Model will recover the model immediately back to the initial state just before the last new_layer calling. In other words, a call of bye_layer will effectively remove all the modifications to the math model (through reg_eq, unreg_var, etc.) since the last invocation of new_layer. This behavior is very similar to assuming and backtracking.<br/><br/>I finally prefer stack structures to do such trick. The implementation of bye_layer and new_layer is straightforward:<br/><br/>    our (@ModelStack, %Vars, @Equas);<br/><br/>    # new_layer: Create and enter a new layer.
+    sub new_layer {
+        push @ModelStack, {%Vars}, [@Equas];
+        @Equas = ();
+    }<br/><br/>    # bye_layer: quit the current layer.
+    sub bye_layer {
+        my $ref = pop @ModelStack;
+        return unless $ref;
+        @Equas = @$ref;
+        $ref = pop @ModelStack;
+        %Vars = %$ref;
+    }<br/><br/>I hasten to ask the following question: What do we mean by a math model? A math model is composed of nothing but several equations, some optional inequalities, and a list of unknown variables. This basic concept should be clarified first at this point.<br/><br/>For each layer, there are two "localized" structures, %Vars and @Equas. %Vars is inherited directly from the outer layer (or parent layer), while @Equas holds only the equations built on the current layer due to efficiency considerations. The realization of the get_eqs function therefore needs a thorough rewrite accordingly:<br/><br/>    # get_eqs: get all the equations
+    sub get_eqs {
+        my @equas = get_eq_and_des();
+        my @eqs = ();
+        for (my $i=0; $i < @equas; $i += 2) {
+            push @eqs, $equas[$i];
+        }
+        return @eqs;
+    }<br/><br/>    # get_eq_and_des: get all the equations and corresponding descriptions:
+    sub get_eq_and_des {
+        my @equas;
+        for (my $i = 1; $i < @ModelStack; $i += 2) {
+            my $ref = $ModelStack[$i];
+            push @equas, @$ref;
+        }
+        return (@equas, @Equas);
+    }<br/><br/>There is no need to modify the get_vars function originated from CirSys.pm since the semantics of the %Vars structure does not change.<br/><br/>Now that we've got an implementation, it's time for us to write some tests...<br/><br/>I'm afraid I'm not a real XP programmer as I seldom write tests before any actual coding. Sigh.<br/><br/>With an excellent repertoire of math model management utilities, we can then happily implement the @assume language mechanism for our CIR scripts, which cannot be difficult. Aha!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

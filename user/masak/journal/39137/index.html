@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of masak: Week 9 of Web.pm -- encodings, and a deep dive into Genshi</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Week 9 of Web.pm -- encodings, and a deep dive into Genshi</h1>
+<h2><a href="/user/masak/">masak</a> on 2009-06-17T11:50:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><dl><dd><i>Den all IRS d00dz an bad kittehs coem to hear Jebus. An Fariseez sez "LOL Jebus etz wit bad kittehs! Him sux!'</i></dd>
+
+<dd><i>Jebus sez, "WTF? If lolcat had hundrd sheeps an won gits losted, doan him leev naintee nain sheeps an go luk fr losted won? Den him find it an iz liek 'w00t!' An dem him coem hoem, trow partee cuz him finded losted sheep. Srsly! Ceiling Cat moar happi wen a bad kitteh being maed lolcat den bowt naintee nain gud kittehs." </i> &#8212; Luke 15:1-7</dd></dl>
+
+<p>I'm working mostly on <a href="http://github.com/masak/web/tree/master/t/hitomi">Hitomi</a>, a Perl 6 port of the Python templating engine <a href="http://genshi.edgewall.org/">Genshi</a>. In the past week, I decided to dive into Genshi, looking at how data flows from the template to the finished result. I now have a pretty good understanding of this, so I thought I'd expand a bit on it here.</p>
+
+<p>Genshi's fundamental data structure is called <code><a href="http://genshi.edgewall.org/wiki/Documentation/streams.html">Stream</a>,</code> and it looks very much like a sequence of <a href="http://en.wikipedia.org/wiki/Simple_API_for_XML">SAX</a> events to me: open-tag, close-tag, text, processing-instruction, etc. Different transformations are then applied to a stream to yield the final result. A transformation could be something like "remove all &lt;script&gt; elements" or "shorten all posts that are longer than 400 characters". A stream modified in-place, but combine with a transformation to produce a new stream. The nice thing is that the actual templating is also expressed as a series of this kind of transformations. But the Genshi user can easily provide her own transformation on top of the standard ones.</p>
+
+<p>I like this model very much. It feels extremely clean and extensible. I decided to port as much as I can to Hitomi. My short-term goal is to make things round-trip using the streams, and to that effect, I've ported a test file with <a href="http://github.com/masak/web/blob/6127e91c62c1b2ac382627d27ed46972e760415b/t/hitomi/05-input.t">89 tests</a> from Genshi to Perl 6.</p>
+
+<p>It's still not totally clear to me how text is converted to a stream and then back. I can easily picture how a stream event knows how to serialize itself back into text, so the mystery on that side isn't very great; it's just that I haven't found the actual Python code for it yet. On the stream generation side, the data flow disappears into a Python-<a href="http://www.libexpat.org/">Expat</a> library. Delegating XML parsing to a third party also seems like an exceedingly good idea to me.</p>
+
+<p>Can we do the same thing &#8212; delegate to Expat, or some other suitable library &#8212; in Hitomi? I think so, and the <a href="http://www.parrotcode.org/docs/pdd/pdd16_native_call.html">Parrot documentation</a> seems hopeful. I'd very much like to get that working. But in the short run, I'm pondering whether it might not be easier to make a small, throwaway XML parser out of the bits and pieces we developed as prototypes. I could make it a separate class and call it <code>Impostor</code>, to make sure we remember to remove it later.</p>
+
+<p>Another issue I ran into is one of encoding. viklund++ has been doing heroic work in the past week making November handle UTF-8 correctly. The reason this is heroic is that Rakudo doesn't have a model for string encodings yet. The information has to be forced out of Rakudo against its will, and I've heard viklund mutter darkly about hacks and workarounds lately... It all culminated in <a href="http://irclog.perlgeek.de/perl6/2009-06-16#i_1244954">a good discussion</a> on #perl6 last night, and pmichaud++ <a href="http://irclog.perlgeek.de/perl6/2009-06-16#i_1245092">promised</a> to make a preliminary implementation of <code>.encode</code> (for <code>Str</code>) and <code>.decode</code> (for <code>Buf</code>), if we just sat down and wrote some tests to show what we expected these to do.</p>
+
+<p>Looking forward a bit; I think there's a good chance we'll have something usable with Hitomi before my original grant period is over. After that, it might be a good idea to start looking at the port of Ruby's <a href="http://wiki.github.com/why/hpricot">Hpricot</a> (for manipulating and searching HTML documents), and to start digging into the MVC quagmire. I still expect to do some preliminary MVC investigations before that, though.</p>
+
+<p>I wish to thank The Perl Foundation for sponsoring the Web.pm effort.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Tests for .encode and .decode</h2>
+<h3><a href="/user/moritz/">moritz</a> on 2009-06-17T15:06:58</h3>
+<p>I already wrote the tests for<nobr> <wbr></nobr>.encode and<nobr> <wbr></nobr>.decode (t/spec/S32-str/encode.t), so all there needs to be done is the actual two methods, a Buf type with a constructor, and a multi of infix:eqv comparing two Buf objects.</p><p>And probably some way to print a Buf without trying to encode anything again.</p>
+
+
+
+<h2>Why remove?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-06-17T16:27:54</h3>
+<p>I think a methodical translation of the XML TR to a Perl 6 grammar would be a great asset to Perl 6 as a platform (user perspective) and would equally serve as a benchmark for the usefulness and performance of the grammar language (developer perspective).</p><p>Further, once we have a realisation of the the original vision that the Perl 6 parser itself be a grammar overloadable by the program being under execution, this XML grammar could be used to implement something very much like Javascript&#8217;s E4X, without the need for any support within the Perl 6 specification itself (in contradistinction with the E4X being an explicit extension of the base Javascript language).</p><p>And really, if done well (ie. using the specification as the guide in order to ensure completeness, comprehensiveness and compliance), an XML parser isn&#8217;t actually <em>that</em> scary a beast to write. And there&#8217;s an extensive pre-existing test suite, too.</p><p>Now, this <em>is</em> a project in its own right, and thus I expect that even if you see my point and agree with it being worthwhile, I doubt you&#8217;ll be eager to have another hairy yak&#8230;</p><p>But I wanted to argue that case.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why remove?</h2>
+<h3><a href="/user/masak/">masak</a> on 2009-06-18T07:48:56</h3>
+<p>Agree on all points, including the one about that being a separate project. I'm likely to do the bare minimum for Hitomi, and then we'll iteratively try to converge on something clean/fast/maintainable.</p><p>I might mention that Karl Rune Nilsen (krunen++) started building an XML parser at the post-NPW hackathon. It's still in its early stages, but perhaps someone intent on writing the XML parser Aristotle envisions would still like to consult krunen for ideas. Synergy++.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

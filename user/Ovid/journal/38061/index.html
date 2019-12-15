@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: The Big Bucket of FAIL (or is it?)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>The Big Bucket of FAIL (or is it?)</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-12-10T16:21:04</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I lied to chromatic, I think.  A long time ago, when we were talking about the new version of TAP, he was concerned that many of the new features we were adding on would be not needed and therefore should not be added.  I assured him that the new features would be optional and not change the meaning of core TAP.</p>
+
+<p>I find myself sitting here, staring at my feet, wondering if I'm a bald-faced liar ("bald-faced"?).</p>
+
+<p>So what, precisely, is a test failure?  Is the following a failure?</p>
+
+<pre>1..1
+ok 1 - Whee!  We pass!</pre>
+
+<p>Of course not.  You have one test.  It passes.</p>
+
+<p>Um, not so fast there, cowboy.  Now look at the following snippet of code.</p>
+
+<pre>END {
+    unlink $highly_sensitive_data
+      or die "You are soooooo fired, dude.";
+}</pre>
+
+<p>Yes, you can test that, but you probably didn't.  If the code dies (from the <tt>TAP::Parser</tt> perspective, if it exits with a non-zero exit status), then we consider that the test failed.</p>
+
+<p>Um, not so fast there, cowboy.</p>
+
+<p>Apparently, some languages don't give us control over the exit status (I don't know which ones, but it's a bug report we received), so we've been forced to implement a <tt>$parser-&gt;ignore_exit</tt> method.</p>
+
+<P>But there's also the wait status of the process.  That can be non-zero, indicating a failure.  We recently fixed a bug with that.  I found it while testing Rakudo and Alex Vandiver fixed it (it's in the upcoming 3.15 release.  No PI for you!).  Failure is tricky.</p>
+
+<p>So pure TAP doesn't quite indicate if tests failed or not.  Or they do, but they don't indicate if the whole test program is considered a pass.</p>
+
+<p>And just to make it more difficult, consider this:</p>
+
+<pre>1..4
+ok 1
+ok 
+ok 2
+ok 3</pre>
+
+<p>It's perfectly legal to omit the test number, but it's not legal to have gaps.  That's a parse error and is considered to be a failure, even if all tests have passed.  This is because we can't trust that output (what does it mean?).  Same thing happens if you omit the plan.</p>
+
+<p>As a result, a proper "test program failed" method should look something like this:</p>
+
+<pre>sub failed {
+    my $self = shift;
+    return
+         $self->failed
+      || $self->parse_errors
+      || ( !$self->ignore_exit && ( $self->wait || $self->exit ) );
+}</pre>
+
+<p>Thus, pure TAP doesn't quite indicate if a test failed, but it might if we add diagnostics, but that means I lied to chromatic.  Damn.</p>
+
+<p>As for my <tt>App::Prove::History</tt> code, this means you have to do this to see which test programs have failed:</p>
+
+<pre>SELECT r.suite_id, n.name, failed, exit, wait
+FROM   test_result r, test_name n
+WHERE  r.test_name_id = n.id
+  AND  (
+    r.failed > 0
+    OR
+    r.exit != 0
+    OR
+    r.wait != 0
+);</pre>
+
+<p>A bit clumsy, no?  And I don't even include the 'ignore_exit' bit, though I might have to later.</p>
+
+<p>I'm thinking about a tiny denormalization here, but in reality, I'll probably slap a view over this and see how that works.</p>
+
+<p>Pop quiz:  is the following a failure?  Why or why not?  Is the existing behavior wrong?</p>
+
+<pre>1..3
+ok 1 - Booting
+ok 2 - Got dem boots!
+ok 3 - We have foobar # TODO Waiting on foobar shipment</pre></p>
+
+
+<hr/>
+
+
+
+<h2>bald-faced liar</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2008-12-10T20:28:37</h3>
+<p>Bald-faced means blatant, undisguised</p>
+
+
+
+<blockquote>
+
+<h2>Re:bald-faced liar</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-12-11T00:14:48</h3>
+<p>I know what it means<nobr> <wbr></nobr>:)  I just don't know why "bald-faced" is the term used.</p>
+
+
+
+<blockquote>
+
+<h2>Re:bald-faced liar</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2008-12-12T15:03:10</h3>
+It's a variation of "barefaced" (unconcealed or showing a lack of scruples) or "bold-faced" (impudent).
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>The exit status case...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-12-11T00:04:31</h3>
+<p>The obvious case for lack of exit status is PHP, where they are streaming TAP over HTTP and the HTTP stream will just stop at some point...</p><p>And anything else doing TAP over HTTP for that matter.</p>
+
+
+
+<blockquote>
+
+<h2>Re:The exit status case...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-12-11T00:13:46</h3>
+<p>Wouldn't that just result in a 0 exit status, though?  If we ignore a the exit status, we'd have to be doing that for a non-zero exit status, meaning that these don't matter.</p>
+
+
+
+<blockquote>
+
+<h2>Re:The exit status case...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-12-11T08:30:22</h3>
+<p>Well, HTTP doesn't really HAVE an exit status to communicate, since it's SUPPOSED to be transactional... sort of.</p><p>The stream just stops, there's no return value as such.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>BTW...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-12-11T08:48:18</h3>
+<p>Pop quiz: is the following a failure? Why or why not? Is the existing behavior wrong?</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; 1..3<br>
+&nbsp; &nbsp; &nbsp; &nbsp; ok 1 - Booting<br>
+&nbsp; &nbsp; &nbsp; &nbsp; ok 2 - Got dem boots!<br>
+&nbsp; &nbsp; &nbsp; &nbsp; ok 3 - We have foobar # TODO Waiting on foobar shipment</p><p>Asking if this is a fail is similar to asking if you run a test.</p><p>In the install context, this is a merely a curiosity. It's a difference in expected behaviour, and such for the <b>author</b> it's a fail(ure), but it's not a FAIL.</p><p>If you recall, the working definition of failure we used twice now for AUTOMATED_TESTING and RELEASE_TESTING is "Is the failure significant enough to forbid the user from installing".</p><p>An unused feature, documented as broken, that unexpectedly passes does not qualify as something that should prevent installation.</p>
+
+
+
+<blockquote>
+
+<h2>Re:BTW...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-12-11T09:43:06</h3>
+<p>That's pretty much spot on, though I think the existing behavior <em>might</em> be wrong for authors.  If you're an author, I would say that the "unexpectedly succeeded" should be a fail.  Otherwise, it should not.  We don't want heisenfails.  I want to know if code I am developing is susceptible to this, but it shouldn't cause pain for anyone else.  However, just like running tests in <tt>xt/</tt>, this is something the tester must explicitly request.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

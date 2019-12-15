@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: Object::ID - A unique object identifier for any object</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Object::ID - A unique object identifier for any object</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2010-05-02T17:17:01</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Something Perl's OO has been missing has been a reliable way to identify an object.  Is $this the same as $that?  Not asking if it contains the same information, but is it a referent to the same object?  Have we seen it before?  When I alter $this will I also be changing $that?<br/><br/><pre>
+package Foo;<br/><br/>use Object::ID;<br/><br/>...write the class however you want...
+</pre><br/><br/>Really, HOWEVER YOU WANT!  Inside out, outside in, code refs, regexes, globs, Moose, Mouse... Call the constructor whatever you like, add in a DESTROY method.  Doesn't matter, it'll work.<br/><br/><pre>
+my $id   = $obj->object_id;
+my $uuid = $obj->object_uuid;
+</pre><br/><br/><code>object_id()</code> is a cheap, process-specific identifier.  <code>object_uuid()</code> is a bit more expensive on first call (it has to generate the <a href="https://secure.wikimedia.org/wikipedia/en/wiki/Uuid">UUID</a>, about 30% slower) but it should be universally unique across machines and processes.<br/><br/>That's great for YOUR objects, but what about everyone else?  You can either inject the Object::ID role one class at a time...<br/><br/><pre>
+package DateTime;
+use Object::ID;<br/><br/>my $date = DateTime->now;
+say $date->object_id;
+</pre><br/><br/>or you can load UNIVERSAL::Object::ID and every object has it.  EVERY OBJECT!  Even things you don't realize are objects.<br/><br/><pre>
+use UNIVERSAL::Object::ID;<br/><br/># Regexes are objects
+say qr/foo/->object_id;<br/><br/># Loading IO::Handle turns all filehandles into objects
+use IO::Handle;
+open my $fh, "foo/bar";
+say $fh->object_id;
+</pre><br/><br/>But OH GOD UNIVERSAL!  Well, use at your own risk.  Its handy to use in your own programs and private libraries.  Or you can use <a href="http://search.cpan.org/dist/Method-Lexical">Method::Lexical</a> and apply it lexically.<br/><br/>Why not just use the object's reference address?  Well, as people implementing inside-out objects discovered, they're not unique.  They're not thread safe, and worse they're not even unique for the life of the process.  Perl will reuse the reference of a destroyed object.  Observe:<br/><br/><pre>
+{
+    package Foo;<br/><br/>    sub new {
+        my $class = shift;
+        return bless {}, $class;
+    }
+}<br/><br/>for(1..3) {
+    my $obj = Foo->new;
+    print "Object's reference is $obj\n";
+}
+</pre><br/><br/>Run that and you should get the same reference, three times, for three different objects.<br/><br/>And then there's the problem of string overloaded objects.  You have to be careful to always use Scalar::Util::refaddr or overload::StrVal.<br/><br/>It turns out inside-out objects have nearly the same problem, and 5.10.0 introduced field hashes to solve that.  rjbs explains the pain of all this at slide 120 in his excellent <a href="http://www.slideshare.net/rjbs/perl-510-for-people-who-arent-totally-insane">5.10 For People Who Aren't Totally Insane</a>.  You can read the <a href="http://search.cpan.org/dist/Hash-Util-FieldHash">gory details of field hashes</a> but it comes down to this: in 5.10 you can A) get a process unique, thread safe identifier for an object and B) you can store it in hash such that it gets destroyed when the object is destroyed.  Perfect!<br/><br/>Because of this, if you look inside Object::ID you'll see there's not a lot to it.  It makes a field hash to store the IDs in, a state variable to hold an ID counter, and then just accesses the field hash.<br/><br/><pre>
+use Hash::Util::FieldHash qw(fieldhash);
+fieldhash(my %IDs);<br/><br/>sub object_id {
+    my $self = shift;<br/><br/>    state $last_id = "a";<br/><br/>    return $IDs{$self} //= ++$last_id;
+}
+</pre><br/><br/>No scary black magic (beyond what's inside fieldhash).  Its so simple, which is why it works with everything.<br/><br/>Now, I didn't come up with this implementation.  I just laid out the requirements and <a href="http://profvince.com/">Vincent Pit</a> filled in the blanks.  I was only vaguely aware of field hashes, Vincent made the connection.  Thank you VPIT!<br/><br/>Practical applications?  Honestly, I'm not sure.  I needed it as a shortcut for expensive object equality checks in perl5i.  Maybe some of the OO theorists out there can fill this part in.  Let me know what you might use it for.<br/><br/>Possible extensions?  Well... with some tweaking Object::ID can be used as a universal object registry.  Not only can you ask "does the object associated with this ID still exist" but field hashes provide the ability to get the object associated with an ID.  It would only work on objects that have had their ID asked of them, and thus registered with the field hash, but how else would you have the ID?  Is this useful?  Is this a security hole?  I dunno, but it would be easy.</p>
+
+
+<hr/>
+
+
+
+<h2>UNIVERSAL</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2010-05-02T19:16:26</h3>
+<p>Perhaps you could add something like<br>Object::ID-&gt;object_id_for($object)</p><p>Or use Object::ID qw(obj_id);</p><p>These would both avoid UNIVERSAL and avoid needing to add *anything* to *any* class *ever*.</p><p>Every time someone puts something in UNIVERSAL, %%RND_BAD_THING%%.</p>
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2010-05-02T19:55:48</h3>
+<p>All the objections associated with UNIVERSAL::isa($obj, $class) vs $obj-&gt;isa($class); come to mind.  Why would you override object_id()?  Its too early to say.  Apparently we thought the same thing about isa() and can().</p><p>OTOH maybe someone might write their own object_id() method that does something different and you'll accidentally get that?  Entirely possible, but turns out to be highly improbable.  A <a href="http://www.google.com/codesearch?hl=en&amp;lr=&amp;q=%22sub+object_id+%22+lang%3Aperl+-bio+-moco+-pogo&amp;sbtn=Search" title="google.com">Google Code Search</a google.com> there's only a handful of object_id() methods out there (I cut out BioPerl, Moco and Pogo because they artificially inflate the count).</p><p>Anyhow, this sort of feather ruffling is why UNIVERSAL::Object::ID is in its own package.</p><p>FWIW you can already call object_id($obj).</p>
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2010-05-02T21:44:25</h3>
+<p>"FWIW you can already call object_id($obj)."</p><p>Oh, of course, because although it is advertised that you're importing it to be called via your package as a method, it can be imported in for use as a function.  Hooray!</p>
+
+
+
+<h2>Re:UNIVERSAL</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2010-05-02T23:20:37</h3>
+<p>You can check in <code>object_id_for</code> if the object provides a method can trampoline to that. Then you get to have it both ways.</p>
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2010-05-02T23:58:08</h3>
+<p>True, true.</p><p>Now that we've all had our OH GOD UNIVERSAL time, what do you think of the actual module?</p>
+
+
+
+<h2>Hash::FieldHash</h2>
+<h3><a href="/user/Ron Savage/">Ron Savage</a> on 2010-05-03T00:35:33</h3>
+<p>Hi</p><p>Why use the heavy-weight Hash::Util::FieldHash when the light-weight Hash::FieldHash is available?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Hash::FieldHash</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2010-05-03T18:36:44</h3>
+<p>You're right, it is significantly faster.  Over 2x faster.  I'll do some more testing and switch it over.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

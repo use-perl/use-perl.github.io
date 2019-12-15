@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Handling login/logout correctly</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Handling login/logout correctly</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-08-19T21:01:39</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>One thing frustrating about many Web sites is that login and logout often return you to the front page or keep you on the login or logout page.  I hate that.  You want to remain where you instead of navigating back to that.  I've solved that with my Web app with <a href="http://search.cpan.org/dist/Catalyst-Plugin-Session/">Catalyst::Plugin::Session</a>.  It has a nifty 'flash' method.  This is like the stash, except it's persistent across <em>one</em> request.  Thus, in my <tt>Escape::Controller::Root</tt> 'auto' method, the method called before the others, I have this:</p>
+
+<pre># 'none' is from Perl6::Junction
+if ( $c->req->path eq none(qw/login logout/) ) { 
+    $c->flash->{path} = $c->req->uri->as_string; 
+} 
+$c->keep_flash('path');</pre>
+
+<p>With that, if you're not logging in or logging out, the flash path is the URI of where you were last at.  My login/logout controllers automatically redirect you to the flashed path, thus keeping you where you were.</p>
+
+<pre>$c->response->redirect( $c->flash->{path} || $c->uri_for('/') );</pre>
+
+<p>The only tricky bit is that flash only keeps flash info which has changed since the last request.  The <tt>keep_flash</tt> line keeps the path across multiple request.</p>
+
+<p>I use the full URI in case someone is on a page like <tt>/country/?starts_with=m</tt>.  My opinion is that <em>every</em> page on a Web site should respond sensibly to a GET request.  If you hold to that, the above strategy seems sensible.  Better strategies welcome :)</p></p>
+
+
+<hr/>
+
+
+
+<h2>All shiny and reasonable</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2009-08-19T22:14:25</h3>
+<p>I'd just check <code>$c-&gt;action</code> (or <code>$c-&gt;action-&gt;reverse</code>) instead of the path, in case you reconfigure it one day to another path. The rest is very nice<nobr> <wbr></nobr>:)</p>
+
+
+
+<h2>in sub end</h2>
+<h3><a href="/user/fayland/">fayland</a> on 2009-08-19T23:07:18</h3>
+personal I do something like in sub end<br><br/><br/><br>
+if ( $c-&gt;res-&gt;location ) {<br>
+    if ( $c-&gt;res-&gt;location eq '/login' ) {<br>
+        $c-&gt;flash-&gt;{path} = $c-&gt;req-&gt;uri-&gt;as_string;<br>
+    }<br>
+}<br>
+<br><br/><br/>so that you don't need write session every request.
+
+
+
+<h2>Why put state on the server?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-08-20T07:16:39</h3>
+<p>Just have the <code>logout</code> action accept a <code>returnto</code> query parameter, and stick the value of <code>$c-&gt;req-&gt;uri</code> into that when you emit the logout link. Much simpler; the server doesn&#8217;t have to do any bookkeeping, no DB accesses, nothing.</p><p>Also, flash is bad anyway &#8211; subject to race conditions. It will restore the flashed variables into the session for whichever request happens to come in with the right session cookie, even if that request was made by a different tab/browser window/computer/scraper thread.</p><p>In your case, these potential problems of flash are unlikely edge cases, but this is not always so &#8211; and the 100% reliable solution is actually simpler and more scalable.</p><p>Generally, if the answer is session data of any form, you&#8217;re asking the wrong question.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why put state on the server?</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2009-08-20T13:20:02</h3>
+<p>I usually do something similar if I want to go to some other page after login/logout, but you don't need to prepopulate the login/logout links just use the REFERER header.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why put state on the server?</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2009-08-20T13:37:07</h3>
+<p>The referer is rather unreliable and can be, and is often, changed by the browser or a proxy.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Why put state on the server?</h2>
+<h3><a href="/user/tgape/">tgape</a> on 2009-08-22T02:54:41</h3>
+<p>Agreed.&nbsp; In any event, flash-based solutions are unlikely to win you friends who are truly security conscious when there are static methods that have worked forever that still work.&nbsp; (And, for that matter, shockwave, java, or javascript solutions will also not motivate friends in the above mentioned crowd.)</p><p>Passing the information as form values is especially a good idea because it then makes passing other form values a no brainer.&nbsp; And when you do that, the login form no longer causes your users to curse at you for requiring that they re-enter their form data.&nbsp; I've never seen a client-side code solution to return you to the same place handle this right.</p><p>Finally, it also has a win for the multi-tab or multi-window user; if they're on your site multiple times, and they manage to get two login pages displayed, both pages will then proceed to the correct place.&nbsp; Yeah, I know, I'm a freak for doing this, but sometimes my net connection's slow.&nbsp; Rather than waiting, I change tabs.&nbsp; Isn't that what they're for?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why put state on the server?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-08-22T04:28:52</h3>
+<p>Err, &#8220;flash&#8221; in this case does not refer to Macromedia Flash, rather, to a particular feature of the session plugin.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why put state on the server?</h2>
+<h3><a href="/user/tgape/">tgape</a> on 2009-08-22T19:51:51</h3>
+<p>Sigh.&nbsp; That's what happens when I try to comment on things while trying to catch up on my reading.&nbsp; If it had been using Macromedia Flash, then it wouldn't be storing the data server-side.</p><p>However, I do think my point still stands of this mentality tends to drops post form data.&nbsp; It doesn't have to - one could store that in session data also, but it's considerably easier and less problematic to simply use forms, as indicated for the more general case in your original response.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Backwards?</h2>
+<h3><a href="/user/frew/">frew</a> on 2009-08-20T13:37:16</h3>
+<p>It seems like you got what flash and stash are backwards, from the docs in the Session plugin.  You say flash lasts for one request.  This is what the doc for it says:</p><p>"Think of it as a stash that lasts for longer than one request, letting you redirect instead of forward."</p><p>Am I misunderstanding?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Backwards?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-08-20T13:49:32</h3>
+<p>The stash lasts for the duration of a single request.</p><p>The flash persists after the request and becomes part of the stash in the next request &#8211; but only once (unless you persist the data again).</p><p>The terminology is kinda confusing, I guess.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Backwards?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-08-20T14:40:37</h3>
+<p>Actually, it's not quite "persist the data again".  Flash is only preserved if the data <em>changes</em>.  Thus, if you need to preserve the same data across multiple requests, you need to use the <tt>keep_flash()</tt> method.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

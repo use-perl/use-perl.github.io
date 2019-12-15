@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ChrisDolan: dev vs. live</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>dev vs. live</h1>
+<h2><a href="/user/ChrisDolan/">ChrisDolan</a> on 2007-06-04T05:25:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>In any web app, it seems that there's always something that you want to be different on the live site versus the dev site: a different database name, verbose logging on, performance metrics enabled, etc.  I find myself implementing the live vs. dev switch a little differently every time, though.  What do other people do?  Do you trigger dev behavior via hostname?  Via a config file?  Via an URL substring?  Manually?<br/><br/>In my current Catalyst project, I wrote this little hack.  It's inelegant, but simple to understand.
+<pre>
+# If we aren't running on my development computer, refuse to load the dev features                                    
+if (! -d '/Users/chris') {
+   # trick Perl into thinking this file is already loaded                                                            
+   $INC{'MyApp/Controller/Dev.pm'} = 1;
+}
+</pre><br/><br/>where Dev.pm adds a few special features and flags.  This works because my main dev box is a Mac and the servers are all Linux or FreeBSD, which use /home instead of /Users.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Via a configuration class</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-06-04T06:54:58</h3>
+I'm increasing going config-driven.<br><br>I centralize all the platform-specific stuff into a<nobr> <wbr></nobr>.ini or YAML-style config file.<br><br>Then there's a config class which has the task of loading it and thoroughly checking everything in it (file permissions, paths existing, initializing the database connection pool etc). It takes a fail-early approach, and then various configuration values and objects are provided via the static methods for the config class.<br><br>All the rest of the application looks to this class for information, so a typical launch script might look like...<br><code><br>#!/usr/bin/perl<br><br>use MyApp::Config ROOT =&gt; '/home/production/myapp';<br>use MyApp;<br><br>MyApp-&gt;run;<br></code><br><br>The nice thing about this sort of setup is that if you do it right all the tests will just run against whatever version of MyApp is loaded...<br><br>Then in the repository I have myapp.conf, myapp.conf.stage myapp.conf.production etc...<br><br>The deploy script exports from the repository, overwrites myapp.conf.production over the myapp.conf, and then runs the tests, etc etc...<br><br>The operator can check and modify the production configuration by hand if needed, without having to touch code.<br><br>Or I do some variation on this general theme...<br><br>But I've always had trouble putting configuration into the application, the longer I work on web apps, the more important I think it is to have all the platform-specific stuff in a configuration.<br><br>
+
+
+
+<h2>I use the Apache conf</h2>
+<h3><a href="/user/grantm/">grantm</a> on 2007-06-04T21:47:20</h3>
+<p>If I'm deploying on mod_perl, I tend to set this sort of thing up using PerlSetVar in the Apache config rather than create an application-specific config file.</p>
+
+
+
+<h2>That Way Lies Madness</h2>
+<h3><a href="/user/jaw6/">jaw6</a> on 2007-06-05T00:30:28</h3>
+<p>I've done things like that in the past (or sniffing version numbers of various programs/libraries, and guessing environment therefrom), but I suspect that way lies madness, ultimately -- at least, pick <em>one</em> thing and stick with it, or you will inevitably forget what the decider is for any given app.</p>
+
+<p>I tend to prefer the config file method -- it also allows a slightly wider matrix (development vs. production is common, but many leave off staging, or laptop, or home machine). Ideally, there would be two axes: "configuration" (passwords, databases, etc.) and "mode" (development vs. production, etc.)</p>
+
+
+
+<h2>dev vs live</h2>
+<h3><a href="/user/echo/">echo</a> on 2007-06-05T15:11:27</h3>
+I use a second config file where I put site specific values. The application loads both config files, values in the second one override those in the first config file. This way no ugly code hacks like the one you posted.
+
+
+
+<h2>okay for dev+prod</h2>
+<h3><a href="/user/slanning/">slanning</a> on 2007-06-05T15:40:25</h3>
+<p>If you have a "dev -&gt; stage -&gt; prod" setup, where stage is ideally as close as possible to prod, then what you have won't work. You need a more general way to get the configuration, like a config layer that parts of the application can call through (database, etc. goes through this layer).</p>
+<p>Dealing with different configurations sucks, blech. Like when you want to sync your dev from prod, you always end up changing something: a server name in a database table, in a config file, etc. I guess ideally you need a way to automate the application of a configuration to each machine. So if you do like a raid disk copy to sync your dev machine from prod, then you have a script that has some parameter, like "./apply-config --to-server=dev.example.com --type=dev" or "./apply-config --to-server=prod.example.com --type=prod", where the script knows that "prod" means a certain configuration but "dev" means another config.</p>
+<p>Well, I guess that has less to do with programming than sysadminning, though.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

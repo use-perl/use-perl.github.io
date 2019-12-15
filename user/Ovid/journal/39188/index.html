@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Guess Who Loses: Test::More::subtest versus Test::XML</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Guess Who Loses: Test::More::subtest versus Test::XML</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-06-29T14:00:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've found that one of the best ways to try new testing ideas is to run them against our test suite at work.  We've over 30,000 tests at this point, with several test harnesses integrating together, along with two fundamentally different test systems.  This means that when I throw something at this test suite, I often shake out bugs.  My new <tt>Test::Aggregate::Nested</tt> combined with our test suite managed to find a rather serious issue with the new <tt>subtest</tt> function in <tt>Test::More</tt>.  The following, for example, fails:</p>
+
+<pre>    use Test::More tests => 2;
+    use Test::XML;
+
+    ok 1;
+    subtest 'FAIL!' => sub {
+        plan tests => 1;
+        is_xml '<foo/>', '<foo/>', 'Singleton fail';
+    };
+    __END__
+    xml.t ..
+    1..2
+    ok 1
+        1..1
+    Cannot run test (Singleton fail) with active children at /home/ovid/pips_dev/work/Pips3/branches/rights_modeling/deps/lib/perl5/Test/XML.pm line 57.
+        # Child (FAIL!) exited without calling finalize()</pre>
+
+<p>There's nothing wrong with the code as it's written, but <tt>Test::XML</tt> knows that the <tt>Test::Builder</tt> object is a singleton, so there's a false optimization in the code.  Near the top of the package, you see this line, defined outside of all functions:</p>
+
+<pre>    my $Test = Test::Builder->new;</pre>
+
+<p>If every <tt>Test::XML</tt> function simply had that line in the function rather than trying to share this across all test functions, the subtest code would work fine.  Instead, the author knew he had a singleton and there's no point in re-instantiating, is there?</p>
+
+<p>To be fair, I've done the same thing before (see <tt>Test::JSON</tt>), even though I knew it might be a bad idea.  Heck, lots and lots of testing libraries have this issue.  Now we need to figure out how to deal with this problem or else subtests aren't going to play well with a lot of code.  Damn.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Ooops</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2009-06-30T06:33:25</h3>
+I plead guilty.  It was a severe case of cargo-cult coding at the time.  I'll try and roll a new release for you, as soon as I can.
+
+
+
+<blockquote>
+
+<h2>Re:Ooops</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-06-30T07:44:19</h3>
+<p>That would be lovely, but don't feel too bad.  I just released a new version of <tt>Test::JSON</tt> last night to fix the same issue<nobr> <wbr></nobr>:)  There are lots and lots of test modules which have this issue and it's such a common anti-pattern that it's tough to blame anyone.  Plus, at the time you wrote <tt>Test::XML</tt>, <tt>Test::Builder</tt> was still a singleton.  How were you to know that the interface would have to change? (Er, or a subtle change in behavior, actually).</p><p>When I get some free time, I'm going to patch up <tt>Test::Builder</tt> to get around this issue.  Meanwhile, "best practices" for test module authors should probably be published somewhere.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Ooops</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2009-07-02T20:54:02</h3>
+Sorry for the delay, but <a href="http://search.cpan.org/user/semantico/Test-XML-0.08/" title="cpan.org">Test::XML 0.08</a cpan.org> is now up, which fixes this issue.  If you have any further issues, please let me know!
+
+
+
+<blockquote>
+
+<h2>Re:Ooops</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-07-03T08:28:58</h3>
+<p>Given that we use your module quite heavily hear at work, I appreciate this!  Thanks<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

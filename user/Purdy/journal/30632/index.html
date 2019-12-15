@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Purdy: Codestorm</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Codestorm</h1>
+<h2><a href="/user/Purdy/">Purdy</a> on 2006-08-15T14:14:45</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I recently had a situation come up where I had to whip up some code to split up a huge (1 GB) mbox file.  I <b>KNOW</b> I should be using mdir, but com'on, people ... it's what Debian does by default and I don't spend my time sysadmin'ing stuff.  In looking around, I couldn't believe others hadn't already done this (perhaps they have and my Google-fu just wasn't adequate).  There was a promising <a href="http://www.kernel.org/pub/software/scm/git-core/docs/git-mailsplit.html">git-mailsplit program</a>, but I couldn't find it in Debian.<br/><br/>So I whipped this up - feel free to use/tweak this for your own use:<br/><br/><code>
+#!/usr/bin/perl -wT<br/><br/># Process:
+# 1) cp /var/mail/person /var/mail/person.bak
+# 2) Run this script
+# 3) chmod/chown the INBOX.GigSplitNN files
+#    chown person:users /home/person/INBOX.GigSplit*
+#    chmod 0600 /home/person/INBOX.GigSplit*
+# 4) mv /var/mail/person /var/mail/person.prerm
+# 5) mail the person and see if the /var/mail/person gets setup right
+# 6) diff /var/mail/person.bak and /var/mail/person.prerm and put that in /var/mail/person
+#    i ended up just tailing the file with the right number of differing lines
+#    and &gt;&gt;'ing that into /var/mail/person
+#    b/c diff'ing two 1GB files takes WAY too long!<br/><br/>use strict;<br/><br/>open( MBOX, '/var/mail/person.bak' ) || die "Cannot open person.bak: $!";<br/><br/># go through the mbox file
+my $message = '';
+my $line_count = 0;
+my $message_count = 0;
+my $file_base = '/home/person/INBOX.GigSplit';
+my $file_i = 1;
+my $line_count_limit = 580000; # this ends up with ~40MB files, which are more tolerable
+my $need_to_write_init = 1;<br/><br/>while( &lt;MBOX&gt; ) {
+    $line_count++;
+    if ( /^From / ) {
+        if ( length( $message ) &gt; 0 ) {
+            $message_count++;
+            my $file = $file_base . sprintf( "%02d", $file_i );
+            print "Got message # $message_count - appending to $file ...\n";
+            if ( $need_to_write_init ) {
+                write_initial_msg( $file );
+                $need_to_write_init = 0;
+            }
+            open( SPLIT, ">>$file" ) || die "Cannot append to $file: $!";
+            print SPLIT $message;
+            close( SPLIT );
+            if ( $line_count > $line_count_limit ) {
+                print "Line Count exceeded $line_count_limit, so incrementing \$file_i...\n";
+                $file_i++;
+                $line_count = 0;
+                $need_to_write_init = 1;
+            }
+        }
+        $message = $_;
+    } else {
+        $message .= $_;
+    }
+}<br/><br/>close( MBOX );<br/><br/>print "All done!\n";<br/><br/>sub write_initial_msg {
+    my $file = shift;
+    open( FILE, ">$file" ) || die "Cannot open $file to put in initial msg: $!";
+    print FILE &lt;&lt;"_EOF_";
+From MAILER-DAEMON Mon Aug 14 13:00:31 2006
+Date: 14 Aug 2006 13:00:31 -0400
+From: Mail System Internal Data &lt;MAILER-DAEMON\@mail.example.com&gt;
+Subject: DON'T DELETE THIS MESSAGE -- FOLDER INTERNAL DATA
+Message-ID: &lt;1155574831\@mail.example.com&gt;
+X-IMAP: 1134739889 0000025473
+Status: RO<br/><br/>This text is part of the internal format of your mail folder, and is not
+a real message.  It is created automatically by the mail system software.
+If deleted, important folder data will be lost, and it will be re-created
+with the data reset to initial values.<br/><br/>_EOF_
+    close( FILE );
+}
+</code><br/><br/>So that will create INBOX.GigSplit01 ... INBOX.GigSplitNN, which my user could manage with Squirrelmail (I had to hack /home/person/.mailboxlist to add those new folders).  Since the problem stemmed from a checkbox in her email client keeping old messages on the server and not removing them, she could simply delete a lot of the stuff as redundant and just look at the more recent messages for stuff she missed.  Remotely accessing a 1GB mbox file tends to timeout. ;)<br/><br/>Yes, I <B>KNOW</B> that could be optimized and probably even one in one line (go for it, golfers!) ... it was something I had to do and it wasn't too painful to run (6700 msgs in 2 minutes).<br/><br/><i>That's just the way I roll!</i><super>*</super> ;)<br/><br/>Speaking of coding, Google has their <a href="http://www.google.com/codejam/index.html">Code Jam going on</a>, but where's the love for Perl?  You can <a href="http://www.topcoder.com/pl/?&module=Static&d1=google06&d2=overview">program in C++, C#, Java, Python and VB.NET</a>, but not Perl.  It probably has to do with what TopCoder supports, but something should really be done to get Perl in that list, for longevity sake.<br/><br/>Peace,<br/><br/>Jason<br/><br/>* = My new favorite saying</p>
+
+
+<hr/>
+
+
+
+<h2>formail</h2>
+<h3><a href="/user/duff/">duff</a> on 2006-08-16T19:03:22</h3>
+From the man page for formail:<br><code><br>DESCRIPTION<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; formail is a filter that can be used to force mail into mailbox format,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; perform &#8216;From &#8217; escaping, generate  auto-replying  headers,  do  simple<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; header  munging/extracting  or split up a mailbox/digest/articles file.<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; The mail/mailbox/article contents will be expected on stdin.<br></code><br><br>Maybe no one has done it in perl because it's already been done in C<nobr> <wbr></nobr>:-)
+
+
+
+<blockquote>
+
+<h2>Re:formail</h2>
+<h3><a href="/user/Purdy/">Purdy</a> on 2006-08-17T12:50:05</h3>
+Thanks<nobr> <wbr></nobr>... it looks like it <i>could</i> do the trick, but upon closer examination, formail will split it into separate messages, but not chunked mbox files of a specified size.  6700 individual message files vs. 25 mbox files.<br><br>- Jason
+
+
+
+
+
+</blockquote>
+
+
+<h2>Last mail not saved</h2>
+<h3><a href="/user/elysch/">elysch</a> on 2009-11-09T19:20:21</h3>
+Hi.
+
+I discovered the script stores mails every time it encounters a mail beginning (^From ).
+
+So, the last e-mail is not stored since there is no "NEXT" mail.
+
+I fixed moving:<blockquote><div><p> <tt>&nbsp; &nbsp; &nbsp; &nbsp; if ( length( $message ) &gt; 0 ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $message_count++;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $file = $file_base . sprintf( "%02d", $file_i );<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; #print "Got message # $message_count - appending to $file<nobr> <wbr></nobr>...\n";<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if ( $need_to_write_init ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; #write_initial_msg( $file );<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $need_to_write_init = 0;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; open( SPLIT, "&gt;&gt;$file" ) || die "Cannot append to $file: $!";<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print SPLIT $message;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; close( SPLIT );<br>&nbsp; &nbsp; &nbsp; &nbsp; }</tt></p></div> </blockquote><p>to a function called save_msg
+
+and calling it where the code was, and ALSO before</p><blockquote><div><p> <tt>close( MBOX );</tt></p></div> </blockquote><p>Note that I'm ignoring the variables scope, since I'm in a hurry, but I shouldn't have.
+</p><p>
+Feel free to ask if you want me to post my script.
+</p><p>
+Ely.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

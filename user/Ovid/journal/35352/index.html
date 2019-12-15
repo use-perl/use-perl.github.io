@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: eval { $thing-&amp;gt;isa($class) }</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>eval { $thing-&amp;gt;isa($class) }</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-01-10T16:00:20</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've seen and happily used the <tt>eval { $thing-&gt;($class) }</tt> idiom, but I need raw performance for one application as that function can be called hundreds or thousands of times.</p>
+
+<pre>use strict;
+use warnings;
+
+use Benchmark 'timethese';
+use Scalar::Util 'blessed';
+
+my $scalar = 3;
+my $cgi    = bless {} => 'CGI';
+my $cgi2   = bless {} => 'CGI::Subclass';
+my $other  = bless {} => 'Other';
+@CGI::Subclass::ISA = 'CGI';
+
+timethese(
+    100000,
+    {
+        blessed => sub {
+            foreach my $var ($scalar, $cgi, $cgi2, $other) {
+                if (blessed($var) && $var->isa('CGI')) {}
+            }
+        },
+        eval => sub {
+            foreach my $var ($scalar, $cgi, $cgi2,$other) {
+                if (eval { $var->isa('CGI') }) {}
+            }
+        },
+    }
+);</pre>
+
+<p>Results:</p>
+
+<pre>Benchmark: timing 100000 iterations of blessed, eval...
+   blessed:  0 wallclock secs ( 0.70 usr +  0.00 sys =  0.70 CPU) @ 142857.14/s (n=100000)
+      eval:  0 wallclock secs ( 1.21 usr +  0.07 sys =  1.28 CPU) @ 78125.00/s (n=100000)</pre>
+
+<p>Looks like I need to type it out longhand.</P></p>
+
+
+<hr/>
+
+
+
+<h2>Find the invariant</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2008-01-10T17:32:26</h3>
+I assume it's to avoid calling the method on undef values.<br><br>So try to find (or establish) the boundary where $var is always known to not be undef. Test it once there, and not in an inner loop. If possible, it may very well not be.<br><br>If that's not feasible, how about introducing null objects instead of undef values?<br><br>Re: squeezing out performance. Do you need the overhead of calling blessed? If $var contains a string instead of an object, $var-&gt;isa is going to work as a class method anyway, right? (and return false) So it's enough to check for trueness of $var before calling isa(). One less sub call.
+
+
+
+<blockquote>
+
+<h2>Re:Find the invariant</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-01-10T20:18:10</h3>
+<p>At the present time, the possible values of <tt>$var</tt> are strings, arrayrefs, hashrefs and regular expressions.  That's why the <tt>blessed</tt> call is in there.  However, there is one naughty trick I can do.  The class I'm actually testing for creates logic variables.  Since I control that class, if I declare that class as final and since I don't override <tt>isa</tt>, I can use <tt>UNIVERSAL::isa()</tt> as a function call:</p> <p><blockquote> <div><tt>Benchmark: timing 200000 iterations of blessed, eval, universal...<br>&nbsp; &nbsp;blessed:&nbsp; 1 wallclock secs ( 0.85 usr +&nbsp; 0.00 sys =&nbsp; 0.85 CPU) @ 235294.12/s (n=200000)<br>&nbsp; &nbsp; &nbsp; eval:&nbsp; 2 wallclock secs ( 1.72 usr +&nbsp; 0.00 sys =&nbsp; 1.72 CPU) @ 116279.07/s (n=200000)<br> universal:&nbsp; 1 wallclock secs ( 0.64 usr +&nbsp; 0.01 sys =&nbsp; 0.65 CPU) @ 307692.31/s (n=200000)</tt></div> </blockquote>  <p>That's a huge performance gain and in this limited case, it's safe.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Find the invariant</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-01-10T20:32:12</h3>
+<p>If you were really evil, you could avoid the sub call, stringify the possibly-a-ref, and check the first <em>n</em> characters against the name of your class.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Find the invariant</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-01-10T20:47:12</h3>
+<p><blockquote> <div><tt>Benchmark: timing 200000 iterations of blessed, eval, stringify, universal, unpack...<br>&nbsp; &nbsp;blessed:&nbsp; 1 wallclock secs ( 0.85 usr +&nbsp; 0.00 sys =&nbsp; 0.85 CPU) @ 235294.12/s (n=200000)<br>&nbsp; &nbsp; &nbsp; eval:&nbsp; 2 wallclock secs ( 1.71 usr +&nbsp; 0.00 sys =&nbsp; 1.71 CPU) @ 116959.06/s (n=200000)<br> stringify:&nbsp; 1 wallclock secs ( 1.08 usr +&nbsp; 0.01 sys =&nbsp; 1.09 CPU) @ 183486.24/s (n=200000)<br> universal:&nbsp; 1 wallclock secs ( 0.60 usr +&nbsp; 0.00 sys =&nbsp; 0.60 CPU) @ 333333.33/s (n=200000)<br>&nbsp; &nbsp; unpack:&nbsp; 2 wallclock secs ( 1.35 usr +&nbsp; 0.00 sys =&nbsp; 1.35 CPU) @ 148148.15/s (n=200000)</tt></div> </blockquote>  <p>I also expect nastiness with <a href="http://search.cpan.org/dist/Pointer/" title="cpan.org">Pointer</a cpan.org> could be thrown into the mix.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Find the invariant</h2>
+<h3><a href="/user/bart/">bart</a> on 2008-01-10T20:33:39</h3>
+<p><div class="quote">I assume it's to avoid calling the method on undef values.</div> Not quite. It's to avoid calling a method on an unblessed reference. People used to use<p><blockquote> <div><tt>UNIVERSAL::isa($value, $class)</tt></div> </blockquote> for this reason, but lately this has fallen into disgrace, mainly for proper supporting <a href="http://search.cpan.org/search?q=MockObject" title="cpan.org">mock objects</a cpan.org>, if I understood it correctly.
+
+
+
+<blockquote>
+
+<h2>Re:Find the invariant</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-01-11T00:12:09</h3>
+&gt; mainly for proper supporting mock objects [cpan.org], if I understood it correctly.<br><br>Also anything else that needs custom isa values, asa.pm, Class::Adapter, Class::Decorator, and others.<br><br>The only legitimate use for the UNIVERSAL functions directly that I'm aware of is the UNIVERSAL::can($foo, 'can') which is a highly back-compatible method for testing "is $foo an object".<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:Find the invariant</h2>
+<h3><a href="/user/bart/">bart</a> on 2008-01-11T11:06:53</h3>
+<p><div class="quote">The only legitimate use for the UNIVERSAL functions directly that I'm aware of is the <code>UNIVERSAL::can($foo, 'can')</code> which is a highly back-compatible method for testing "is $foo an object".</div> So, maybe we could use this then:<p><blockquote> <div><tt>UNIVERSAL::can($thing, 'isa') &amp;&amp; $thing-&gt;isa($class)</tt></div> </blockquote> or, as you seem to prefer:<p><blockquote> <div><tt>UNIVERSAL::can($thing, 'can') &amp;&amp; $thing-&gt;isa($class)</tt></div> </blockquote> <nobr> <wbr></nobr><tt>:)</tt>
+<p>No joke, I extended the original benchmarks with</p><p><blockquote> <div><tt>isa =&gt; sub {<br>&nbsp; &nbsp; foreach my $var ($scalar, $cgi, $cgi2,$other) {<br>&nbsp; &nbsp; &nbsp; &nbsp; if (UNIVERSAL::can($var, 'isa') &amp;&amp; $var-&gt;isa('CGI')) {}<br>&nbsp; &nbsp; }<br>},<br>can =&gt; sub {<br>&nbsp; &nbsp; foreach my $var ($scalar, $cgi, $cgi2,$other) {<br>&nbsp; &nbsp; &nbsp; &nbsp; if (UNIVERSAL::can($var, 'can') &amp;&amp; $var-&gt;isa('CGI')) {}<br>&nbsp; &nbsp; }<br>},</tt></div> </blockquote> and got these results:<p><blockquote> <div><tt>Benchmark: timing 100000 iterations of blessed, can, eval, isa...<br>&nbsp; &nbsp;blessed:&nbsp; 1 wallclock secs ( 0.67 usr +&nbsp; 0.00 sys =&nbsp; 0.67 CPU) @ 148809.52/s (n=100000)<br>&nbsp; &nbsp; &nbsp; &nbsp;can:&nbsp; 1 wallclock secs ( 0.58 usr +&nbsp; 0.00 sys =&nbsp; 0.58 CPU) @ 173010.38/s (n=100000)<br>&nbsp; &nbsp; &nbsp; eval:&nbsp; 1 wallclock secs ( 1.63 usr +&nbsp; 0.00 sys =&nbsp; 1.63 CPU) @ 61538.46/s (n=100000)<br>&nbsp; &nbsp; &nbsp; &nbsp;isa: -1 wallclock secs ( 0.64 usr +&nbsp; 0.00 sys =&nbsp; 0.64 CPU) @ 156250.00/s (n=100000)</tt></div> </blockquote>  <p>Well... My code definitely is the fastest. I am surprised at the speed difference between 'can' and 'isa'. 'can' is the winner!</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Params::Util and UNIVERSAL::can</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-01-11T00:14:35</h3>
+Some more variations for you to include in the mix...<br><br>Params::Util::_INSTANCE has long done Scalar::Util::blessed($foo) and $foo-&gt;isa('bar'), I'd be interested to see how much overhead the extra function call adds.<br><br>Also, try substituting UNIVERSAL::can($foo, 'can') for blessed($foo)
+
+
+
+<blockquote>
+
+<h2>Re:Params::Util and UNIVERSAL::can</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-01-11T00:14:56</h3>
+(note, they may not be faster, but I'd like to see comparative speeds)
+
+
+
+<h2>Re:Params::Util and UNIVERSAL::can</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-01-11T07:48:55</h3>
+<p>So you want a fully qualified call to <tt>blessed</tt> instead of my importing it?  Or did you miss that I had called <tt>blessed</tt>?  UNIVERSAL::can('isa') is interestesting, but I'm sure that won't be much faster.  I've added both of those (the fully qualified <tt>Scalar::Util::blessed()</tt> is called 'fqblessed', of course).</p> <p><blockquote> <div><tt>Benchmark: timing 200000 iterations of blessed, can, eval, fqblessed, stringify, universal, unpack...<br>&nbsp; &nbsp;blessed:&nbsp; 1 wallclock secs ( 0.86 usr +&nbsp; 0.00 sys =&nbsp; 0.86 CPU) @ 232558.14/s (n=200000)<br>&nbsp; &nbsp; &nbsp; &nbsp;can:&nbsp; 1 wallclock secs ( 0.86 usr +&nbsp; 0.00 sys =&nbsp; 0.86 CPU) @ 232558.14/s (n=200000)<br>&nbsp; &nbsp; &nbsp; eval:&nbsp; 2 wallclock secs ( 1.72 usr +&nbsp; 0.01 sys =&nbsp; 1.73 CPU) @ 115606.94/s (n=200000)<br> fqblessed:&nbsp; 1 wallclock secs ( 0.86 usr +&nbsp; 0.00 sys =&nbsp; 0.86 CPU) @ 232558.14/s (n=200000)<br> stringify:&nbsp; 1 wallclock secs ( 1.09 usr +&nbsp; 0.00 sys =&nbsp; 1.09 CPU) @ 183486.24/s (n=200000)<br> universal:&nbsp; 1 wallclock secs ( 0.60 usr +&nbsp; 0.00 sys =&nbsp; 0.60 CPU) @ 333333.33/s (n=200000)<br>&nbsp; &nbsp; unpack:&nbsp; 1 wallclock secs ( 1.35 usr +&nbsp; 0.00 sys =&nbsp; 1.35 CPU) @ 148148.15/s (n=200000)</tt></div> </blockquote>  <p>So for my special case use, I can use <tt>UNIVERSAL::can</tt> and simply declare the class final (but it's an internal class, so that's OK).  Otherwise, <tt>blessed</tt> plus <tt>isa</tt> is the fastest and most correct out of the alternatives I've tried.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Params::Util and UNIVERSAL::can</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-01-12T11:11:26</h3>
+No, I meant you should include the overhead of doing it the fastest way (which Params::Util does) but with an extra function call of calling Params::Util::_INSTANCE itself.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

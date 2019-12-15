@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: death to filehandles</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>death to filehandles</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2006-04-05T23:09:26</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Adam has a module called Params::Util.  It provides a bunch of routines that
+let you say something like "is this value an X value?"  X might be "array" or
+"valid identifier" or so on.  In general, I don't put that module to a lot of
+use.  Maybe I should, but I don't.</p>
+
+<p>The one routine that I do often use from it is one that I donated: <code>_CALLABLE</code>:</p>
+
+<pre>sub _CALLABLE {
+    (Scalar::Util::reftype($_[0])||'') eq 'CODE'
+    or
+    Scalar::Util::blessed($_[0]) and overload::Method($_[0],'&{}')
+    ? $_[0]
+    : undef;
+  }
+</pre>
+
+<p>I've reformatted it for slightly better readability.  Basically, it tells you
+whether this will work:</p>
+
+<p>$value->();</p>
+
+<p>It's nice to be able to pass a bit of code into another bit of code.  If you've
+never done it, give it a try.  It's also nice that you can pass in things that
+act like a bit of code.  As with many things in Perl, though, the problem that
+can arise is that people are lax in checking that they can call the thing in
+question.</p>
+
+<p>If someone is checking whether you've passed in <code>$data</code> that is actually
+callable, you might see one of these:</p>
+
+<p>if (ref $data eq 'CODE') { act_on $data->() }</p>
+
+<p>if (UNIVERSAL::isa($data, 'CODE')) { act_on $data->() }</p>
+
+<p>if (my $result = eval { $data->() }) { act_on $result }</p>
+
+<p>These all suck.</p>
+
+<p>In the first case, all you can pass in is a plain old CODE ref -- or something
+blessed into the class CODE.  This prevents someone from taking advantage of
+the fact that objects, in Perl, can be called like coderefs.  Callable objects
+are quite useful, especially because they can be passed in where a coderef is
+expected -- but only if the coderef is being detected properly.  Once you're
+blessing your object into CODE just to satisfy that test, you've got problems.
+Either you can only do this with one class, putting the object's methods in
+the CODE package, or you can do really weird things with method dispatch to
+allow multiple classes to share space in CODE.  Either way, you lose.</p>
+
+<p>The second option is just the tiniest bit better.  With that option, if you've
+built an object from a blessed coderef, the test will pass and <code>$data</code> will be
+called.  If your object isn't built atop a codref, however, it won't work.
+Now, you could try to override the <code>isa</code> method so that it would lie about
+whether your object was a code, but because the programmer us calling
+<code>UNIVERSAL::isa</code> as a function, it won't help.  To fix this, you can use
+chromatic's UNIVERSAL::isa module, which makes the <code>isa</code> in UNIVERSAL respect
+your override.  Of course, now you're mucking with UNIVERSAL.  Those who know
+me know that I think, at this point, that you have lost.</p>
+
+<p>Why is it that the programmer called <code>UNIVERSAL::isa</code> as a function, you ask?
+Well, it's because in Perl, you can't call a method on anything but a blessed
+reference.  Why not?  Maybe if I looked back into the pits of history there
+would be a better answer, but I suspect it comes down to bad design choices.</p>
+
+<p>I think life would be better overall if any scalar could respond to methods,
+even if it was usually to throw an exception.  It would mean that they could
+all answer to <code>isa</code> and can as methods, which could let us replace that second
+choice, above, with:</p>
+
+<p>if ($data->isa('CODE')) { act_on $data->() }</p>
+
+<p>This would be a little weird, but it would be entirely acceptable.  Perl
+doesn't have a big history of duck typing, so we can forgive that we're not
+checking, I don't know... <code>can('&amp;{}')</code> or something wretched like that.</p>
+
+<p>The last remaining option was</p>
+
+<p>if (my $result = eval { $data->() }) { act_on $result }</p>
+
+<p>This sucks the most.  It work as long as <code>$data</code> is callable and returns
+something true.  (It could be tweaked to work as long as it's callable, but
+would get even uglier and no better.)  Unfortunately, it has to call it to find
+out whether it's callable.  This severely limits the usefulness of the
+callback, since you must either: (a) have just one context in which the routine
+is called and one set of params to pass or (b) have a lot of convoluted code
+that puts off the "is it callable?" check until the last possible statement.</p>
+
+<p>That is why I like <code>_CALLABLE</code>.  It will actually tell you whether something
+can be called.  There are really only two possibilities: the underlying
+reference is to code, or the variable is an object that provides deref-as-sub
+overloading.</p>
+
+<p>Maybe by now you're really wondering why the subject of this entry is a call to
+arms against filehandles, since I seem mostly to be rambling on about coderefs.</p>
+
+<p>The coderef problem ("is this thing callable?") in under ten lines of code.
+Sure, not everyone uses <code>_CALLABLE</code>, but they can (and should).  There is
+another problem, though: "is this thing a filehandle?"  This problem is much
+more obnoxious, and I'm just not sure there's a reasonable way to deal with it.</p>
+
+<p>Part of the issue is that being a filehandle implies a much larger interface
+than being a coderef.  There are a lot of builtins that you need to respond to,
+and if IO::File is in play, you'll be expected to answer to a lot of methods,
+too.  There's just no clear way to determine whether something wants you to
+think that it's a filehandle.  It really makes me want more people to use
+Roles.</p>
+
+<p>My most recent run-in with this problem was this week, as I tried to make some
+resources remotely available.  They're files associated with persistent
+objects, and traditionally only the servers with the files on a mounted share
+could access the data.  I wanted to use a network protocol to make the content
+available without mounting; I'd get the document and put it in a IO::String
+object and hand that back from the <code>get_fh</code> method.</p>
+
+<p>This failed horribly.</p>
+
+<p>Eventually, the IO::String was passed to Mail::Internet, which will accept a
+filehandle of data to turn into a piece of mail.  It checks whether that's what
+it's gotten like this:</p>
+
+<p>if (defined fileno($data)) { ... }</p>
+
+<p><code>fileno</code> throws an exception if the value passed to it can't be coerced into a
+glob reference.  That means that if you built an object on top of a non-glob
+reference and didn't overload <code>*{}</code>, this will fail.  Later, it will use the
+diamond operator to get the data out of your faux-file, so you'd better have
+overloaded that, too.  (That means that merely providing the methods <code>getline</code>
+and <code>getlines</code>, provided to real filehandles by IO::Handle, is not enough.)</p>
+
+<p>Well, IO::String is built on a glob reference, and tied as one.  It provides
+the <code>getline</code> and <code>getlines</code> methods and responds to the diamond operator.
+What was going wrong?</p>
+
+<p>It was returning <code>undef</code> to <code>fileno</code>.  A comment in the code explained that
+perlfunc said that an undefined fileno indicated a closed file.  So, is
+Mail::Internet to blame for checking it?  Probably not; a closed file isn't
+likely to provide any data on read, and it couldn't rely on IO::Handle's
+interface, because Mail::Internet supports 5.002, which predates IO::Handle.
+(Well, it could, but I'm assuming that this is why it doesn't.)  Maybe it could
+rely on FileHandle...</p>
+
+<p>I think, in the end, this problem is less solvable than the coderef one.
+Writing _ITERABLE is pretty simple:</p>
+
+<pre>sub _ITERABLE {
+    (Scalar::Util::reftype($_[0])||'') eq 'GLOB'
+    or
+    Scalar::Util::blessed($_[0])
+      and
+      (overload::Method($_[0],'*{}') or overload::Method($_[0],'<>'))
+    ? $_[0]
+    : undef;
+  }
+</pre>
+
+<p>This mostly gets the job done, although it assumes that any glob can be
+meaningfully iterated, which isn't really true.  The bigger problem, for me, is
+that I want at least a little more interface.  I want <code>tell</code> and <code>seek</code>.  I'd
+even settle for some sort of <code>reset</code> or a way to determine whether the iterator
+was pristine.</p>
+
+<p>I'm going to send a patch for Mail::Internet, I suppose, to get around the
+ugliness I've put into my IO::String subclass to make this work.  I'm not
+really happy with it, but it will be an improvement.</p>
+
+<p>In my own code, I know how I will avoid this problem: I won't accept
+filehandles.  They are dead to me.  Instead, I will accept coderefs which
+stream the data.  After all, I already know how to tell whether something is
+callable.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>No ducks</h2>
+<h3><a href="/user/osfameron/">osfameron</a> on 2006-04-06T00:42:24</h3>
+Roles definitely sounds like the right way to go, and are probably the Perl 6 solution.<br><br>But the common Perl 5 solution does seem to be "If it got passed in as a filehandle, assume it's a filehandle".  Though I'm not claiming that's not problematic (many modules die spectactularly and unhelpfully if passed the wrong parameters, rather than giving a useful "invalid usage" exception), is it really worth getting your module's users to have to create an iterator function wrapping a filehandle purely because there isn't a convenient idiom to test for filehandleness?
+
+
+
+<blockquote>
+
+<h2>Re:No ducks</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-04-06T01:19:21</h3>
+Yeah, the bigger problem comes up when you don't even know that "it got passed in as a filehandle."  Some modules try to allow many kinds of data to be passed in, each of which is used in a useful way.  They'll say "if (ref $x eq 'ARRAY')" and so on.  Of course, there's the same problem if you're passing in an Object::Array.<br><br>So, yeah, a simple solution is to make it explicit: pass in a named foo_data that's a scalar or foo_stream that's a coderef... or something like that.  Then again, with _CALLABLE, a little polymorphism is probably reasonable.  As for filehandles, though... yeah, right out the window.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Nigglies</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2006-04-06T17:30:55</h3>
+OK, so you take a coderef...<br><br>Now how do we tell that it's an iterator coderef? How do we know that this coderef that the user invented to satisfy your API actually works?<br><br>Because that's yet another type of bug, one that's probably even harder to find again.<br><br>Oh, and as for your tell and seek, there's a role for that already, called IO::Seekable. IO::Handle on it's own DOESN'T assume that the filehandle is seekable, it may well be a stream.<br><br>So something like IO::File responds to both -&gt;isa('IO::Handle') and -&gt;isa('IO::Seekable').<br><br>Experimentally over the last 3 months I've started using _INSTANCE($param, 'IO::Seekable') in a few places to see if people notice. So far nobody seems to have complained.<br><br>I wonder if a _SEEKABLE would be more useful than the nightmare of trying to do _FILEHANDLE....<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:Nigglies</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-04-06T18:37:36</h3>
+We don't know that it works, but the user knows that it will be called.  That's what I'm concerned with.  It provides one simple test:  if the passed value is callable, it gets called.  Whether it has bugs is your problem.<br><br>That's a big improvement from "if our undisclosed criterion for being a filehandle passes, we will diamond your value."  Even if they disclose their method (which would be unusual) it means you have to know what it is.  Callability is a solved problem, as I see it.
+
+
+
+
+
+</blockquote>
+
+
+<h2>eval{} has its points...</h2>
+<h3><a href="/user/demerphq/">demerphq</a> on 2006-04-07T13:11:34</h3>
+&gt;if (my $result = eval { $data-&gt;() }) { act_on $result }<br><br>&gt;This sucks the most. It work as long as $data is<br>&gt;callable and returns something true. (It could be<br>&gt;tweaked to work as long as it's callable, but would<br>&gt;get even uglier and no better.)<br><br>IMO It gets a little better:<br><br>my $result;<br>if (eval { $result=$data-&gt;(); 1 }) {<nobr> <wbr></nobr>....<br>}<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:eval{} has its points...</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-04-07T13:38:38</h3>
+Yeah, the problem, of course, is that calling the routine may very well have side effects like iterating.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

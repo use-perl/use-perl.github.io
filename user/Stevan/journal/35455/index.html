@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Stevan: New Moose Features in 0.34</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>New Moose Features in 0.34</h1>
+<h2><a href="/user/Stevan/">Stevan</a> on 2008-01-22T04:03:56</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><P>
+The latest release of <a href="http://search.cpan.org/user/stevan/Moose-0.34/">Moose</a> (0.34) brings with it some very nice features as well as a major re-factoring of the role system (I am finally happy with the design now too) and a re-factoring of the parameterized types. While most of the information on the new features is in the <a href="http://search.cpan.org/src/STEVAN/Moose-0.34/Changes">Changes</a> file, I figured that they are cool enough to be blog-worthy too, so here goes.
+</P>
+<P>
+<b>New Maybe[`a] parameterized type</b>
+</P>
+<P>
+The handling of parameterized types has been re-factored so that it is now possible to add new parameterized types without needing them to be based off the ArrayRef or HashRef type (no syntactic sugar yet though). As a demonstration of this, and because it's just a useful thing anyway I have added the Maybe[`a] type. This type basically means "maybe there will be a value, and if there is, it will be of type `a", users of Haskell will be familiar with this (as will O'Caml users, it is similar to the 'option' type). Here is an example of the usage:
+</P>
+<ECODE>
+package Person;
+use Moose;<br/><br/>has 'first_name'     => (is => 'rw', isa => 'Str');
+has 'last_name'      => (is => 'rw', isa => 'Str');
+has 'middle_initial' => (is => 'rw', isa => 'Maybe[Str]');
+</ECODE>
+<P>
+The 'middle_initial' attribute now allows either a string or an undefined value to be stored.
+</P>
+<P>
+<b>Role method exclusion and aliasing</b>
+</P>
+<P>
+Role composition follows a strictly defined set of rules, this is one of the benefits of roles over your basic mix-ins or multiple inheritance. But sometimes, you want to subvert those rules and have more control over the composition process. The <a href="http://www.iam.unibe.ch/user/scg/Research/Traits/">original Traits paper</a> (on which Roles are based) included both 'exclusion' and 'aliasing' operations as a way of modifying the composition process. I included these features when I originally wrote <a href="http://search.cpan.org/dist/Class-Trait/">Class::Trait</a>, but since @larry had not added them into Perl 6 I hadn't included support in <a href="http://search.cpan.org/user/stevan/Moose-0.34/">Moose</a>. Now after several months of using Roles I now see the original wisdom of the Traits paper authors and these features are now available in <a href="http://search.cpan.org/user/stevan/Moose-0.34/">Moose</a>. Here are some examples of usage:
+</P>
+<P>
+Lets create an Equality role, which provides the mechanism for determining, well, equality.
+<ECODE>
+package Equality;
+use Moose::Role;<br/><br/>requires 'equal';
+sub not_equal { not((shift)->equal(@_)) }
+</ECODE>
+Now lets define two more roles which do the Equality role, first a 'HasColor' role:
+<ECODE>
+package HasColor;
+use Moose::Role;<br/><br/>with 'Equality';<br/><br/># create an attribute to hold RGB values
+has 'rgb' => (is => 'rw', isa => 'ArrayRef[Int]');<br/><br/>sub equal { ... code to compare RBG values ... }
+</ECODE>
+And now a 'HasCoordinate' role
+<ECODE>
+package HasCoordinate;
+use Moose::Role;<br/><br/>with 'Equality';<br/><br/># create an attribute to hold x/y values
+has 'coord' => (is => 'rw', isa => 'ArrayRef[Int]');<br/><br/>sub equal { ... code to compare x/y values ... }
+</ECODE>
+Now if my 'Pixel' class wanted to use both the 'HasColor' and 'HasCoordinate' roles, ...
+<ECODE>
+package Pixel;
+use Moose;<br/><br/>with 'HasColor', 'HasCoordinate';
+</ECODE>
+I would have a problem because their 'equal' methods would conflict. The conflict means that the 'Pixel' class must then implement an 'equal' method of it's own. I could implement it like so:
+<ECODE>
+sub equal {
+    my ($self, $other) = @_;
+    $self->HasColor::equal($other) && 
+    $self->HasCoordinate::equal($other);
+}
+</ECODE>
+but the hardcoding of role names like this is a design smell IMO. We also have lost color and coordinate comparison abilities in our 'Pixel' class. Here is a different approach using exclusion and aliasing to provide (IMO) a much superior solution.
+</P>
+<ECODE>
+package Pixel;
+use Moose;<br/><br/>with 'HasColor' => { 
+        excludes => 'equal', 
+        alias    => { equal => 'color_equal' }
+     },
+     'HasCoordinate' => { 
+        excludes => 'equal', 
+        alias    => { equal => 'coord_equal' }
+     };<br/><br/>sub equal {
+    my ($self, $other) = @_;
+    $self->color_equal($other) && $self->coord_equal($other);
+}
+</ECODE>
+<P>
+The above code now removes the conflict between the 'equal' methods, but aliases them so that the features are not lost and finally implements equals in terms of them. 
+</P>
+<P>
+Of course this example is a little on the contrived side, but you get the point. Anyone who has messed around with roles enough will surely rejoice at this new feature addition.
+</P>
+<P>
+<b>Attribute Metaclass traits</b>
+</P>
+<P>
+We already have support for custom attribute metaclasses and this feature is used in a number of modules, <a href="http://search.cpan.org/dist/MooseX-Getopt/">MooseX::Getopt</a>, <a href="http://search.cpan.org/dist/MooseX-Storage/">MooseX::Storage</a> and <a href="http://search.cpan.org/dist/MooseX-AttributeHelpers/">MooseX::AttributeHelpers</a> to name a few. It allows you to extend the features of <a href="http://search.cpan.org/user/stevan/Moose-0.34/">Moose</a> attributes to provide additional functionality within the same <a href="http://search.cpan.org/user/stevan/Moose-0.34/">Moose</a> framework. The one problem with this feature has always been that it is very difficult to combine these extensions and use more than one at a time. Here is a (very contrived) example of how this feature will be useful.
+</P>
+<ECODE>
+package My::App;
+use Moose;
+use MooseX::Storage;
+use MooseX::Getopt;<br/><br/>has 'some_thing' => (
+    traits => [qw/DoNotSerialize NoGetopt/],
+    is     => 'rw',
+    isa    => 'ArrayRef[Big::Heavy::Things]',
+    # ...
+);
+</ECODE>
+<P>
+Currently <a href="http://search.cpan.org/dist/MooseX-Storage/">MooseX::Storage</a> provides a DoNotSerialize metaclass which lets the <a href="http://search.cpan.org/dist/MooseX-Storage/">MooseX::Storage</a> engine know to skip that attribute when serializing. This is fine, until you need to also use the <a href="http://search.cpan.org/dist/MooseX-Getopt/">MooseX::Getopt</a> provided NoGetopt metaclass (which, yes you guessed it, tells <a href="http://search.cpan.org/dist/MooseX-Getopt/">MooseX::Getopt</a> that this is not a command line parameter). I will soon be releasing versions of those two modules which will make the above example work, allowing you to easily combine both non-serialization with non-getopt-parsing. (Sorry, that was the best example I could come up with right now, we are working on a possible cookbook entry so if this interests you keep you eyes out).
+</P>
+<P>
+<b>And lastly ...</b>
+</P>
+<P>
+And lastly, in addition to all this new functionality, I would like to announce the upcoming release of MooseX::Compile 0.01 (possibly by tomorrow morning). MooseX::Compile is a project here at $work which takes all the stored meta-information of a <a href="http://search.cpan.org/user/stevan/Moose-0.34/">Moose</a> class and compiles a .pmc file which defers loading the bulk of the <a href="http://search.cpan.org/user/stevan/Moose-0.34/">Moose</a> infrastructure and caches the already computed metaclasses. It is still in it's very early stages, and only supports a subset of <a href="http://search.cpan.org/user/stevan/Moose-0.34/">Moose</a>, but results are extremely promising. 
+</P>
+<P>
+- Stevan
+</P></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

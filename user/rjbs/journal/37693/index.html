@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: coping with solaris cron</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>coping with solaris cron</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2008-10-18T16:25:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><html><p>More and more, we&#39;re eliminating Linux boxes in favor of Solaris.  This is
+generally not a huge deal, but one of the niggling details has been Sun&#39;s cron.
+It sucks.  It sucks because it uses a constant as the subject of its alert
+messages.  If you have a lot of servers running a lot of cron jobs, generating
+a lot of output, you end up with a display that looks like this:</p><pre> 1 N Oct17 Super-User      (  7)   Output from "cron" command
+ 2 N Oct17 Super-User      (  7)   Output from "cron" command
+ 3 N Oct17 Super-User      (  7)   Output from "cron" command
+ 4 N Oct17 Super-User      (  7)   Output from "cron" command
+ 5 N Oct18 Super-User      (  7)   Output from "cron" command
+ 6 N Oct18 Super-User      (  7)   Output from "cron" command
+ 7 N Oct18 Super-User      (  7)   Output from "cron" command
+ 8 N Oct18 Super-User      (  7)   Output from "cron" command
+ 9 N Oct18 Super-User      (  7)   Output from "cron" command
+10 N Oct18 Super-User      (  7)   Output from "cron" command
+11 N Oct18 Super-User      (  7)   Output from "cron" command
+</pre><p>Seriously?</p><p>So, I put in a change request to have this fixed.  Deploying Vixie cron was
+going to be a massive pain (I was told) so instead we updated our use of puppet
+to ensure that our cronjobs were run by a wrapper script.  I&#39;m really happy
+with it, as it eliminates a few other crappy wrapper scripts and gets me what I
+wanted to begin with.  There are a few internal modules used below, but it
+should be trivial to replace them with whatever you want.  (I&#39;ve removed a few
+constants, too.)</p><p>Maybe I&#39;ll CPANize this later.</p><pre>#!/usr/bin/perl
+use strict;
+use warnings;
+
+use Digest::MD5 qw(md5_hex);
+use Fcntl qw(:flock);
+use Getopt::Long::Descriptive;
+use ICG::SvcLogger;
+use IPC::Run3 qw(run3);       
+use String::Flogger qw(flog);
+use Sys::Hostname::Long;
+use Text::Template;
+use Time::HiRes ();
+
+my ($opt, $usage) = describe_options(
+  '%c %o',
+   [ 'command|c=s',   'command to run (passed to ``)', { required => 1 } ],
+   [ 'subject|s=s',   'subject of mail to send (defaults to command)'    ],
+   [ 'rcpt|r=s@',     'recipient of mail; may be given many times',      ],
+   [ 'errors-only|E', 'do not mail if exit code 0, even with output',    ],
+   [ 'sender|f=s',    'sender for message',                              ],
+   [ 'jobname|j=s',   'job name; used for locking, if given'             ],
+   [ 'lock!',         'lock this job (default: lock; --no-lock to not)',
+                      { default => 1 }                                   ],
+);
+
+die "illegal job name: $opt->{jobname}\n"
+  if $opt->{jobname} and $opt->{jobname} !~ m{\A[-a-z0-9]+\z};
+
+my $rcpts   = $opt->{rcpt}
+           || [ split /\s*,\s*/, ($ENV{MAILTO} ? $ENV{MAILTO} : '...') ];
+
+my $host    = hostname_long;
+my $sender  = $opt->{sender} || sprintf '%s@%s', ($ENV{USER}||'cron'), $host;
+
+my $subject = $opt->{subject} || $opt->{command};
+   $subject =~ s{\A/\S+/([^/]+)(\s|$)}{$1$2} if $subject eq $opt->{command};
+
+my $logger  = ICG::SvcLogger->new({
+  program_name => 'cronjob',
+  facility     => 'cron',
+});
+
+my $lockfile = sprintf '.../cronjob.%s', $opt->{jobname} || md5_hex($subject);
+
+goto LOCKED if ! $opt->{lock};
+
+open my $lock_fh, '>', $lockfile or die "couldn't open lockfile $lockfile: $!";
+flock $lock_fh, LOCK_EX | LOCK_NB or die "couldn't lock lockfile $lockfile";
+printf $lock_fh "running %s\nstarted at %s\n",
+  $opt->{command}, scalar localtime $^T;
+
+LOCKED:
+
+$logger->log([ 'trying to run %s', $opt->{command} ]);
+
+my $start = Time::HiRes::time;
+my $output;
+
+$logger->log_fatal([ 'run3 failed to run command: %s', $@ ])
+  unless eval { run3($opt->{command}, \undef, \$output, \$output); 1; };
+
+my %waitpid = (
+  status => $?,
+  exit   => $? >> 8,
+  signal => $? & 127,
+  core   => $? & 128,
+);
+
+my $end = Time::HiRes::time;
+
+unlink $lockfile if -e $lockfile;
+
+my $send_mail = ($waitpid{status} != 0)
+             || (length $output && ! $opt->{errors_only});
+
+if ($send_mail) {
+  require Email::Simple;
+  require Email::Simple::Creator;
+  require ICG::Sendmail;
+  require Text::Template;
+
+  my $template = do { local $/; <DATA> };
+  my $body     = Text::Template->fill_this_in(
+    $template,
+    HASH => {
+      command => \$opt->{command},
+      output  => \$output,
+      time    => \(sprintf '%0.4f', $end - $start),
+      waitpid => \%waitpid,
+    },
+  );
+
+  my $subject = sprintf '%s%s',
+    $waitpid{status} ? 'FAIL: ' : '',
+    $subject;
+
+  my $email = Email::Simple->create(
+    body   => $body,
+    header => [
+      To      => join(', ', @$rcpts),
+      From    => qq{"cron/$host" <$sender>},
+      Subject => $subject,
+    ],
+  );
+
+  ICG::Sendmail->sendmail(
+    $email,
+    {
+      to      => $rcpts,
+      from    => $sender,
+      archive => undef,
+    }
+  );
+}
+
+__DATA__
+Command: { $command }
+Time   : { $time }s
+Status : { join('', flog('%s', \%waitpid)) }
+
+Output :
+{ $output || '(no output)' }
+</pre></html>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Superfluous $2?</h2>
+<h3><a href="/user/kraai/">kraai</a> on 2008-10-18T17:50:46</h3>
+On the line that strips the directory names from the command if it's used for the subject, is the $2 necessary?
+
+
+
+<blockquote>
+
+<h2>Re:Superfluous $2?</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2008-10-18T18:05:14</h3>
+<p>I think it is needed.  If the input is "/foo/bar baz" then $2 is whitespace.  Dropping it would make the subject "barbaz" instead of "bar baz"</p><p>I have not tested this, but it was my intent and seems correct.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Superfluous $2?</h2>
+<h3><a href="/user/kraai/">kraai</a> on 2008-10-18T18:18:56</h3>
+Ah, I see.  Thanks for the explanation.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

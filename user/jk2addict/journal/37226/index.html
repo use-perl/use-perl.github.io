@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jk2addict: Clone::clone in 5.10 borken?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Clone::clone in 5.10 borken?</h1>
+<h2><a href="/user/jk2addict/">jk2addict</a> on 2008-08-19T03:04:12</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I have this old method in Handel that clones a storage class instance by first dereferencing the DBIC schema/DBI handle to keep Clone from bitching, calling Clone::clone, then stuffing the schema back in the original object.<br/><br/><pre>sub clone {
+    my $self = shift;<br/><br/>    Handel::Exception::Storage->throw(
+        -details => translate('NOT_CLASS_METHOD')
+    ) unless blessed($self); ## no critic<br/><br/>    # a hack indeed. clone barfs on some DBI inards, so lets move out the
+    # schema instance while we clone and put it back
+    if ($self->_schema_instance) {
+        my $schema = $self->_schema_instance;
+        $self->_schema_instance(undef);<br/><br/>        my $clone = Clone::clone($self);<br/><br/>        $self->_schema_instance($schema);<br/><br/>        return $clone;
+    } else {
+        return $self->SUPER::clone;
+    };
+};</pre><br/><br/>In 5.8, this works, and $clone->{'connection_info'}->[...] is copied from the original.<br/><br/>In 5.10, $clone->{'connection_info'}->[] is empty.<br/><br/>Just for giggles, using Storable::dclone works just dandily, but I didn't use it in 5.8 because for one line of code, it's a pain in the ass as a prereq, esp on windows sometimes.<br/><br/>ANyone else have isues with Clone under 5.10?</p>
+
+
+<hr/>
+
+
+
+<h2>Storable prereq</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2008-08-19T05:51:44</h3>
+<blockquote><div><p>Just for giggles, using Storable::dclone works just dandily, but I didn't use it in 5.8 because for one line of code, it's a pain in the ass as a prereq, esp on windows sometimes.</p></div></blockquote><p>This would be the <code>Storable</code> that has been in core as of 5.8.0? And built and installed by default? So what's the problem with making it a prerequisite?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Storable prereq</h2>
+<h3><a href="/user/barbie/">barbie</a> on 2008-08-19T11:18:28</h3>
+<p>Can't speak for Chris, but for me it is horribly broken if at any time you upgrade. Anything made with a specific version of Storable will ONLY work with that version of Storable. The data file also breaks between different OSs even with the same version. In a previous project I ended up moving to XML because it actually was persistent!
+</p><p>It may have changed since, but these days I avoid it wherever possible.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Storable prereq</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2008-08-19T11:46:47</h3>
+<blockquote><div><p>The data file also breaks between different OSs even with the same version.</p></div></blockquote><p>The default file format is architecture specific, for speed. If you want to move things between systems (or <code>perl</code> configurations) you want <code>nstore</code> or <code>nfreeze</code>.</p><p>As to between versions - yes, there was a bug in the version checking code, based on the intent. It used to (wrongly) insist that the major and minor versions of the file were identical, and as the minor version had often been bumped, that meant problems. Some time ago (I forget when) that was fixed so that only the major versions had to match - now, as long as the file doesn't use any tag that the receiver doesn't understand, it should work.</p><p>As to the jk2addict's original problem - <code>Storable::dclone</code> <b>has</b> to be running on the same architecture, because it has to be running in the same process, so the issues you found can't affect it.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Storable prereq</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2008-08-20T00:31:28</h3>
+<p>This is also the same Storable that constantly dies of gets wrong cloning with "Can't store CODE items" errors. Another problem Clone::clone never has.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

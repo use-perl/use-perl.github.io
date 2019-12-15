@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Junctions, Overloading, and Yesterday's Post</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Junctions, Overloading, and Yesterday's Post</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-06-13T08:14:35</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><strong>The Problem</strong></p>
+
+<p>In <a href="http://use.perl.org/user/Ovid/journal/36671">yesterday's "guess why this works" post</a>, I mentioned the following snippet:</p>
+
+<pre>foreach my $method (@methods) {
+    no strict 'refs';
+    *$method = sub { shift->$method(@_) };
+}</pre>
+
+<p>I'm using this to get around documented core behavior, but no one guessed <em>exactly</em> what was going on (I think this is a first).</p>
+
+<p><strong>Ben Tilly's Suggestion</strong></p>
+
+ Both Ben Tilly and Chris Dolan replied with reasonable answers (Chris's answer is close to what I thought is going on, but not quite there).  Ben pointed out this:</p>
+
+<pre>$object->Foo::bar(@args);
+
+# later
+
+package Foo;
+
+sub bar {
+    my $self = shift;
+    $self->bar(@_);
+}</pre>
+
+<p>That can avoid recursion if <tt>$object</tt> is blessed into a subclass of <tt>Foo</tt> and <tt>Foo</tt> is saying "no, I really do want the subclass to handle this".  Under the hood, this <em>might</tt> might be what's going on, but I'm not sure.</p>
+
+<p><strong>Chris Dolan's Suggestion</strong></p>
+
+<p>Chris Dolan mentioned that it might be a case of <tt>print($object, @args)</tt> or any other built-in that I might want the object itself to handle.  While this is close, it exposes the more general (and annoying problem) of people sometimes doing this:</p>
+
+<pre>some_method( $object, @args );</pre>
+
+<p>If you have a flat hierarchy (i.e., no inheritance) and have your class declared as final (i.e., you can never subclass from it), then this function call behaves pretty darned similarly to a method call, but it breaks inheritance terribly.  I <em>think</em> that's what is happening under the hood, but the docs are vague (or maybe I'm just too slow to understand them. Wouldn't be the first time).</p>
+
+<p><strong>What's Really Going On</strong></p>
+
+<p>In the "Inheritance and overloading" section of the "overload" documentation, we find the following confusing explanation:</p>
+
+<blockquote>Any class derived from an overloaded class is also overloaded. The set of overloaded methods is the union of overloaded methods of all the ancestors. If some method is overloaded in several ancestor, then which description will be used is decided by the usual inheritance rules:<br>
+<br>
+If "A" inherits from "B" and "C" (in this order), "B" overloads "+" with "\&D::plus_sub", and "C" overloads "+" by "plus_meth", then the subroutine "D::plus_sub" will be called to implement operation "+"
+for an object in package "A".</blockquote>
+
+<p>In other words, if Child inherits from Parent and Parent uses overloading, Child will also overload the same operators as Parent.  However, you <em>can't</em> override the methods!  The appropriate overriding subroutine will be searched for (in the same order as inheritance normally follows) and that subroutine is called directly.</p>
+
+<p>What this means is that the following fails:</p>
+
+<pre>#!/usr/bin/env perl
+
+use strict;
+
+{
+    package Some::Base;
+    use overload '==' => \&num_eq, fallback => 1;
+
+    sub new    { bless {} => shift }
+}
+{
+    package Some::Child;
+
+    our @ISA = 'Some::Base';
+    sub num_eq { print "object is $_[0]\n"; }
+}
+
+Some::Child->new == 2;</pre>
+
+<p>Superficially it looks fine, but since <tt>num_eq</tt> is not actually defined in <tt>Some::Base</tt>, you'll fail with an "Undefined subroutine &amp;Some::Base::num_eq" error.  This really perplexed me at first because I could clearly see that I had provided that method.  One simple fix is to add the following to the parent class:</p>
+
+<pre>sub num_eq { shift->num_eq(@_) }</pre>
+
+<p>So how did I stumble on this?  Well, <a href="http://search.cpan.org/dist/Perl6-Junction/">Perl6::Junction</a> is a fantastic module, but I had a serious problem.  I needed to be able to create new junctions based on the value of old junctions, but with some elements removed.  These junctions have no means to return their values, so I had no way of creating new junctions.  Fine, I thought.  I'll just submit a patch.</p>
+
+<p>In opening up the code, I saw four different packages with identical constructors, identical interfaces and each beginning with this:</p>
+
+<pre>use overload(
+    '=='   => \&num_eq,
+    '!='   => \&num_ne,
+    '>='   => \&num_ge,
+    '>'    => \&num_gt,
+    '<='   => \&num_le,
+    '<'    => \&num_lt,
+    'eq'   => \&str_eq,
+    'ne'   => \&str_ne,
+    'ge'   => \&str_ge,
+    'gt'   => \&str_gt,
+    'le'   => \&str_le,
+    'lt'   => \&str_lt,
+    'bool' => \&bool,
+    '""'   => sub {shift},
+);</pre>
+
+<p>Ack!  This won't do!  I need to refactor the overloading and constructors into a base class.  That's when I discovered why the author duplicated this code rather than create a base class:  it's confusing as hell.</p>
+
+<p>I pushed the overloading code into a base class, removed it from the junction classes, had them inherit and then included this:</p>
+
+<pre>BEGIN {
+    my @methods = qw(
+        num_eq
+        num_ne
+        num_ge
+        num_gt
+        num_le
+        num_lt
+        str_eq
+        str_ne
+        str_ge
+        str_gt
+        str_le
+        str_lt
+        bool
+    );
+
+    foreach my $method (@methods) {
+        no strict 'refs';
+        *$method = sub { shift->$method(@_) };
+    }
+}</pre>
+
+<p>And that, of course, is why I posted yesterday's snippet.  However, what's really annoying is that this is not a solid general-purpose technique.  What's to stop the subclass from calling SUPER?  You can't just check the <tt>caller</tt> package because things like this will break:</p>
+
+<pre>if( all(@customers) == all(@dead) ) { ... }</pre>
+
+<p>I should play around and look for more ways to stop SUPER calls here, but I got fed up with what is, essentially, overload breaking the object model.</p>
+
+<p><strong>Bonus #1:  a patch for Perl6::Junction</strong></p>
+
+<p>There is also, now, a <tt>values</tt> method on each junction and it allows you to do stuff like this:</p>
+
+<pre>my $number = any( 0 .. 19 );
+while ($number->values) {
+    my $random_number int(rand(20));
+    if ( $number == $random_number ) {
+        # handle some task and discard the number
+        $number = any( grep { $_ != $random_number } $number->values );
+    }
+}</pre>
+
+<p>(Note that there are plenty of reasons you don't want to mutate these junctions in place, but that's another story).</p>
+
+<p>If you need this behavior, <a href="http://rt.cpan.org/Public/Bug/Display.html?id=36687">a "values" patch can be downloaded from the RT queue</a>.</p>
+
+<p><strong>Bonus #2:  Making overload segfault.</strong></p>
+
+<p>P5P has already been notified, but they're not sure what's going on.  However, while investigating the above, I found that the following snippet will reliably segfault on multiple platforms.</p>
+
+<pre>use strict;
+use warnings;
+
+{
+    package Some::Package;
+
+    use overload
+        '++'     => sub { print "object is $_[0]\n" },
+        fallback => 1;
+
+    sub new { bless {} => shift }
+}
+
+my $object = Some::Package->new;
+print $object++;</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Why are you giving coderefs?</h2>
+<h3><a href="/user/dah1002/">dah1002</a> on 2008-06-13T13:45:03</h3>
+<tt># Why not just<br><br>use overload(<br>&nbsp; &nbsp; '=='&nbsp; &nbsp;=&gt; "num_eq",<br>&nbsp; &nbsp; '!='&nbsp; &nbsp;=&gt; "num_ne",<br>&nbsp; &nbsp; '&gt;='&nbsp; &nbsp;=&gt; "num_ge",<br>&nbsp; &nbsp; '&gt;'&nbsp; &nbsp; =&gt; "num_gt",<br>&nbsp; &nbsp; '&lt;='&nbsp; &nbsp;=&gt; "num_le",<br>&nbsp; &nbsp; '&lt;'&nbsp; &nbsp; =&gt; "num_lt",<br>&nbsp; &nbsp; 'eq'&nbsp; &nbsp;=&gt; "str_eq",<br>&nbsp; &nbsp; 'ne'&nbsp; &nbsp;=&gt; "str_ne",<br>&nbsp; &nbsp; 'ge'&nbsp; &nbsp;=&gt; "str_ge",<br>&nbsp; &nbsp; 'gt'&nbsp; &nbsp;=&gt; "str_gt",<br>&nbsp; &nbsp; 'le'&nbsp; &nbsp;=&gt; "str_le",<br>&nbsp; &nbsp; 'lt'&nbsp; &nbsp;=&gt; "str_lt",<br>&nbsp; &nbsp; 'bool' =&gt; "bool",<br>&nbsp; &nbsp; '""'&nbsp; &nbsp;=&gt; "stringify",<br>);<br><br># ?</tt>
+
+
+
+<blockquote>
+
+<h2>Re:Why are you giving coderefs?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-06-13T14:00:12</h3>
+<p>That's how the code was originally written.  Switching from code references to strings makes this all go away.  It's such a force of habit for me to use code refs that I feel really, really stupid about now<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why are you giving coderefs?</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-06-14T03:14:57</h3>
+That makes sense.  Using a coderef ends up being like Ben's original idea: when you do $bool = \&amp;Foo::Bar::bool and then $obj-&gt;$bool() you get the same thing as $obj-&gt;Foo::Bar::bool() instead of $obj-&gt;bool().<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of xsawyerx: Extensive POE Testing PT. 4 - Testing, Event Count</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Extensive POE Testing PT. 4 - Testing, Event Count</h1>
+<h2><a href="/user/xsawyerx/">xsawyerx</a> on 2009-10-18T11:43:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><address>update: fixed a few errors</address>
+
+<p>So it took some time, but here's the next article/post on POE testing.</p>
+<p>The <a href="http://use.perl.org/user/xsawyerx/journal/39739">last one</a> discussed <b>Sequence Ordered</b> tests, which is the way I call the type of tests that do not rely on whether the event ran at the specified order by number, but <i>by previously running events</i>. However, all the previous posts still ignored a serious need that we have for event testing, which is <i>how many times did each event really run?</i></p>
+
+<p>If you use <b>ordered tests</b>, you cannot have the same event running more than once without some logic to test the specific iteration of the event. <b>sequence ordered tests</b> help reduce that but they also reduce the count.</p>
+
+<p>Let us take a look at code which runs the same event more than once:</p>
+<pre>
+package Session;
+use MooseX::POE;
+
+my $count  = 0;
+
+sub START           { $_[KERNEL]->yield('next')  }
+event 'next' => sub { $_[KERNEL]->yield('more')  };
+
+event 'more' => sub {
+    $count++ < 3 ? $_[KERNEL]->yield('next') :
+                   $_[KERNEL]->yield('last');
+};
+
+event 'last' => sub { print "last!\n"; };
+</pre>
+<p>Now let's add tests:</p>
+<pre>
+package Session;
+use MooseX::POE;
+use Test::More tests => 4;
+
+my %events = ();
+my $count  = 0;
+
+sub START {
+    $events{'START'}++;
+    $_[KERNEL]->yield('next');
+}
+
+event 'next' => sub {
+    $events{'next'}++;
+    $_[KERNEL]->yield('more');
+};
+
+event 'more' => sub {
+    $events{'more'}++;
+    $count++ < 3 ? $_[KERNEL]->yield('next') :
+                   $_[KERNEL]->yield('last');
+};
+
+event 'last' => sub {
+    $events{'last'}++;
+    print "last!\n";
+};
+
+event 'STOP' => sub {
+    cmp_ok( $events{'START'}, '==', 1, 'START ran once'   );
+    cmp_ok( $events{'next'},  '==', 4, 'next ran 4 times' );
+    cmp_ok( $events{'more'},  '==', 4, 'last ran 4 times' );
+    cmp_ok( $events{'last'},  '==', 1, 'last ran once'    );
+};
+</pre>
+
+<p>This is how we could accomplish it. Here is how it's done with the current iteration of my (still yet unpublished) testing framework:</p>
+<pre>
+package Session;
+use MooseX::POE;
+use Test::More tests => 4;
+with 'POE::Test::Simple'; # running title
+
+has '+seq_ordering' => ( default => sub { {
+    START => 1,
+    next  => 4,
+    more  => 4,
+    last  => 1,
+} } );
+
+my $count = 0;
+
+sub START {
+    $_[OBJECT]->seq_order('START');
+    $_[KERNEL]->yield('next');
+}
+
+event 'next' => sub {
+    $_[OBJECT]->seq_order('next');
+    $_[KERNEL]->yield('more');
+};
+
+event 'more' => sub {
+    $_[OBJECT]->seq_order('more');
+    $count++ < 3 ? $_[KERNEL]->yield('next') :
+                   $_[KERNEL]->yield('last');
+};
+
+event 'last' => sub {
+    $_[OBJECT]->seq_order('last');
+    print "last!\n";
+};
+
+event 'STOP' => sub {
+    $_[OBJECT]->seq_end();
+};
+</pre>
+
+<p>And this is how it would look in the (hopefully) upcoming version:</p>
+<pre>
+package Session;
+use MooseX::POE;
+use Test::More tests => 4;
+with 'POE::Test::Simple'; # running title
+
+has '+seq_ordering' => ( default => sub { {
+    START => 1,
+    next  => 4,
+    more  => 4,
+    last  => 1,
+} } );
+
+my $count = 0;
+
+sub START           { $_[KERNEL]->yield('next') }
+event 'next' => sub { $_[KERNEL]->yield('more') };
+
+event 'more' => sub {
+    $count++ < 3 ? $_[KERNEL]->yield('next') :
+                   $_[KERNEL]->yield('last');
+};
+
+event 'last' => sub { print "last!\n" };
+</pre>
+<p>Next post is a short one in which I'll show samples of using both event counting and sequence order (event dependencies).</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Package::Dynamic As Yet Unwritten</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Package::Dynamic As Yet Unwritten</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-06-19T15:57:11</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Piers Cawley has described Devel::Declare as <a href="http://www.bofh.org.uk/2009/03/11/writing-parsers-for-fun-and-convenience">possibly the most hostilely documented library [he's] ever come across</a>.  I'm hard-pressed to think of a more accurate description.  For example, here's this gem from the docs:</p>
+
+<blockquote>For a simpler way to install new methods, see also Devel::Declare::MethodInstaller::Simple</blockquote>
+
+<p>The problem with that line is that <tt>Devel::Declare::MethodInstaller::Simple</tt> has no documentation at all!  I now think I understand what's it's doing, but my brain hurts.</p>
+
+<p>What I want to do is transform something like this:</p>
+
+<pre>repackage $some_package {
+    use Moose;
+    extends 'Some::Class';
+    with    'Some::Role';
+}</pre>
+
+<p>Into this:</p>
+
+<pre>eval <<"END_DYNAMIC_REPACKAGING";
+package $some_package;
+use Moose;
+extends 'Some::Class';
+with    'Some::Role';
+END_DYNAMIC_REPACKAGING
+if ( my $error = $@ ) {
+    require Carp;
+    Carp::Confess($error);
+}</pre>
+
+<p>While I now know that I can just use <tt>Moose::Meta::Class</tt> to do this, but this is actually a problem I encounter from time to time in other contexts and rather than explicitly doing a string eval (which breaks syntax highlighting and hides the code from PPI), I'd like that 'repackage' to handle that.</p>
+
+<p>In fact, delaying evaluation of a block until runtime is moderately common and that's really what we're trying to do here.  Unfortunately, you have to call a string eval to do this.  I <em>think</em> Devel::Declare can handle this, but the parser currently has me defeated.  I'll try again later, but if you want to simply post the answer, I won't mind :)</p></p>
+
+
+<hr/>
+
+
+
+<h2>Simplification?</h2>
+<h3><a href="/user/bobtfish/">bobtfish</a> on 2009-06-19T18:08:56</h3>
+<p>I guess that your example above is a gross simplification of what you're actually trying to do?</p><p>
+In fact, re-reading your post, you say:</p><p> <cite>
+While I now know that I can just use Moose::Meta::Class to do this, but this is actually a problem I encounter from time to time in other contexts and rather than explicitly doing a string eval (which breaks syntax highlighting and hides the code from PPI), I'd like that 'repackage' to handle that.
+</cite>
+</p><p>
+As I'm sure you know, your example above can be written as:
+</p><p>
+Moose::Meta::Class-&gt;create(
+    $some_package.
+    superclasses =&gt; 'Some::Class',
+    roles =&gt; 'Some::Role',
+);
+
+</p><p>
+So what is actually stopping you from just doing that, I don't understand?
+</p><p>I mean, you say <i>other contexts</i>, but if you're explicitly using roles, then you're making Moose classes anyway - so I don't see how it's a different context.
+</p><p>If you're just using more plain perl OO, then I'd be tempted to just use Class::MOP::Class-&gt;create instead.
+</p><p>
+If you really want to play with Devel::Declare just cause you want to play - fair enough however<nobr> <wbr></nobr>;) In that case, I recommend that you look at Method::Signatures::Simple, which is already implementing your case (i.e. defining a keyword, and prependng / appending some stuff)...</p>
+
+
+
+<blockquote>
+
+<h2>Re:Simplification?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-06-19T19:19:12</h3>
+<p>When I say "other contexts", I just mean that I do a lot of code generation work and I often need to dynamically declare a package.  Deferring code compilation via eval is a common enough thing in general that I think it's worth generalizing it.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Meta model</h2>
+<h3><a href="/user/bobtfish/">bobtfish</a> on 2009-06-19T21:05:01</h3>
+<p>Right, but I don't get how dynamically generate/declaring a package using Moose isn't waaay easier and nicer than using a string eval?</p><p>What problem are you trying to solve that won't work by just generating classes through the meta-model, or why does that solution not work for you?</p><p>As an example of this taken to extremes, see the tests for my CX::DynamicComponent dist - I generate the models for my application totally dynamically from configuration, and then go on to generate the application controllers dynamically by introspecting the model - so I have two whole application layers of code which doesn't exist till compile time..</p>
+
+
+
+<blockquote>
+
+<h2>Re:Meta model</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-06-19T21:16:50</h3>
+<p>I only used the Moose example because that's what I was working on today.  I still have found myself on several occasions writing this:</p><blockquote><div><p> <tt>eval &lt;&lt;"END";<br>package $package;<br>our \@ISA = $some_base_class;<br> <br>sub some_sub {<nobr> <wbr></nobr>... }<br>END<br>croak($@) if $@;</tt></p></div> </blockquote><p>So yet, I definitely found the Moose meta stuff was easier and nicer than a string eval, but again, I often need non-Moose packages generated at runtime and the code bound to that package.  This often requires string eval (and it quickly gets very annoying if you want to work around it).</p>
+
+
+
+<blockquote>
+
+<h2>Re:Meta model</h2>
+<h3><a href="/user/bobtfish/">bobtfish</a> on 2009-06-19T21:52:10</h3>
+<cite>I often need non-Moose packages generated at runtime</cite>
+
+<p>Right, I guessed that this was where you were going, but <b>why</b> do they need to be non-moose classes? Sure, if you don't need all of Moose, use the Class::MOP api.</p><p>Your generated classes don't have to subclass Class::MOP::Class, don't have to have a 'meta' method, it all still works..</p><p>All I'm hearing is you saying 'string eval sucks', which is totally correct.. I still don't understand why you think you need to use it to solve your issue.</p><p>If you <b>really</b> need the speed and flexibility that only string eval gives you for your special case, then surely you want to abstract it away as fast as possible (<a href="http://cpansearch.perl.org/src/FLORA/MooseX-Emulate-Class-Accessor-Fast-0.00900/lib/MooseX/Emulate/Class/Accessor/Fast/Meta/Accessor.pm" title="perl.org">see simple example to do inlined CAF specific accessores</a perl.org>)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Meta model</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-06-20T07:48:42</h3>
+<p><div class="quote"><p>Right, I guessed that this was where you were going, but why do they need to be non-moose classes?</p></div><p>A package might very well be procedural code and not class-based.  Plus, for wanting to abstract away this code, why would anyone thing "I must now use Moose or Class::Mop"?  That's a straight jacket which is just wrong<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Meta model</h2>
+<h3><a href="/user/bobtfish/">bobtfish</a> on 2009-06-20T11:13:15</h3>
+<p>Nothing but nothing is stopping your from using the MOP to construct packages without constructors which you call procedurally. Hell, you can just use Class::MOP::Package standalone to at least get away from manual symbol table twiddling.</p><p>And yes - TIMTOWTDI. If you really want the originally floated syntax without requiring MOP then you're gonna need another technique, and Devel::Declare is a good way of not doing string concatenation fed into eval, but it also involves a lot more fiddling with perl guts.</p><p>Also - is Devel::Declare <b>really</b> a less exacting (or at least platform constraining) dependency requirement than plain MOP?</p><p>Either way - can we call my solution laziness, plain string eval with concatenation impatience, and your solution hubris, and have done with this discussion?</p><p>They all have advantages and disadvantages, and if you write it - I'll probably use it at some point - I was just trying to point out that this isn't the only way to achieve what you want..</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Hostile documentation..</h2>
+<h3><a href="/user/osfameron/">osfameron</a> on 2009-06-19T21:56:07</h3>
+<p>Um. I think Piers's post is from March: the docs for DD were released in April... Yes indeed, the current docs are the friendly, useful version<nobr> <wbr></nobr>;)</p><p>The<nobr> <wbr></nobr>::Simple modules are indeed still undocumented as you point out, but patches welcome!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

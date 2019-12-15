@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of cyocum: Demystifying Ocaml's Functors</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Demystifying Ocaml's Functors</h1>
+<h2><a href="/user/cyocum/">cyocum</a> on 2010-05-21T19:31:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Since I started using Ocaml, functors have been rather mystifying to me.  They are Ocaml's highest form of type abstraction through modules and, for beginners like myself, they can be down right frustrating to understand.  So, I took it upon myself to learn how to write one of these things by hook or by crook.  Here is what I took away from that experience.</p>
+
+<p>What will do here is take you through a trivial and probably completely useless example of a Functor which creates types of Linked Lists.  You will need to know about Ocaml before you dig into this so I recommend having a look over <a href="http://www.ocaml-tutorial.org/">here</a>.</p>
+
+<p>So, first you need to have a module type for which you will create a functor:</p>
+
+<pre>
+module type S =
+sig
+  type t
+end;;
+</pre>
+
+<p>This creates a module type with only one thing in it: a generic type expression.  Basically, this says: if a module is of type S then it will have a type <emph>t</emph> defined in it.</p>
+
+<p>Now for the functor itself:</p>
+
+<pre>
+module Make (LinkedList : S) =
+struct
+  type t = Empty | Node of LinkedList.t * t ref
+
+  let make () =
+    ref Empty
+
+  let insert x ll =
+    let new_node = Node(x, ref Empty) in
+      match new_node, !ll with
+	  Node(_, next), Empty ->
+	    next := Empty;
+	    ll := new_node
+	| Node(_, next1), (Node(_, next2) as head) ->
+	    next1 := head;
+	    ll := new_node
+	| Empty, _ -> raise (Invalid_argument "Empty Argument")
+  ;;
+
+  let rec search x ll =
+    match !ll with
+ 	Empty -> false
+      | Node(y, next) -> 
+ 	  if x = y then 
+ 	    true
+ 	  else 
+ 	    search x next
+   ;;
+end;;
+</pre>
+
+<p>What you should notice here is that there is <b>code</b> here.  Basically, any code that can be written without a reference to the type of thing being written should be put here.  You should notice the <emph>LinkedList.t</emph> in the type expression at the top of the module.  (LinkedList : S) means that LinkedList <b>is</b> of type <emph>S</emph> so has a different type than Make's type <emph>t</emph> (remember Make is itself a kind of module).</p>
+
+<p>Now, we want to make LinkedList.t a concrete type.  We do this by applying the Make functor to the module that we want to apply that functor to.  So basically we want to apply the module type S to the module that we will create and attach the code in Make to that module.  So, let's do that:</p>
+
+<code>
+module IntLinkedList = Make(struct type t = int end);;
+</code>
+
+<p>See the <emph>struct</emph> inside the Make?  That is your module that you want to attach the code in Make to.  Because the module is of type <emph>S</emph> you must now declare what type <emph>t</emph> is.  This is also the case for <b>ANY</b> functions in module type <emph>S</emph>.  You can actually define the module else where with a name and pass that name into Make.</p>
+
+<p>Now, when you put this into the top level of Ocaml, you should get this signature:</p>
+
+<pre>
+module IntLinkedList :
+  sig
+    type t = Empty | Node of int * t ref
+    val make : unit -> t ref
+    val insert : int -> t ref -> unit
+    val search : int -> t ref -> bool
+  end
+</pre>
+
+<p>Note how the line in Make: <code>type t = Empty | Node of LinkedList.t * t ref</code> has been replaced by the type that you specified in the call to Make.  This means that this is now a Module that creates Linked Lists of Ints.</p>
+
+<p>You can now <emph>stack</emph> Functor created modules like so:</p>
+
+<pre>
+module IntSet = Set.Make(struct type t = int let compare = compare end);;
+module LinkedListIntSet = Make(IntSet);;
+
+module IntSetLinkedList :
+  sig
+    type t = Make(IntSet).t = Empty | Node of IntSet.t * t ref
+    val make : unit -> t ref
+    val insert : IntSet.t -> t ref -> unit
+    val search : IntSet.t -> t ref -> bool
+  end
+</pre>
+
+
+<p>Now, you may be wondering to yourself: why has he gone through all this trouble when he could have just used type parameters?  That's the canonical way to write linked lists in Ocaml.  It is just as type safe and probably faster.  However, I can use a sledge hammer to crack a nut.  This small example, however, shows all the steps that you need to go through to write a functor in the first instance.  This is also small enough to understand.  I hope it helps those out there grappling with the idea of functors.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of runrig: DSN-less tip of the day</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>DSN-less tip of the day</h1>
+<h2><a href="/user/runrig/">runrig</a> on 2003-09-02T16:49:12</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've always thought it was next to impossible to figure out what arguments you need to make a dsnless ODBC connection, when suddenly the obvious occurred to me...create a file DSN and copy and paste from that. So, e.g., for a (standard engine) Informix database, it's just:<pre>
+my $dsn = <<EOT;
+DRIVER={INFORMIX 3.32 32 BIT}
+DATABASE=/path/to/database
+HOST=hostname
+SRVR=Informix
+SERV=sqlexec
+PRO=sesoctcp
+OPT=
+EOT<br/><br/>chomp ( $dsn = join(";", split "\n", $dsn));<br/><br/>my $dbh = DBI->connect("dbi:ODBC:$dsn", $username, $passwd, {
+  PrintError => 0,
+  RaiseError => 1,
+  ChopBlanks => 1,
+  AutoCommit => 1,
+});
+</pre>
+Of course, there is a certain redundancy in having to create a DSN in order to not use it (but it makes for a good template to substitute other database names into) :-) I've also decided that rather than using Windoze Query-tool(s) to do arbitrary SQL in, and having to mess with scrollbars to see the 89th field across or wait for 1000's of lines of output to to see the first few lines, it's more convenient to write a template DBI/DBD script, which dumps output to a file, then use vim to look at the file. If I knew vim a little better, I could probably do it all within vim. Here's what I'm using for now:<pre>
+my @sql = ( {
+  STMT => qq{
+select *
+from table_name
+},
+  ARGS => [],
+  LIMIT => 0,
+},
+);<br/><br/>chomp ( $dsn = join(";", split "\n", $dsn));<br/><br/>eval {
+my $dbh = DBI->connect("dbi:ODBC:$dsn", $username, $passwd, {
+  PrintError => 0,
+  RaiseError => 1,
+  ChopBlanks => 1,
+  AutoCommit => 1,
+});<br/><br/>open(FH, ">sqltmp.out") or die "Acck: $!";<br/><br/>for my $sql (@sql) {
+  my $sth = $dbh->prepare($sql->{STMT});
+  $sth->execute(@{$sql->{ARGS}});
+  my @names = @{$sth->{NAME}};
+  my $cnt;
+  while (my $row = $sth->fetchrow_hashref) {
+    no warnings 'uninitialized';
+    print FH "[$_][$row->{$_}]\n" for @names;
+    print FH "----------\n";
+    last if $sql->{LIMIT} and ++$cnt >= $sql->{LIMIT};
+  }
+}
+close FH;
+$dbh->disconnect;
+};<br/><br/>if ($@) {
+  print "Error: $@";
+  <>;
+}
+</pre></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

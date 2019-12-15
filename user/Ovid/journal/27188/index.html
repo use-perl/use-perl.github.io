@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Class::Std fun and my foolishness</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Class::Std fun and my foolishness</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-10-16T01:37:11</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Ever get embarrassed because as soon as you upload something to the CPAN you remember what you <em>should</em> have done?  I just did.  <a href="http://search.cpan.org/dist/Array-AsHash/">Array::AsHash 0.21</a> is now on its way to the CPAN because I handled the <tt>each</tt> iterator incorrectly.  Previously, I had this:</p>
+
+<pre>while (my ($k, $v) = $array_as_hash->each) {
+  ...
+}
+
+# as code reference
+my $each = $array_as_hash->each;
+while (my ($k, $v) = $each->()) {
+  ...
+}</pre>
+
+<p>That was really, really stupid because the entire point of this module was to allow much richer interaction than a simple tied hash.  For example, let's say someone wants to invert this hash (which is perfectly acceptable because I allow references as keys) and they ask me to provide an <tt>invert</tt> method.  With a tied hash, you're stuck.  If I added this method (I will if someone needs it), you would be able to do this:</p>
+
+<pre>my $array = Array::AsHash->new({array => [qw/one 1 two 2/]});
+print $array->get('one'); # prints '1'
+$array->invert;
+print $array->get(1);     # prints 'one'</pre>
+
+<p>It's useful things like that which make true objects preferable to tied variables.  I couldn't do that with the <tt>$each</tt> iterator because I was returning a code reference and that completely defeats my intent.  For example, what if I want to know if I'm on the first instance of the <tt>$each</tt> iterator?  You have to do this:</p>
+
+<pre>my $each = $array_as_hash->each;
+while (my ($k, $v) = $each->()) {
+  if ($array_as_hash->first) {
+    ...
+  }
+  ...
+}</pre>
+
+<p>However, if you had passed the iterator to another class, you'd also have to pass the <tt>Array::AsHash</tt> instance, too.  That's silly.  Yes, you could just pass the <tt>Array::AsHash</tt> instance, but if all your other class expects is an iterator conforming to a standard iterator interface, you may not want to do that.  Now I return an object blessed into the <tt>Array::AsHash::Iterator</tt> class.</p>
+
+<pre>my $iter = $array_as_hash->each;
+while (my ($k, $v) = $iter->next) {
+  if ($iter->first) {
+    ...
+  }
+  elsif ($iter->last) {
+    ...
+  }
+}
+$iter->reset_each; # if you need to reuse it but haven't iterated
+                   # over all of the values
+my $array_as_hash = $iter->parent; # if you need the original object back
+</pre>
+
+<p>It breaks backwards compatability, but since the <tt>Array::AsHash</tt> version which returns an iterator object has only been out for less than one day, I'm not too worried about that.</p>
+
+<p>And what does <tt>Class::Std</tt> have to do with this?  Well, the <tt>each</tt> method looks similar to the following (simplified for clarity):</p>
+
+<pre>sub each {
+    my $self  = shift;
+    my $ident = ident $self;
+
+    my $each = sub {
+        my $index = $current_index_for{$ident} || 0;
+        my @array = $self->get_array;
+        if ( $index >= @array ) {
+            # end of iterator.  Reset and return false
+            $self->reset_each;
+            return;
+        }
+        my ( $key, $value ) = @array[ $index, $index + 1 ];
+        $current_index_for{$ident} += 2;
+        return ( $key, $value );
+    };
+ 
+    return $each->() if wantarray;
+
+    return Array::AsHash::Iterator->new( {
+        parent   => $self,
+        iterator => $each,
+    } );
+}</pre>
+
+<p>And that lets me define the iterator class as follows (again simplified for clarity):</p>
+
+<pre>package Array::AsHash::Iterator;
+use Class::Std;
+
+{
+    my %parent_of    :ATTR( :init_arg<parent> );
+    my %iterator_for :ATTR( :init_arg<iterator> );
+
+    sub next {
+        my $self = shift;
+        return $iterator_for{ident $self}->();
+    }
+
+    sub first {
+        my $self = shift;
+        return $parent_of{ident $self}->first;
+    }
+
+    sub last {
+        my $self = shift;
+        return $parent_of{ident $self}->last;
+    }
+
+    sub reset_each {
+        my $self = shift;
+        return $parent_of{ident $self}->reset_each;
+    }
+
+    sub parent {
+        my $self = shift;
+        return $parent_of{ident $self};
+    }
+}
+
+1;</pre>
+
+<p>The beauty of this is how well-encapsulated everything is.  These classes could be exceedingly fragile if they were hash-based and someone tried to reach inside in a mistaken attempt to improve performance.  Now I have no qualms about rearranging the internals and having complete confidence that I won't break anything.  I would almost say "hooray for inside-out objects!", but really, this is what you <em>expect</em> from good OO organization.</p>
+
+<p>Side note:  for the time being, if you really need to invert a hash with this module, do this:</p>
+
+<pre>my $array = Array::AsHash->new({array => [qw/one 1 two 2/]});
+print $array->get('one'); # prints '1'
+
+my @array = reverse $array->get_array;
+my $reversed = Array::AsHash->new({array => \@array});
+print $reversed->get(1);     # prints 'one'</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-10-16T05:44:31</h3>
+<p>I don&#8217;t understand having <code>-&gt;first</code> and <code>-&gt;last</code> be methods of the main class.</p>
+
+<p>I think you are trying to keep the innards of the iterator separate from the iterator class, right? That would be a worthwhile goal, but as it stands, your design means you can only ever have one iterator at a time per Array::AsHash instance. Someone&#8217;s going to get bitten by that at some point.</p>
+
+<p>You could achieve separation on both levels by making two (or three) closures that close over the same variables, of which one is the iterator and the others are first/last state checkers.</p>
+
+
+
+<h2>Class::Std and mod_perl</h2>
+<h3><a href="/user/Bernhard/">Bernhard</a> on 2005-10-16T09:33:06</h3>
+While encapsulation with Class::Std is nice indeed, it has a downside too. There seem to be non-trivial problem that has to do with the use of CHECK blocks.
+See <a href="http://rt.cpan.org/NoAuth/Bug.html?id=14782" title="cpan.org">http://rt.cpan.org/NoAuth/Bug.html?id=14782</a cpan.org>.
+
+
+
+<blockquote>
+
+<h2>Re:Class::Std and mod_perl</h2>
+<h3><a href="/user/jdhedden/">jdhedden</a> on 2005-11-03T15:56:06</h3>
+Object::InsideOut is a new module that also provides comprehensive support for inside-out objects. It is faster, more flexible, supports threads including the sharing of objects between threads using threads::shared, and is usable under mod_perl.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

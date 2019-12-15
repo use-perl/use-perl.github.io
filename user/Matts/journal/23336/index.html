@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Matts: Unixy Question</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Unixy Question</h1>
+<h2><a href="/user/Matts/">Matts</a> on 2005-02-23T20:08:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>So my question is this:<br/><br/>  Given stdin (read only) and stdout (write only) [*] is there a way to create a single read/write filehandle that reads from stdin and writes to stdout? And tie() doesn't count as I need this to pass to poll().<br/><br/>[*] Unless you're djb, but that's just freaky</p>
+
+
+<hr/>
+
+
+
+<h2>er,</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2005-02-23T20:25:55</h3>
+<p>This would be without using Inline::C to compile a new kernel module, I take it?</p>
+<p>a.k.a. no idea, and I'm not convinced that it's possible. (so someone prove me wrong, please)</p>
+
+
+
+<h2>fd 0 already does this for ttys</h2>
+<h3><a href="/user/jmason/">jmason</a> on 2005-02-23T20:36:13</h3>
+If it's a terminal you're attached to, I seem to recall that fd 0 can be written to, and fd 1 can be read from, just fine.  Not sure if that's linux-specific or a common UNIX idiom though.<br> <br>However, if you can't make that assumption -- ie if fd 0/1 may have been redirected to a non-tty source/sink, no, I don't think it's possible.<nobr> <wbr></nobr>:(
+
+
+
+<blockquote>
+
+<h2>Re:fd 0 already does this for ttys</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2005-02-24T00:30:22</h3>
+It wasn't true in Unix V7, so there's at least some old school of thought that would subscribe to that theory.
+
+
+
+
+
+</blockquote>
+
+
+<h2>socketpair(), possibly</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2005-02-23T22:16:44</h3>
+<p>I think that some systems make <a href="http://www.freebsd.org/cgi/man.cgi?query=socketpair&amp;apropos=0&amp;sektion=2&amp;manpath=FreeBSD+5.3-RELEASE+and+Ports&amp;format=html" title="freebsd.org">socketpair(2)</a freebsd.org> bidirectional fd's.  It appears that way on my FreeBSD box, but I don't know about others.  Hmmm, even <a href="http://www.freebsd.org/cgi/man.cgi?query=pipe&amp;apropos=0&amp;sektion=2&amp;manpath=FreeBSD+5.3-RELEASE+and+Ports&amp;format=html" title="freebsd.org">pipe(2)</a freebsd.org> appears bidirectional on FreeBSD actually.
+
+</p><p>-Dom</p>
+
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-02-24T00:42:06</h3>
+<p>As near as I can tell, yes, but only if STDIN and STDOUT are opened on the same thing (ie the only difference between them is the mode). Don't ask me how to get such a filehandle.</p>
+
+<p>What do you need this for?</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2005-02-24T01:20:35</h3>
+I don't *need* it, but I'm writing an app that works as either a poll() server, a forking server, or an inetd style server (where stdin is the read half of the socket, and stdout is the write half).<br> <br>In fork/inetd mode the app still uses poll() internally (for various reasons) so it'd be nice to be able to just use the same code for each. Instead in inetd mode I have to pull a line off the read handle, and ask the write handle to process it and create the output.<br> <br>This is all rather hard to explain in english, so here's the code:<blockquote><div> <tt>&nbsp; &nbsp; while (1) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $line = $input-&gt;get_line;<br>&nbsp; &nbsp; &nbsp; &nbsp; last if !defined($line);<br>&nbsp; &nbsp; &nbsp; &nbsp; my $output = $out-&gt;process_line($line);<br>&nbsp; &nbsp; &nbsp; &nbsp; $out-&gt;write($output) if $output;<br>&nbsp; &nbsp; &nbsp; &nbsp; $input-&gt;watch_read(1);<br>&nbsp; &nbsp; }</tt> </div></blockquote>See it'd be nicer if this could all just be one variable, which is how it works in forkserver mode. However mostly I was curious as to whether it could be done.
+
+
+
+
+
+</blockquote>
+
+
+<h2>would this do?</h2>
+<h3><a href="/user/daved/">daved</a> on 2005-02-24T05:06:35</h3>
+<blockquote><div> <tt>#!<nobr> <wbr></nobr>/usr/bin/perl -wT<br> <br>use FileHandle();<br>use strict;<br> <br>my ($fileHandle) = new FileHandle();<br>open($fileHandle, "+&gt;/dev/fd/0") || die("Whoops:$!\n");<br>unless ($fileHandle-&gt;print("Hello\n")) {<br>&nbsp; &nbsp; &nbsp; &nbsp; die("Failed to write:$!\n");<br>}<br>my ($buffer);<br>unless ($fileHandle-&gt;read($buffer, 1)) {<br>&nbsp; &nbsp; &nbsp; &nbsp; die("Failed to read:$!\n");<br>}</tt> </div></blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:would this do?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2005-02-24T14:53:10</h3>
+No, because although it opens fd0 for reading, the data isn't coming in on fd0 - it's coming in on fd1.<br> <br>Matt.
+
+
+
+<blockquote>
+
+<h2>Re:would this do?</h2>
+<h3><a href="/user/daved/">daved</a> on 2005-02-24T22:03:31</h3>
+interesting.  cos it worked (wrote to stdout and read from stdin) on the terminals that i was working on in solaris and linux.  and on linux<nobr> <wbr></nobr>/dev/fd/0 and<nobr> <wbr></nobr>/dev/fd/1 are symlinks that point to the same file.
+
+
+
+<blockquote>
+
+<h2>Re:would this do?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2005-02-25T13:52:43</h3>
+I might give it a go. I'm remembering that the stdin/stdout in an inetd/tcpserver situation are just built from dup2()ing the same filehandle twice onto those two separate file descriptors, so it might just work.<br> <br>Of course I've now spent a few days building a work around<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

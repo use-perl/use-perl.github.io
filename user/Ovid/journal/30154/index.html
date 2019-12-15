@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Why People Hate Normalization</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Why People Hate Normalization</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-07-03T14:23:48</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Imagine that I have <tt>tasks</tt> and <tt>users</tt> tables.  Each task has a start status, and eventually has either a cancel or finish status.  Each status must be tagged with the user.</p>
+
+<p>I can't put the cancel or finish status in the <tt>tasks</tt> table because since they will be NULL to start with, I can't put a foreign key constraint from, say, the <tt>task.cancel_user_id</tt> column to the <tt>users.id</tt> column since foreign key constraints typically don't allow null values.  Thus, to properly normalize them, I need at least two other tables, <tt>task_cancel</tt> and <tt>task_finish</tt>, each with at minimum a task_id and a user_id (and probably a date).  This assumes that tasks entered are automatically started.  If not, that needs a <tt>task_start</tt> table.  So a conceptually simple problem now requires a minimum of five tables, <tt>tasks</tt>, <tt>users</tt>, <tt>task_start</tt>, <tt>task_cancel</tt> and <tt>task_finish</tt>.</p>
+
+<p>That gets annoying and one might be tempted to create a fake user called "none" and insert that user id in the tasks table, but that's just special casing a particular ID and overloading its meaning.  That's an even worse problem as most SQL queries which fetch data from the users table will need to account for the special case.</p>
+
+<p>So getting back to the five tables, what if we want to fetch all of our data at once?  If a task is neither cancelled or finished, we can't do an inner join against those tables, we have to do an outer join.  So once again the rules of normalization take a relatively simple idea and start to complicate it to the point where programmers want to throw in the town and skip normalization.</p>
+
+<p>Mind you, these sorts of "real world" problems crop up all the time.  Did I miss something here?  Shouldn't simple ideas be simple?  It might seem like ORMs can hide some of these problems, but <a href="http://blogs.tedneward.com/2006/06/26/The+Vietnam+Of+Computer+Science.aspx">they add some of their own problems</a> (link taken from <a href="http://use.perl.org/user/TeeJay/journal/30095">a journal entry of TeeJay's</a>).</p></p>
+
+
+<hr/>
+
+
+
+<h2>re-Normalize</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2006-07-03T16:07:19</h3>
+I think you've overnormalized. You don't need <code>task_start, task_finish, task_cancel</code> junction tables. You've just traded trying to enforce <code>UserID NOT NULL IF Status NOT NULL</code> for enforcing that a task appears at most once in the UNION of the three task_{start,finish,cancel} tables, which will be even more awkward to code in your data dictionary (<code>1=COUNT(*) FROM UNION...</code>)
+
+<p>
+You need just one task_status table that has <code>NOT NULL</code> FKs to TaskID and UserID, plus a State enumerated type and an autoinsert date timestamp field.  The status is the State that matches max(Stamp).
+
+</p><p>
+This is an <code>INSERT</code>-only, no <code>UPDATE</code> table that collects history.  This is good if you have SarbOx or other audit-trail requirements; DB privilege grants can enforce this.
+
+</p><p>
+If you want to avoid nested queries, you need transactions, and add an Latest boolean column that is inserted true and cleared false when updating status by inserting a new status record. In this case, a stored proc with this transaction should be the only allowed way to insert, to assure the invariant predicate of only one active state per task.
+
+</p><p>In either case, defining a <code>VIEW</code> that sees only the  <code>Latest=TRUE</code> rows (and perhaps another for <code>Latest=TRUE</code> and <code>NOT State=FINISHED</code>) will make life easier for folks building dashboards or reports.
+
+</p><p>As you'd defined it, TaskID FK is the sole primary key, as each task has but one user; you were splitting only to allow requiring <code>UserID NOT NULL IF State NOT NULL</code>. Making it a history log requires Primary Key <code>(TaskID,Stamp)</code>. But splitting state out to a side table allows the possibility of multiple users working a task in parallel or in relay, in which case primary key is <code>(TaskID,UserID,Stamp)</code>. That this normalization gives us extra flexibility suggests it's a good one.</p>
+
+
+
+<blockquote>
+
+<h2>Re:re-Normalize</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-07-03T16:25:19</h3>
+<p>Ah, thanks.  You're correct that my normalization wasn't correct.  I can now see the value of what you propose and that does make the task simpler and more maintainable.  As a caveat, though, some of what you suggest implies using a real database, not a toy like MySQL (which is what we're using).</p>
+
+<p>This gives me another good rule of thumb to keep in mind.  Naturally, when I see things like <tt>field_1</tt>, <tt>field_2</tt>, <tt>field_3</tt> and so on, it's obvious that I need another table as what I'm looking at is essentially an array.  However, what I described in my original post was essentially a hash and that should also be a suggestion (not guarantee) of poor normalization.</p>
+
+<p> <em>DBA Barbie says "normalization is hard!"</em> </p>
+
+
+
+<blockquote>
+
+<h2>Re:re-Normalize</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-07-03T17:30:46</h3>
+<p>You have to use a real programming language too, not a toy like Perl.</p>
+
+<p>(Oh, I meant Perl version 2.  What?  There's a newer version?  I bet it's a toy just like Perl 2.)</p>
+
+
+
+<h2>Re:re-Normalize / Toys</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2006-07-03T17:44:43</h3>
+<i>As a caveat, though, some of what you suggest implies using a real database, not a toy like MySQL (which is what we're using).</i>
+
+<p>Can you upgrade your MySQL to the latest &amp; greatest? Yes, MySQL3 with default engine MyISAM is a toy. MySQL5.[01] with InnoDB engine (or BDB, or the coming Falcon engine) is no longer a toy -- subquery, views, transactions. (They've even got a cluster engine for partitioning.)
+[<a href="http://dev.mysql.com/doc/refman/5.0/en/storage-engines.html" title="mysql.com">Engines</a mysql.com>]
+(I think this is the point of the Perl 2 joke.)
+
+</p><p>Barbie is correct that normalizing is hard if done right -- that's why DBA is a speciality.</p>
+
+
+
+<blockquote>
+
+<h2>Re:re-Normalize / Toys</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-07-04T18:38:29</h3>
+<p>Bill nails it.  I stopped having any sympathy for people who refuse to upgrade to new versions of free software at approximately 7 am on Sunday morning.</p>
+
+
+
+<blockquote>
+
+<h2>What happened at 7am Sunday?</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2006-07-05T20:15:29</h3>
+<i>Bill nails it. I stopped having any sympathy for people who refuse to upgrade to new versions of free software at approximately 7 am on Sunday morning.</i>
+
+<p>What happened Sunday? I don't see a journal entry for Sunday. Is there a new entry for stupid customer tricks?
+
+</p><p>Memo to self: update home servers to Ubuntu to 6.06LTS and Debian to 3.1 now that they're really stable<nobr> <wbr></nobr>...</p>
+
+
+
+<blockquote>
+
+<h2>Re:What happened at 7am Sunday?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-07-06T01:08:56</h3>
+<p>I read yet another Nicholas Clark "This isn't fun anymore, and no one seems to want to pay someone to fix Perl 5" message on p5p.  That's when I decided that companies which rely on Perl 5 but don't send bug reports or test snapshots and have all of their code in the Darkpan can fix their own bugs, or at least pay for the continued development of Perl.  That is, they can do that if they care about their code.</p>
+
+
+
+<blockquote>
+
+<h2>Paying for Support for Perl5</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2006-07-06T17:54:05</h3>
+<i>&quot;companies which rely on Perl 5 but don't send bug reports or test snapshots and have all of their code in the Darkpan can fix their own bugs, or at least pay for the continued development of Perl. That is, they can do that if they care about their code.&quot;</i>
+
+<p>That hits home.
+
+</p><p> <b>Support</b>: I tried to get commercial support for Perl, and couldn't.  Yes, I could <b>pay</b> for it, but I couldn't get anything I could recognize as <b>support</b>.  I talked to ActiveState at LinuxWorld 2005, interested in buying support for my $DayJob for multiple platforms (Windows, Linux, AIX, Solaris), since the VPs always ask "what's the support model" (which implies they'd be willing to pay for it). AS said they'd build and support everything <b>except</b> DBD::Oracle, DBD::DB2, DBD::Solaris for us.  But Tim Bunce recommends if you build the DBD module you do it with a Perl and DBI you hand built. So what's the value proposition to my management of ActiveState commercial support, if I'm stuck with supporting DBD::* and either trying to replicate their build environment for DBD::* builds, which against Tim's advice, or re-building all from sources anyway, which will require all bugs in "supported" components to be replicated on "clean" (non-DBI, vendor-built) environment?
+
+</p><p>So my usual answer to the VPs about support is that they'll never see a critical bug in Perl itself.  If their lame Perl scripters ever manage to stumble over a Bug in Perl itself -- not referring to a module bug -- they've probably strayed into a dark alley they don't belong in, they'd have bad code in his/her script that I can fix, not only as a work-around but as a basic improvement.  And I offer to fix module bugs and/or be the internal point of contact to talk to the CPAN authors and use.perl, #perl community as needed if/when we hit a Module bug. (And even there, the only one of those we've hit was found by someone with enough savvy to patch the module himself.)
+</p><p> <b>Giving Back Patches</b>:
+I think you intended <i>pay for the continued development</i> to mean <b>employing</b> a p5p person with understanding that some of their job responsibility is giving back, if only to ensure local fixes are in the upstream for next-time, but allowed to fix RT bugs that sound good to fix too. I'd love to expand my semi-official Perl Evangelist &amp; Guru role into one where Perl support was my fulltime job and I was paid to do P5P stuff. (That's about the only change to my current job that would be an improvement, so I can't complain.) I consider that I'm lucky that I get paid to read and post to <code>use.perl.org</code> a few hours a week. I'm going to try to help Parrot Cage-Cleaners, but that's going to be on my own time, I'm sure; if I use hardware that isn't mine, it won't be $DayJob's, at least not initially. (I may try for that later, in which case I might get some <code>$Hours{$DayJob}</code> for it as well.)
+
+</p><p>At least $DayJob now has a policy and procedure to approve giving back fixes to CPAN modules (or even Perl5) if we find a bug in the future, and maybe even to contribute new modules (if we can show the new module isn't of competitive advantage).  Sadly, this good policy came with a policy requiring approval of CPAN modules (and all other F/LOSS) for internal use: GPL license on a CPAN module is a dead NO, due to CopyLeft viral nature (but ok on standalone utilities, barring code reuse); "Artistic" or "As Perl" or "LGPL" are all ok. (I need to review the current Artistic 2.0 Draft with the lawyers, and <b>will</b> provide feedback if they choke.)
+
+</p><p> <b>The DarkPan</b>: (I love that coinage!) While I've got the start of a couple potentially useful modules <i>at home</i> that may make it to CPAN when I get some TUITs to finish refactoring, I haven't found much DarkPan stuff at $DayJob. Lots of (simple) scripts, some using DBI or Net::FTP, but not a lot of proprietary modules.  There may be a larger DarkPAN in other Business Units, but not mine -- our division uses Perl for light administration, not even fancy glue.
+</p><p>I did take a better-than-average Net::FTP script and put it's three functions in a<nobr> <wbr></nobr>.PM for easier reuse, but it's really peculiar to how we do transfers, and it's still really more of a template for cribbing than for literal module use, so it's staying DarkPan.
+</p><p>The one halfway interesting module I have personally at $DayJob isn't even reused out of my $USERID yet. It's just a WWWMech milkinging machine for an internal proprietary administrative web site to automate my personal workflow.  I don't see anything in it worth refactoring into a CPAN module.
+</p><p>Oh, we do have one module that would have been interesting to try to get corporate Intellectual Property release on <b>if</b> I'd ever gotten budget to refactor it. It's a C-API wrapper for a commercial reporting package. But it was built Perl4 style, redirecting through system() to locally-built CLI utilities (that wrap the C API individually) with dubious security and non-scalable performance, with session create/destroy per request from the Perl script. If I built this today, I'd use the C API directly via XS/Inline, so that a Perl script execution had a single session. When I thought this toolset would spread in the organization, I had plan to refactor this hard and request permission (from Vendor and from Legal) to release it. But since there's only one Application using it internally, there's no internal reuse, thus no budget for refactoring, and no chance (or need) for external reuse.  Anyone with the vendor's C API and Inline::C could do a better job today.
+</p><p>My most useful module on the $DayJob desktop is copied in from my old NT4 laptop at home and is Trivial<nobr> <wbr></nobr>... it's to allow Perl OneLiners on Win32 to have wildcard fileargs like on a real shell, without needing to drag in Cygwin or MKS toolkit. It consists of just</p><blockquote> <div><tt>BEGIN { @ARGV = map glob, @ARGV;}</tt></div> </blockquote>so I can just say<blockquote> <div><tt>C:\project\foo&gt; perl -MMyGlob -lane "print if 1..1 or $F[3]=~/pattern/" logs/*.log</tt></div> </blockquote> <p> <b>Supporting Perl</b> - My $DayJob does provide some financial support to Perl, if not to p5p's and thus Perl5 itself - we've hosted Damian twice and Stonehenge once, and I'll try to bring them back again. We also had Uri on-site for a few months as an interim internal rent-a-guru, and I've inherited (on a very part time basis) that role and the re-nascent community he helped stitch back together. My internal sales pitch to justify the exepense of gettting World Class Trainers is that there's a downside to paying for "Perl" training with Corp.Training's favorite "we teach everything" one-stop-shopping vendors: trainers who have to check the slide's running footer for the class title to see which language they're teaching today aren't going to give good deep answers to intersting questions. You want the guy who wrote the book if you can get him, and for Perl we can.  (I'm used to getting the guy that wrote the book from our local <a href="http://www.gbcacm.org/website/seminars.php" title="gbcacm.org">ACM PDS</a gbcacm.org> seminar series.)
+
+</p><p>(I've only lost that argument when Sun gave us "free" training credits with the new hardware. "Free" is hard to argue with. Damian comes close to being infinitely better than a slide-reader, but supposedly infinite ROI looks so good on paper. Of course, when you factor in the "opportunity" cost of the "free" offer, the ROI on "free" may drop precipitously, but that doesn't overbear most people's gut reaction to "FREE! FREE! FREE!". And some people like nearby off-site training, it's away from the BOSS and the PHONE and EMAIL without being away from home.)</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:re-Normalize</h2>
+<h3><a href="/user/dws/">dws</a> on 2006-07-03T19:18:38</h3>
+Bill pointed you in the same direction I was going to. Statuses accumulate over time, and you're typically only interested in the most recent one, unless you're rolling back time for audit purposes. But if you're stepping into an area where auditing might be a concern, you have to start paying attention to the distinction between "actual" time and "record" time (a distinction that can tie your brain in little knots when you try to think through queries). Martin Fowler has a <a href="http://www.martinfowler.com/eaaDev/timeNarrative.html" title="martinfowler.com">decent intro to the issues</a martinfowler.com>.
+
+
+
+
+
+</blockquote>
+
+
+<h2>NULLs</h2>
+<h3><a href="/user/Theory/">Theory</a> on 2006-07-03T16:29:11</h3>
+<blockquote> <div><p>I can't put the cancel or finish status in the tasks table because since they will be NULL to start with, I can't put a foreign key constraint from, say, the task.cancel_user_id column to the users.id column since foreign key constraints typically don't allow null values.</p></div> </blockquote>
+
+<p>While current relational theory is pretty contentious when it comes to <code>NULL</code>, the fact is that most databases that I'm aware of, including PostgreSQL, MySQL, and SQLite, allow foreign key columns to be <code>NULL</code>.</p>
+
+<p>&#8212;Theory</p>
+
+
+
+<blockquote>
+
+<h2>Re:NULLs</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-07-03T16:36:52</h3>
+<p>I was doing this in MySQL and having NULL values in the FK column caused MySQL to die a horrible death.  And then just to prove my point, I created a small test case in MySQL and it didn't die.  There must have been something else going on, but now I can't reproduce it.  Damn.</p>
+
+
+
+<blockquote>
+
+<h2>Re:NULLs</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-07-04T09:05:37</h3>
+<p>I was thinking the same as n1vux all along while reading the post &#8211; there just isn&#8217;t any need for so many separate join tables, one is perfectly sufficient given a start/cancel/finish enum column. And I&#8217;d still do it with such a join table even if NULL FKs work: for one thing, such an enum column for would be naturally extendable without having to touch the schema. For another, you don&#8217;t ever need to <code>UPDATE</code> any rows &#8211; apart from better scalability, having immutable rows tends to reduce the complexity of all associated code.</p>
+
+<p>Nah, normalisation is nice.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

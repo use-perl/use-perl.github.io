@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of stvn_skuo: slowly going through perlapi</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>slowly going through perlapi</h1>
+<h2><a href="/user/stvn_skuo/">stvn_skuo</a> on 2005-02-05T22:00:43</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Notes to self:<P><br/><br/><UL>
+<LI>With Inline::C, arguments to variadic C functions should be processed with
+<TT>Inline_Stack_Item(s)</TT>, instead of the functions declared in
+<TT>&lt;stdarg.h&gt;</TT>.<br/><br/><LI>Calling Perl subroutines from C?  Better start reading
+<I>perlguts</I>, <I>perlapi</I>, and <I>perlcall</I>.<br/><br/></UL><br/><br/>I don't do any XS programming, but I do use C often enough
+to think learning Inline to be worthwhile and, well, fun.  After
+my first experience with Inline, I really have to give kudos to those in
+<TT>/p\d+p/</TT> who so deftly handle three disciplines (e.g, Perl, C, 
+and XS).<P><br/><br/>My first naive attempt went something like this:<P><br/><br/><ECODE>
+use Inline 'C';<br/><br/>my @integers = (4, 2, 1, 5, 6, 3);<br/><br/>print +choose(\&lessthan, scalar @integers, @integers);
+print +choose(\&grtrthan, scalar @integers, @integers);<br/><br/>__DATA__
+__C__<br/><br/>#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h><br/><br/>int lessthan (int a, int b)
+{
+    return (a < b) ? a : b;
+}
+int grtrthan (int a, int b)
+{
+    return (a > b) ? a : b;
+}
+int choose( int(*fn)(), size_t count, int first, ...) 
+{
+    va_list arg_ptr;
+    int next;
+    int keep;
+    va_start(arg_ptr,count);
+    keep = va_arg(arg_ptr, int);
+    for(--count; count > 0; --count) {
+        next = va_arg(arg_ptr, int);
+        keep = fn(keep, next);
+    }
+    return keep;
+}<br/><br/></ECODE><br/><br/>In retrospect, other than as a learning exercise, this
+wasn't an ideal test of Inline::C.   There's no
+speed advantage over a pure perl implementation.  I
+ended up with something that seems to be half C and half XS:<P><br/><br/><ECODE><br/><br/>use Inline 'C';
+my @integers = (4, 2, 1, 5, 6, 3);<br/><br/>local $\ = "\n";
+print +choose(\&lessthan, @integers);
+print +choose(\&grtrthan, @integers);<br/><br/>__DATA__
+__C__<br/><br/>#include <stdio.h>
+#include <stdlib.h><br/><br/>int lessthan (int a, int b)
+{
+    return (a < b) ? a : b;
+}
+int grtrthan (int a, int b)
+{
+    return (a > b) ? a : b;
+}
+int choose(CV *fn, int first, ...) 
+{
+    SV *next_sv;
+    SV *keep_sv;
+    unsigned int count;<br/><br/>    Inline_Stack_Vars;<br/><br/>    keep_sv = newSVsv(Inline_Stack_Item(1));
+    for(count = 2; count < Inline_Stack_Items ; ++count)
+    {
+        I32 retval;
+        dSP; 
+        ENTER;
+        SAVETMPS;
+        next_sv = newSVsv(Inline_Stack_Item(count)); 
+        PUSHMARK(SP);
+        XPUSHs(sv_2mortal(newSVsv(keep_sv)));
+        XPUSHs(sv_2mortal(next_sv));
+        PUTBACK; 
+        retval = call_sv((SV *)fn, G_SCALAR);
+        SPAGAIN;
+        if (retval != 1)
+        {
+            croak("Big trouble\n");
+        }
+        sv_setsv(keep_sv, POPs);
+        FREETMPS;
+        LEAVE;
+    }
+    Inline_Stack_Reset;
+    Inline_Stack_Done;
+    return (int)SvIV(keep_sv);
+}<br/><br/></ECODE></p>
+
+
+<hr/>
+
+
+
+<h2>More reading</h2>
+<h3><a href="/user/stvn_skuo/">stvn_skuo</a> on 2005-02-06T19:18:36</h3>
+I'll have to take a minute and
+study this<nobr> <wbr></nobr>...
+<a href="http://perlmonks.org/?node_id=428371" title="perlmonks.org">http://perlmonks.org/?node_id=428371</a perlmonks.org>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

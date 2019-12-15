@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Whiteknight: Algorithms, Flags, and Allocators</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Algorithms, Flags, and Allocators</h1>
+<h2><a href="/user/Whiteknight/">Whiteknight</a> on 2008-06-11T22:23:49</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I head meant to post yesterday but ran out of time, then I wrote up a nice post for today but forgot to save it. So, here is the abridged version.<br/><br/>I talked to chromatic a little bit yesterday after #parrotsketch about the way we were handling the flags. As it is, PObjs have flags already that are used to determine the alive/dead state of the object for GC runs. However, we are duplicating this information with our new cardmarking scheme, so I wanted to know how we were going to deal with that. chromatic thinks we can get away with ignoring the PObj flags, so that's what I'm going to try to do.<br/><br/>I spent part of today reworking the allocator functions, to be better and more efficient. The previous allocator I had was a placeholder that I "borrowed" from the GMS collector. The GMS Small_Object_Arena allocator made two memory allocations: the first was for a datastructure to keep track of the arena, and the second was a block of memory that comprised the arena itself. I was intending to add in a third allocation for the bitmap we're going to use for the cardmarking. This is nonsensical, considering that memory allocations are expensive and that all these different structures that we're allocating are reliant on each other.<br/><br/>So, to improve the situation, I'm allocating the entire set of structures together in one large memory lump. The first part of the lump is the Small_Object_Arena structure, the second part is the card for marking, and after that are the objects. All of this requires some interesting pointer voodoo which has given my C muscle more exercise then it's had in years.<br/><br/>The benefits to doing this as a single large memory lump are many:
+* Better spacial locality between objects which are typically referenced together anyway. This should improve cache performance of the GC
+* Fewer memory allocation operations, which are expensive anyway. Fewer small allocations also decreases memory fragmentation, which should increase the average speed of future allocations as well.
+* Decreases the deallocations that we need to remember to do later.<br/><br/>I still have to do some work ensuring that all newly created objects in the arena find their way into the pool's free list. Now that I have the format of the data structures all set, and a finite relationship mapped out between cards and their corresponding objects, this should be relatively easy to do. I've also increased the GC header to include an index number, that represents the position of the particular item in the arena. This will further increase the speed of bitmap lookups, without making the GC header any larger then it is for the GMS collector. A simple pointer increment can retrieve the header pointer from the object pointer. A pointer dereference can find the arena structure from the header, and a dereference/offset can find the card from the pool. We can find the card in one line:<br/><br/>PObj_to_IT_HDR(obj)->parent_pool->card<br/><br/>Finding the mark from the card will be a little bit harder, but a bitfield typecast and a switch statement can help to keep this relatively efficient as well. Here's an example of this in action, setting a particular flag to black:<br/><br/>typedef struct _gc_it_card_overlay {
+  unsigned flag1:2;
+  unsigned flag2:2;
+  unsigned flag3:2;
+  unsigned flag4:2;
+} Gc_it_card_overlay;<br/><br/>...<br/><br/>switch (hdr->index % 4) {
+  case 0:
+    ((Gc_it_card_overlay)
+      hdr->parent_pool->card)->flag1  
+        = GC_IT_CARD_BLACK; 
+    break;
+  case 1:
+    ((Gc_it_card_overlay)
+      hdr->parent_pool->card)->flag2  
+        = GC_IT_CARD_BLACK; 
+    break;<br/><br/>...<br/><br/>The compiler turns the switch statement into a jump-table lookup, and inserts all the necessary arithmetic to set the flag. The code I'm using in production is, of course, a little more involved then what i've presented here, but i think i've communicated the gist of it.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

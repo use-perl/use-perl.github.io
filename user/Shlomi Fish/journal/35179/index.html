@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Shlomi Fish: Making Websites Behave using Perl - The yjobs-proxy Story</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Making Websites Behave using Perl - The yjobs-proxy Story</h1>
+<h2><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2007-12-21T13:29:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+Here is another cool use for Perl: pre-processing the HTML/JS/CSS markup of
+poorly-written sites before it reaches the web browser. In this post, I'll
+tell the story of how I ended up writing the
+<a href="http://www.shlomifish.org/open-source/projects/yjobs-on-mozilla/">yjobs-proxy
+markup-transforming proxy</a> using CPAN's 
+<a href="http://search.cpan.org/dist/HTTP-Proxy/">HTTP-Proxy</a> to make
+www.yjobs.co.il work with Firefox on my Linux system.
+</p>
+
+<p>
+It all started when I was job-hunting, and was dismayed to discover
+that there were much fewer Info-Tech job ads in the newspaper's "Wanted Ads"
+section than there used to be. The section proudly announced that now it has
+an Internet counterpart - 
+<a href="http://www.yjobs.co.il/">www.yjobs.co.il</a>. But much to my
+disappointment, it didn't work in my Linux-based, open-source browsers.
+</p>
+
+<p>
+I almost immediately thought of writing a 
+<a href="http://www.greasespot.net/">Greasemonkey</a> script to whip the
+JavaScript code there into a shape where it can work with Firefox. Eventually,
+I started writing it, and looked for a way to inject new declarations of
+JavaScript functions into the page, to replace the existing and broken 
+ones. <a href="http://groups.google.com/group/greasemonkey-users/browse_frm/thread/9b6c33e3e3cf5bbd/6d9cd1a4fa556ca6?lnk=gst&amp;q=shlomi+fish#6d9cd1a4fa556ca6">I
+found a way to do that</a>, but it turned out to have some limitations due
+to the architecture of Greasemonkey and the way it interacts with the page.
+</p>
+
+<p>
+After thinking about it for a moment, I realised I could achieve the same
+thing by transforming the code that Firefox receives from the site into
+a more agreeable version. So I thought of a transforming proxy. Someone here
+on use.perl.org mentioned HTTP::Proxy in one of his posts, so I went to check
+it out and see if it can solve my problems.
+</p>
+
+<p>
+Meanwhile, I was distracted and delayed a bit by
+investigating <a href="https://bugs.freedesktop.org/show_bug.cgi?id=13750">this
+X Server bug</a>. But then I resumed to work on the proxy. HTTP-Proxy turned
+out to be a great way to implement what I had in mind, but I still ran into
+a few problems. (Which weren't HTTP-Proxy's fault.).
+</p>
+
+<p>
+The first one from what I recall was that it refused to filter JavaScript code.
+As it turned out yjobs sent the "Content-Type:" of the JavaScript code either
+as "application/x-javascript" or an undefined one, while I used 
+"text/javascript". I ended up filtering them by the <tt>.js</tt> extension in
+the path, and by specifying a mime filter of "undef".
+</p>
+
+<p>
+Then I ran into a problem where a variable called "Data" was assigned
+to, but not used anywhere else. As it turned out, my logging proxy, which I
+used to dump all the traffic, did not log the particular script where it was
+made use of. Maybe Firefox cached it. After that, I found out where it was
+used and used the Venkman JavaScript debugger to the problem I had getting
+it displayed on the page. It was fixed using a JavaScript transformation
+specific to that particular script. 
+</p>
+
+<p>
+Another problem I encountered was an original function was called despite
+the fact I overrided it in the bottom. As it turned out, this was caused
+because it was invoked before the JS interpreter reached the 
+definition at the end. Like this code:
+</p>
+
+<code>
+&lt;html&gt;<br />
+&lt;body&gt;<br />
+&lt;script&gt;<br />
+function mytest()<br />
+{<br />
+    return &quot;FirstFoo&quot;;<br />
+}<br />
+<br />
+var myvar = mytest();<br />
+&lt;/script&gt;<br />
+<br />
+&lt;h1 id=&quot;put_here&quot;&gt;Put Here&lt;/h1&gt;<br />
+<br />
+&lt;script&gt;<br />
+document.getElementById(&quot;put_here&quot;).innerHTML = myvar;<br />
+&lt;/script&gt;<br />
+<br />
+&lt;script&gt;<br />
+function mytest()<br />
+{<br />
+    return &quot;Second&quot;;<br />
+}<br />
+&lt;/script&gt;<br />
+&lt;/body&gt;<br />
+&lt;/html&gt;<br />
+</code>
+
+<p>
+This was resolved by transforming the JS code in the original function.
+</p>
+
+<p>
+Eventually, I got it working enough. Then I cleaned up the proxy code, and
+<a href="http://www.shlomifish.org/open-source/projects/yjobs-on-mozilla/">released 
+it</a> for the world's consumption.
+</p>
+
+<p>
+My future plans for this proxy, is to investigate a way to implement it as
+a Firefox extension that will be transform the markup from within Firefox.
+</p>
+
+<p>
+A fellow Perl programmer I talked with on AIM that I pointed to the download 
+page, said that "that's nucking futs, man" and then that "oh, it's cool.  I just
+mean, that's pretty crazy.  A proxy to make a site work...  crazy.  and
+awesome.". :-)
+</p>
+
+<p>
+So this is one way Perl has given Power to the People. Hack on! 
+</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: MP3::Mplib 0.01</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>MP3::Mplib 0.01</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2002-12-02T12:35:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><code><br/><br/>    The uploaded file<br/><br/>        MP3-Mplib-0.01.tar.gz<br/><br/>    has entered CPAN as<br/><br/>      file: $CPAN/authors/id/V/VP/VPARSEVAL/MP3-Mplib-0.01.tar.gz
+      size: 80543 bytes
+       md5: 7acf4fa07a13648ecbc9e0509a27b6da<br/><br/>    No action is required on your part
+    Request entered by: VPARSEVAL (Tassilo von Parseval)
+    Request entered on: Mon, 02 Dec 2002 12:15:17 GMT
+    Request completed:  Mon, 02 Dec 2002 12:15:57 GMT<br/><br/>        Virtually Yours,
+        Id: paused,v 1.81 2002/08/02 11:34:24 k Exp k <br/><br/></code><br/><br/>Another tough session today made the above possible. Perl5.8.0 complained about some readonly values that I tried set somewhere within my XS code. It took a while to find the delinquent. 5.005_03 and 5.6.1 did not have these objections.<br/><br/>In the last moment I decided to use <code>Test::More</code> instead of <code>Test</code>. That made a few rewrites necessary, too.<br/><br/>Also, h2xs obviously screwed up when I created the extension skeleton some months ago. This part was funny actually: When I tested all the constants from mplib.h, Perl failed to export UTF16...but only on this one. UTF16BE and all the other encodings worked ok. I located the error somewhere here:<br/><br/><code><br/><br/>    static double
+    constant_UTF1(char *name, int len, int arg)
+    {
+        if (4 + 1 &gt;= len ) {
+        errno = EINVAL;
+        return 0;
+        }
+        switch (name[4 + 1]) {
+        case '\0':
+        if (strEQ(name + 4, "6")) {	/* UTF1 removed */
+    #ifdef UTF16
+            return UTF16;
+    #else
+            goto not_there;
+    #endif
+        }
+        case 'B':
+        if (strEQ(name + 4, "6BE")) {	/* UTF1 removed */
+    #ifdef UTF16BE
+            return UTF16BE;
+    #else
+            goto not_there;
+    #endif
+</code><br/><br/>It turned out that the first if-condition was messed up. It should have been:<br/><br/><code>
+    if (3 + 1 >= len ) {
+</code><br/><br/>I have no explanation for this failure but I find it somehow amusing that even a machine can come up with an incorrect calculation of a string length. This puts my sometimes scaringly silly errors into the right perspective, I think. ;-)<br/><br/>&lt;rant&gt;<br/><br/>Who actually came up with this insane constant handling in XS code? A constant name is cut into strings of variable length and then control is delegated to another suitable constant-function that exclusively deals with constants of a particular prefix. If that is a performance tweak then it is silly since any constant is only retrieved once and after that compiled into a subroutine by <code>AUTOLOAD</code>.<br/><br/>&lt;/rant&gt;
+</p>
+
+
+<hr/>
+
+
+
+<h2>Insane XS constant handling code</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2002-12-02T14:01:12</h3>
+<blockquote><div>Who actually came up with this insane constant handling in XS code? A constant name is cut into strings of variable length and then control is delegated to another suitable constant-function that exclusively deals with constants of a particular prefix. If that is a performance tweak then it is silly since any constant is only retrieved once and after that compiled into a subroutine by AUTOLOAD.
+</div></blockquote>
+
+<p>Fair comment.</p>
+<p>What you saw with the miscalculated <code>if</code> condition looks like the bug I found in the constant generation routines in perl 5.6.x. It pissed me off sufficiently to fix it (now in perl 5.8), and write regression tests to try to stop it happening again.</p>
+<p>The h2xs constant generation was changed in 5.6.something. I don't remember who made the change, but I did find the code it generated extremely hard to follow, and wasn't convinced that it was a speed win, for the very reasons you observe.</p>
+<p>The change made for 5.6.something only attempted to generate faster lookup code, without changing the basic idea - generate the switch table once when h2xs is first written. This makes it very hard to add new constants later on, if later versions of the module you're wrapping add new constants. It also means that you're stuck with whatever lousy autogenerated switch code was the style at the time of the h2xs you ran.</p>
+<p>The change I made for 5.8 changes the approach taken, in an attempt to fix these deficiencies. Rather than generate the C code for the constants, h2xs now adds perl code to Makefile.PL that lists the names (and types, although h2xs can't work these out yet) of the constants, and a call to a new module, <a href="http://search.cpan.org/author/NWCLARK/ExtUtils-Constant-0.14/Constant.pm" title="cpan.org">ExtUtils::Constant</a cpan.org>,
+which turns these into XS and C code. This conversion is done at module build time (with fallback C and XS files supplied in the module tarball in case the user doesn't have ExtUtils::Constant installed). So if you (the module developer) need to add more constants to the switch table, you just add them to the list in Makefile.PL and rerun it. And if anyone improves (or changes) the switch table generation code, everyone gets the benefit, even on existing modules. (ExtUtils::Constant 0.14 did improve the code slightly over 0.13). And I hope that the switch table code in ExtUtils::Constant compiles to a more compact form, and executes more quickly, than the code that h2xs used to generate. (It tries to make switch statements that the compiler will convert to branch tables, and tries to minimise the number of linear lookups needed after the switch tables)</p>
+<p> <a href="http://search.cpan.org/author/NWCLARK/ExtUtils-Constant-0.14/Constant.pm" title="cpan.org">ExtUtils::Constant</a cpan.org> is on CPAN, and works with perl at least as far back as 5.005_03. If you want to auto-generate Makefile.PLs that use it you'll need to run h2xs in perl5.8.0, specifying the <code>-b</code> flag to say what version of perl you want your module to be compatible back to. Oh, and ExtUtils::Constant can do Unicode constants correctly, which is more than the old h2xs code could do.</p>
+<p>And the best bit of all this - if you think my autogenerated switch code sucks, you just write some perl to generate better switch code, wrap it with the same API that ExtUtils::Constant uses, and hey preso, all your constants are switched your way.</p>
+
+
+
+<h2>ExtUtils::Constant</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2002-12-02T15:22:07</h3>
+Quite relieved to see that I am not the only one with these woes so I don't have to feel stupid.<nobr> <wbr></nobr>:-)<br> <br> <i>This makes it very hard to add new constants later on, if later versions of the module you're wrapping add new constants. It also means that you're stuck with whatever lousy autogenerated switch code was the style at the time of the h2xs you ran.</i> <br> <br>That was exactly my second thought after fixing <code>constant_U()</code>: What happens if the next release of mplib has additional constants? I don't want to re-run h2xs (and stuff my XSUBS into it) just to realize later that the constant-switchs weren't able to deal with a particular constant. It must be quite horrible to fix it if you have 50 or so constants. It was already hard enough in this pretty simple case with 15 or so #defines!<br> <br> <i>ExtUtils::Constant is on CPAN, and works with perl at least as far back as 5.005_03. If you want to auto-generate Makefile.PLs that use it you'll need to run h2xs in perl5.8.0, specifying the -b flag to say what version of perl you want your module to be compatible back to.</i> <br> <br>Sounds brilliant! Also, 5.005_03 is the very version which my module claims to be backwards compatible with. The next time anything constant-related changes (or next time I'll tackle an XS module) I'll switch to <code>ExtUtils::Constant</code>. Thanks for mentioning your module!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

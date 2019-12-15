@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autarch: Why I don't like TT</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Why I don't like TT</h1>
+<h2><a href="/user/autarch/">autarch</a> on 2007-05-02T04:02:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>As may be obvious, the first Perl templating tool I ever used is Mason. Because of that, for a long time, I looked at TT but I never used it. I had more or less dismissed it because I didn't see the point of a tool that provided a separate language from Perl. However, at both my last and current day jobs, we use(d) TT. Now I actually have solid reasons for not liking it, as opposed to vague thoughts that it "isn't right". For the record, I've also used HTML::Template in the past on a project, and that has helped inform my thinking on templating systems in general, and TT (and Mason) in particular.<br/><br/>I think the fundamental problem I have with TT is that it is a powerful language that is not Perl, a language with a few fundamental design flaws. There are other aspects of it that bother me, but these are mostly smaller issues of the API which are correctable, and Mason has similar issues, so I can't fault TT in those cases.<br/><br/>The single most pain-causing aspect of TT, IMO, is its variable scoping. Basically, variables in TT have a global scope, with some localization (ala Perl's <code>local</code>) available. However, as Perl 5 demonstrates, lexical scope is a key feature for organizing code and preventing hard-to-debug action at a distance.<br/><br/>I suspect that this wouldn't be a problem if TT didn't also support setting variables. For example, with HTML::Template, most variables are global. This isn't likely to cause a problem, though, because there's no facility for setting variables in a template. This means that no matter how deep into a set of nested templates I may get, if I want to determine the source of a variable, I only need to look at one place.<br/><br/>Contrast this with TT. In TT variables, can be passed in the initial call to <code>Template->process()</code>. But they can also be set in the templates themselves. To make things worse, a variable, once set, is available not only in the current template, but any templates that are included from that one.<br/><br/>Example:<br/><br/>In template1.tmpl:<br/><br/><pre>
+  [% SET size = 'large' %]
+  The size is: [% size %]
+  [% INCLUDE template2.tmpl %]
+</pre><br/><br/>And in template2.tmpl:<br/><br/><pre>
+  The size is still: [% size %]
+</pre><br/><br/>The "size" variable will be available in template2.tmpl as well as template1.tmpl.<br/><br/>This means that trying to track down where a variable was set can quickly become very difficult. To compound matters, my experience suggests that this causes people to simply use <code>INCLUDE</code> without passing any arguments to the called template.<br/><br/>This is one area where Mason gets things exactly right. In Mason, a template (a "component" in Mason-speak) is very closely analogous to a Perl subroutine. The variables in a component are all lexically scoped to that component. If you want to use globals, you have to do so explicitly (<code>$My::Global::Var</code>). When you call another component, it cannot see any variables passed to or created in the caller (with one fairly DWIM-y (and very clearly exceptional) exception). If you want a component to see some variables, you pass them as arguments, just like a Perl subroutine.<br/><br/>Even worse, in TT there are two ways to include another template. In my examples so far, I've used the <code>INCLUDE</code> directive. Unfortunately, because of the way this directive works, it can be a bit slow. However, there is another, faster directive that can be used to include another template, <code>PROCESS</code>. Unfortunately, <code>PROCESS</code> makes the whole variable scope issue much, much more problematic. Basically, when a template is include via <code>PROCESS</code>, it effectively shares the variable "stash" with its caller. This sharing continues down any number of nested <code>PROCESS</code> calls.<br/><br/>If I write something like <code>[% PROCESS template2.tmpl color = 'blue' %]</code> then not only is "color" available in template2.tmpl, it's also now set in the caller! Even worse, if template2.tmpl sets any variables internally, they will be set in the caller. If template2.tmpl then uses <code>PROCESS</code> to include template3.tmpl, variables set in template3.tmpl are visible in both template2.tmpl and template2.tmpl, and so on and so on.<br/><br/>Needless to say, this ability for the <em>callee</em> to overwite the <em>caller's</em> variables is a rich and deep source of bugs. I've experienced this more than once, and debugging these problems is painful. Of course, the obvious (partial) solution is to always use <code>INCLUDE</code>.<br/><br/>Unfortunately, this seems to just be a lot slower than using <code>PROCESS</code> [1]. Back at Socialtext, we spent some time profiling the app, and found that a large amount of our time was being spent in <code>Template::Stash</code>. Once we started switching uses of <code>INCLUDE</code> to <code>PROCESS</code>, our app got quite a bit faster, and <code>Template::Stash</code> disappeared from the profiling. Of course, the code also became more fragile as a result.<br/><br/>There's many other things that bug me about TT, but I'll only mention a few of them, briefly. First, TT does enforce any sort of strictness in variable names, and does not issue warnings on undef. That means that if I typo a variable name in a substitution, or elsewhere, I simply get no output, and no warning of why. I know there is a mode that causes TT to <em>die</em> on undef, but that has its own problems (not good for production, for one). Perl's combination of strict variable names and warnings on undef can really help track down bugs. Why not emulate this?<br/><br/>The other problem is related to this one. If you pass a blessed hashref object to TT, and typo a method name, ala [% object.obejct_id %], TT "helpfully" tries to look up the typoed method name, "obejct_id" in the hash reference. Of course, it won't exist, and so it will be undef, which TT "helpfully" (and silently) uses in the substitution. This too has sapped hours of my life in debugging. However, I suspect that this problem, more than the others, could be fixed <em>relatively</em> easily. I've just got to find my supply of round tuits!<br/><br/>And I often desperately miss destructuring assignment (aka <code>my ($x, $y) = @point</code>), though this can be worked around by returning a hashref instead of an array(ref).<br/><br/>I'm not going to talk much about the arguments <em>for</em> TT. Most of them seem to be about non-programmers editing templates. My experience says that non-programmers handle Mason just fine. But if you don't believe me, I'd suggest that non-programmers will do much better with HTML::Template than TT or Mason, anyway.<br/><br/>I think the fundamental problem with TT is that it is a powerful language, not too dissimilar from Perl, but not really similar enough. It provides plenty of rope for self-hanging, but the shotgun blast doesn't quite blow your foot off it you so desire, to mix two common Perl metaphors. Personally, I'd rather strangle sans foot with Mason, or if I must, stick a cork on my fork with HTML::Template.<br/><br/><strong>Update</strong>: Please also read <a href="http://use.perl.org/user/autarch/journal/33178">A brief followup to "Why I don't like TT"</a>.<br/><br/>
+1. My guess is that one of the following occurred. Either <code>INCLUDE</code> came first, and was too slow, and thus <code>PROCESS</code> was created, or perhaps <code>PROCESS</code> was too bug-inducing, and therefore <code>INCLUDE</code> was added. Either way, I wish <code>INCLUDE</code> was the only option, and was faster ;)
+</p>
+
+
+<hr/>
+
+
+
+<h2>Flagging undefs</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2007-05-02T04:12:56</h3>
+You can have the undef checking if you pass in DEBUG =&gt; DEBUG_UNDEF to the Template-&gt;new() call.
+
+
+
+<blockquote>
+
+<h2>Re:Flagging undefs</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-05-02T09:13:49</h3>
+As I understand it, the saying goes "Friends don't let friends use the pure-Perl stash". By Template::Stash did you mean you weren't using the XS stash?
+
+
+
+<blockquote>
+
+<h2>Re:Flagging undefs</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2007-05-02T14:07:15</h3>
+No, we used the XS Stash. Nonetheless, using <code>INCLUDE</code> caused the Stash cloning to be a major performance issue.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Flagging undefs</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2007-05-02T14:09:45</h3>
+Well, it'll throw an error on undef if I do that. I did mention that option exists in my entry. It's hardly ideal, and you can't necessarily use it in production. I'd prefer that it warn on undef, like Perl with "use warnings".<br>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Amen, brother</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-05-02T09:25:49</h3>
+<p>Preach it, far and wide.</p>
+
+<p>The problem with variables is further exacerbated by the fact that TT&#8217;s grammar blows. Most importantly, the parser cannot handle arbitrary r-values in list and hash literals &#8211; only constants and variables. This, more than anything else about the language, drives absolutely nuts. It forces the use of temporary variables where none should be necessary. Combine that with the weak scoping, and you get a veritable mess.</p>
+
+<p>I also have other things to say about the topic in general, but more on that later.</p>
+
+
+
+<h2>Two words</h2>
+<h3><a href="/user/Phred/">Phred</a> on 2007-05-02T14:20:50</h3>
+<p>Mason::Strict</p>
+<p>Some good arguments you have there, but Mason's failing grace is that people take it too far.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Two words</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2007-05-02T14:44:47</h3>
+<p><div class="quote">Some good arguments you have there, but Mason's failing grace is that people take it too far.</div> A "failing grace"?<br><br>Anyway, I agree, people take it too far. Obviously, the same is <em>easily</em> possible with TT as well, as evidenced by the templates at my current job, which contain huge amounts of code. At least with Mason, when people take it too far, they're doing it in Perl, which is a well-designed language.<br><br>Of course, my ideal is to use Mason just for the view. With modern frameworks like Jifty and Catalyst, I think this has become easier, since the controller pieces of these tools are very powerful, and it's easy to put your logic in the controller and model, as appropriate.
+
+
+
+<blockquote>
+
+<h2>Re:Two words</h2>
+<h3><a href="/user/Phred/">Phred</a> on 2007-05-02T18:00:17</h3>
+<p>By failing grace I meant that mason's complexity is it's downside.  After poking around all of TT's innards, I find myself wishing for a simple Perl based templating system, hence Mason::Strict<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>your problem is that it isn't mason</h2>
+<h3><a href="/user/TeeJay/">TeeJay</a> on 2007-05-02T14:31:15</h3>
+From what you say, it seems that your problem with TT is that you can't write arbitary code in it, you can using the embedded perl, but most people don't need or want to.<br><br>I've used H::T in anger for over a year on some complex applications.. and trust me it was far far far worse than the small problems you're experiencing. Up to 50% of code in much of what we wrote was assembling, marshalling and pre-fetching data so that H::T could deal with it. Bugs were impossible to track down, and the templates were hugely convulted to work around H::T's limitations.<br><br>MASON is too far in the other direction - while H::T allows you to do to little, forcing you to pre-assemble your data structures and be unable to do anything beyond loops and conditionals, MASON is just perl embedded in HTML with syntactic sugar. No thanks.<br><br>In the 6 years I've been using TT I've never had any of the complaints you've mentioned, and I use it heavily - it's a significant part of how Maypole and the Maypole Applications I've built work - but the thing is - I treat it as a proper templating system.<br><br>The only issue I have with TT is one you haven't used it enough to notice.. it's magical context can make things that behave differently in different contexts play up. That's trivial to work around (in fact in the case I had this morning, it resulted in a much clearer template).<br><br>Maybe you (or your employers) should stop using TT as if it was ASP or PHP and learn to make the most of some well known design patterns like 'seperatio n of concerns' and MVC.
+
+
+
+<blockquote>
+
+<h2>Re:your problem is that it isn't mason</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2007-05-02T14:41:59</h3>
+Wow, this is a classic fanboy response. "If you really knew how to use tool X, you'd appreciate it's greatness. Maybe you should go learn that."<br><br>For the record, I've spent about 2.5 years using TT at work between my last and current job. At Socialtext, we went through a major rewrite of the templates to support a new UI, so I saw a couple generations of TT use there.<p><div class="quote">From what you say, it seems that your problem with TT is that you can't write arbitary code in it, you can using the embedded perl, but most people don't need or want to.</div> That is not my complaint at all. First of all, you <em>can</em> write arbitrary code in TT quite easily, without resorting to embedded Perl. It's a powerful language all by itself, just a poorly designed language.<br><br>It's true that we could've done a much better job at separating concerns, and if I had been involved in writing the templates from scratch, I like to think we would have. However, TT does not force you to do this, any more than Mason does. HTML::Template really will force you to do this, which isn't a bad thing. And yes, I have experienced the HTML::Template issue where you spend huge amounts of code marshalling objects into monster data structures. I don't really like H::T much more than TT, but forced to pick between the two, I'd probably go with H::T.<br><br>Saying Mason (not "MASON", like it's not "PERL") is "too far the other way" is not much of an argument. Mason's strength is that it's very predictable, because it will act like you'd expect, as long as you expect it to act just like Perl. I absolutely love this aspect of Mason. Yes, people abuse it, just like they abuse TT. That's hardly an argument against either one.<br>
+
+
+
+<blockquote>
+
+<h2>Re:your problem is that it isn't mason</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-05-02T15:36:33</h3>
+<p><div class="quote">Wow, this is a classic fanboy response. "If you really knew how to use tool X, you'd appreciate it's greatness. Maybe you should go learn that."</div>  <p>While I won't comment on how well this applies in this particular case, it's a serious problem that many people have.  While admittedly complex systems often <em>must</em> be complex to learn, there comes a point when non-obvious behavior of a system's use points to design flaws that can't be papered over with "just read the docs".</p>
+
+<p>A perfect example is the hotel I stayed in with the Nordic Perl Workshop.  Several of us were there and while I managed to avoid the problem, a couple of us wondered what the extra knob on the sink was and managed to drench themselves after discovering that the entire bathroom doubled as the shower.  <em>That</em> is a design flaw.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Horses for courses</h2>
+<h3><a href="/user/draegtun/">draegtun</a> on 2007-05-02T14:48:24</h3>
+TT is a powerful beast.... perhaps too powerful for it's own good!
+<br> <br>
+I use it for lots of things beyond just pure HTML templating....  things like pre processing, XML creation &amp; providing a variety data exports (TT syntax is so easy for low techie users to pick up and amend to produce exports to their own requirements).
+<br> <br>
+So I like TT.... warts and all<nobr> <wbr></nobr>;-)
+<br> <br><nobr> <wbr></nobr>/I3az/
+
+
+
+<h2>it's in the way that you use it</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-05-02T19:30:44</h3>
+<p>Like most things, TT can be used in ways that hurt, or ways that don't.  The problems you've had with variable scoping have never been an issue for me because I only use TT the way I use H::T, passing in variables at the beginning and never setting or modifying any inside a template.  Setting variables in a template seems like a strange idea to me, since TT is my view, not my model.  (Why not just use H::T then?  I do, at my current job.  But TT offers some extra features that I miss.)</p>
+<p>
+Most people's critique of TT seems to come down to some variation of "it lets me do something I shouldn't do."  I have a lot of sympathy for that.  If I could remove some TT features, but keep the rest, I would.  I don't really see Mason being the answer to a problem of permissiveness though.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:it's in the way that you use it</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2007-05-02T19:53:18</h3>
+I agree that if you never alter/set variables in a template, then TT probably works very well. The problem with this is exactly what Teejay mentioned in an earlier post in reference to HTML::Template. I find that this style ends up in rather complex gyrations to generate complex data structures to be passed into the "first" template.<br><br>With TT, this might be partially ameliorated because you can pass in objects and call methods on them. Nonetheless, insisting that you <em>never</em> set or create variables in templates seems pointlessly restrictive. Of course, with TT, it might be a good restriction, because of its scoping issues. With Mason, creating variables in a template (in moderation) hardly seems like a problem, because of its scoping.<br><br>I've never bought into the whole "it's a view so you can't write code". The view has its own logic, separate from the logic of the controller or model, and writing code to handle it is perfectly natural.<br><br>The temptation with Mason (and TT) is to put non-view logic into your view. Mason used to sort of encourage this, as it didn't make it easy to move logic to the controller. With a project I'm currently working on, I've adopted Catalyst, and that provides a great framework for putting logic in the controller. I already was pretty good about letting the model be the model, anyway.<br>
+
+
+
+<blockquote>
+
+<h2>Re:it's in the way that you use it</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-05-02T21:10:32</h3>
+<p>
+The ability to work with arbitrary perl data structures that TT provides makes it pretty easy to pass in whatever you happen to have and use it.  I sometimes do some rearranging, but only to make the templates simpler and more abstracted from the rest of the code.
+</p>
+<p>Not setting variables was never a problem for me.  I actually wondered what the point of the SET command was.  I still have trouble thinking of a use for it that doesn't sound like a mistake.  Parameterizing some sort of macro I guess?  A naming convention seems like a workable solution for something that simple.</p>
+<p>
+At any rate, I agree about coding in the view -- it's fine, and unavoidable.  I don't think any of the solutions that don't include loops and conditionals are reasonable.  Setting variables sounds like it's going further though, and has never seemed necessary to me.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:it's in the way that you use it</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2007-05-02T21:45:10</h3>
+I think there's one common case you're not thinking of, which is passing arguments from one template to another. That is basically setting variables, and in TT, can cause havoc when done with <code>PROCESS</code>. Similarly, loop variables are also variables you set. Scoping matters here as well, though at least TT does lexical-ize loop variables.<br><br>For other examples, think of why you might use short-lived lexical variables in  method. The reason I usually do this is to avoid repeating a longer, more complex expression. For example, I might have a complex conditional that needs checking more than once, or a ternary operator to decide between couple options.<br><br>I find myself in exactly the same position with templates. For example, maybe I need to calculate a class name that will be used on several similar elements:<p><blockquote> <div><tt>&lt;ul&gt;<br>
+&nbsp; [% class = thingy ? 'abc' : 'xyz' %]<br>
+&nbsp; &lt;li class="[% class %]"&gt;some text&lt;/li&gt;<br>
+&nbsp; &lt;li class="[% class %]"&gt;more text&lt;/li&gt;<br>&lt;/ul&gt;</tt></div> </blockquote> I don't want to repeat the ternary for every darn list item, and calculating the class in the controller seems like the wrong place to put that code.<br><br>This is mildly contrived, but I think this expresses the spirit of why I find myself setting variables in templates.<br>
+
+
+
+<blockquote>
+
+<h2>Re:it's in the way that you use it</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-05-03T16:03:18</h3>
+You might want to take a look at Andy's <a href="http://www.template-toolkit.org/pipermail/templates/2007-May/009379.html" title="template-toolkit.org">post</a template-toolkit.org>  today on this subject, where he suggests using some basic namespaces to keep your temporary template stuff separate from your model data.  I think that's a good enough solution for every use I've seen.
+
+
+
+<blockquote>
+
+<h2>Re:it's in the way that you use it</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2007-05-03T19:37:11</h3>
+That wouldn't really solve my problem. Sure I could start sticking all per-template variables in a hash called "page" and access them via <code>[% page.class %]</code>. How is that any different than just using "class"? In fact, it's worse, because now I'm not even protected when I use <code>INCLUDE</code>.<br><br>To actually make this technique provide any safety, I'd have to use a <em>different</em> per-template top-level variable for every template! In effect, I'd be attempting to imitate lexical scoping manually. Madness, I say.<br>
+
+
+
+<blockquote>
+
+<h2>Re:it's in the way that you use it</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-05-03T19:50:59</h3>
+What's different about it is that it slices up the namespace into small enough chunks that you can easily keep them in your head.  If the only thing under page.* is temporary local variables for parameterizing your templates, you never have to worry about collisions with things passed from the perl code.  It's unlikely that there would be so many disparate templates involved in a single request that keeping track of the temp variables set in them would become a problem.<br><br>If it is still a problem for you then I suspect you may be making your templates too complicated and parameterized.  I try to strike a balance between DRY and KISS.  My templates tend to be dirt simple for the reasons you alluded to before: they aren't real perl, there's no real debugger for them, etc.  I also want them to be simple for the other reason you mentioned: letting HTML coders work on them without my help.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

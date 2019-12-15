@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rcaputo: POE Supports Other Event Loops, Really</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>POE Supports Other Event Loops, Really</h1>
+<h2><a href="/user/rcaputo/">rcaputo</a> on 2009-09-11T05:57:26</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Lately I've been hearing, <a href="http://www.catalyzed.org/2009/06/poe-anyevent321-fight.html">repeatedly</a> and <a href="http://www.slideshare.net/miyagawa/asynchronous-programming-with-anyevent">loudly</a>, that POE doesn't work with other event loops.  I wrote the first bridge between POE and another event loop in May of 2000, so this is rather shocking news to me.  I've had to rerun "make test" just to be sure I wasn't dreaming! <tt>:)</tt></p>
+
+<p>Here is a slightly edited repost of my reply to <a href="http://bulknews.typepad.com/blog/2009/09/asynchronous-programming-with-anyevent.html">Tatsuhiko Miyagawa</a>, who writes in regards to his YAPC::Asia presentation:</p>
+
+<blockquote>
+Rocco, the author of POE pointed out that slides 19-21 are misleading since POE also has the POE::Loop concept so that you can run your event loop under different backends like EV or Gtk. While that is true (and that is great), POE still can't run with the other main loop, like IO::Async::Loop-&gt;loop_forever. You still need to call POE::Kernel-&gt;run and to do so you should rewrite your main program to use POE everywhere, since existent IO::Async based program can't run any of POE::Component, which is totally possible with AnyEvent and AnyEvent::* modules.
+</blockquote>
+
+<p>I respectfully disagree, and I have code to back me up.</p>
+
+<p>POE runs with other main loops.  In fact, POE::Kernel-&gt;run() is often implemented in terms of native event dispatchers.  POE::Loop classes implement event watchers using native watchers, and native callbacks are used to generate POE events.  Your call to $kernel-&gt;select_read() becomes Event-&gt;io(), Gtk::Gdk-&gt;input_add(), etc.</p>
+
+<p>Depending on the POE::Loop implementation, POE::Kernel-&gt;run() need not be called upon to dispatch events.  This is CPAN, so your mileage may vary.  If you're interested in improving CPAN, submit bug reports to the appropriate queues.</p>
+
+<p>I mentioned I had code.  Here's a working example of POE code and native Glib code running together in the same program, using Glib's MainLoop:</p>
+
+<pre>
+use Glib; # Install POE::Loop::Glib.
+use POE;
+
+POE::Session->create(
+  inline_states => {
+    _start => sub { $_[KERNEL]->delay(tick => 1) },
+    tick => sub {
+      print "poe tick at ", time(), "...\n";
+      $_[KERNEL]->delay(tick => 1);
+    },
+  },
+);
+
+my $glib_timer = Glib::Timeout->add(
+  500, sub {
+    print "glib tick at ", time(), "...\n";
+    return 1;
+  }
+);
+
+# Dispatches Glib and POE events.
+Glib::MainLoop->new->run();
+</pre>
+
+<p>Of course you can call POE::Kernel-&gt;run() instead of Glib's main loop.  This is a good thing.  A single, portable run() method covers every supported event loop.</p>
+
+<b>Addendum:</b>
+
+<p>Things get really interesting when you realize that POE can be loaded into event loops that are already running.  For example, Martijn van Beers and Chris Williams have been <a href="http://use.perl.org/user/BinGOs/journal/31221">running POE inside irssi</a> for years.  Chris has even embedded <a href="http://use.perl.org/user/BinGOs/journal/32846">an entire POE-based IRC server in irssi</a>, which got a little mind-bendy when he connected to irssi from itself.  Both cases work without rewriting irssi's main program.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Thanks</h2>
+<h3><a href="/user/awwaiid/">awwaiid</a> on 2009-09-14T15:19:29</h3>
+<p>Thanks for this example, I find it clarifies the run-loop conflict (or lack thereof) quite clearly.</p><p>--Brock</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Matts: rsync'ing DNSBL zones</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>rsync'ing DNSBL zones</h1>
+<h2><a href="/user/Matts/">Matts</a> on 2005-06-10T13:35:16</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>These days most people rsync DNSBL zones rather than relying on AXFR which is slower and uses more bandwidth. We do this ourselves with a large internal DNSBL zone that averages about 150MB (or 2.7million entries).<br/><br/>Unfortunately we found out that every rsync it was transferring the entire thing across the wire, which really gives us no benefit over AXFR except perhaps for reliability.<br/><br/>The first thing I found was that we were creating the zone from an in-memory hash by just going through keys(). Since this is a hashtable it pretty much randomised the list every time (give or take). Changing the ordering every time makes rsync just transfer the whole lot. Making it sort(keys()) fixed that (despite my concerns about blowing the time it took to run, or the memory used, it was all OK).<br/><br/>Unfortunately this didn't fix the basic problem of transferring the whole thing. Something else was wrong.<br/><br/>It occurred to me that since this was a sorted list of IP addresses that inserting a new IP every 20 lines or so would probably blow rsync's view of differences out of the water. The way rsync works is to split your file up into "blocks", checksum each block and transfer those checksums over the wire. For every block that doesn't match the remote end sends back the changed blocks. The rsync client uses a heuristic block size depending on the size of the file (larger block sizes for bigger files), so for my DNSBL it was using a block size of around 12KB - clearly big enough to mis match every time. What I needed was a block size closer to a few lines. Through trial and error I found out that the required size was around 400B.<br/><br/>Now comes the problem with rsync: rsync is stupid.<br/><br/>The reason that rsync chooses larger block sizes for larger files isn't because it means less checksums get transferred, it's to minimize the chances of a hash collision (basically a fix for rsync's birthday paradox). By default rsync uses a pretty small checksum - a CRC32 plus the first 2 bytes of the md4 of the block. Now what we have done by reducing the block size is massively increase our chances of collisions.<br/><br/>Luckily rsync recognises this, but not after it's done the ENTIRE TRANSFER first. After it recognises "Oh, we've had collisions, duh!", it switches to full checksum mode, which simply transfers the full md4 checksum for each block. Basically resulting in doing the whole thing twice (the rsync output says "redoing file(0)").<br/><br/>And yes, there is no command line switch to just tell it to do the large checksums first. Lame. Also what I found on the mailing list archives was a patch to do CRC + 4 bytes, which would also fix this, but it breaks the rsync protocol for everything else you want to rsync with, so we'd have to maintain a custom dnsbl-rsync.<br/><br/>It turns out that it would be easier (though MUCH less reliable) to simply do a diff(1) and send that. I'm going to work on a proposal that tries to do that first, and resort back to rsync if that fails.</p>
+
+
+<hr/>
+
+
+
+<h2>There's always plan B...</h2>
+<h3><a href="/user/Elian/">Elian</a> on 2005-06-10T13:59:45</h3>
+Have you considered keeping a timestamp for each entry and sorting the output by the time the entry was added to the list? That'd tend to keep things smaller if you've mostly got additions to the list, since the changes will all be clustered at the end of the file. (Deletions would mess this up some, but no worse than what you've got now, I expeect)
+
+
+
+<blockquote>
+
+<h2>Re:There's always plan B...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2005-06-10T14:50:33</h3>
+It's complicated by the fact that this dnsbl zone is a merge of multiple zones, with the IP address returned being a bitmask of the zones. Some have timed out entries, but others are pretty static, and for the merged one it would be almost impossible to do easily.<br> <br>I think a diff is going to be much easier to make work. We should be able to check the return code from patch() to see if it applied, and if not resort to rsync. And maybe rsync once a day anyway just to be sure.
+
+
+
+<blockquote>
+
+<h2>Re:There's always plan B...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2005-06-10T14:53:54</h3>
+Hmm. Another thought just occurred to me, which is a merge of our two ideas...<br> <br>Do the diff, but then go through the diff and do all the &lt;'s first, removing those lines. Then just add all the &gt;'s at the end.<br> <br>Genius!
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>multiround rsync</h2>
+<h3><a href="/user/mjs/">mjs</a> on 2005-06-10T23:23:18</h3>
+<a href="http://www.livejournal.com/users/bramcohen/17597.html" title="livejournal.com">http://www.livejournal.com/users/bramcohen/17597.html</a livejournal.com>, and the paper it refers to <a href="http://www-2.cs.cmu.edu/user/jcl/research/mrsync/mrsync.ps" title="cmu.edu">http://www-2.cs.cmu.edu/user/jcl/research/mrsync/mrsync.ps</a cmu.edu> (Multiround Rsync), may be of interest.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

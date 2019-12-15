@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Imager::Search 1.00 - Image recognition at 5 frames a second</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Imager::Search 1.00 - Image recognition at 5 frames a second</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2008-09-02T03:54:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>A couple of years ago, I first came up with the idea of doing basic image recognition using the Perl regular expression engine.<br/><br/>Using Imager for the underying cross-platform image handling, I got a basic first version working by converting each pixel to a HTML colour code, building the image string and a search regex, and then converting the character match positions back into pixel terms.<br/><br/>And it worked great, until I tried to scale it up to the type of image you might actually want to look at the most, screen shots. At the time I needed to monitor OS X machines for any unexpected popups, because these were advertising displays, and that sort of thing is embarrasing.<br/><br/>Once I tried to apply the search technique to something the size of a 1024x768 screenshot, the overheads of transforming a million pixels in Perl started to bite hard.<br/><br/>While the regexp search might take 0.01 second, building the search image was taking something like 10 seconds. Just barely acceptable in my passive monitoring case, but not good for much else (like, say, writing a solitaire bot).<br/><br/>While on the flight home from YAPC::EU (via Iceland) I finally spent some time reorganising the search code into a driver API, and trying what I think is a much better approach.<br/><br/>If the most expensive part of the job is converting the search image, why not use a NATIVE image format for which fast C encoding already exists, build it in memory and then regexp it there. We shift more work into generating the search image, and a lot more work in working out where the hell the match is in pixel terms, but for hopefully a large net win.<br/><br/>And it turns out that 24-bit Windows BMP files make for a reasonably decent search image format. Of course there's the small problem of the scanlines going from bottom to top, and the fact the red/green/blue bytes are around the other way, and the small matter of each scanline being aligned in dword terms, resulting in between 0 and 3 useless bytes at the end of each line depending on the width of the line, but it turns out that with some funky post-match math , judicious use of quotemeta, and some post-processing of matches to remove false positives, you can generate a search expression that will quite comfortably search for an image inside of a native Windows BMP file.<br/><br/>Whereas the old time to capture and prepare a 1024x768 search image as #RRGGBB was around 10-12 seconds, the time to capture and prepare a 1024x768 native BMP file is in the vicinity of 150 <b>milliseconds</b>, which is almost two orders of magnitude faster.<br/><br/>Combining a 0.15 second capture cost with a 0.01 second regexp cost and another 0.01 to generate the search expression, the result is that using the new default "BMP24" driver, <a href="http://search.cpan.org/perldoc?Imager::Search">Imager::Search</a> can monitor the desktop for images at around 5 frames a second!<br/><br/>This has the makings of a truly awesome Solitaire bot, or maybe even something like pinball...<br/><br/>This has got me thinking though, could I make it even faster again?<br/><br/>I'm now pondering the idea of a platform-specific Windows or X11 driver that would bypass Imager for the capture step altogether, and instead generate a search expression for whatever the raw byte string is that comes out of the screen capture system call...<br/><br/>The other major addition I need to add is to support transparency (1-bit transparency for now anyways) in the search image.<br/><br/>But for now, I'm happy enough with the new fast Imager::Search version to stamp it as 1.00 and release it.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Related stuff</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2008-09-02T09:14:40</h3>
+<p>For a pet project* of mine, I needed to do some image processing/recognition from a video camera. First, I wrote the recognition algorithm with PDL, which turned out to be just a few, maybe five, lines of very dense code.</p><p>It turned out to be very difficult to use the resulting, transformed image in the way I wanted to, because passing it from the video4linux driver (JPEG output) to perl/PDL (binary PNM is the keyword there) to SDLPerl took *a lot* longer than the actual processing.</p><p>So I rewrote the whole thing in an ugly conglomerate of C&amp;C++. Eventhough I tried to optimize it, the image processing part never was much faster than those five lines of PDL code. But the integration with SDL and friends was much more seamless. (There's actually documentation for SDL, woah!)</p><p>So maybe you'd be best off do parts of what you want in C/XS by hand.</p><p>Oh, and in terms of throughput, I'm currently limited by the 640x480 and 25fps the camera provides. My CPU usage on a 1.8GHz Core2 is hovering around 15%, but that includes decompressing the jpg, transforming it to pnm, switching the red and blue bytes, running the recognition on it, passing it to SDL (with a pointer, which was the core of the efficiency problem in Perl), rescaling it to the screen resolution, and displaying it.</p><p>Cheers,<br>Steffen</p><p>* I seem to have an infinite number of those.<nobr> <wbr></nobr>:(</p>
+
+
+
+<blockquote>
+
+<h2>Re:Related stuff</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-09-02T11:39:00</h3>
+<p>Given that I'm using a 1024x768 on 1.5Ghtz hardware, that suggests that the mechanism I'm using could just about handle your camera feed, albeit at around 100% of CPU. Granted I'm not displaying the results, but this is probably still only around an order of magnitude slower.</p><p>Since the regex itself only costs less than 0.01 seconds, that just leaves the overhead of the capture call itself (which could itself contain a Windows internal transformation) and the non-trivial cost of packing the bytestream into Imager::RawImage structures, and then sucking them back out again into BMP format.</p><p>I suspect that the stream-&gt;struct-&gt;stream cost is most likely the biggest removable cost, by a significant margin.</p><p>So once we've managed to remove that cost, maybe then we can see if there's a stray variable copy or something that is removable. Or perhaps by pulling the screenshot at 24-bit vs 32-bit vs whatever, we can somehow avoid a transform in the Windows layer and speed up that bit.</p><p>For now, I'm really happy that I can achieve these sorts of speeds in pure Perl (ignoring the work of Imager) because it means it's going to be a lot more flexible in the ways it can be applied. And many systems only really need one frame per second capturing, so we're talking 25% of a CPU, which isn't too intensive for many types of use cases.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Alternatives</h2>
+<h3><a href="/user/tonyc/">tonyc</a> on 2008-09-03T01:00:53</h3>
+<p>If we could create an SV which pointed at memory not managed by perl, we could create one which pointed at Imager's internal image representation, and match against that.  But I don't know of a way to do that.</p><p>Another option could be to use the getsamples() method to fetch each scanline of the image.  This won't avoid the basic overhead of copying, but it will avoid the overhead of Imager's I/O abstraction.</p><p>A final option could be XS that either used i_gsamp() or the image's internal representation to perform the search, since Imager::Search::Driver::* only seem to use regexps to handle line skipping, there's no handling of partial matches, eg. using 0 in the alpha channel to indicate not checking against that pixel.</p><p>Of course, I suppose could get off my tail and do any of these...</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

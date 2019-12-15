@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Overriding Methods with Non-Existent Methods</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Overriding Methods with Non-Existent Methods</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-06-26T15:57:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Today I spent a few hours trying to nail down a nasty bug.  Once I could replicate a small test case, what finally clued me in was an error message that looked impossible, but I remembered seeing it somewhere before.  I just couldn't remember where.  Consider this:</p>
+
+<pre>if ($c->user || $c->authenticate(undef, 'Pips Realm')) {</pre>
+
+<p>That was failing with "Undefined subroutine &Pips3::user called at ..."</p>
+
+<p>Wait! What?  I didn't call a subroutine.  I called a method!  What the hell is going on?</p>
+
+<P>For our tests, we sometimes override the authenticated user in our Pips3 application.  The core of this code looks like this:</p>
+
+<pre>sub new {
+    my ( $class, $user ) = @_;
+
+    unless (defined wantarray) {
+        croak('PIPTest::User->new($user) must not be called in void context');
+    }
+    my $self = bless {
+        pips_user => \&Pips3::user,
+        cat_user  => \&Catalyst::Request::user,
+        user      => $user,
+    } => $class;
+
+    $self->_set_user($user);
+    return $self;
+}
+
+sub _set_user {
+    my $self = shift;
+
+    # Get reference to sub returning the user object
+    my $coderef = $self->_return_user_coderef;
+
+    # Override Pips3::user
+    {
+        no warnings 'redefine';
+        *Pips3::user             = $coderef;
+        *Catalyst::Request::user = $coderef;
+    }
+
+    # Return the user object for convenience
+    return $coderef->();
+}
+
+sub DESTROY {
+    my $self = shift;
+    no warnings 'redefine';
+    *Pips3::user             = $self->{pips_user};
+    *Catalyst::Request::user = $self->{cat_user};
+}</pre>
+
+<p>When you call 'new' with a valid user name, you get a token back and while it is in scope, you have overridden the user for the application.  I was quite happy with this code, but there's a nasty, nasty bug in it.  Once I remembered what it was, the fix was painfully obvious.</p>
+
+<p>In Perl, when you try to pull a coderef out of a typeglob, you sometimes get some strange behavior:</p>
+
+<pre>sub Foo::bar {'foo'}
+
+my $code1 = *Foo::bar{CODE};
+my $code2 = *Foo::no_such_subroutine{CODE};
+print "$code1 $code2";
+__END__
+# output is something like:
+
+foo
+CODE(0x8063d94) CODE(0x8063d70)</pre>
+
+<P>As you can see, you apparently get a code reference.  If you try to call it, though, it will give the following error message "Undefined subroutine &main::no_such_subroutine called at ...".  It even remembers the name of the non-existent subroutine!  Even stranger:</p>
+
+<pre>#!/usr/bin/perl -l
+
+sub Foo::bar {'foo'}
+*Foo::baz = \&::baz;
+
+print Foo->bar;
+print Foo->baz;
+__END__
+foo
+Undefined subroutine &main::baz called at test.pl line 7.</pre>
+
+<p>Wait! What?  I didn't call a subroutine.  I called a method!  What the hell is going on?</p>
+
+<P>Ooooooohhhhhhhh.</p>
+
+<P>In Catalyst, when you use a plugin, your application gets the methods because it inherits them.  It doesn't install them into your namespace.  Thus, when Pips3 used the authentication plugin, my constructor above, trying to grab a reference to <tt>&amp;Pips3::user</tt>, was clearly stupid.  What's worse, when I tried to restore it, I had a non-existent method overriding an existing one!  How's that for a blunder?  The fix is simple:</p>
+
+<pre>sub new {
+    my ( $class, $user ) = @_;
+
+    unless (defined wantarray) {
+        croak('PIPTest::User->new($user) must not be called in void context');
+    }
+    my $self = bless {
+        pips_user => Pips3->can('user'),
+        cat_user  => Catalyst::Request->can('user'),
+        user      => $user,
+    } => $class;
+
+    $self->_set_user($user);
+    return $self;
+}</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Feature-ish</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-06-26T17:14:33</h3>
+<p>This "strange behavior" is so that you can take a reference to an as-yet-undefined sub and call it later through the reference.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of phillup: Testing Mason autohandlers</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Testing Mason autohandlers</h1>
+<h2><a href="/user/phillup/">phillup</a> on 2004-11-13T00:56:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>In <a href="http://use.perl.org/user/phillup/journal/21827">my last installment</a> I found out that destruction of objects durning global garbage collection happens in a somewhat random order.<br/><br/>So, I need to make sure that all of my code undefines the $session instead of letting Perl do it for me. This way I know that the objects I'm referring haven't been destroyed yet and I can clean up properly.<br/><br/>Since this code runs in a Mason environment, the natural thing to do was insert a cleanup section in my autohandlers. But, I wasn't sure I had got them all.<br/><br/>And, I wanted to make sure that if I created an autohandler in the future that I remembered to clean my session.<br/><br/>Since I'm working on tests for the application, this seemed like a natural fit. So, I wrote a test to check all of my autohandlers for the correct code.<br/><br/>Now, if I create another autohandler it will get caught by the test script. At the very worst I'll have to update the plan. But, I won't forget to clean my session!<br/><br/>--- the code ---
+<pre>
+#!/usr/bin/perl<br/><br/># check all of the autohandlers and dhandlers and make sure that they have a cleanup section
+# that undefines the $session variable if they do not inherit from another file<br/><br/>use strict;
+use warnings;<br/><br/>use Test::More tests => 20;<br/><br/># start in this directory
+my $app_dir = '/home/Mason/comp/Gradebook/';<br/><br/>use File::Find::Rule;<br/><br/>my $rule = File::Find::Rule->new;
+$rule->or(
+    $rule->new->directory->name('CVS')->prune->discard,
+    $rule->new->directory->name('Admin')->prune->discard,
+    $rule->new->file->name('autohandler'),
+    $rule->new->file->name('dhandler')
+  );
+  
+my @files = $rule->in($app_dir); <br/><br/>foreach my $handler (@files) {
+  # open our file and read it in
+  open I, $handler or print 'Bail out!';
+  local $/;
+  my $code = <I>;
+  close I;<br/><br/>  # first we need to check and see if this autohandler inherits from another
+  if ($code =~ m|^<%flags>\ninherit=>'undef'\n</%flags>|sm){
+  
+    # if it doesn't then it should have a cleanup section
+    # let's grab the contents
+    $code =~ m|^<%cleanup>(.*)</%cleanup>|sm;
+    my $cleanup = $1 || ''; # so we don't trigger a warning with undefined scalar
+    
+    # and check to see that we are triggering the DESTROY method of our session   
+    ok( $cleanup =~ m|undef \$session;$|sm , "$handler cleans the session" );
+ } # if inherits
+  
+} # foreach handler
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Not a good idea</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2004-11-13T17:41:05</h3>
+If you call $m-&gt;abort, or just die, then the cleanup sections never get run.  It'd be better to write a custom handler, wrap the call to Mason in an eval block, and do cleanup after that.
+
+
+
+<blockquote>
+
+<h2>Re:Not a good idea</h2>
+<h3><a href="/user/phillup/">phillup</a> on 2004-11-13T19:09:23</h3>
+Yeah, this was one of those 80% solutions.<br> <br>I started with the custom handler but it wasn't playing nicely with some of my internal redirects. So, this was kind of a "quick hack" 'till I could study the problem a bit more.<br> <br>The flip side of the coin is that I never had a problem in the Mason environment with the session and just letting it get destroyed during global destruction. I did, however, notice the problem when I needed to make a change to the database and decided to use the session module to do most of the work... because it already had methods in it to do what I needed.<br> <br>It was while writing a script to run from the command line that I noticed the problem with the session.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

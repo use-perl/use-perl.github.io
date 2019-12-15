@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: Real XS pleasures</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Real XS pleasures</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2002-11-02T11:18:56</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Continuing with MP3::Mplib, this morning I've been testing some things more in depth. One one of my concerns was memory usage. One usually doesn't care much about that when writing pure Perl since perl, the interpreter, takes care of freeing memory when necessary (except when it doesn't, but those cases are well known like circular references). XS however is a different pair of shoes.<br/><br/>I had this code in my test script (while keenly watching top's output sorted by memory-usage):<br/><br/><code>
+for (0 .. 1000) {
+    print ".";
+    MP3::MPlib::set_tag("test_cp.mp3", 2, $tag);
+    MP3::Mplib::clean_up("test_cp.mp3");
+}
+&lt;STDIN&gt;;
+</code><br/><br/>I was startled to see that perl ate about 19meg of RAM by the time it had reached the <code>&lt;STDIN&gt;</code>. <br/><br/>So I started cluttering my C code with lots of <code>"free(...);"</code>, but to no avail at all. I started to get quite frantic since if I weren't able to resolve that the module could never make it to the CPAN.<br/><br/>But finally I found out that not the large structures from the mplib caused the leak, but a quite inocently looking <code>"char *"</code> value:
+<pre>
+<code>
+void clean_up(filename)
+    PREINIT:
+        STRLEN len;
+    INPUT:
+        SV * filename;  /* &lt;==== LEAK!! */
+        char * file = SvPV(filename, len);
+    INIT:
+        id3_tag_list * taglist;
+        id3_tag * tag;
+        int i, j;
+    PROTOTYPE: $
+    PPCODE:
+        taglist = mp_get_tag_list_from_file(file); ...
+</code>
+</pre>
+So all I had to do was adding a <code>"free(file)"</code> to the end of each of my XSUBS. Now perl finally behaves nicely. I wonder that this is mentioned nowehere in perlguts.pod or perlxs.pod even though it appears to be a common case.<br/><br/>Anyway, Life Is Good! (sometimes)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

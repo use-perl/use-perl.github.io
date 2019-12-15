@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: How many test harnesses are too many?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>How many test harnesses are too many?</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-11-26T09:43:49</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Before I start, let's agree on what a test harness is, taken from <a href="http://en.wikipedia.org/wiki/Test_harness">the Wikipedia description of test harnesses</a>:</p>
+
+<blockquote>In software testing, a test harness or automated test framework is a collection of software and test data configured to test a program unit by running it under varying conditions and monitoring its behavior and outputs. It has two main parts: the Test execution engine and the Test script repository.</blockquote>
+
+<p>While I know I have a tendency to disagree with people about definitions of things, I think this is a definition that we can, if not agree on, at least not violently disagree on.</p>
+
+<p>Based on this definition, we have four test harnesses in use here at work, three of which, curiously, were written by me.  Those three, not coincidentally, were written to address serious limitations in Perl's testing infrastructure.  Christopher Humphries commented to me on Twitter that four harnesses seems like a red flag and he's right!  Unfortunately, this is where we're at and the following explains why.</p>
+
+<p>Here they are:</p>
+
+<ol>
+ <li>A custom acceptance test harness, conceptually similar to <tt>Test::Aggregate</tt>.</li>
+  <li><a href="http://search.cpan.org/dist/Test-Harness/">Test::Harness</a></li>
+  <li><a href="http://search.cpan.org/dist/Test-Aggregate/">Test::Aggregate</a></li>
+  <li>A bash script to wrap all of them (more on this in a moment).</li>
+</ol>
+
+<p>Number one, the acceptance test harness, is the only one not written to address limitations of Perl's infrastructure, though it suffers from a huge limitation:  we have no nested TAP.  This is a custom harness which runs a bunch of YAML documents as declarative acceptance tests against our web API (the author of that system is toying releasing it to the CPAN).  I wrote a custom harness for this to aggregate these tests, but other than that, the credit for this one isn't mine.</p>
+
+<p>Number two is <tt>Test::Harness</tt>.  Though the 3.x version was originally written by me, it's maintained by Andy Armstrong and a few others (thank goodness.  You'd all be pretty upset if I held the keys to this car).  I actually wrote that as a parsing experiment, but once I realized what I had, I started to scratch all of my <tt>Test::Harness</tt> itches until Andy Lester came forward and told me to run with it.  (To be fair, Andy Armstrong and Eric Wilhelm rewrote large portions of it to the extent that I can barely lay claim to it any more.)</p>
+
+<p>Number three, <tt>Test::Aggregate</tt>, is a study in refactoring and scope creep.  This is driven in part by its heavy use internally and by the fact that <a href="http://search.cpan.org/src/MRAMBERG/Catalyst-Runtime-5.8000_03/Makefile.PL">the dev branch of Catalyst is now using it</a>.  I've been adding more and more features simply because we need them and I don't know of any way to avoid this, but this is really shaping up to be a large, serious harness.  Hence, much of my work in refactoring the awful internals.</p>
+
+<p>I'm actually frustrated by this because it's heavily dependent on <tt>Test::Builder</tt> internals.  It's gotten so bad that <a href="http://search.cpan.org/dist/Test-Aggregate/lib/Test/Aggregate/Builder.pm">I now have a module just for overriding those internals</a>.  It's fragile and if Schwern makes big changes, I'm sunk.  However, it generally <em>doubles</em> the speed of your test suite.  Some people report faster savings.</p>
+
+<p>The final harness is the bash script which manages all of the others.  It's not a very good bash script because I'm not good at bash and to be fair, it only tenuously fits the definition of "test harness", but a test harness doesn't have to be large and I need this one because two of my test harnesses aggregate tests and since we don't nested TAP, this bash script pulls their data and summarizes some of it for me.  And for the curious, here it is:</p>
+
+<pre>#!/usr/bin/env bash
+
+summary=0
+
+results=".runtests.txt"
+fast=0
+failures=0
+
+while [ $# -gt 0 ]; do
+  case $1 in
+    -s)
+      summary=1
+      shift 1
+    ;;
+
+    -f)
+      fast=1
+      shift 1
+    ;;
+
+    -F)
+      failures=1
+      shift 1
+    ;;
+
+    -[h?])
+      echo
+      echo "Usage: runtests [-h|-s|-f|-F]"
+      echo
+      echo "    -s: Do not run tests. Print summary results from last run"
+      echo "    -f: Sets FAST_TESTS environment variable to true"
+      echo "    -F: Only show failing tests from last run. Useful with \$EDITOR \$(bin/runtests -F)"
+      echo "    -h: Diplay this information and exit"
+      echo
+      echo "Rebuild database, run the tests and print summary results."
+      echo
+
+      exit
+    ;;
+  esac
+done
+
+# set default exit status to success
+STATUS=0
+
+if [ $failures -eq 1 ]; then
+    if [ -f $results ]; then
+        cat $results |awk '/not ok/ {print $5}'|grep 'yml$'
+        cat $results |awk '/not ok/ {print $5}'|grep '\.t$'
+        perl -ne '$found ||= /^Test Summary/ and m{^(t/\S+)} and !/acceptance|aggregate|pod/ and print $1,$/' < $results
+    else
+        echo No previous test run found.
+    fi
+
+    exit
+fi
+
+date
+if [ $summary -ne 1 ]; then
+    # always archive the current test results
+    if [ -f $results ]; then
+        mv $results "$results.prev"
+    fi
+
+    time perl bin/pips_db.pl --recreate_test_db \
+        && FAST_TESTS=$fast prove -r --state=hot,fast,save --timer t 2>&1 | tee $results
+
+    # capture exit status of test run
+    STATUS=$?
+fi
+
+if [ -f $results ]; then
+    perl script/analyze_tests.pl
+    echo
+    echo Failed acceptance tests:
+    echo
+    cat $results |awk '/not ok/ {print $5}'|grep 'yml$'|sed -e 's/^/    /'
+    echo
+    echo Failed aggregate tests:
+    echo
+    cat $results |awk '/not ok/ {print $5}'|grep '\.t$'|sed -e 's/^/    /'
+    echo
+    perl -ne '$found ||= /^Test Summary/ and print' < $results
+else
+    echo No previous test run found.
+fi
+
+exit $STATUS</pre>
+
+<p>Note that it relies on the <a href="http://search.cpan.org/src/ANDYA/Test-Harness-3.14/examples/analyze_tests.pl">analyst_tests.pl</a> program from the <a href="http://search.cpan.org/src/ANDYA/Test-Harness-3.14/examples/">Test::Harness examples/ directory</a>.  It gives me output similar to this:</p>
+
+<pre>$ bin/runtests -s
+Wed Nov 26 09:40:14 GMT 2008
+Number of test programs: 28
+Total runtime approximately 15 minutes 32 seconds
+
+Ten slowest tests:
++---------+--------------------------------------------------------+
+| Time    | Test                                                   |
++---------+--------------------------------------------------------+
+| 13m 41s | t/aggregate.t                                          |
+| 0m 23s  | t/test_class_tests.t                                   |
+| 0m 9s   | t/update_tva.t                                         |
+| 0m 7s   | t/change_events.t                                      |
+| 0m 6s   | t/cache_keys.t                                         |
+| 0m 6s   | t/unit/migration.t                                     |
+| 0m 6s   | t/acceptance/master_brand/master_brand_without_image.t |
+| 0m 6s   | t/is_rest_post.t                                       |
+| 0m 4s   | t/schema_populate.t                                    |
+| 0m 4s   | t/unit/migration/promotions_pid-dump_delete.t          |
++---------+--------------------------------------------------------+
+
+Failed acceptance tests:
+
+
+Failed aggregate tests:
+
+    aggtests/pips3/importer-change_events.t
+
+Test Summary Report
+-------------------
+t/aggregate.t                                         (Wstat: 512 Tests: 10038 Failed: 2)
+  Failed tests:  2105, 2147
+  TODO passed:   5614, 5706, 5741, 5796, 5809
+  Non-zero exit status: 2
+Files=27, Tests=20880, 3496 wallclock secs ( 5.12 usr  0.47 sys + 2168.69 cusr 81.80 csys = 2256.08 CPU)
+Result: FAIL</pre>
+
+<p>Note that this is the summary of our fast test run.  The full test suite takes twice as long.</p>
+
+<p>Once we have nested TAP, I can at least make the bash wrapper go away.  I don't think I'll be able to eliminate the others.</p>
+
+<p>Side note:  this bash script allows me to use the following alias to automatically edit all failed tests:</p>
+
+<pre>alias edit_failed='${EDITOR:-vim} $(bin/runtests -F)'</pre></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

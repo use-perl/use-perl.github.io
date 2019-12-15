@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of masak: Step 1 on the road to recovery: admitting you have a problem</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Step 1 on the road to recovery: admitting you have a problem</h1>
+<h2><a href="/user/masak/">masak</a> on 2010-03-29T16:37:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>In order to be better, we had to refactor Rakudo. It wasn't a question of 'if', it wasn't a question of 'when'. If we were to meet the goals of Rakudo Star in 2010Q2, we'd have to pull Rakudo apart and put it back together. It would lead to a lot of downstream breakage, but better now than later.</p>
+
+<p>We're currently at the 'downstream breakage' part. Until now, I haven't really taken a look at the scope of the breakage. Today, I will. I suspect I'll spend much of April doing damage control.</p>
+
+<p>In other words, the "admitting you have a problem" from the blog post topic refers to the fact that until now, I've been an alpha guy. "alpha" is the code name for "the old Rakudo master branch". You know, the one on which my code works. But being an alpha guy will feel more and more quaint, and I hope I don't have to be an alpha guy up until the point Rakudo Star is released. That would feel terribly inconsistent.</p>
+
+<p>So. Let's try to run my favourite apps on Rakudo master.</p>
+
+<p><b>November</b></p>
+
+<p>Trying to compile November, I get the error message "Unable to parse blockoid, couldn't find final '}' at line 8" on the first file I attempt to compile. After some digging, it turns out that the error isn't actually <em>located</em> in that file, but in a file used by a file used by that file. The error message is due to this regex definition.</p>
+
+<p><code>token port&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{ (\d**1..5)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>&lt;?{{</b> $I0 = match[0]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$I1 = 0<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;if $I0 &gt; 65535 goto fail<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$I1 = 1<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;fail:<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;.return ($I1)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>}}&gt;</b><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&lt;!before \d&gt; };</code></p>
+
+<p>The trained rakudologist immediately picks out the PIR code assertion (highlighted in bold), a construct no longer supported in Rakudo after the refactor. But real, non-PIR code assertions <em>are</em> supported, so the above should simply be swapped out for <code>&lt;?{ $0 &lt; 2 ** 16 }&gt;</code>.</p>
+
+<p>I swap it out and move on.</p>
+
+<p>Next fun error message: "You can not add a Method to a module; use a class, role or grammar". This occurs in a file where I'm decidedly in a class, and not a module. Rakudo is wrong; I am right.</p>
+
+<p>So what <em>is</em> going on to make me get that error message? This:</p>
+
+<p><code>$ <b>cat A.pm</b><br>
+grammar A {<br>
+}<br>
+<br>
+$ <b>cat B.pm</b><br>
+class B;<br>
+<br>
+method foo() {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;use A;<br>
+}<br>
+<br>
+$ <b>perl6 B.pm</b><br>
+You can not add a Method to a module; use a class, role or grammar<br>
+[...]</code></p>
+
+<p>My guess is that the parser gets confused about the kind of scope it's in when switching between files. I submit this as <a href='http://rt.perl.org/rt3/Public/Bug/Display.html?id=73886'>a rakudobug</a> and move on.</p>
+
+<p><b>Druid</b></p>
+
+<p>Stuck at the Configure step. The error message is familiar: "You can not add a regex to a module; use a class, role or grammar". That's just pure bigotry. And it's been <a href='http://irclog.perlgeek.de/perl6/2010-03-09#i_2083599'>discussed</a> <a href='http://irclog.perlgeek.de/perl6/2010-03-26#i_2156700'>before</a>, but not resolved yet.</p>
+
+<p>Luckily, the regex can be easily inlined in this case, so I do that and move on to the next message:</p>
+
+<p><code>$ <b>perl6 Configure</b><br>
+<br>
+Configure.pm is preparing to make your Makefile.<br>
+<br>
+Method 'postcircumfix:&lt;{ }&gt;' not found for invocant of class 'Failure'<br>
+[...]</code></p>
+
+<p>Please bask in the sheer informativeness of it all while I try to find the cause.</p>
+
+<p>Ah. The reason for the error message is that alpha has a <code>%*VM&lt;config&gt;&lt;build_dir&gt;</code>, but master currently doesn't even have a <code>%*VM</code>. I could hack around that, but I'll submit <a href='http://rt.perl.org/rt3/Ticket/Display.html?id=73888'>a rakudobug</a> instead.</p>
+
+<p><b>proto</b></p>
+
+<p><code>$ <b>./proto</b><br>
+Can't locate File/HomeDir.pm in @INC [...]</code></p>
+
+<p>In all the chaotic mess that is Rakudo error messages, it feels comforting and a bit relieving to get a Perl 5 error. And one as mundane as this, to boot.</p>
+
+<p>Hm, I heard mberends++ <a href='http://irclog.perlgeek.de/perl6/2010-03-28#i_2162767'>mention</a> that he was doing biggish changes in proto. Seems this is one of the results. I must have a look at them later &mdash; they seem interesting &mdash; but right now I'm looking for Perl 6 errors. So, moving on.</p>
+
+<p><b>Web.pm</b></p>
+
+<p>Same regex-in-module bigotry as with Druid. And after that, same <code>%*VM</code> trouble. Not too surprising in retrospect; they use the same <code>Configure.pm</code> module.</p>
+
+<p><b>GGE</b></p>
+
+<p>GGE also uses that <code>Configure.pm</code> module, so I just skip the configure step and manually replace <code>alpha</code> with <code>perl6</code> in the <code>Makefile</code>. This is the error I get:</p>
+
+<p><code>$ <b>make</b><br>
+env PERL6LIB='/Users/masak/gwork/gge/lib:/Users/masak/gwork/gge/lib:/Users/masak/work/hobbies/parrot/languages/rakudo' perl6 --target=pir --output=lib/GGE/Match.pir lib/GGE/Match.pm<br>
+Placeholder variables cannot be used in a method at line 39, near "multi meth"<br>
+[...]</code></p>
+
+<p>The <a href='http://github.com/masak/gge/blob/master/lib/GGE/Match.pm#L39'>method</a> in question contains zero (0) placeholder variables. So what's going on here?</p>
+
+<p>As usual, the answer turns out to be "something completely different". It's in the method above, which <em>also</em> doesn't contain any placeholder variables, that the error originates:</p>
+
+<p><code>$ <b>perl6 -e 'class A { multi method new(*%_) { |%_ } }'</b><br>
+Placeholder variables cannot be used in a method at line 1, near "}"<br>
+[...]</code></p>
+
+<p>And that's just wrong, so I submit <a href='http://rt.perl.org/rt3/Public/Bug/Display.html?id=73892'>a rakudobug</a> and call it a day.</p>
+
+<p><b>Conclusion</b></p>
+
+<p>A good first harvest.</p>
+
+<p>It's difficult to judge whether I've found 10% of the total breakage, or 1%. But regardless, this needs to be done, and sooner rather than later. I think the allure of easy-to-reap rakudobugs will urge me on in this quest.</p>
+
+<p>I still haven't given up the thought of doing nightly builds of all the projects. That would amount to automatic (or at least greatly simplified) bug finding and collection.</p>
+
+<p>Looking forward to the first automatically found rakudobug. &#21704;&#21704;</p></p>
+
+
+<hr/>
+
+
+
+<h2>More harvest</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-03-30T02:21:59</h3>
+<p>I decided do go back to Druid and Web.pm (the ones that got stuck on the Configure stage) and do some extra digging. Here's what i found.</p><p>Druid fails to compile because it uses the type name <code>Match</code>. This type is not known by Rakudo master, despite being all over the synopses. It's the consequence of mostly good refactorings in the underlying parser, and a <a href="http://rt.perl.org/rt3/Ticket/Display.html?id=73462" title="perl.org">known issue</a perl.org>.</p><p>Web.pm tactlessly mentions <code>Object</code> when it should have said <code>Mu</code>, of course. Hiding behind that <i>faux pas</i> was another frivolous "Placeholder variables" error.</p>
+
+
+
+<h2>You can not add a Method to a module...</h2>
+<h3><a href="/user/perly/">perly</a> on 2010-04-01T16:25:30</h3>
+The following is working:<br/><br/>class B;
+my method foo() {
+  use A;
+}<br/><br/>With "our method foo()" it doesn't work at the moment, so it seems to be a regression made during the actual refactoring to implement lexical methods.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

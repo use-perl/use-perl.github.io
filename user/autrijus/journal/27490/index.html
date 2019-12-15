@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autrijus: Day 247: Final day at Liz's - Coroutines, siglists, rebindable bindings</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Day 247: Final day at Liz's - Coroutines, siglists, rebindable bindings</h1>
+<h2><a href="/user/autrijus/">autrijus</a> on 2005-11-06T21:28:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Today is the last day of my stay at Liz and Wendy's.  It was
+very enjoyable and productive, and I'm very grateful to their
+warm hospitality.
+
+<p>
+Liz and I had a SubEthaEdit session on coroutines today, with
+the brief notes merged to S17 (Liz is working on Englishify them
+at this moment).
+
+<p>
+Basically, a coroutine is an object that supports a <code>.start</code> method
+that initiates the lightweight thread behind it, and return a object that may
+be manipulated like any other threads.  If you call it like a nullary function,
+it activates the thread until it hits <code>yield</code>, in which case it
+gives the control back to the caller.  The <code>return</code> inside the
+thread will end itself immediately.  Either way, if you attempt to call a
+finished thread, an exception will be thrown.
+
+<p>
+Then we get the extra magic of calling a Coroutine objects like a Code
+object.  This will trigger <code>&Coroutine::postcircumfix&lt;( )&gt;</code>, which will take care of calling <code>.start</code> again after the thread has finished, and arrange it so the next call to the coroutine will resume the ongoing thread instead of starting a new one.
+
+<p>
+Finally, there is the question of calling an ongoing coroutine with parameters.  I think rebinding the parameters makes sense (as you can inhibit it using <code>is copy</code> or explicit <code>{ my $x := $OUTER::x }</code>), but iblech's idea of having <code>yield</code> returning the Arglist makes sense too.  In any case this is userland code, so one can change the behaviour with a trait or a subclass of Coroutines.
+
+<p>
+On the PIL2 front, I looked at the three special forms (Assignment, Binding, Apply) and decided to unify them into method calls, so the user can override them all inside the same object model -- "Everything is an object."
+
+<p>
+The Apply form is easiest, as it's just <code>method postcircumfix&lt;( )&gt;</code> that takes an Arglist and gives back an Arglist.  See the new <a href="http://search.cpan.org/dist/Perl6-Bible/lib/Perl6/Bible/S03.pod">S03</a> for more about the cool things you can do with Arglists.
+
+<p>
+Assignment is also manageable under the container model.  It will be <code>method infix:&lt;=&gt;</code> on Array, Hash, Scalar objects.  The List objects constructed with <code>infix:&lt;,&gt;</code> will also respond to this method, to implement the <code>($a, $b, $c) = (1, 2, 3)</code> forms.
+
+<p>
+Binding almost feel like it should be a non-user-overridable special form,
+except we remembered the permanently-semi-official idea of Siglist objects,
+constructed with the <code>:()</code> notation.  It turns out that if we
+specify binding as a method on the Siglist object, and that the compiler
+desugars <code>LHS := RHS</code> always as
+<code>:(LHS).infix:&lt;:=&gt;(RHS)</code>, it will all Just Work.  Under this
+regime, <code>3 := 4</code> will still be a compile-time error, as
+<code>:(3)</code> would make no sense -- the macro that turns <code>sub (3)
+{...}</code> into <code>sub ($ where {$_ ~~ 3}) {...}</code> would not apply to
+bare Siglist construction forms.
+
+<p>
+So, PIL2 is looking good with fewer nodes and tighter object integration now.  Maybe we are not yet at io's <a href="http://www.iolanguage.com/about/simplicity/">zero keywords</a> level, but it's getting dangerously close.  Note that all of this is outside specced domain -- we'll need to work them back to Synopses and tests, and run them through p6l and @Larry.
+
+<p>
+Of course, to recover a respectible performance under this regime, we need to rely on optimizers, early binding, and/or type inference.  But that's two milestones ahead, so let's get the dynamism part right first...
+</p>
+
+
+<hr/>
+
+
+
+<h2>yield result</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2005-11-07T14:23:46</h3>
+Passing the new arguments in as the return value of the yield is the only way that makes sense to me. Rebinding the original arguments might be very far removed from the yield statement (the coroutine might have started in one block of code, but the yield might be the n'th sub child, where the original arguments are totally inaccessible and will not be accessible until all of the nested subs have finished yielding partial results and have returned back to the the grandparent code that actually has access to those arguments.
+
+
+
+<blockquote>
+
+<h2>Re:yield result</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2005-11-07T14:33:30</h3>
+Additionally, it makes sense that the argument list for "start a new sequence" is different from "continue to find the next sequence element".  The first argument list will contain arguments that are global to the entire sequence; while the second will be more local in meaning.  The canonical coroutine example is a walker for a binary tree.  The call that starts walking the tree might have an argument that chooses pre-order, in-order, or post-order traversal.  That argument would not make sense for one of the get-next calls, but other arguments might (perhaps a temporary filter argument, for example).
+
+
+
+<h2>Re:yield result</h2>
+<h3><a href="/user/autrijus/">autrijus</a> on 2005-11-07T15:55:37</h3>
+Hmm, maybe the ongoing subroutine needs a &amp;coro.next() method that simply resumes the yield, and then calling &amp;coro(args) will pass args as yield's return value, just as you and iblech had argued for.  Rebinding can then take place if the user asks for it, with an <code>is rebound</code> trait.  What do you think of this?
+
+
+
+<blockquote>
+
+<h2>Re:yield result</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2005-11-07T17:40:21</h3>
+Having both a functional and object interface to a coroutine is a separate issue.<br/><br/>In the functional interface, if you don't have anything to pass as the return value from the yield, just pass nothing.  So, &amp;coro(args) will cause the yield to return (args) and &amp;coro() has it return nothing.  No need for a method to distinguish.  Generally, I think that whenever you look to rebind the initialization arguments, you'd generally prefer to start a separate coroutine instance with different initialization args; and then resume either of the two coroutine instances as appropriate.<br/><br/>I'd tend to prefer that a coroutine have two signatures - one for instantiating a new instance of the coroutine, the other for resume an ongoing instance.  (In that regard, perl 5 with its typical lack of signatures works well.)<br/><br/>For an object interface, these two signatures could be provided as two methods - called something like (start/init/new) and (resume/next/continue).<br/><br/>There is also the tricky interface of creating a new instance the first time the coro is called, and then resuming it on subsequent calls, with perhaps an exception if it is called again after it terminates before creating another new instance.  This interface makes for a nice sugar for simple uses and should be built on top of the more general interface, so that it doesn't get in the way for more complicated usage.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

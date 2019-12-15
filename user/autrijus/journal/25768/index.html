@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autrijus: Day 165 (r5671): jspugs.pl and PIL redesign.</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Day 165 (r5671): jspugs.pl and PIL redesign.</h1>
+<h2><a href="/user/autrijus/">autrijus</a> on 2005-07-18T17:37:16</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Following eric256's suggestion, I'm adding the current revision number as part of the journal title.  He also would like to reply to my journal with code examples and pick up things I missed; I think that's a great idea, and all lambdacamel are welcome to join the fun. :-)
+
+<p>
+Today iblech introduced a <a href="http://svn.openfoundry.org/pugs/perl5/PIL2JS/jspugs.pl">jspugs.pl</a>, a nice shell for Perl6/JS development.  Here is a screenshot:
+
+<pre>
+% cd perl5/PIL2JS/
+Welcome to JSPugs -- Perl6 User's Golfing System
+Type :h for help.
+
+* Path to pugs:                           ../../pugs           [OK]
+* Path to pil2js:                         ./pil2js.pl          [OK]
+* Path to the precompiled Prelude:        preludepc.js         [NOT FOUND]
+* Path to PIL2JS's lib6/:                 lib6                 [OK]
+* Path to the JavaScript output:          output.html          [OK]
+
+jspugs> :h
+Commands available from the prompt:
+:h                      = show this help message
+:q                      = quit
+:conf thing [new_value] = set the path to thing
+                          (pugs|pil2js|preludepc|lib6|output)
+:precomp                = precompile the Prelude
+:pil <exp>              = show PIL of expression
+:pil.yaml <exp>         = show PIL of expression dumped as YAML
+<exp>                   = compile expression and save as HTML
+:js <exp>               = compile expression and show it
+:l filename.p6          = compile file and save as HTML
+
+jspugs> :precomp
+# ../../pugs -Ilib6 -CPIL -MPrelude::JS -e ''
+# ./pil2js.pl --no-jsprelude > preludepc.js
+* Path to the precompiled Prelude:        preludepc.js         [OK]
+
+jspugs> say "Hello, JSPugs!"
+# ../../pugs -Ilib6 -CPIL -e say "Hello, JSPugs!"
+# ./pil2js.pl --html --preludepc preludepc.js > output.html
+* Path to the JavaScript output:          output.html          [OK]
+</pre>
+
+<p>
+Neat, no?  The <code>output.html</code> contains a link to <code>&lt;script type="text/javascript" src="preludepc.js"&gt;&lt;/script&gt;</code>.  Because the Javascript prelude is shared, code generation is quite fast now.  Errors in the code generator are annotated with line/column info, thanks to the source ranges information preserved in PIL.
+
+<p>
+There is no JSAN support yet, but I suspect that one day we may compile <code>use <a href="http://www.openjsan.org/doc/b/be/beppu/Form/Validator/0.11/lib/Form/Validator.html">jsan:Form::Validator</a>;</code> and unite with the <a href="http://www.openjsan.org/">rhinocamel</a> world.
+
+<p>
+In order to get tests passing and <code>mandel.p6</code> to run, iblech fixed many corner cases in <code>Pugs.Compile</code>, including invocant handling, delayed evaluation and prettyprinting, with helpful feedback from Arathorn and other #perl6 people.  Already there is talks about generating SWF/ActionScript and PDF/ECMAScript in addition to HTML output...
+
+<p>
+iblech also added YAML serialization for PIL structures.  It is purely positional and not as concise as I'd like, so I talked with him and putter about how the redesigned PIL should be serialized.  The consensus seems to favor a YAML-style model, with all nodes carrying a type, and with a payload of a scalar, a list of nodes, or a hash of named subnodes.  For example, <code>pugs -P YAML example.p6</code> would dump the PIL structure of <code>example.p6</code> as YAML nodes.
+
+<p>
+On the MetaModel front, Stevan implemented the <a href="http://www.python.org/2.3/mro.html">C3 Method Resolution Order</a> for multiple-inherited objects.  I like C3 a lot, and I agree with Stevan that it should be made into the default Perl 6 method dispatch order.   The core idea is that, in a diamond inheritance tree:
+
+<pre>
+              class A;
+class B is A;        class C is A;
+class BB is B;       class CC is C;
+        class Z is BB is CC;
+</pre>
+
+The call to <code>Z.new.method</code> should look up in the order of <code>Z, BB, B, CC, C, A</code>, instead of (as in Perl 5) <code>Z, BB, B, A, CC, C</code>; the latter dispatches to <code>A</code> happend <em>before</em> its subclass <code>C</code> -- this is part of the reason I considered multiple inheritance as insane.  C3 restores much sanity here.
+
+<p>
+mugwump added a trivial implementation of <code>&is_deeply</code> in <code>Test.pm</code> by simply compare their <code>.perl</code> serializations.  Clever.
+
+<p>
+Aankhen fixed <code>&uri_escape</code> in <code>URI::Escape</code>, and reported that <code>printf</code> did not handle upper-case variants of format codes, such as <code>%X</code>.  putter fixed that promptly in <code>Prelude.pm</code>.
+
+<p>
+fglock refactored the infinite recurrence set structure from <code>Span::Code</code> into <a href="http://svn.openfoundry.org/pugs/ext/Recurrence/lib/Recurrence.pm"><code>Recurrence.pm</code></a>.
+
+<p>
+putter added <code>Pugs::Internals::rule_pattern</code> to extract the rule string out from an rule object, for his plan of writing a Rule parser in Perl 6.  He worked some more on the <a href="http://svn.openfoundry.org/pugs/modules/Grammars/rx_grammar.pl">Perl 6 Rules Grammar</a>, but sadly PGE can't handle it yet.
+
+<p>
+Zero commits from me today to Pugs, as I'm still in paper-reading and discussion mode.  I'm also picking up more $work for post-sabbatical livelihood, until I can find some sort of sponsorship for Pugs; in any case, I will try to keep about 3 days a week for Pugs.  No promises, though -- as usual, all I can promise is a committer bit. :-)
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>Small Example.</h2>
+<h3><a href="/user/eric256/">eric256</a> on 2005-07-18T18:13:33</h3>
+Most commits this time around were related to javascript ouput but burried in the commit log was a little addition to<nobr> <wbr></nobr>.as()  For those who haven't noticed perl 6 now lets you format strings with a<nobr> <wbr></nobr>.as method that takes the same arguments as sprintf.  A recent commit extends this to include a few more options.<br/><br/><code>
+use v6;<br/><br/># ------------------------------------------------------------------------
+# r5666 | putter | 2005-07-18 09:49:34 -0600 (Mon, 18 Jul 2005) | 1 line
+# sprintf now handles X D U O E G F specifiers without crashing.  Aankhen++.<br/><br/>my $x = "500";
+$x.as("%X").say;
+</code><br/><br/>I'm hoping to provide examples both to teach myself more pugs and provide a more hands on approach to following developments.  I love the journal, but an example here or there is nice.
+
+
+
+<blockquote>
+
+<h2>Re:Small Example.</h2>
+<h3><a href="/user/autrijus/">autrijus</a> on 2005-07-19T04:11:30</h3>
+<em>Please use <code>&lt;ecode&gt;</code> instead of <code>&lt;code&gt;</code> tags for verbatim code blocks... Here is your post, reformatted.<nobr> <wbr></nobr>:)</em>
+<p>
+Most commits this time around were related to javascript ouput but burried in the commit log was a little addition to<nobr> <wbr></nobr><code>.as()</code>  For those who haven't noticed perl 6 now lets you format strings with the<nobr> <wbr></nobr><code>.as</code> method that takes the same arguments as sprintf.  A recent commit extends this to include a few more options.</p><blockquote><div> <tt>use v6;<br> <br># ------------------------------------------------------------------------<br># r5666 | putter | 2005-07-18 09:49:34 -0600 (Mon, 18 Jul 2005) | 1 line<br># sprintf now handles X D U O E G F specifiers without crashing.&nbsp; Aankhen++.<br> <br>my $x = "500";<br>$x.as("%X").say;</tt> </div></blockquote>I'm hoping to provide examples both to teach myself more pugs and provide a more hands on approach to following developments.  I love the journal, but an example here or there is nice.
+
+
+
+
+
+</blockquote>
+
+
+<h2>PIL2JS runs mandel.p6!</h2>
+<h3><a href="/user/iblech/">iblech</a> on 2005-07-18T19:10:09</h3>
+PIL2JS is able to compile mandel.p6 to valid JavaScript now, and it actually runs!<nobr> <wbr></nobr>:)<br><br><a href="http://m19s28.vlinux.de/iblech/stuff/not_perm/pil2js-demo/mandel.p6.html" title="vlinux.de">http://m19s28.vlinux.de/iblech/stuff/not_perm/pil2js-demo/mandel.p6.html</a vlinux.de><br><br>(I've only tested it with Firefox 1.0.5, though. And beware, the script might take 100% CPU, crash your browser, etc, but it does work!<nobr> <wbr></nobr>:))
+
+
+
+<blockquote>
+
+<h2>Re:PIL2JS runs mandel.p6!</h2>
+<h3><a href="/user/iblech/">iblech</a> on 2005-07-18T19:29:30</h3>
+FYI, Arathorn just informed us that it works with Opera, too<nobr> <wbr></nobr>:)
+
+
+
+
+
+</blockquote>
+
+
+<h2>C3 method resolution order</h2>
+<h3><a href="/user/leo/">leo</a> on 2005-07-18T21:06:02</h3>
+<p>This should exactly match my implementation on the Parrot side. There is just one test showing init order (which is reverse MRO). Please grep for "constructor - diamond parents" in <i>t/pmc/object-meths.t</i> </p>
+
+
+
+<blockquote>
+
+<h2>Re:C3 method resolution order</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2005-07-18T21:59:11</h3>
+Leo,
+<p>
+Our orderings do not match. However, most of my tests are for destruction order (normal MRO), and are all examples taken directly from the papers on C3 (so I expect they would be correct). I think it would be good to compare our implementations and possibly add some destruction order tests to parrot to see if those match up or not.
+</p>
+- Stevan
+
+
+
+<h2>Re:C3 method resolution order</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2005-07-19T00:12:20</h3>
+<tt>Leo,<br><br>I have been looking over your MRO test, and I have to say, I think your algoritm might be wrong, or at least not the C3 algorithm we are talking about. I cannot tell for sure until I have seen it tested in destruction order. But my reasoning for this conclusion is as follows.<br><br>Take your reverse MRO (E A D B C F) for this class structure (both extracted from the test you mention):<br><br>A&nbsp; &nbsp;B A&nbsp; &nbsp;E<br> \<nobr> <wbr></nobr>/&nbsp; &nbsp;\<nobr> <wbr></nobr>/<br>&nbsp; C&nbsp; &nbsp; &nbsp;D<br>&nbsp; &nbsp;\&nbsp; &nbsp;/<br>&nbsp; &nbsp; \<nobr> <wbr></nobr>/<br>&nbsp; &nbsp; &nbsp;F<br><br>If we reverse this ordering for our regular MRO we get (F C B D A E). The first problem I see with this is that it violates local precedence order. F followed by C followed by B violates C's local precendence ordering since A comes before B in C's superclass ordering.<br><br>The MRO I get for this particular class tree is (F C D A B E) which as you can see preserves all the local precendence rules involved. The reverse MRO I get is (E B A D C F). To be totally honest, I do not know as much about the reverse MRO as I do the regular MRO, so I cannot comment on this really.<br><br>Also, it seems to me that Parrot (the VM) should not dictate things like MRO, that it should be a language level descision. Surely choosing the native Parrot version will be faster than implementing our own, in the end I don't think it wise to let something so central to a language be dictated by the VM. Of course I am happy to discuss this further, and can help with constructing more tests for Parrot to check the normal MRO order as well.<br><br>-Stevan<br></tt>
+
+
+
+<blockquote>
+
+<h2>Re:C3 method resolution order</h2>
+<h3><a href="/user/leo/">leo</a> on 2005-07-19T11:14:08</h3>
+<p>If now implemented C3 MRO (r8650 in trunk). It's of course true that the VM shouldn't dictate a particular MRO, but we have to provide one, so why not that of our major users. If more flexibility is needed, we can always use the current HLL setting and select something different.</p>
+<p>There is one additional test in <i>t/pmc/object-meths.t</i>, showing how to print the MRO of a class.</p>
+
+
+
+<blockquote>
+
+<h2>Re:C3 method resolution order</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2005-07-19T12:46:20</h3>
+Leo,
+<p>
+Excellent, we now match! Your test example is now in the metamodel test suite. If I find time, I will try to port my other C3 tests to Parrot for you.
+</p>
+- Stevan
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

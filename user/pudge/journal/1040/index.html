@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: formkeys and Template and other evils</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>formkeys and Template and other evils</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2001-10-21T22:36:17</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>On Thursday night/Friday morning, we started getting a steady stream of <A HREF="https://sourceforge.net/tracker/?group_id=4421&amp;atid=104421">bug reports on SourceForge</A> for <A HREF="http://slashdot.org/">Slashdot</A>.  We have this system called <EM>formkeys</EM> that generally does a decent job of preventing people from doing bad things with submission forms (such as people submitting comments for other people, or submitting mass amounts of comments, etc.).<br/><br/>The problem manifested itself in users getting errors that their formkeys were invalid.  We first looked to see what new code there was that week relating to formkeys.  None.  We tried fixing the DB table where formkeys are stored.  Nothing.  We saw the formkey table had a lot of old formkeys, and deleted them.  No dice.<br/><br/>We looked at formkey bug reports from a lot of our users (thanks!) and compared their formkeys to ones in the DB.  Every single formkey was attached to a UID other than their own, except sometimes in the case of anonymous users, and those exceptions didn't mean anything, since anonymous users share a UID.  So what is going on?  Are formkeys being cached?  Is rand broken?<br/><br/>At this point I should note that a formkey is 10 characters long and each character is a random character of 0..9, 'a'..'z', 'A'..'Z'.  They need to be unique, but we never did any checks to make sure they were unique.  Every once in a blue moon there MIGHT be a collision, but it's something we never got around to dealing with.  The possibility of this many errors by chance is ... unreasonable.  <br/><br/>We considered rand() being the culprit, but why did it start being a problem now, and never before?  This is code that has been used for at least a year.  Did something change in perl?  In Apache?  In mod_perl?<br/><br/>Well, we decided that though we could not figure out the problem, we could probably fix it.  So we made the getFormkey() function, which previously made no attempt to make sure it was unique, check the DB to see if the desired key already existed.  A quick lookup, not a big hit, and it would solve the problem, even if it wouldn't tell us what the problem was.  We added debug code so it would print to STDERR each time it failed to get a unique key, and then when it succeeded, and how many iterations it took to get the final, unique, formkey.<br/><br/>Interestingly enough, it started off OK, but soon we would get a report that a call had one collision.  Then two.  Then three.  Then five.  Then eight, 10, and as many as 37.  It kept increasing as time went on.  And this was called right after getting the formkey via a simple call to rand().  rand() had to be the problem.  The httpd children were sharing the same random seed.<br/><br/>But why now?  Why never before?  We finally tracked it down to a new template that uses rand().  The problem is not that it uses rand(), but in how we compile templates.  We use <A HREF="http://www.tt2.org/">Template Toolkit</A>, and a quick-and-easy way to precompile all the templates in the root httpd, so it is copied on fork for each child (instead of each child eating up DB and CPU trying to compile them) is to loop over all the available templates and execute each one.  Then they are compiled, cached into memory, and are there for each child.<br/><br/>But this time, a template executed rand() when executed.  All the other templates and code pieces that had rand() in it would only execute rand() conditionally.  But not this one, it just executed rand() when it was called.  So srand() was called automatically by perl, and the seed was copied on fork into each new httpd process!  Argh!<br/><br/>So two days later, we figured it out and added a new srand() call for each new child (we need to clean it up, but it is there and working).<br/><br/>I don't know how interesting or helpful this is to anyone, but it is just one of those things ...
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

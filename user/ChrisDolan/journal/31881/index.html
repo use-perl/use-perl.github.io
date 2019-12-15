@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ChrisDolan: Surprising filename sorting in Mac Finder</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Surprising filename sorting in Mac Finder</h1>
+<h2><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-12-11T18:20:51</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Today I was briefly confused by the Mac Finder.  It sorted a collection of files in a surprising order.<br/><br/><a href="http://www.chrisdolan.net/images/Finder_sorting.png">screenshot</a><br/><br/>It appears that if Finder sees a number in a filename, it tokenizes that number and sorts it numerically before progressing to sorting subsequent alpha characters.  This leads to unexpected sorting of files named hexadecimally.<br/><br/>Purely out of curiousity, I whipped up an implementation of this sort algorithm.  Is there an easier way to do this?<br/><br/><pre>
+use Test::More tests => 1;
+my @items = <DATA>;
+for (@items) { s/ //g; } # remove use.perl.org spaces
+is_deeply([sort macsort @items], \@items);
+sub macsort {
+   my @a = split /(\d+)/, $a;
+   my @b = split /(\d+)/, $b;
+   while (@a && @b) {
+      my $a_token = shift @a;
+      my $b_token = shift @b;
+      my $cmp = $a_token =~ /\A\d+\z/ && $b_token =~ /\A\d+\z/
+              ? $a_token <=> $b_token
+              : $a_token cmp $b_token;
+      return $cmp if $cmp;
+   }
+   return 1 if @a;
+   return -1 if @b;
+   return 0;
+}
+__DATA__
+0e1f07df-20a8-4b82-a3b3-21a25e6a7bd5.MP
+0ee4b3b0-e6d1-4fca-8d27-a64d32b66e49.MP
+0f63535c-76e0-407a-9a79-31f86c3c3ea5.MP
+4e5fe1ad-00d4-435c-b18c-582e4c942f31.MP
+9e4188f3-002a-47ff-bf8f-366c353c2f75.MP
+9f510eb5-ce64-4222-aba3-59d6e426120a.MP
+56fc7d70-2ed2-421f-adb1-da7b8805f001.MP
+941c843b-f4ff-45aa-bb94-f34b4a61ace7.MP
+7650cd13-f3f8-42c2-9f33-d8e7c410e7bd.MP
+074908bd-895a-48d5-83ae-077872ba644d.MP
+102044d9-a9e6-4454-9182-ed579b01897b.MP
+a3ac0ca2-18ae-4b02-badd-1533e94d40f1.MP
+aaae707d-e01e-4454-a856-3efba6588da4.MP
+ab7025d9-b535-40bb-8807-8733ddcb17d0.MP
+b357c383-7469-48b1-9c17-0fd2973b7896.MP
+e3da5d7d-911d-4ba5-9654-9d579e5e1846.MP
+</pre><br/><br/></p>
+
+
+<hr/>
+
+
+
+<h2>I think they call this a &quot;natural sort&quot;</h2>
+<h3><a href="/user/bart/">bart</a> on 2006-12-12T21:01:54</h3>
+See <a href="http://search.cpan.org/perldoc?Sort::Naturally" title="cpan.org">Sort::Naturally</a cpan.org>.<br><br>Your idea to use<p><blockquote> <div><tt>split<nobr> <wbr></nobr>/(\d+)/</tt></div> </blockquote> was IMHO an inspired one, so I cannot improve on that idea. Do note that the numeric string sections will always be at the list items with odd index (1, 3, 5,<nobr> <wbr></nobr>...) and the string parts at even index (0, 2, 4,<nobr> <wbr></nobr>...).<br><br>Here's an alternative implementation, IMO somewhat streamlined, and using an OR-cache (AKA an "Orcish  Manoeuvre") to store the <code>split</code> array:<p><blockquote> <div><tt>my %orcache;<br>sub macsort {<br>&nbsp; &nbsp;my $A = $orcache{$a} ||= [ split<nobr> <wbr></nobr>/(\d+)/, $a ];<br>&nbsp; &nbsp;my $B = $orcache{$b} ||= [ split<nobr> <wbr></nobr>/(\d+)/, $b ];<br>&nbsp; &nbsp;my $cmp;<br>&nbsp; &nbsp;for(my $i = 0; $i &lt; @$A &amp;&amp; $i &lt; @$B; $i++) {<br>&nbsp; &nbsp; &nbsp; $cmp = $i &amp; 1<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ? $A-&gt;[$i] &lt;=&gt; $B-&gt;[$i]<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; : $A-&gt;[$i] cmp $B-&gt;[$i]<br>&nbsp; &nbsp; &nbsp; &nbsp; and return $cmp;<br>&nbsp; &nbsp;}<br>&nbsp; &nbsp;return @$A cmp @$B;<br>}</tt></div> </blockquote> BTW you forgot to <code>chomp</code> the data, which may produce unexpected results when sorting the items, as there's a newline appended to every last array item.
+
+
+
+<blockquote>
+
+<h2>Re:I think they call this a &quot;natural sort&quot;</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-12-13T01:37:21</h3>
+Nice implementation.  I think the last line is better written as: <p><blockquote> <div><tt>return @$A &lt;=&gt; @$B;</tt></div> </blockquote>  but since one of them must be zero, the results are equivalent.<br><br>Is <code>i &amp; 1</code> preferable to <code>i % 1</code>?  I consider the latter to be slightly more intuitive.<br><br><em>BTW you forgot to chomp the data</em><br><br>Yeah, I skipped that just for simplicity of the example  It doesn't affect the test case.
+
+
+
+<blockquote>
+
+<h2>Re:I think they call this a &quot;natural sort&quot;</h2>
+<h3><a href="/user/bart/">bart</a> on 2006-12-13T17:57:31</h3>
+<p><div class="quote">I think the last line is better written as:<p><blockquote> <div><tt>return @$A &lt;=&gt; @$B;</tt></div> </blockquote>  </div> Uh, of course, that's what I planned to write. I had been messing with the implementation showing debugging information during the comparison, and this must be a leftover. That's my story and I'm sticking to it.<nobr> <wbr></nobr>;-)<p><div class="quote">Is i &amp; 1 preferable to i % 1? I consider the latter to be slightly more intuitive.</div> At least it gives the correct results.<nobr> <wbr></nobr>:-) Surely you ment to type <code>$i % 2</code>.
+<p>A recent thread on <a href="http://perlmonks.org/" title="perlmonks.org">Perlmonks</a perlmonks.org> by diotalevi shows that nowadays, these instructions take the same time. It used to make a difference, in my favour, 20 years ago &mdash; before the numerical coprocessors, that all CPUs have embedded, nowadays.</p><p><div class="quote"> <p><div class="quote">BTW you forgot to chomp the data</div> I skipped that just for simplicity of the example It doesn't affect the test case.</div> But it did have strange effects when I added a test case, where not all strings split into an equal number of parts, and the part that some do have in common is the same. Or so I thought.
+
+
+
+<blockquote>
+
+<h2>Re:I think they call this a &quot;natural sort&quot;</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-12-13T18:27:24</h3>
+<p><div class="quote"> <p><div class="quote">Is i &amp; 1 preferable to i % 1? I consider the latter to be slightly more intuitive.</div> At least it gives the correct results.<nobr> <wbr></nobr>:-) Surely you ment to type $i % 2.</div> Uh, of course, that's what I planned to write.  That's my story and I'm sticking to it.<nobr> <wbr></nobr>:-P<br><br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

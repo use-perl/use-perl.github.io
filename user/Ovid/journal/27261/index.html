@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Databases Suck</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Databases Suck</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-10-21T01:02:24</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Anyone who has worked with databases long enough knows that the relational model does not map well to the real world.  Further, the necessity of database normalization is not something inherent to the data; it's mostly (not entirely) an artifact of the relational model.   For example, how do you store customer addresses?  Two database might store it completely different ways yet both be normalized.  The common example is to do something like this pseudo-code:</p>
+
+<pre>create table customer {
+  id ...
+  first_name ...
+  address ...
+  city_id ...
+  state_id ...
+  etc ...
+)</pre>
+
+<p>Now let's say that you're having a sale and you want to send fliers to all of your customers saying "We're having a sale.  We hate you and we don't want you to show up."  Getting their addresses is easy.</p>
+
+<p>Now business two is also having a sale but they want to send out two sets of fliers.  The first set tells their customers that they hate them and don't want them to come and the second set is to all addresses for which they don't have a customer.  Now they have problems if they're using the above table.  They have to have a separate <tt>addresses</tt> table and the customer table looks like this:</p>
+
+<pre>create table customer {
+  id ...
+  first_name ...
+  address_id ...
+  etc ...</pre>
+
+<p>The problem here is that business knowledge is required to properly know how to normalize the database.  For the second business, the address is <em>not</em> dependent on the customer, unlike the first business.  In other words, the database reflects domain knowledge but you, the poor fool having to maintain it, can't tell from looking at a database schema if it's really reflecting business knowledge or if it's a mistake.</p>
+
+<p>This is sort of silly.  For the first business the addresses exist <em>in the real world</em> whether or not they have customers there.  Further, their database is junk if a customer has a summer home and a winter home.  Even then they might be facing performance problems and have gone with a deliberate decision to denormalize parts of the database.  Despite what "purists" argue, sometimes this has to be done (my last company had an Oracle performance expert come in and finally admit that he couldn't speed up their billion row table which relied on aggregated custom data types).</p>
+
+<p>Object databases and multivalue databases can get around many of these problems by allowing data to be arranged in a heirarchical fashion instead of a relational one (though they may use a relational database under the hood).  By doing this, if properly designed, they trade some performance for better real world modeling.  But there's still a problem.  Consider a table where we store what a customer likes (more pseudo-code).</p>
+
+<pre>create table customers (
+  id ...
+  customer_name ...
+  likes (multivalue, fk likes.id) ...
+)
+
+create table likes (
+  id ...
+  thing ...
+)</pre>
+
+<p>With that sort of multivalue relationship, we can fetch everything John likes very easily:</p>
+
+<pre>SELECT @likes FROM customers WHERE customer_name = 'John'</pre>
+
+<p>We can also find out everyone who happens to like something John likes:</p>
+
+<pre>
+SELECT @likes 
+FROM   customers
+WHERE  customer_name != 'John'
+  AND  @likes IN (
+    SELECT @likes FROM customers WHERE customer_name = 'John'
+)</pre>
+
+<p>So far, so good.  We've gotten a decent amount of power from violating first normal form.  However, there's still a problem.  These databases (from what I've seen) usually constrain relations on type, not capabilities.  How do we say that John "likes" another customer?  There's a very good chance we can't do that.  The <tt>likes</tt> table might have a list of customer ids or it might have a list of product ids, sport ids, etc.  Because these technologies seem to restrict things tightly based upon types (and it's tough to introduce an FK constraint on multiple tables on the fly), we still can't model the real world terribly well.</p>
+
+<p>I suppose one could actually get something like this to work by reaching into the system tables or something, but it would be difficult.  Further, if we tried to do something like this, I suspect that the slow object or multivalue databases would be even slower.  Moving one step closer to reality is one step further from an application that responds.</p></p>
+
+
+<hr/>
+
+
+
+<h2>I wouldn't know...</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2005-10-21T02:54:34</h3>
+<p>I am stuck with an Oracle database that I can't change, has spaces filling up every table regardless of what is actually in the table and everything is a CHAR.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I wouldn't know...</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2005-10-21T02:55:55</h3>
+<p>Oh, I forgot to meantion the good part. I am really good at using "to_date" and "rtrim".</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Huh?</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2005-10-21T03:12:08</h3>
+The real world is not hierarchical.  Some parts of it are, some aren't.  A system like MV which only lets you express hierarchical relationships is not going to be a better model of the real world than a SQL system.<br><br>Your schema reflects your business rules.  If you require that all customers have an address, there should be a constraint to this effect.  If customers can have more than one address, I'm sure you know quite well how to model that as well.<br><br>Also, SQL is not relational.  It's a poor second cousin of relational, and it does suck.  Imagine that you had a richer constraint language so you could easily specify constraints on the database as a whole (aka across multiple tables).  Given that, you could very easily allow for each customer to have more than address, and require that they always have at least one.  Similarly, you could easily require that each address have a customer.<br><br>Of course, this also requires the ability to clearly define the boundaries at which constraints are checked. The nice way to do this is to allow for multiple statements at once:<br><br>
+&nbsp; &nbsp; UPDATE<nobr> <wbr></nobr>....,<br>
+&nbsp; &nbsp; DELETE<nobr> <wbr></nobr>....,<br>
+&nbsp; &nbsp; INSERT<nobr> <wbr></nobr>....<br>
+&nbsp; &nbsp; ;<br><br>If constraints are checked at the semi-colon, you can satisfy complex constraints across multiple tables and easily write DML code that will not violate them.<br><br>Conceptually, this is pretty trivial, but I still haven't seen an RDBMS that really supports this stuff well. I've mostly used Postgres and MySQL, which both do suck. But my experience with Sybase, SQL Server, and Oracle has suggested that they all suck too, just more powerfully.<br>
+
+
+
+<h2>Oh and another thing...</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2005-10-21T15:49:18</h3>
+<p>I forgot to mention this though I don't know how I forgot.</p>
+
+<p>All tables (all 1500 of them); every field is NOT NULL. Every field.</p>
+
+
+
+<h2>First s/databases/software/ ...</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2005-10-30T09:43:28</h3>
+<blockquote><div>Anyone who has worked with <em>software</em> long enough knows that the relational model does not map well to the real world.</div></blockquote>
+
+<p>Then pick any of the following:</p> <blockquote> <div><tt>s/relational/procedural/<br>s/relational/object oriented/<br>s/relational/functional/<br>s/relation/logical/<br>s/relation/aspect oriented/<br>s/relational/hierarchical/</tt></div> </blockquote> <p>Continuing this list is left as an exercise for the reader<nobr> <wbr></nobr>:-)</p>
+
+<p>Models are not the real world. They're an abstraction chosen to make a particular problem domain easier to manipulate. Sometimes people pick the wrong model. Sometimes the problem domain changes.</p>
+
+<p>There's nothing that's particularly relational about the issue about whether addresses are separate "things" from customers. I've seen exactly the same issue with OO code.</p>
+
+<blockquote> <div><em>In other words, the database reflects domain knowledge but you, the poor fool having to maintain it, can't tell from looking at a database schema if it's really reflecting business knowledge or if it's a mistake.</em></div> </blockquote>
+
+<p>And I can't tell  just by looking at a object class hierarchy whether a particularly odd looking arrangement of classes is a reflection of business knowledge or if it's a mistake.</p>
+
+<p>Being normalised doesn't say anything about the fitness of a relational model for a particular problem domain any more than the Law of Demeter says anything about the fitness of an OO model for a particular problem domain. </p>
+
+<p>Relational models that are normalised have nice properties that can be useful. OO models that follow the Law of Demeter have nice properties that can be useful. They're talking about how good the model is. I don't think it's really fair to ask them to say things about how well a model fits a problem domain too!</p>
+
+<p>Which of course would be a wonderful thing to know.... wish I knew how to figure it out...<nobr> <wbr></nobr>:-)</p>
+
+<blockquote> <div><em>Object databases and multivalue databases can get around many of these problems by allowing data to be arranged in a heirarchical fashion instead of a relational one</em></div> </blockquote>
+
+<p>I'm curious why you think heirarchies and relation models are contradictory (nested set tree model and all that...) ?</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

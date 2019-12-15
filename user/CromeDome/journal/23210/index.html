@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of CromeDome: Stupid mistake #371</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Stupid mistake #371</h1>
+<h2><a href="/user/CromeDome/">CromeDome</a> on 2005-02-16T03:10:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Valuable bonus points* will be awarded to the first person to detect the stupid error found in this code snippet:<br/><br/><code>
+    # Check the login credentials
+    my $username = untaint_string($self->query->param("username"));
+    my $password = untaint_string($self->query->param("password"));<br/><br/>    if($username ne "" and $password ne "")
+    {
+        use KW::Users;
+        my $user = KW::Users->retrieve($username);<br/><br/>        if($user and $user->login_password eq encrypt($password))
+        {
+            # Last check!  User info matches, but are they active?
+            if($user->active_yn eq "Y")
+            {
+                # Log the user in
+                $self->session->param("username", $username);
+                $self->session->param("is_logged_in", 1);
+            }
+        }
+    }<br/><br/>    $self->param("message", "Please enter a valid username and password combination.")
+        unless $self->session->param("is_logged_in", 1);<br/><br/>    # Return the user to their chosen destination
+    return $self->redirect($redirect);
+</code><br/><br/>Stupid mistake aside, there's a bigger issue above that I am unsure as to how to deal with.  Traditionally, I've used the session parameter message when I've wanted to tell my output function to throw a message at the top of the page (to indicate an error, etc.).  I've always done this in the context of a single script before - for example, user is trying to login (as above), fails the login (and therefore sets a message), and I call the function to redisplay the login form again, and the message gets displayed.  Nowadays, I'm potentially redirecting to another script in another process, and so my message parameter goes out of scope.  Any suggestions on how to do what I want?<br/><br/>Thanks in advance!<br/><br/>* Valuable Bonus Points have no real or imaginary value.  They do, however, give you bragging rights (for whatever THAT is worth!) ;)</p>
+
+
+<hr/>
+
+
+
+<h2>A few guesses</h2>
+<h3><a href="/user/dws/">dws</a> on 2005-02-16T05:08:52</h3>
+You don't show a session becoming "un logged in" when a password doesn't match (nor do you show anything about session lifetime). And I would expect to stay on whatever the login page was rather than get redirected on a failed login attempt.
+
+
+
+<blockquote>
+
+<h2>Re:A few guesses</h2>
+<h3><a href="/user/CromeDome/">CromeDome</a> on 2005-02-16T05:27:40</h3>
+Stupid error #372 is posting the corrected code without the bug removed.  I meant to post this:<br> <code> <br>$self-&gt;param("message", "Please enter a valid username and password combination.")<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; unless $self-&gt;session-&gt;param("is_logged_in", 1);<br> </code> <br>when I originally posted this:<br> <code> <br>$self-&gt;param("message", "Please enter a valid username and password combination.")<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; unless $self-&gt;session-&gt;param("is_logged_in");<br> </code> <br> <br>Oops.  Perhaps I've worked too long tonight. .<nobr> <wbr></nobr>.<br> <br>To address your other guesses, when a visitor hits the site, we check for an existing session, and if they don't have one, we start a new session (regardless of whether or not they are logged in, because users of this site may or may not have an account) and hand them a cookie with their session ID.  When the browser closes, the cookie expires, and when they come back, they get a new session and cookie.  I'm not sure if that's good or bad, but so far, it's worked out ok.<br> <br>I can see where explicitly marking someone as being not logged in would be a good thing, and I thank you for pointing that out to me.  I'm tired and starting to miss stuff.<br> <br>As for redirection. . . my login and logout functionality is in one module, and maintenance functions are spread out in a few different modules.  These modules check to see whether someone is logged in, and if not redirects them to the login page, and stashes the URL to get back the module in the session.  If the login fails, they get redirected back to the maintenance module and back to login. . .  I really need to make that less hackish. .<nobr> <wbr></nobr>.<br> <br>Thanks again!<nobr> <wbr></nobr>:)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

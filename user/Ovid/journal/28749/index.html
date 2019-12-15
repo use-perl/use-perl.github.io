@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: What's loaded?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>What's loaded?</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-02-20T22:56:22</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Trying to debug a weird JSON error at work, where my boss gets a test failure that I don't, I've finally resorted to writing a tiny test module which dumps out the versions of all loaded modules:</p>
+
+<pre>package Loaded;
+
+use strict;
+use warnings;
+use Module::Info;
+
+sub versions {
+    my @modules;
+    my $max = 0;
+    foreach my $module (sort keys %INC) {
+        $module =~ s/\.pm$//;
+        $module =~ s/\//::/g;
+        next if $module =~ /^::/;
+        next if __PACKAGE__ eq $module;
+        if (length $module > $max) {
+            $max = length $module;
+        }
+        my $mod = Module::Info->new_from_loaded($module);
+        push @modules => [ $module, $mod ? $mod->version : 'Could not load' ];
+    }
+    @modules = sort { $a->[0] cmp $b->[0] } @modules;
+    $max += 2;
+    no warnings 'uninitialized';
+    return join "\n", map { sprintf "%-${max}s %s", @$_ } @modules;
+}
+
+1;</pre>
+
+<p>And running it on itself:</p>
+
+<pre>  perl -MLoaded -e 'print Loaded->versions'
+  AutoLoader           5.60
+  Carp                 1.04
+  Config               
+  DynaLoader           1.05
+  Exporter             5.58
+  File::Spec           3.14
+  File::Spec::Unix     1.5
+  Module::Info         0.290
+  strict               1.03
+  vars                 1.01
+  version              0.49
+  version::vxs         0.49
+  warnings             1.03
+  warnings::register   1.00</pre>
+
+<p>I was sure there would already be something like this on the CPAN.  There is, right?  What did I miss?  (Devel::Loaded doesn't give me version numbers)</p>
+
+<p>Using this in our code base shows 315 modules as loaded.  Yikes!</p></p>
+
+
+<hr/>
+
+
+
+<h2>Module::Versions::Report</h2>
+<h3><a href="/user/kennyg/">kennyg</a> on 2006-02-21T03:06:05</h3>
+This module does something similiar.<br/><br/><a href="http://search.cpan.org/user/sburke/Module-Versions-Report-1.02/" title="cpan.org">http://search.cpan.org/user/sburke/Module-Versions-Report-1.02/</a cpan.org>
+
+
+
+<h2>315 modules and counting!</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2006-02-21T03:27:42</h3>
+&gt; Using this in our code base shows 315 modules as loaded. Yikes!
+
+<p>Think of all that functionality you didn't have to write, and how much useful functionality you can focus on because you're using these 315 modules. It's a plus, not a minus!</p>
+
+<p>If you're looking for a more useful way to present this information, you might want to whip up some CPAN cross-indexing magic to roll up the different class versions into distributions -- for instance, both File::Spec and File::Spec::Unix may be from the File::Spec distribution version 1.03.</p>
+
+
+
+<blockquote>
+
+<h2>Re:315 modules and counting!</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-02-21T08:26:30</h3>
+<p>The 315 modules is a plus if you can control the environment.  If you have a large package that you want to distribute, the more dependencies you have, the more problems you have in making something easy to install.  Witness the Bricolage package.  Many folks have had a heck of a time trying to install it because of all of those dependencies.  Plus, when some dependencies aren't even from the CPAN, the problem becomes even worse.</p>
+
+
+
+<blockquote>
+
+<h2>Re:315 modules and counting!</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2006-02-21T16:10:25</h3>
+It's a typical trade-off. Since installation is the only place this is a problem I think we should focus on that instead of trying to get rid of dependencies, similar to how the Krang folks did. (Not that <b>you</b> say we should get rid of dependencies, other folks do.) Creating friendly installations is pretty low on most developers' todo lists though (me included).
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

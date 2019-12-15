@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Solving compositional problems with Perl 6 mixins</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Solving compositional problems with Perl 6 mixins</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2004-08-21T05:16:25</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I was thinking about my live testing demo and what sort of module to create when I discarded the idea of creating a D&D style <tt>Character</tt> class.  Just showing the basics seemed too simple, but I couldn't quite discard the idea.  When the idea of a profession (sometimes known as a character class, but the term is too confusing in this context) started causing problems, I realized that I was looking at a classic failing of traditional OO type systems.</p>
+
+<p>Imagine an abstract (should not be instantiated) base class called <tt>Character</tt> that is subclassed by race (or species, if you prefer).  Using a Perl6ish pseudo-code, we can imagine this:</p>
+
+<pre>class Elf is Character {
+  ...
+}
+
+class Drow is Elf {
+  ...
+}
+
+class Human is Character {
+  ...
+}</pre>
+
+<p>So far, all is well and good.  But how do we create an Elven Thief? You don't want <tt>Thief</tt> to subclass from <tt>Elf</tt> because then race gets a subclass and the number of classes quickly becomes ridiculous and you duplicate a lot of code.  However, you can't have <tt>Elf</tt> subclass from <tt>Thief</tt> because not all elves are thieves unless you want to start toying with the idea of manipulating inheritance trees based upon an instance instead of a class (and all of the ridiculous problems that would bring.)  Java interfaces are of no use because those are assigned at compile time and, in any event, don't provide the implementation.</p>
+
+<p>So you have two unpleasant alternatives.  A traditional one is to use delegation.  The simplest method is to provide a "profession" slot that stores a <tt>Profession</tt> object:</p>
+
+<pre>class Thief is Profession {
+  ...
+}
+
+my Elf $elf .= new(Thief.new);</pre>
+
+<p>But this is yet another problem.  Now the elf has a reference to a <tt>Thief</tt> object, but the abilities of the thief are tied to the abilities of the character instance, so the thief now has a dependency on an <em>instance</em> of a <tt>Character</tt>, so it probably stores the elf in a slot:</p>
+
+<pre>
+# guessing on the syntax here ...
+class Elf is Character {
+  has $:profession;
+  method new(Class $class: Profession $profession) { #does this work
+    $:profession = $profession;         
+    $profession.race(profession $this); # or this?
+  }
+  ...
+}</pre>
+
+<p>This, of course, means a circular reference which might have to be broken explicitly and, in any event, guarantees that classes are coupled more tightly than I like and I have to violate the Law of Demeter if I want to do <tt>$elf.profession.pick_pocket($mark);</tt>.  Naturally this breaks down pretty quickly when the elf is a magician and gets his fingers broken (or worse.)</p>
+
+<p>Ruby style mixins can help, but their ordering problems are well known and sometimes can cause difficulties that still force delegation.</p>
+
+<p>Perl 6 roles seem to solve the problem (see <a href="http://www.perl.com/lpt/a/2004/04/16/a12.html">Apocalypse 12</a>).  Apparently roles that are assigned at runtime instead of compile-time are called "mixins" but they don't behave quite like Ruby mixins.  Still, whatever they are called, they seem to simplify the problem.  With mixins I can just do this:</p>
+
+<pre>$elf does Thief;</pre>
+
+<p>And the <tt>Thief</tt> methods are automatically available to the <tt>$elf</tt>.  Because inheritance is not involved, you don't have the ordering problems of multiple inheritance, nor do you have to worry about other classes picking up the undesirable trait (of being a thief.)  Because interfaces are not used, you don't have the problem with duplicate code, but you do get the benefit of knowing the methods are implemented (and that required methods are available.)  Because delegation is not involved, there are no "Law of Demeter" concerns, nor are the maintenance or performance penalties paid.  All things considered, this seems to be a huge win. (mixins are apparently implemented in Perl 6 as anonymous classes attached to an instance but I don't know the implications of that.)</p>
+
+<p>As it turns out, roles are still quite useful.  Remember how some races, such as gnomes and elves, had infravision?  Rather than reimplement:</p>
+
+<pre>class Elf is Character does Infravision {
+  ...
+}
+
+class Gnome is Character does Infravision {
+  ...
+}</pre>
+
+<p>This is all so spectacularly useful that I'm surprised more people haven't wanted it, though I admit it's a new idea (and I've described it rather incompletely.)</p>
+
+<p>Bringing this back to reality, there's a classic OO example of bad inheritance.  If you have an <tt>Employee</tt> class, how do you represent programmers and managers?  One idea is to make two subclasses.  That really sucks when your manager doubles as a programmer (as our's sometimes does.)  Instead, you can use mixins:</p>
+
+<pre>$employee does Programmer does Manager;</pre>
+
+<p>OK.  That's enough for one night.  Time to head to the club (and hope my pager doesn't go off.)</p></p>
+
+
+<hr/>
+
+
+
+<h2>Type Safety with Roles</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2004-08-21T06:08:10</h3>
+<blockquote><div> <em>Because interfaces are not used, you don't have the problem with duplicate code, but you do get the benefit of knowing the methods are implemented (and that required methods are available.)</em> </div></blockquote>
+
+<p>Also, unlike Java's interfaces, role names and type names share a namespace.  That's all of the goodness of allomorphic type checking in signatures.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Type Safety with Roles</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-08-22T17:17:35</h3>
+<p>I thought I had posted a response, but apparently I had not<nobr> <wbr></nobr>:(</p>
+
+<p>First, can you give a clear definition of "allomorphism"?  Try as I might, I can't quite understand it.  It seems like <a href="http://c2.com/cgi/wiki?AlloMorphism" title="c2.com">allomorphism</a c2.com> is similar to polymorphism, except you can override behavior on an instance level instead of a class level and all that's relevant is that the interface is consistent.  Is that correct?  I think not because it's too simple.</p>
+
+<p>Also, I'm not sure what you mean by "role names and type names share a namespace."  What benefit does that provide?</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Class layout</h2>
+<h3><a href="/user/jhannah/">jhannah</a> on 2004-08-23T02:41:43</h3>
+At a glance, if I was going to design the class structure you were looking for, I'd start with something like this:<blockquote><div> <tt>- Character<br>&nbsp; - Race<br>&nbsp; &nbsp; - Elf (@ISA InfraVision)<br>&nbsp; &nbsp; &nbsp; - Drow<br>&nbsp; &nbsp; - Human<br>&nbsp; &nbsp; - Dwarf<br>&nbsp; - Class<br>&nbsp; &nbsp; - Thief (sub pick_pocket)<br>&nbsp; &nbsp; - Magician<br> <br>&nbsp; - ElvenThief (@ISA Elf, Thief)<br>&nbsp; - DwarfThief (@ISA Drawf, Thief)<br> <br>- Skills (contains defaults skill level settings)<br>&nbsp; - Vision<br>&nbsp; &nbsp; - InfraVision<br>&nbsp; &nbsp;- Theft<br>&nbsp; &nbsp; &nbsp; - PickPocket</tt> </div></blockquote>I don't see why you'd need mixin's. In my Perl5 mentality I think I could handle whatever method and attribute polymorphism were needed to get the job done.<p>
+
+Regardless, though, I'm not sure why you'd write up this class structure anyway. When it comes to skills and/or attributes, all races and classes can attempt to pick_pocket, swim, cast_spell, run, sleep, whatever. They just all have different statistical chances of success when trying to pull off whatever task you had in mind.</p><p>
+
+Seems to me that when actually sitting down to write an app along these lines, you'd have a full default matrix of statistics for any given character, and the races/classes/exp, etc would simply tweak the default statistics up or down, depending. I'm not sure how OO would really serve a useful purpose for character behavior control. Magicians *can* pick_pocket, they'll just fail and immediately call for a cleric, as you point out. So, you need every method available to every character anyway.
+</p><p>
+$0.02,
+</p><p>
+j</p>
+
+
+
+<blockquote>
+
+<h2>Re:Class layout</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-08-23T04:10:13</h3>
+<p>With all due respect, I think you've inadvertently illustrated my point. Let's stick with Perl 5 and assume that delegation is the key to performing profession-specific behavior, but we won't use delegation yet.  We'll assume four races, human, elf, dwarf and halfling.  We'll also assume four professions, fighter, thief, magician and cleric.  With the <tt>Character</tt> and <tt>Profession</tt> abstract base classes, we have a grand total of ten classes, each which encapsulates the basic attributes of what they're trying to model.</p>
+
+<p>Now how does an elf become a thief?  For profession-based skills, the elf delegates the message to its profession slot.  If it's trying to cast a spell, the thief's abstract base class has a method that returns a failure, saying the skill cannot be performed.  If the elf tries to pick a lock, the profession slot already has a method that can attempt that.  So far it's pretty simple, but delegation still takes a lot of code to pull off, but it's grunt work that is still conceptually clear.</p>
+
+<p>But what if we go with your idea of subclassing?  We still have ten classes, but now we need to add additional subclasses for each profession/character combination.  That's an additional 16 classes, plus the original 10, giving us a total of 26 classes.  But wait!  We forgot dual-classed characters.  How do we handle a thief/magician?  And there are actually triple classes characters allowed, so the number of classes starts to <em>really</em> explode.  And then people want to add extra races and professions!  Trying to manage and debug all of those classes becomes a nightmare, at least in large part because it's not appropriate to say that a thief isa elf or an elf isa thief (at least on the class level.)  For a given instance it's appropriate to say that, but inheritance works on a class level, not an instance level.</p>
+
+<p>And with your idea of an <tt>ElfThief</tt>, what methods and attributes should be in that class?  If I think nothing should be in there and I'm just using this to combine all sorts of behaviors, then I subvert the entire idea of OO.  A subclass is to provide a more specific implementation of something, not to just arbitrarily combine sets of behavior.  But it turns out I can't use an empty class when I have  an <tt>ElvenMagicianCleric</tt> because I have to disambiguate who gets to cast a spell, which means I <em>do</em> need code for this, so I am back to the problem of managing code for too many classes.  And it's likely the disambiguation code for this class also applies to the <tt>(?:Human|Dwarf|Halfling)MagicianCleric</tt> (assuming they were all valid combinations) so I'm back to duplicating code.</p>
+
+<p>So how do we handle multiple classed characters with delegation?  As a naive, but simple implementation, we can do this:</p> <blockquote><div> <tt>sub Character::perform {<br>&nbsp; &nbsp; my ($self, $action, @arguments) = @_;<br>&nbsp; &nbsp; # the following prevents a poor code from arbitrarily calling any method<br>&nbsp; &nbsp; my $method = $self-&gt;{actions}{$action} or die "No such action ($action)";<br>&nbsp; &nbsp; foreach my $profession ($self-&gt;profession) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $result;<br>&nbsp; &nbsp; &nbsp; &nbsp; eval { $result = $profession-&gt;$method(@arguments) };<br>&nbsp; &nbsp; &nbsp; &nbsp; return $result if $result;<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; # if we got to hear, they couldn't perform the action<br>&nbsp; &nbsp; warn "Attempting to perform ($action) failed";<br>}</tt> </div></blockquote> <p>Note that this goes in the abstract base class, so everyone has this behavior available.  Admittedly, this is a first pass and definitely inadequate, but it handles one or more professions per character and does not require a huge number of classes.  Adding a new profession means creating one and only one class.  There are still ordering problems, but we have these with any type of program and if they're solved for this issue, they can be solve for a much smaller set of classes.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Class layout</h2>
+<h3><a href="/user/jhannah/">jhannah</a> on 2004-08-24T05:49:35</h3>
+1) I agree that a class structure for each class / race would get way out of hand. I fail to understand why you need a class structure to handle the problem in the first place. It seems to me that every character could attempt any behaviour, so you could just have a default set of skill levels, and perform procedural adjustment to those stats based on classes/races. I have no idea what methods / attributes would useful in individual class / race classes.
+<p>
+2) If the class structure *is* needed for some reason, I fail to understand how mixins handle the problem more elegantly than Perl5 inheretance. Reading Apocalypse 12 does nothing to clear that up for me. I'll likely have to wait for Conway to write a Perl6 OO book before I'll understand all the new stuff.
+</p><p>
+Regardless, thanks for the ponder fodder.<br></p>
+
+
+
+<blockquote>
+
+<h2>Re:Class layout</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-08-24T13:38:36</h3>
+<p>Those are valid questions.  The truth is, you never need objects to accomplish any programming problem.  I chose objects for this illustration primarily because characters are really bundles of data with behaviors attached to them.  This, of course, is one way objects are defined.</p>
+
+<p>As for how mixins solve the problem more elegantly, you might want to read a <a href="http://www.perlmonks.org/index.pl?node_id=384858" title="perlmonks.org">virtually identical node on Perlmonks</a perlmonks.org>.  In light of the responses, I back off a bit from asserting the utility of mixins once it became clear that they're implemented via anonymous inner classes; that brings inheritance back in the picture and one then needs a plethora of anonymous roles or classes to manage the ordering problems -- not good.  I'm sure there is a simpler solution and, if so, I'd be happy to see it.  However, the main point of this thread was about the utility of roles and mixins, not about how they solve D&amp;D problems<nobr> <wbr></nobr>:)</p>
+
+<p>If you're comfortable with OO, I strongly recommend you read about <a href="http://www.iam.unibe.ch/user/scg/Research/Traits/" title="unibe.ch">traits</a unibe.ch> (not Perl 6 traits.)  Inheritance is great, but polymorphism is the true power of OO.  You can think of traits as extending polymorphism without the problems with inheritance (naturally, that's an oversimplification.)</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Decorator Pattern?</h2>
+<h3><a href="/user/jhannah/">jhannah</a> on 2005-04-05T03:40:05</h3>
+Also (now) wondering if the Decorator design pattern would do the trick. One of O'Reilly's sample chapters reminded me of this post...<br> <br> <a href="http://www.oreilly.com/catalog/hfdesignpat/chapter/index.html" title="oreilly.com">http://www.oreilly.com/catalog/hfdesignpat/chapter/index.html</a oreilly.com> <br> <br>j
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

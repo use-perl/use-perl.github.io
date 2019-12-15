@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autrijus: Day 233: Reports from ICFP!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Day 233: Reports from ICFP!</h1>
+<h2><a href="/user/autrijus/">autrijus</a> on 2005-09-28T21:28:18</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>The main ICFP conference session concluded today, so I'm finally getting a
+tiny slice of time to write down what I've been doing.
+
+<p>
+I enjoyed handing out Perl6/Timeline T-shirts to various lambdafolks,
+including bpierce (author of TaPL), spj (author of GHC), as well as several cool
+hackers from #haskell.  At any time in the conference hall, there was always
+someone with a Pugs shirt in sight, leading to many interesting discussions and
+opportunities to join forces.
+
+<p>
+I spent much time hacking with the GHC core team (spj and simonmar, also known
+as "Simon and Simon"), to get my current #1 feature request -- GADT with record
+types -- into GHC.  Among Haskell people, GADTs are all the rage this year; see
+<a
+href="http://svn.openfoundry.org/pugs/docs/notes/recursive_polymorphism_and_type_inference">luqui's
+notes</a> for a short introduction from Perl6's perspective.
+
+<p>
+During the YAPC::NA 2005 Toronto hackathon, I presented the then-brand-new
+PIL1 data structure to @Larry, using GHC's then-brand-new GADT syntax:
+<pre>
+data PIL a where
+    PCode       :: SubType -> [TParam] -> PIL [Stmt] -> PIL Expression
+    PBind       :: [PIL LValue] -> PIL Expression -> PIL LValue
+    PAssign     :: [PIL LValue] -> PIL Expression -> PIL LValue
+    -- ...etc...
+</pre>
+luqui looked at it and asked quite innocently: "Why are the arguments
+not labelled, such as 'lhs' for 'PAssign'?" -- To which lwall said,
+half-jokingly: "Because autrijus is a lazy bastard."
+
+<p>
+However, the real reason was because GHC's extended Haskell syntax only allowed
+positional argument types for GADT.  To name them with the <em>record
+syntax</em>, we'd need to go back to the vanilla data types, and forgo the
+ability to encode type information using the constructor's return type (as
+demonstrated in <code>PIL Expression</code> and <code>PIL LValue</code> above).
+
+<p>
+A month later, I diligently re-encoded the structure using vanilla
+record types, so we can export them into hash-based Perl (and JSON) data
+structures, instead of array-based ones.  This significantly improved
+the readability of iblech's PIL2JS code, but the Haskell data declaration
+became 3 times longer, because each GADT variant needs to be re-encoded
+into vanilla data types.
+
+<p>
+Ever since then, I was hoping that GHC may one day remedy this by allowing
+GADTs and record syntax to play together.  When I met spj in ICFP, he was
+gladly surprised that I'm eager to hack GHC to make it happen.  After bouncing
+several design ideas, we settled on this syntax:
+<pre>
+data PIL a where
+    PCode   { typ :: SubType, params :: [TParam], body :: PIL [Stmt] }
+        :: PIL Expression
+    PBind   { lhs :: [PIL LValue], rhs :: PIL Expression }
+        :: PIL LValue
+    PAssign { lhs :: [PIL LValue], rhs :: PIL Expression }
+        :: PIL LValue
+    -- ...etc...
+</pre>
+
+The neat thing is that <code>PBind</code> and <code>PAssign</code> can share
+the <code>lhs</code> and <code>rhs</code> labels, as long as their return
+value <code>PIL LValue</code> stays the same.
+
+<p>
+During the reception, spj was kind enough to guide me through the GHC core to
+unify the two data type definitions together back.  The next day, simonmar
+walked me through the <a href="http://haskell.org/happy/">Happy</a> parser
+to get the new syntax recognized, and today spj showed me how the GHC typechecker
+works.   All there's left is installing the labels as record selectors, and the
+upcoming GHC 6.6 will have a nice feature to fit Pugs's needs.  Hacking GHC is
+evidently not as difficult as I feared! :-)
+
+<p>
+Talking about GADTs, I was also involved with the crazy project of encoding the
+<a href="http://darcs.net/">Darcs</a> patch algebra into the GADT type system,
+letting the compiler catch entire classes of common logic errors in darcs,
+bringing us dagerously close to the ideal of proof-carrying code.
+
+<p>
+Two days ago, when droundy told me this idea, I was very excited, started
+prototyping it, then promptly ran into errors on existential types.  Heffalump
+took my laptop and shuffled it with Igloo, arriving at something that seemed to
+compile, which evolved into an embedded DSL for patches.  After today's
+conference sessions, a dozen darcs hackers gathered together, learned about the
+recent developments of the patch theory, then worked on the GADT encoding.
+The hacking session was quite successful -- we didn't run into any showstoppers,
+much to everybody's surprise -- and I visiolized the whiteboard into this
+<a href="http://perlcabal.org/user/autrijus/darcs-gadt.png">diagram</a>.
+
+<p>
+On the Pugs backend front, I learned from simonmar the existence of the ILX
+emitter library, hiding in a forgotten corner of GHC source tree.  This enables
+us to emit pre-CLR-2.0 MSIL code that could run on Mono, under a 3-clause BSD
+license.  Targetting CLR suddenly looks more attractive...
+
+<p>
+I also learned how to generate native machine code straight from C--, using
+the GHC API distributed as part of Lemmih's <a href="http://scannedinavian.org/user/lemmih/ghc-api">ghc-api</a> Cabal package.
+
+<p>
+Speaking of Cabal, I learned from SyntaxNinja about the design of the Cabal/Hackage
+system, which is the Module::Build/CPAN equivalent for Haskell.  We shared our
+experiences, and he helped me setting up the basic Cabal build rules for Pugs.
+With Cabal support, Pugs's Makefile.PL would only need to care about the Perl
+parts in the source tree, and we can finally get a libPugs to link with pugscc
+and other programs -- Inline::GHC is definitely on the radar, and the idea of
+using Perl6 to script the Haskell IDE (hIDE) is also gaining some traction.
+
+<p>
+Compiling with continuations, another pet interest of mine, also got a boost
+from ICFP.  The <a
+href="http://www.cs.brown.edu/user/sk/Publications/Papers/Published/pcmkf-cont-from-gen-stack-insp/">Generalized
+Stack Inspection</a> talk outlined how to use vanilla <code>try/catch</code>
+mechanism to implement full continuations, which is much more efficient than
+the regular trampolining approach as used in Pugs's JavaScript backend, since
+only people who actually use full continuations need to pay the cost for
+<code>catch</code>.  Their technique operates on the ANF form, which seems to
+be a good low-level intermediate form for Pugs.
+
+<p>
+Interestingly, the paper went as far as saying that Parrot might have made a
+suboptimal choice in paying the full cost of going full-CPS, since we could
+emulate full continuations using exception handling efficiently.  They gave
+concrete implementations in CLR and JVM -- we'll see if this result can carry 
+over to Perl5 and JavaScript runtimes.
+
+<p>
+The invited talk of the first day tackled impredicative type inferencing, a
+long-standing problem in inferring types for a rich system such as Perl6.
+I had much trouble grokking the <em>Wobbly Type</em> idea of spj's, so I
+was much delighted to see that fpottier gave a very intuitive treatment of
+splitting the user-annotation-driven phase and the complete inferencing
+phase apart.
+
+<p>
+Oh, the ICFP contest.  Haskell won again, which came at no surprise, but
+the Dylan Hacker team made another strong showing.  From the brief
+investigation, I think Dylan is even closer to the "Perl 6 without
+advertisement" mark than Ruby, largely due to its incremental soft
+typing system, where one can start rapid prototyping with full dynamism,
+then generate more efficient and robust C code by adding type annotations.
+
+<p>
+Tomorrow is the Curry workshop, then the Haskell workshop on the day after.
+After that I'll get two weeks of Pugs hacking time.  I can barely wait to
+apply those new techniques, tools and thoughts into Pugs!
+</p>
+
+
+<hr/>
+
+
+
+<h2>Wow.....i mean.....wow</h2>
+<h3><a href="/user/eric256/">eric256</a> on 2005-09-28T23:03:19</h3>
+I would just like to say thanks.  I'm glad that there are people out there who understand this stuff AND want to spend there time building pugs and perl6.  I generaly consider myself fairly smart but when i read this compiler theory stuff my eyes just glaze over and my head spins.<br><br>So thanks for taking your time to build pugs and hears hoping you continue to use your power for good!<nobr> <wbr></nobr>;)
+
+
+
+<h2>Re: Wow.....i mean.....wow</h2>
+<h3><a href="/user/grantm/">grantm</a> on 2005-09-29T00:15:26</h3>
+Ditto.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

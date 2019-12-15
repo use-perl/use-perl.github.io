@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of chromatic: Rakudo Copy on Wrong</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Rakudo Copy on Wrong</h1>
+<h2><a href="/user/chromatic/">chromatic</a> on 2008-04-19T17:32:26</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Late last night, PerlJam posted in #parrot a small Perl 6 program which gave the wrong answer in Rakudo:</p>
+
+<pre>my $foo = 'fred';
+say $foo;
+$foo--;
+my $bar = 'fred';
+say $bar;</pre>
+
+<p>The correct output is obviously:</p>
+
+<pre>fred
+fred</pre>
+
+<p>Rakudo gave:</p>
+
+<pre>fred
+frec</pre>
+
+<p>PerlJam and Infinoid both correctly diagnosed the problem as a COW problem.  What's that, and why does it matter?</p>
+
+<p>The Rakudo compiler turns this code into PIR code.  PIR is the native high level language of Parrot.  Inside Parrot, the PIR compiler (IMCC) turns PIR into Parrot bytecode.  As part of that process, IMCC identifies constant string literals and treats them specially.</p>
+
+<p>Like the Perl 6 code, the PIR code produced by Rakudo contains the string literal <code>fred</code> twice.  The PBC produced by IMCC doesn't; it refers to a single internal data structure twice.</p>
+
+<p>This is usually the right approach.  In this case, where the literal string appears twice and is only four characters long, there's little benefit, but in a complex program, you can save a lot of memory and time with judicious caching.</p>
+
+<p>Now of course sometimes people want to mutate these strings.  They're mutable; you can change them.  That's where the COW comes in.  It's like memory handling on a decent operating system.  You only make a copy of the memory at the last possible point, where you know you're going to modify your copy.  Parrot strings support this, so if you use Parrot operations directly, you don't even have to know that COW exists.  It just works.</p>
+
+<p>The problem was that the string modification took place outside of Parrot, in a custom Perl6Str PMC.  Think of a PMC like a class which represents internal data structures, and you're most of the way to understanding them.  The Perl6Str PMC has two operations, <code>increment</code> and <code>decrement</code> which do exactly what you'd expect to strings on the C level.  This means that they modify the C string directly.</p>
+
+<p>Because this occurs at the C level (working directly on C pointers), Parrot doesn't have a chance to perform the copy-on-write operation to the string, and the modification of one string produces the modification of all other strings which refer to the same string literal.</p>
+
+<p>My first solution was to call the Parrot string function to perform the copy (because there's a write coming up) directly, but that made too much code move around (C89 and declarations before code, grr).  Instead, I made a two-line macro which does an in-place copy and assign, and only two lines of code had to change to do the right thing.  Now the code prints, as it should:</p>
+
+<pre>fred
+fred</pre>
+
+<p>(I spent more time writing this entry than I did fixing the problem.)</p>
+
+
+<hr/>
+
+
+
+<h2>C99 FTW!</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2008-04-21T18:59:01</h3>
+<p><blockquote><div>My first solution was to call the Parrot string function to perform the copy (because there's a write coming up) directly, but that made too much code move around (C89 and declarations before code, grr).</div></blockquote>
+Why C89? Seems silly now.
+
+
+
+<blockquote>
+
+<h2>Re:C99 FTW!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-04-21T20:21:04</h3>
+<p>I'd love to be able to use C99, but some of our target platforms lack C99-conforming compilers.  As I understand it, we're sometimes fortunate that Visual Studio supports C89.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

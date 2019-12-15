@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jdavidb: Oracle gem of the day: TAP compliant testing in PL/SQL</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Oracle gem of the day: TAP compliant testing in PL/SQL</h1>
+<h2><a href="/user/jdavidb/">jdavidb</a> on 2006-08-15T20:03:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>This is my own personal test framework for testing PL/SQL modules.  It's been around since before TAP had a name, actually.  In the past I have built a public <b>test</b> subroutine right into packages which I then call from a short wrapper SQL*Plus script for testing.  (I usually call the wrapper script t.sql, so I can test with three keystrokes. :) )  At times I've found it better to put the tests into the t.sql script itself.</p>
+
+<p>Maybe somebody can clean this up and make something better out of it.</p>
+
+<p>Note that <b>IS</b> is a reserved word in SQL, so I couldn't name a routine <b>is</b> within the T package.  And so I named it <b>tis</b>: name of the package + "is", or "tis" if you like to use older English and sound like you're reciting the Night before Christmas. :)</b>
+
+<pre>CREATE OR REPLACE PACKAGE T
+IS
+
+PROCEDURE plan;
+PROCEDURE end_tests;
+PROCEDURE ok(condition BOOLEAN, name VARCHAR2 := NULL);
+PROCEDURE pass(name VARCHAR2 := NULL);
+PROCEDURE fail(name VARCHAR2 := NULL);
+PROCEDURE todo(condition BOOLEAN, name VARCHAR2 := NULL);
+PROCEDURE tis(got VARCHAR2, expected VARCHAR2, name VARCHAR2 := NULL);
+PROCEDURE tis(got BOOLEAN, expected BOOLEAN, name VARCHAR2 := NULL);
+PROCEDURE set_verbose(p_on BOOLEAN);
+
+END T;
+/
+show errors
+</pre>
+
+<pre>CREATE OR REPLACE PACKAGE BODY T
+IS
+
+test_count INTEGER := 0;
+traffic_light BOOLEAN := TRUE;
+success_count INTEGER := 0;
+start_time DATE;
+verbose BOOLEAN := TRUE;
+
+PROCEDURE plan
+IS
+BEGIN
+  start_time := SYSDATE;
+  test_count := 0;
+  traffic_light := TRUE;
+  success_count := 0;
+END plan;
+
+PROCEDURE end_tests
+IS
+  success_percentage VARCHAR2(7);
+  interval NUMBER;
+BEGIN
+  success_percentage := TO_CHAR(100 * success_count / test_count, '999D99');
+  DBMS_OUTPUT.PUT_LINE(success_percentage || ' percent of tests succeeded.');
+  interval := SYSDATE - start_time;
+  interval := interval * 24 * 60 * 60;
+  DBMS_OUTPUT.PUT_LINE(TO_CHAR(interval, '999D99') || ' seconds elapsed');
+  IF traffic_light
+  THEN
+    DBMS_OUTPUT.PUT_LINE('green light');
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('RED LIGHT');
+  END IF;
+END end_tests;
+
+PROCEDURE ok(condition BOOLEAN, name VARCHAR2 := NULL)
+IS
+BEGIN
+  IF condition
+  THEN
+    pass(name);
+  ELSE
+    fail(name);
+  END IF;
+END ok;
+
+FUNCTION name_output(name VARCHAR2 := NULL)
+RETURN VARCHAR2
+IS
+BEGIN
+  IF name IS NOT NULL
+  THEN
+    RETURN ' - ' || name;
+  ELSE
+    RETURN NULL;
+  END IF;
+END name_output;
+
+PROCEDURE pass(name VARCHAR2 := NULL)
+IS
+BEGIN
+  test_count := test_count + 1;
+  success_count := success_count + 1;
+  IF verbose
+  THEN
+    DBMS_OUTPUT.PUT_LINE('ok ' || TO_CHAR(test_count) || name_output(name));
+  END IF;
+END pass;
+
+PROCEDURE fail(name VARCHAR2 := NULL)
+IS
+BEGIN
+  test_count := test_count + 1;
+  DBMS_OUTPUT.PUT_LINE('not ok ' || TO_CHAR(test_count) || name_output(name));
+  traffic_light := FALSE;
+END fail;
+
+PROCEDURE todo_pass(name VARCHAR2 := NULL)
+IS
+BEGIN
+  test_count := test_count + 1;
+  success_count := success_count + 1;
+  DBMS_OUTPUT.PUT_LINE('ok ' || TO_CHAR(test_count) || name_output(name) ||
+                       ' # UNEXPECTEDLY SUCCEEDED');
+END todo_pass;
+
+PROCEDURE todo_fail(name VARCHAR2 := NULL)
+IS
+BEGIN
+  test_count := test_count + 1;
+  DBMS_OUTPUT.PUT_LINE('not ok ' || TO_CHAR(test_count) || name_output(name) ||
+                       ' # TODO');
+  -- don't change traffic_light
+END todo_fail;
+
+PROCEDURE todo(condition BOOLEAN, name VARCHAR2 := NULL)
+IS
+BEGIN
+  IF condition
+  THEN
+    todo_pass(name);
+  ELSE
+    todo_fail(name);
+  END IF;
+END todo;
+
+PROCEDURE tis_fail(got VARCHAR2, expected VARCHAR2, name VARCHAR2 := NULL)
+IS
+BEGIN
+  fail(name);
+  DBMS_OUTPUT.PUT_LINE('#      got: ' || nvl(got, 'NULL'));
+  DBMS_OUTPUT.PUT_LINE('# expected: ' || nvl(expected, 'NULL'));
+END tis_fail;
+
+PROCEDURE tis(got VARCHAR2, expected VARCHAR2, name VARCHAR2 := NULL)
+IS
+BEGIN
+  IF got = expected
+  THEN
+    pass(name);
+  ELSE
+    tis_fail(got, expected, name);
+  END IF;
+END tis;
+
+FUNCTION bto_char(p BOOLEAN)
+RETURN VARCHAR2
+IS
+BEGIN
+  IF p
+  THEN
+    RETURN 'TRUE';
+  ELSIF NOT p
+  THEN
+    RETURN 'FALSE';
+  ELSE
+    RETURN NULL;
+  END IF;
+END bto_char;
+
+PROCEDURE tis(got BOOLEAN, expected BOOLEAN, name VARCHAR2 := NULL)
+IS
+BEGIN
+  IF got = expected
+  THEN
+    pass(name);
+  ELSE
+    tis_fail(bto_char(got), bto_char(expected), name);
+  END IF;
+END tis;
+
+PROCEDURE set_verbose(p_on BOOLEAN)
+IS
+BEGIN
+  verbose := p_on;
+END set_verbose;
+
+END T;
+/
+show errors
+</pre></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

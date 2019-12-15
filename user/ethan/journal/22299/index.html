@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: Benchmarking perls</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Benchmarking perls</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2004-12-14T08:11:55</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Partly due to the fact that I didn't have anything interesting to do, I wrote a little set of modules to benchmark perls against each other. There already is <a href="http://search.cpan.org/author/GAAS/perlbench-0.07">perlbench</a> on the CPAN but I found the way tests had to be written inconvenient.<br/><br/>According to the results I get, realworld programs seem to get faster on recent perls. Some other things on the other hand are much slower, most notably regexes (almost by a factor 2 when comparing 5.5.4 with a threaded 5.8.6). The results:<br/><br/><pre>
+Benchmarks     | perl5.5.4 | perl5.6.2 | perl | perl5.8.6 | perl5.8.6th | Weight
+---------------+-----------+-----------+------+-----------+-------------+-------
+bench/loops    |   1000    |    906    |  814 |    731    |     782     |     70
+bench/regex    |   1000    |   1258    | 1978 |   1457    |    1977     |    116
+bench/recurse  |   1000    |    961    |  983 |    956    |     991     |     73
+bench/wave     |   1000    |    860    |  994 |    894    |     925     |    236
+bench/autoload |   1000    |    968    | 1095 |   1078    |    1159     |    139
+bench/substr   |   1000    |    947    |  984 |    986    |     957     |    164
+bench/mail     |   1000    |    698    |  903 |    748    |     959     |    198
+---------------+-----------+-----------+------+-----------+-------------+-------
+Overall        |   1000    |    910    | 1085 |    960    |    1082     |   1000
+</pre><br/><br/>The fourth column is the ordinary Debian testing-perl (perl5.8.4 with threads). The benchmarks can be found <a href="http://www-users.rwth-aachen.de/tassilo.parseval/perlbench/">here</a>. Some tests I consider almost irrelevant, namely <code>autoload</code> which is an OO version of the Fibonacci-number generator where each recursive instance is autoloaded. Also, <code>loops</code> is not interesting because empty loops are unlikely to show up that often. Real world programs are <code>wave</code> which decreases the volume of a 18meg WAV file, <code>mail</code> which walks through a 28meg mailbox and <code>substr</code> which calculates the length of the longest common substring of <code>perldoc -tT perlfunc</code>. It's 647 by the way, would you have guessed?<br/><br/>The rightmost column is the relative amount of time this test took on the leftmost perl. This number is used for calculating the weighted mean in the bottom row. In case the Weight column doesn't add up to 1000, that's due to some unclever rounding of my code.<br/><br/>Finally, the module which does the timing and that is included from each benchmark script is this:
+<pre>
+package Perl::Benchmark::Lib;<br/><br/>use strict;
+use Time::HiRes;<br/><br/>use base qw/Exporter/;
+use vars qw/$VERSION @EXPORT/;
+$VERSION = '0.01';<br/><br/>$SIG{__WARN__} = sub {};
+$SIG{__DIE__} = sub {};<br/><br/>@EXPORT = qw/bench_adjust/;<br/><br/>my $corrective = 0;<br/><br/>bench_adjust();<br/><br/>sub bench_adjust {
+    my ($code, $times) = @_;
+    if (defined $code) {
+	$times ||= 1;
+	$corrective += eval sprintf <<EOEVAL, "$code\n" x $times;
+my \@td = Time::HiRes::gettimeofday();
+%s
+tv_interval(\@td);
+EOEVAL
+    }
+    @Perl::Benchmark::Lib::PB_timer = Time::HiRes::gettimeofday();
+}<br/><br/>sub report_timing {
+    print Time::HiRes::tv_interval(\@Perl::Benchmark::Lib::PB_timer) - $corrective;
+    print "\n";
+}<br/><br/>END {
+    report_timing();
+}<br/><br/>1;
+</pre><br/><br/>It dumps the number of seconds of the runtime to stdout where it is picked up by another module that does all the bookkeepting and eventually spits out the table you see further above with the help of <code>Text::Table</code>. A very nice module, by the way.
+</p>
+
+
+<hr/>
+
+
+
+<h2>And blead ?</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2004-12-14T10:03:55</h3>
+Obviously a column is missing<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:And blead ?</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2004-12-14T12:26:50</h3>
+I was just lacking the patience to start up <code>buildaperl</code> and from there build a fresh bleadperl. But now that I have a fairly useful benchmark environment, I am quite sure I'll use it the next time I patch around in bleadperl.<br> <br>I also would like to release it as <code>Perl::Benchmark</code> to the CPAN. Prior to that, it needs some polishing and maybe some more features. Also, I would like to create a benchmark suite that only relies on core-modules but is still real-world-ish enough to be useful. Maybe I find a way that it can run and time Perl test-scripts without modifying them. At least for those written with the Test-Harness framework, this should be possible.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Regexes</h2>
+<h3><a href="/user/bart/">bart</a> on 2004-12-14T10:47:54</h3>
+<blockquote><div> <i>Some other things on the other hand are much slower, most notably regexes (almost by a factor 2 when comparing 5.5.4 with a threaded 5.8.6).</i> </div></blockquote>
+If I may just take one uninformed guess on the cause: Unicode. Internal Unicode support was added starting with 5.6.0.
+
+
+
+<blockquote>
+
+<h2>Re:Regexes</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2004-12-14T12:19:57</h3>
+<i>Internal Unicode support was added starting with 5.6.0. </i> <br> <br>Ah, that's plausible. I was also thinking of possible causes for this decrease in performance but didn't think of the obvious case.<br> <br>And the additional slow-down caused by threads is then also fairly obvious: Perl's regex engine, which is very non-reentrant by nature, has to work more reentrantly now.<br> <br>Other than that, I agree with mir's comment that with all the new features and bugfixes, the results are very favourable for perl and its porters. I always assumed perl had gotten slower (due to bloat) but for programs running in the wild (and not in a benchmark laboratory) the opposite is true.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Very impressive</h2>
+<h3><a href="/user/mir/">mir</a> on 2004-12-14T10:54:10</h3>
+<p>I think these numbers are very impressive. If you consider the increased features (Unicode!) and the bug fixing between 5.5.4 and 5.8.6, then keeping more or less the same speed is quite a feat. Kudos to the porters!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

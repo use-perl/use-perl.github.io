@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Parsing the DarkPAN - Phase 2</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Parsing the DarkPAN - Phase 2</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2009-05-26T08:50:16</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>After my initial experiments at using the CPAN as a test run for parsing all the Perl in the entire world (that is visible at least), it became clear quite quickly that I needed to put a lot of my focus on performance in order to get any further.<br/><br/>So I'm made a couple of new changes to the experimental Perl::Metrics2 (not currently on CPAN) to scale up.<br/><br/>The first and most important change is architectural, splitting the capture and indexing of data from the analysis of that data. That also meant making the metrics engine natively aware that it might be working against a PPI::Cache<br/><br/>The <i>pm2minicpan</i> script takes the location of a minicpan. It will run a CPAN::Mini::Visit iteration over the minicpan, identify all the "Perl Files" in each archive, invoke PPI to parse them and populate the parse cache, and save the list of md5 cache keys for the documents into the "cpan file index" against the specific file names.<br/><br/>This has the secondary benefit that if 1000 distributions use Module::Install or bundle the same author test, I only need to run the metrics on each distinct document instead of all instances of it. Deduplication like this will probably be essential later, when I encounter GreyPAN repositories that have bundled copies of their dependencies.<br/><br/>A full indexer run currently yields a PPI document cache of about 6gig. However, because Archive::Tar is memory-bloaty on Win32 I've excluded any tarballs larger than 3meg to avoid hitting the 2gig process memory limit on my machine. I'm also not processing zip or bz2 files yet, so this will grow some more.<br/><br/>The <i>pm2cache</i> performs the second half of the work. Using only the PPI::Cache and it's existing database (and ignoring both the original files and the file index completely) it will perform an inventory of the cache against the set of one or more plugins enabled.<br/><br/>It picks out all the document objects that one-or-more plugins haven't seen yet, generates the metrics for those plugins, and adds them to the database.<br/><br/>Generating the execution plan is fairly cheap too, consuming about half a minute of CPAN and around 50 meg of ram. This should scale (just) to the full DarkPAN scan, although I may need to pay the extra CPU cost and disable some of the shortcut indexes on 32-bit machines if the document store grows too large.<br/><br/>The second type of optimisation I've done is more tactical.<br/><br/>All major operations will now drop all of the database indexes before starting, and regenerate them at the end. This costs 4 or 5 minutes of CPU to do, but reduces the total disk IO read cost during a complete run from 1.5 terabytes to 100-200gigabytes.<br/><br/>I've also added per-1000 dist commits, and added support to ORLite for incremental commits during long reruns without having to reconnect to the database (ORLite is designed to normally stay disconnected from the SQLite file unless absolutely necessary, which removes any opportunity for SQLite to do disk caching).<br/><br/>And finally, when the metrics are inserted, they are batched into a single prepared statement on a per-document basis. I've also added a "hint" to the plugin that allows the caller to assert that the inserts won't clash with any existing records, and that the safety check to delete existing records for that plugin/document combination isn't required.<br/><br/>There's a few more tactical changes left to go.<br/><br/>One of the plugins currently does an useless ->clone of the PPI::Document object so that it can discover the SLOC value. I'd like to change that to let the plugin classes advertise if they are destructive.<br/><br/>That way, I can add a plugin scheduler that will call all the non-destructive plugins first, and the clone the document itself for all EXCEPT the final destructive plugin (which it would allow to consume the main document object).<br/><br/>It's a little fiddly, but since there's often only going to be one destructive plugin acting on the document, it allows a substantial percentage of files to not have to be cloned at all.<br/><br/>After I make these last changes I'll probably have hit something close to the theoretical maximum performance for a serial processing algorithm. Progress beyond that requires parallelism and hashing, which means I need to either move away from SQLite or I need to do batching of metrics in memory, and then only connect/insert/commit every 100 or so documents. (SQLite handles concurrency poorly)<br/><br/>Of course, for now that would be overkill. Because even with my current implementation I can create a new metrics plugin, enable it, and process the entire CPAN in about 5-10 hours. This is plenty fast enough for what I'm doing at the moment, and it runs quite happily in the background of a duel-core machine. Going faster means limiting myself to my quad machine, just to buy another few hours.<br/><br/>And so to results!<br/><br/>Scanning only the core non-pathological and edge cases from only CPAN, I get the following initial numbers.
+<pre>
+-- Files ------------------
+Distributions:       16,684
+Total Documents:    196,801
+Distinct Documents: 173,436
+Cached Documents:   150,121
+Smallest Document:   "\n\n"<br/><br/>-- Code -----------------------
+Total Perl Bytes:   891,245,381
+Total Perl Lines:    33,378,998
+Total Perl SLOC:     18,524,339
+Total PPI Tokens:   157,345,297
+Significant Tokens:  94,187,367<br/><br/></pre><br/><br/>These numbers conform to about we expect to see for the CPAN. If the SLOC looks a little on the low side, it's most likely due to the removal of all those tarballs greater than 3 megabytes, which includes Perl itself, bioperl, and some other giants that add a few million more lines between them.<br/><br/>I'll need a way to do streaming tarball extraction and protect my memory from overflowing in Archive::Extract before I can include those big files.<br/><br/>Much more interesting than being able to produce these numbers is the ability to look for specific patterns across the entire CPAN. As a test case, RJBS suggested that I look for all the files that use the now-deprecated magic variable $[.<br/><br/>After leaving it overnight to run the search, and joining the results against the cpan file index, I get the following list of 87 CPAN distributions currently in the index that use the now-deprecated magic variable (and probably need a fresh release to stop using it).<br/><br/>As an aside, I'm just using the Firefox SQLite manager for my miscellaneous queries. It's far more convenient than dedicated programs (as long as the tables are well indexed).
+<pre>
+select
+  dist
+from
+  cpan_file,
+  file_metric
+where
+  file_metric.md5 = cpan_file.md5
+  and
+  name = 'array_first_element_index'
+  and
+  value = 1
+order by
+  dist asc;<br/><br/>ABIGAIL/Regexp-Common-2.122.tar.gz
+ABIGAIL/Regexp-Common-2.122.tar.gz
+ABIGAIL/Regexp-Common-2.122.tar.gz
+ABURLISON/Solaris-0.05a.tar.gz
+AKSTE/Data-ShowTable-3.3.tar.gz
+AKSTE/Term-Query-2.0.tar.gz
+ANDERS/Math-Business-BlackSch-0.01.tar.gz
+AUTRIJUS/OurNet-FuzzyIndex-1.60.tar.gz
+AUTRIJUS/PAR-0.80.tar.gz
+AUTRIJUS/PAR-0.81.tar.gz
+AUTRIJUS/PAR-0.88.tar.gz
+AWRIGLEY/HTML-Summary-0.017.tar.gz
+CAIDAPERL/Chart-Graph-3.2.tar.gz
+CFAERBER/Unicode-Stringprep-1.00.tar.gz
+CHTHORMAN/Data-CTable-1.01.tar.gz
+CRAKRJACK/File-Basename-Object-0.01.tar.gz
+CRAKRJACK/Schema-RDBMS-AUS-0.04.tar.gz
+CRAKRJACK/Tk-Playlist-0.01.tar.gz
+DJHD/Festival-Client-Async-0.0303.tar.gz
+DTRISCHUK/Memoize-Memcached-0.03.tar.gz
+EDAVIS/xmltv-0.5.31.tar.gz
+EDAVIS/xmltv-0.5.33.tar.gz
+EHOOD/MHonArc-2.6.16.tar.gz
+GEHIC/PGP-0.3a.tar.gz
+GIFF/Net-FTP-RetrHandle-0.2.tar.gz
+GKAPUR/Array-Lock-0.02.tar.gz
+GOSHA/Net-SC-1.20.tar.gz
+HIO/Tripletail-0.31.tar.gz
+HIO/Tripletail-0.34.tar.gz
+HIO/Tripletail-0.45.tar.gz
+IOANNIS/Pg-Loader-0.16.tar.gz
+JANL/w3mir-1.0.10.tar.gz
+JDHEDDEN/Math-Random-MT-Auto-6.14.tar.gz
+JDHEDDEN/Math-Random-MT-Auto-6.14.tar.gz
+JDPORTER/Tie-OffsetArray-0.01.tar.gz
+JONG/Bioinf_V2.0.tar.gz
+JROGERS/Net-Telnet-3.03.tar.gz
+JSTOWE/Term-Cap-1.12.tar.gz
+LEIFHED/perldap-1.4.tar.gz
+LEIFHED/perldap-1.4.tar.gz
+LEIFHED/perldap-1.4.tar.gz
+MAHEX/IO-BLOB-Pg-0.91.tar.gz
+MAKAROW/DBIx-Web-0.76.tar.gz
+MAKAROW/Tk-TM-0.53.tar.gz
+MARKOV/Mail-Box-2.088.tar.gz
+MGRAHAM/Config-Context-0.10.tar.gz
+MIKERY/MARC-Record-2.0.0.tar.gz
+MLF/SAS-Parser-0.93.tar.gz
+MOHACSI/Net-Traceroute6-0.03.tar.gz
+MSCHWARTZ/OLE-Storage-0.386.tar.gz
+MSCHWARTZ/OLE-Storage-0.386.tar.gz
+NEKOKAK/DBIx-Class-StorageReadOnly-0.05.tar.gz
+PETDANCE/Module-Starter-1.50.tar.gz
+PJB/CGI-Htauth-1.21.tar.gz
+PJB/Crypt-Tea-2.12.tar.gz
+PJB/Crypt-Tea_JS-2.21.tar.gz
+PJB/Math-Evol-1.06.tar.gz
+PJB/Math-RungeKutta-1.05.tar.gz
+PJB/Math-WalshTransform-1.12.tar.gz
+PJB/Term-Clui-1.41.tar.gz
+PJB/Term-Clui-1.41.tar.gz
+REID/Games-Go-GoPair-1.001.tar.gz
+RICKM/DateTime-Format-Baby-1.0100.tar.gz
+RIK/NISPlus-0.06-alpha.tar.gz
+RIK/NISPlus-0.06-alpha.tar.gz
+RIK/NISPlus-0.06-alpha.tar.gz
+RJBS/Module-Starter-1.470.tar.gz
+ROBERTMAY/Win32-GUI/Win32-GUI-1.06.tar.gz
+RUBYKAT/txt2html-2.51.tar.gz
+SADAHIRO/ShiftJIS-String-1.04.tar.gz
+SAMV/Data-Lazy-0.6.tar.gz
+SCHWIGON/class-methodmaker/Class-MethodMaker-2.15.tar.gz
+SCR/MemHandle-0.06.tar.gz
+SHGUN/Sprite-3.21.tar.gz
+SMUELLER/PAR-0.984.tar.gz
+SMUELLER/PAR-0.992.tar.gz
+SPROUT/HTML-DOM-0.024.tar.gz
+STBEY/Date-Calc-5.4.tar.gz
+STEPHEN/Attribute-Default-1.31.tar.gz
+TGROSE/HTML-Summary-0.017.tar.gz
+ULPFR/WAIT-1.800.tar.gz
+ULPFR/Wais-2.202.tar.gz
+ULPFR/Wais-2.311.tar.gz
+UMEMOTO/Socket6-0.23.tar.gz
+YURAN/xmlwww-1.0.tar.gz
+</pre><br/><br/>If it's looks a little odd that the same distribution is listed multiple times, this is usually because an old release used a class that was removed in a later version, but the old release was never deleted from the CPAN. This results in the old dist being listed in the index, even if the chances of you actually installing it are almost impossible.
+</p>
+
+
+<hr/>
+
+
+
+<h2>looks like..</h2>
+<h3><a href="/user/domm/">domm</a> on 2009-05-26T10:08:56</h3>
+<p>your reimplementing CPANTS<nobr> <wbr></nobr>:-) (which is OK for me, because I currently don't have much time for CPANTS (or fun while working on it) anyways...)</p><p>A lot of what you describe sounds quite familiar to how CPANTS works. Using PPI is something I wanted to do for a long time, but never did, because I figured it would be too time consuming etc. But now that you're doing it: Would you consider making the PPI document dumps available somewhere? (if it's possible to reuse your dumps on another OS..). I could not only need this for CPANTS, but also for <a href="http://returnvalues.useperl.at/" title="useperl.at">this little project</a useperl.at>.</p>
+
+
+
+<blockquote>
+
+<h2>Re:looks like..</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-05-26T12:25:28</h3>
+<p>The document cache is damned large, probably too large to reasonably ship around on anything smaller than a portable hard drive.</p><p>Storable'd PPI documents are also version specific, so you don't really want that anyway.</p><p>But if I load them up, serialize to raw perl, and then build a LZMA-compressed tarball, I think I can get about 100 to 1 compression and it will fit into around 50 meg.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

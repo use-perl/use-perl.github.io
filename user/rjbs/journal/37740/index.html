@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: pod people versus elementalists</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>pod people versus elementalists</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2008-10-25T18:08:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><html><p>A long time ago, I wanted to write <a href="http://search.cpan.org/dist/Pod-Coverage-TrustPod/">something to let my pod (documentation)
+contain its own coverage
+hints</a>.  I gave up when I
+found out that it was not going to be trivial to say something like this:</p><pre>my @blocks = PodParser->read_file($my_perl_module)->data_for('coverage');
+</pre><p>In order to extract &#34;foo\nbar&#34; from:</p><pre>sub foo { ... }
+
+=begin coverage
+
+foo
+bar
+
+=end coverage
+</pre><p>I found ways, but they all bugged me.  I gave up on the project for a long
+time, because it was a real
+<a href="http://www.szabgab.com/blog/2008/10/1224765950.html">yak</a>, but eventually I
+came back to it when I realized how much pod manipulation I&#39;d want in
+<a href="http://search.cpan.org/dist/Dist-Zilla/">Dist::Zilla</a>.  I really wasn&#39;t happy
+with how Pod::Simple worked.  Dieter had contributed a bit to Pod::Simple, and
+had talked about writing a more TreeBuilder-like interface.  There were a
+number of significant blockers, though, and I didn&#39;t want to get hung up on
+them.  Instead, while walking to McGrady&#39;s for ABE.pm, I had an idea and called
+Dieter to brainstorm with him.  Basically, the idea can now be summarized as &#34;I
+should write <a href="http://search.cpan.org/dist/">Pod::Eventual</a>.&#34;</p><p>Pod is really great.  It&#39;s so easy to write that I know I write much, much more
+documentation that I would if I had to produce, say, a <code>chm</code> file.  It&#39;s a
+very, very simple format, and is complex enough to handle almost everything
+I&#39;ve ever needed from it.  My problems have been that I want to write even less
+and have it rewritten for me, so I can avoid boilerplate.</p><p>The root problem is that pod has both very simple and very complex parts.
+Here are some of the simple things:</p><ul><li>a pod document is made up of paragraphs</li><li>paragraphs are separated by blank lines (but &#39;cut&#39; commands are special)</li><li>pod can be interwoven with non-pod in a document</li><li>pod paragraphs are either:
+<ul><li>commands (start with =) </li><li>verbatim (start with whitespace)</li><li>text (start with anything else)</li></ul></li><li>the non-whitespace characters after the = in a command are the command</li></ul><p>So, knowing this is about enough to write a tolerable pod paragraph parser for
+most uses.  Sure, it misses a lot of encoding stuff, but adding that later (I
+believe) is not a big issue.</p><p>It omits two very, very big things.  First of all, it ignores the <em>content</em> of
+text paragraphs.  That means that I&#39;ve said nothing about what <code>F&#60;markup&#62;</code>
+means.  This is a big obnoxious problem, and I have absolutely zero interest in
+tackling it.  Hooray for punting, right?</p><p>The second problem is that it assumes that all pod documents are sequences of
+paragraphs.  In fact, this is true.  The problem is that on top of the
+syntax of paragraphs, there are paragraph semantics that make this, for
+example, an illegal document:</p><pre>=pod
+
+=item * Isn't this simple?
+
+=end
+</pre><p>We have an <code>=item</code> outside of an <code>=over</code> and an <code>=end</code> outside of a <code>=begin</code>.
+Wait... outside?  If a pod document is just a sequence of paragraphs, how does
+containment work?</p><p>Well, it doesn&#39;t.</p><p>It is fairly obvious that the <code>begin</code> and <code>over</code> commands set up containment.
+They have start commands and end commands, and anything between the two is
+contained &#34;inside&#34; the block.  Unfortunately, there&#39;s a lot of implicit
+containment in how many pod formatters relate the document to the reader.  For
+example, look at how the <a href="http://search.cpan.org/dist/Sub-Exporter/lib/Sub/Exporter/Cookbook.pod">Sub::Exporter
+Cookbook</a>
+is presented.  <code>head2</code> items are presented, in table of contents, as being
+contained by the <code>head1</code> items.  You&#39;d also like to think that the text and
+verbatim paragraphs that occur between two <code>head1</code> paragraphs are contained by
+the first.  Unfortunately, that isn&#39;t how it works, and it isn&#39;t really clear
+how it should work.  What items cause the end of a container?  What items can
+contain themselves?</p><p>Again, I originally punted.  Pod::Eventual just produces the sequence of
+events.  For the things I wanted to do, however, I needed structure.  I wanted
+to be able to make a <code>head1</code> <em>thing</em> and put <code>head2</code> or other <em>things</em> inside
+of it.  (Actually, in Pod::Weaver, the technical term for these is
+&#34;<a href="http://search.cpan.org/dist/Pod-Weaver/lib/Pod/Weaver/Weaver/Thingers.pm">thingers</a>&#34;.)</p><p>Dieter had long since abandoned his work on pod stuff, so I stole (with his
+blessing) the name for my pod event-to-tree transformer:
+<a href="http://search.cpan.org/dist/Pod-Elemental/">Pod::Elemental</a>.  It reads in a
+document that contains pod and returns a sequence of roots of trees that
+represent the document&#39;s pod.  The logic by which they&#39;re formed into a
+structure is contained in the Nester, and anyone can write his own nester to
+use whatever nesting logic he thinks makes the most sense.</p><p><a href="http://search.cpan.org/dist/Pod-Weaver/">Pod::Weaver</a> uses Pod::Elemental to
+turn a Perl document (using PPI) into a just-Perl document and a collection
+just-Pod elements.  The elements are then reorganized and rewritten, in part by
+looking at the Perl and in part by using plugins and provided input.
+Dist::Zilla uses Pod::Weaver to add a name-and-abstract section, a license
+section, to build methods and attributes sections, and to do other stuff like
+that.  It works very well, assuming you don&#39;t mind minor explosions while I
+rejigger the API every other day.</p><p>Right now, I know that I have ignored a <em>lot</em> of what is demanded by
+<a href="http://perldoc.perl.org/perlpodspec.html">perlpodspec</a>.  Frankly, I intend to
+keep ignoring a bunch of it.  My goal is to let people work with pod paragraph
+syntax without worrying about the syntax of paragraph content or of the
+semantics of paragraph ordering -- until they want to.  The default
+Pod::Elemental::Nester, for example, will barf if you try to give it an <code>=end</code>
+outside matching <code>=begin</code>.  Pod::Eventual, however, doesn&#39;t care.</p><p>Pod::Elemental doesn&#39;t care about other things, though, like the magic attached
+to <code>=begin</code> (data) blocks whose identifiers begin with a colon.  Why?  It&#39;s
+just about slinging around paragraphs, not around understanding meaning.</p><p>I&#39;m definitely planning on adding quite a bit more standards-compliance to
+Elemental.  For one thing, I want to get <code>=encoding</code> hashed out and improve the
+interface for the element tree.  Even Eventual needs some help.  For example, I
+think it gets the definition of a blank line (which divides paragraphs) wrong,
+and I&#39;d like to change how it understands the lines between <code>=cut</code> and a blank.</p><p>Still, though, I&#39;m very happy with what I have and how simply I got it.  I
+<em>definitely</em> would not recomment writing a pod-to-text converter using any of
+this code, but for writing a pod preprocessor, I&#39;ve found it really great.</p></html>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

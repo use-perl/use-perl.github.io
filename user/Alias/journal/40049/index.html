@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Padre Ticket #1 Fixed!  - How our new locking code works</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Padre Ticket #1 Fixed!  - How our new locking code works</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2009-12-24T00:46:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a href="http://padre.perlide.org/trac/ticket/1">http://padre.perlide.org/trac/ticket/1</a><br/><br/>Our Christmas release of <a href="http://search.cpan.org/perldoc?Padre">Padre</a> 0.53 is done now, and it's looking really really awesome.<br/><br/>My contribution to this release is a shiny new resource locking system, which has significantly improved the speed of most startup, shutdown and file operations.<br/><br/>A couple of people have asked me to post about how it works, so here's the short and simple version.<br/><br/>First, some background on resources in Padre and Wx.<br/><br/>When managing performance and blocking issues in Wx, the main players are the visibility state (changed via ->Show and ->Hide), the update state (changed via ->Freeze and ->Thaw) and the busy state (changed via various mechanisms).<br/><br/>Visibility is most important during startup and shutdown.<br/><br/>When starting up you want to delay the appearance of the window until the event loop is bootstrapped and you are able to take user events on the window, but you can't wait for things like opening files because this may take quite a long time and cause the editor to appear slow and "bloaty". It's a trade off between performance, and PERCEIVED performance (which is almost as important).<br/><br/>When shutting down, things are a bit clearer. As soon as you are sure that the editor will no longer need to interact with the user in any way, you can proactively ->Hide the window and finish shutting down while invisible (letting the user get on with their next task).<br/><br/>The update state is applicable across the entire lifetime of the application.<br/><br/>If updates are enabled, every action results in a paint event (or will be captured by the next paint event). This creates the appearance of things happening, but changes to the application take longer because of the cost of repainting.<br/><br/>Also, often you don't want to be faster in this way. If you are working with a list box, during the process of deleting all the values and generating a new (slightly different) set of values you don't WANT the user to see the box empty and incrementally refill. It acts a form of "flicker" (one of the great enemies of GUI applications). What you want is for the list box to instantly transition from one filled state to the next filled state creating the impression of incremental change even where the underlying code isn't incremental.<br/><br/>The way you solve this problem in Wx is to explicitly disable repainting via the ->Freeze method as late as possible, quickly make your changes to the GUI structure, and then as quickly as possible re-enable painting via ->Thaw.<br/><br/>This must be fast, because if the users are doing anything they will notice after a quarter to half of a second. Also, after 2-10 seconds in some cases the operating system will start to get concerned about your application. Windows for one will sometimes spontaneously ask Wx to repaint your menu after 5-10 seconds. If painting is disabled, the result is a blank white bar where your menu used to be.<br/><br/>Finally, for Padre specifically, we also need to be concerned about expensive refresh operations. If you open a file, we need to regenerate the directory tree, the function list, outline, menu, toolbar, title, recent files list, and directory list and some of those things (like the directory tree) are expensive.<br/><br/>We need to be sure that we avoid updating elements that don't need to be updated (opening a new file in the currently project context shouldn't result in a project file list refresh, for example) and that we avoid or delay any pointless operations (like updating the GUI during a multi-file open) until after the last file is done.<br/><br/>Unfortunately, the update and refresh issues are problematic when most of your application is event-driven, but all your refresh operations are imperative.<br/><br/>When you first start writing Wx code, you usually do something like this.
+<code>
+  sub open_file {
+      my $self = shift;
+      my $file = shift;<br/><br/>      $self->Freeze;<br/><br/>      my $panel = $self->create_editor;
+      $panel->load_file($file);
+      # 10 more lines of setup code here...<br/><br/>      $self->refresh_all;<br/><br/>      $self->Thaw;
+  }
+</code>
+This kind of thing works, but it will only work if called directly from the user event and only if it doesn't throw an exception.<br/><br/>What if $panel->load_file errors due to file permissions, and we don't get a chance to call ->Thaw?<br/><br/>Or what if we want to open several files?
+<code>
+sub open_files {
+  my $self = shift;
+  foreach my $file ( @_ ) {
+      $self->open_file($file);
+  }
+}
+</code>
+In this case, open_files will freeze and thaw repeatedly, slowing down the loading process, and will pointless refresh all the GUI resources after each file.<br/><br/>Or what if we want to open a named group of files (a "Session").
+<code>
+sub open_session {
+  my $self = shift;
+  my $name = shift;
+  my @files = $self->get_session($name);
+  $self->close_all;
+  $self->open_files(@files);
+}
+</code>
+Now we are at two levels of indirection.<br/><br/>Or we want to have a ->next_session method (three), or to support arbitrary scripted "macro" actions contributed by the user (four)?<br/><br/>The real problem with imperative management of these resources is that they don't encapsulate cleanly. You can't nest them inside each other ad infinitum and have code calling your not have to care how you are implemented.<br/><br/>Wx takes care of part of this problem for you, and hints are the right general solution.
+<code>
+  my $guard_object = Wx::WindowUpdateLocker->new($window);
+</code><br/><br/>This built in "locker" class generates objects that fire ->Freeze on the parameter window at constructor time, and ->Thaw at destructor time (i.e. when they fall out of scope).<br/><br/>Importantly, these objects also nest properly so that the ->Thaw only occurs on the outermost destructor. This provides the encapsulation we need so badly.<br/><br/>Unfortunately, the ORLite-based SQLite database classes in Padre::DB we rely on quite heavily don't have this ability (and Wx native asynchronous SQLite support isn't available yet).<br/><br/>Worse, our resource refresh logic doesn't follow this pattern at all. Often you can't just "lock" the refreshing of the whole window or the directory list, because you have very specific times that you want the refresh to fire.<br/><br/>For example, if the user has two files open and is switching between one and the other, we want to initially lock updates while we change the editor panel to the new file but we DON'T want to refresh the other tools. Once we release the update lock to show the new file, we know it will take around a second for the user to notice and adjust to what they are seeing. So we want to use THAT time to refresh the other tools, applying another update lock during the changes to prevent screen flicker and avoid distracting the user with unexpected secondary movement.<br/><br/>To resolve all these problems, I've added a new locking API based on a similar guard object principle to the internal Wx one, except that it is able to control several locking states at the same time. More importantly it's also able to understand the interplay between the different lock types.<br/><br/>The canonical usage looks something like this.
+<code>
+  my $lock = Padre::Current->main->lock('DB', 'UPDATE', 'refresh_menu', 'refresh_title');
+</code>
+This indicates that we should "lock" changes to the SQLite database (causing all database operations to take place in a transaction), lock painting updates, and that some time in the future we'll need to do a refresh of the menu structure and the window title.<br/><br/>To simplify and add extensibility to the implementation, the lowercase refresh locks all match directly to methods on the main window class. So anyone can add a new "lock" type just by adding a refresh_something method.<br/><br/>When the lock handle expires, the lock manager follows a specific release plan. First, release the update lock. Second, fire any refresh events that have accumulated. Thirdly, commit any pending database statements and release our database connection (again, taking advantage of the user needing a small amount of time between screen updates and their next action).<br/><br/>Where the value of a custom lock manager comes in is the Padre-specific semantics.<br/><br/>For example, locks on the database and update state don't interact with each other, but refresh method locks persist beyond the scope of the lock if the release occurs within a higher parent lock.<br/><br/>Take the following example.
+<code>
+SCOPE: {
+    my $lock1 = $main->lock('UPDATE', 'refresh_menu');
+    SCOPE: {
+        my $lock2 = $main->lock('refresh_directory');
+    }
+    SCOPE: {
+        my $lock3 = $main->lock('DB');
+    }
+}
+</code>
+In this example, the database lock will clear at the end of the nested scope, and a commit will occur. However, the 'refresh_directory' method will NOT fire in the nested scope because there are other active related locks in effect in a parent scope. Instead, the 'refresh_directory' will be transfered up to the higher lock.<br/><br/>When $lock1 releases, it will fire BOTH of the refresh events.<br/><br/>This is a basic implementation of the concept (less than 100 lines) but it does work quite nicely. However, it does have some problems remaining to be solved in the next version.<br/><br/>The syntax is still a bit clunky. To fire a refresh event immediately (if you are at the top level) you still need to do the following.
+<code>
+$main->lock('refresh');
+</code><br/><br/>This will do an immediate ->refresh, but remains lock-aware so that if you are in a higher level lock it will add refresh to the list of things to fire later. It would be nice to have a cleaner syntax for this case, or do be able to have the ->refresh method itself inherently know if it is in a lock and just shortcut return true.<br/><br/>Another problem is that the refresh methods come in a natural heirachy that the lock manager doesn't know about.<br/><br/>For example, the top level ->refresh will itself call ->refresh_menu, ->refresh_title and so on. But the lock manager isn't aware of that.<br/><br/>If two nested scopes ask for 'refresh' and 'refresh_menu' locks it will always fire both refresh methods, even those doing the first one means we don't need the second one.<br/><br/>And it won't fire the locks in a reliable order either. Even if ->refresh was smart enough to automatically clear the 'refresh_menu' lock, we can't be sure that ->refresh_menu won't fire first, before the higher one.<br/><br/>This problem discourages the creation of finer-grained locks, because it would increase the number of collisions and pointless double/triple/etc refreshing.<br/><br/>By discouraging finer locks we end up using bigger locks more often, resulting in more waste due to pointless refreshing of GUI elements.<br/><br/>Ideally, the locker would contain information on the relationships between refresh events, so that the refresh events can be fired in the most "correct" order, with pointless methods filtered out.
+</p>
+
+
+<hr/>
+
+
+
+<h2>GUI++</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-12-24T10:27:41</h3>
+<p>This is a great post and what I really like about it is how it takes the battle to the "GUIs are useless" crowd (though I don't believe you intended this).  By having direct, first-hand experience with user interaction, what you're pointing out repeatedly is that just because something is "correct" doesn't mean that it satisfies user expectations/needs.  That's a point that the "CLI only" crowd often seems to miss.</p><p>In any event, thanks for explaining this.</p>
+
+
+
+<blockquote>
+
+<h2>Re:GUI++</h2>
+<h3><a href="/user/tgape/">tgape</a> on 2010-01-01T17:57:35</h3>
+<p>Not really.  As part of the splinter group "GUIs should be useless, because I dislike needing to use them" crowd, I feel I understand enough of what the "GUIs are useless" crowd thinks to confidently state, this would, at best, tell them y'all are finally concerned with *some* of the right things, but you still have a long way to come.</p><p>However, they'd more likely skim, and come away with the overall impression that GUIs are bad and prone to flicker - nothing they didn't already know.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>locks versus dirty flags</h2>
+<h3><a href="/user/tgape/">tgape</a> on 2010-01-01T17:30:42</h3>
+<p>I think you've handled part of the issue very well.  For all I know, you've already handled the other part that this post suggests exists.  However, some of your post suggests otherwise.</p><p>Here, you're focused on what happens to refresh requests while Padre is in the process of changing data that will inappropriately show if that refresh request is immediately honored.</p><p>What about what happens to a refresh request to something that has not changed?  For example, we get a global refresh request, and the file window contents haven't changed - do we re-render the whole window?  Or do we see that nothing's changed, so leave it alone/send a cached image?</p><p>I think I've previously worked with editors that did mostly what you've described here which, at the end of an extended update, would occasionally flicker some of the frames a few times, as there were multiple refresh requests during the freeze portion.  Can that happen here?  If so, is there any simple code that could be used to block it?  (It sounds like there could be that code in what you've described, but without diving into the code and studying it for days, I couldn't tell for certain.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:locks versus dirty flags</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-01-02T16:49:13</h3>
+<p>The locking system itself will satisfactorily take care of duplicate refresh requests, because each element that can be refreshed has a method, and each method is just in a boolean state.</p><p>There's some nigglies remaining, but the basics already work.</p><p>Dirty flagging is a possibility, but not something we're doing at the moment.</p><p>We assume that if someone said we needed to refresh, then we really did need to. And with improved locking, we can rely on the caller a bit more to give us more accurate instructions on which specific areas to refresh.</p><p>In addition, each refresh method is welcome to establish whether or not they are able to shortcut.</p><p>As for the actual painting, we don't really get involved at that level. We merely issue changes to the windowing toolkit.</p><p>One thing I have noticed on my machine, is that in some cases flickering seems to be appearing even on areas we AREN'T updating. But for right now I'm just happy that changes to application state are running at three to five times faster than they were before, and I'll look into the rest in the next round of speed improvments.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

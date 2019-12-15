@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of darobin: Benchmarking SAX</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Benchmarking SAX</h1>
+<h2><a href="/user/darobin/">darobin</a> on 2002-01-28T22:33:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+  I've been benchmarking three PerlSAX2 parsers against one another, and the results may be useful:
+</p>
+
+<p>
+<tt>
+Benchmark: timing 4 iterations of libxml, purepl, expat...<br>
+&nbsp;&nbsp;&nbsp;&nbsp;libxml:&nbsp;&nbsp;&nbsp;6 wallclock secs ( 5.06 usr +&nbsp;&nbsp;0.10 sys =&nbsp;&nbsp;5.16 CPU) @&nbsp;&nbsp;0.78/s (n=4)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;purepl: 321 wallclock secs (289.29 usr +&nbsp;&nbsp;6.87 sys = 296.16 CPU) @&nbsp;&nbsp;0.01/s (n=4)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;expat:&nbsp;&nbsp;10 wallclock secs ( 9.50 usr +&nbsp;&nbsp;0.09 sys =&nbsp;&nbsp;9.59 CPU) @&nbsp;&nbsp;0.42/s (n=4)<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;s/iter purepl &nbsp;expat libxml<br>
+purepl&nbsp;&nbsp;&nbsp;74.0&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;--&nbsp;&nbsp; -97%&nbsp;&nbsp;&nbsp;-98%<br>
+&nbsp;expat&nbsp;&nbsp;&nbsp;2.40&nbsp;&nbsp;2988%&nbsp;&nbsp;&nbsp;&nbsp;-- &nbsp;&nbsp;&nbsp;-46%<br>
+libxml&nbsp;&nbsp;&nbsp;1.29&nbsp;&nbsp;5640%&nbsp;&nbsp;&nbsp;&nbsp;86% &nbsp;&nbsp;&nbsp; --
+</tt>
+</p>
+
+<p>
+  So, <tt>XML::LibXML::SAX::Parser</tt> is really the fastest, the <tt>XML::SAX::Expat</tt>, and finally <tt>XML::SAX::PurePerl</tt>. However, this does not mandate jumping straight to <tt>XML::LibXML::SAX::Parser</tt> and forgetting about the rest.
+</p>
+
+<p>
+  <tt>XML::LibXML::SAX::Parser</tt> needs to load the entire document into memory before it starts firing off SAX events, which can be extremely expensive memory-wise. The reason for this is that libxml2 does not have a real SAX interface (at the C level) and that building one on its API is a true pain. Matt mentionned trying to work on that, though it's an insanely hard task and not necessarily a good one: <tt>XML::LibXML::SAX::Parser</tt> can very well remain the fastest SAX parser for small documents.
+</p>
+
+<p>
+  Neither of the two latter have ever been optimized yet. Some profiling could certainly help (if you're interested in profiling and have some spare time, I'm sure Matt would appreciate the help for <tt>XML::SAX::PurePerl</tt>). Also, the current plan is to convert <tt>XML::SAX::Expat</tt> to XS. Presently what it does is use <tt>XML::Parser</tt>, but that was only meant to be while it is being developed. Once it is considered stable, further development will focus on interfacing it directly to the expat library, which will make it a lot faster. <tt>XML::SAX::PurePerl</tt> will probably never be ported to XS for the very good reason that its goal is not speed, but rather portability. The idea is that if you need an XML parser somewhere where you can't compile XS modules or have trouble with it, you can always use <tt>XML::SAX::PurePerl</tt>. It'll be slower, but not dead slow unless your task is very XML intensive (the above benchmark is rather intensive, on purpose).
+</p>
+
+<p>
+  All of this has led me to wonder if we shouldn't have qualified module selection in <tt>XML::SAX::ParserFactory</tt> (a module that returns a SAX2 parser based on which are available and which features you request from it). By that I mean having a way to tell it "I want the fastest, no matter what", or "I need to save memory", or again "I need portability". Right now the situation is clear, but things may change between versions, and new parsers may appear. Obviously, this wouldn't affect non-XML SAX parsers. The problem I see with this is that we need the parsers to be categorized somehow, which is probably a pain to figure out. Ideas welcome ;-)
+</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Module selection</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-01-29T07:56:53</h3>
+Err, we do have qualified module selection. It's probably not quite fine grained enough yet (i.e. you can ask for a Namespace compatible parser, or a Validating parser, but you can't ask for a Fast one, or a low memory one) but those are just further features that we can define.
+<br>
+<br>Thanks for doing the benchmark though.
+
+
+
+<blockquote>
+
+<h2>Re:Module selection</h2>
+<h3><a href="/user/darobin/">darobin</a> on 2002-01-29T14:30:57</h3>
+<p>
+  Yes I know we have qualified module selection, but not in the way that I think is compatible with what I was describing. Right now you can require a Feature, but it'll blow up if no parser has it.
+</p>
+
+<p>
+  Besides, this relies on the fact that module authors declare their parsers to be fast, etc... I don't know if everyone will want to say "My parser is a slow memory hog"<nobr> <wbr></nobr>;-)
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Module selection</h2>
+<h3><a href="/user/mirod/">mirod</a> on 2002-01-29T15:08:18</h3>
+But we can use the benchmark to convince the authors... which in any case is going to be Matt most of the time.
+<br>Seriously I think that the memory/speed features of each module is quite well-known.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

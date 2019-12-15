@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of LTjake: Component resolution in Catalyst 5.7100</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Component resolution in Catalyst 5.7100</h1>
+<h2><a href="/user/LTjake/">LTjake</a> on 2008-07-17T13:55:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>One of the things you&#39;ll see in the changelog for the next stable release of Catalyst, is a reworked component resolution system. By &quot;component resolution&quot; i mean, fetching components from view()/views(), model()/models(), controller()/controllers() and component().</p><p>Back in May I posted <a href="http://lists.scsys.co.uk/pipermail/catalyst-dev/2008-May/001225.html">a message to the Catalyst-dev list</a> describing some issues with the way it was currently working. Although I painted a slightly convoluted picture of doom and gloom -- it turns out that all is not lost; you were probably relying on an &quot;undefined&quot; behavior to begin with (kind of like assuming &quot;keys %hash&quot; will return things in a particular order).</p><p>For example, consider &quot;MyApp&quot; with two views: &quot;Foo&quot; and &quot;Bar.&quot; Now, when you call &quot;$c-&gt;view()&quot; (i.e. with no arguments) what gets returned? Well, it depends. :) If you have none of the appropriate config (default_view) or stash variables (current_view, current_view_instance) set, then it&#39;s pretty much random.</p><p>If you write a test for the above, and see that &quot;MyApp::View::Bar&quot; is returned -- don&#39;t count on that test working in 5.7100 (the message I posted to the list has the technical details as to why). Though the test *may* continue to work, the above scenario will throw a pretty large warning:</p><blockquote><p><br />Calling $c-&gt;view() will return a random view unless you specify one of:<br />* $c-&gt;config-&gt;{default_view} # the name of the default view to use<br />* $c-&gt;stash-&gt;{current_view} # the name of the view to use for this request<br />* $c-&gt;stash-&gt;{current_view_instance} # the instance of the view to use for this request<br />NB: in version 5.80, the &quot;random&quot; behavior will not work at all.<br /></p></blockquote><p></p><p>(FYI, if your application only has one view, calling &quot;$c-&gt;view()&quot; is considered &quot;acceptable&quot; and will spare you the warnings.)</p><p>A similar warning is thrown for $c-&gt;model(). $c-&gt;controller() with no arguments will continue to return the controller for the dispatched action. $c-&gt;component (sans args) will also stay the same, returning a sorted list of all component names.</p><p>Another issue I discovered while re-working the code was a failed reliance on the &quot;regex&quot; fallback.</p><p>Consider another &quot;MyApp&quot; with two views &quot;Foo::Bar&quot; and &quot;Foo::Baz&quot;. What does &quot;$c-&gt;view(&#39;Foo&#39;)&quot; return? We&#39;ve maintained backwards compatibility on this one -- it will return all matching views (order unknown). It is important to note that this returns an array, so list context is important. We&#39;ve added a warning for this scenario as well:</p><blockquote><p><br />Relying on the regexp fallback behavior for component resolution is unreliable and unsafe.<br />If you really want to search, pass in a regexp as the argument.<br /></p></blockquote><p></p><p>As noted above, if you truly were just searching for views, pass it a regex (&quot;$c-&gt;view(qr{Foo})&quot;) and it will act as expected.</p><p>So, if you think you might be affected by these particular issues, <a href="http://bricas.vox.com/library/post/please-test-catalystruntime-57100-rc1-aka-57099_02.html">test out the dev release</a>! Don&#39;t say I didn&#39;t warn you. :)</p> 
+</p>
+
+
+<hr/>
+
+
+
+<h2>Great!</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-07-18T00:58:27</h3>
+<p>This is great news.  I was bitten by the regex fallback a year ago when I had a typo in my model name and Catalyst picked a related model instead.  The two models were similar enough that I didn't notice for quite a while.</p>
+
+
+
+<h2>Oh, man</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-07-18T02:31:30</h3>
+<p>Oops, I tested this and found four accidental violations in my code: 3 x $c-&gt;view() and one case of model('DB::session') where I meant model('DB::sessions')</p><p>Please, could you add the $name to the warning message?  I had to fire up the debugger to figure out which model was causing the actual warning in my code.</p><p>Otherwise, I'm getting a perfect success with my biggest app using SVN rev 8135 in <a href="http://dev.catalyst.perl.org/repos/Catalyst/Catalyst-Runtime/5.70/trunk" title="perl.org">http://dev.catalyst.perl.org/repos/Catalyst/Catalyst-Runtime/5.70/trunk</a perl.org> (aka 5.7099_02)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Oh, man</h2>
+<h3><a href="/user/LTjake/">LTjake</a> on 2008-07-18T12:30:15</h3>
+<p>SVN revision 8138 adds a new line about the value supplied. 5.70/trunk also has a couple more fixes for regexp fallback and ACCEPT_CONTEXT from component().</p><p>Thanks a lot for testing this out!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

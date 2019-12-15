@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Why does Object::Tiny only support getters</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Why does Object::Tiny only support getters</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2010-08-15T01:39:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a href="http://perlalchemy.blogspot.com/2010/08/objecttinyrw-and-moosexnonmoose.html">http://perlalchemy.blogspot.com/2010/08/objecttinyrw-and-moosexnonmoose.html</a><br/><br/>Zbigniew Lukasiak tries out <a href="http://search.cpan.org/peldoc?Object::Tiny">Object::Tiny</a> and wonders why it is that I didn't allow for the creation of setters when it is only a one line change.<br/><br/>Like most ::Tiny modules the reason is a bit complex and the result of compromises.<br/><br/>Object::Tiny began as an attempt to create a lighter, faster, version of Class::Accessor. A way to bulk-generate the accessor code I had to type over and over again.<br/><br/>However, where I differ is a strong preference for light and elegant API design.<br/><br/>And so I decided to implement mine with as little implementation code as possible, and as little API code as possible.<br/><br/>Once you have decided to go down the simplicity path, there's a couple of standard techniques you often end up using.<br/><br/>The first and most important is state reduction.<br/><br/>In their introduction to Erlang, the founders of that language describe state as one of the main sources of failures in programs. And so anything that removes state, at the very least unnecessary state, is a positive. Especially if the state reduction also results in code reduction, and a reduction in computation.<br/><br/>So take the following example, where we create an object with some attributes and then run some code that will use those object attributes..
+<pre>
+my $object = Class->new;
+$object->foo(1);
+$object->bar(2);
+$object->do_something;
+</pre>
+This is a use case that we see fairly often, but it's really quite horrible code. It is really only the object-oriented equivalent of something like the following.
+<pre>
+our $Object::foo = 1;
+our $Object::bar = 2;
+do_something('Object');
+</pre>
+It is especially bad code if the following code would throw an exception.
+<pre>
+my $object = Class->new;
+$object->do_something;
+</pre>
+If this blows up, then you are REALLY doing something wrong, because you have allowed the creation of completely invalid objects. Now anybody taking one of these objects as a parameters needs to do with following.
+<pre>
+sub foo {
+    my $object = shift;
+    unless (
+        $object->isa('Class')
+        and
+        defined $object->foo
+        and
+        $object->foo > 0
+        and
+        defined $object->bar
+        and
+        $object->bar > 2
+    ) {
+        die "Invalid object";
+    }
+}
+</pre>
+If you are going to create an object for something, you HAVE to be sure that the objects are trustworthy.<br/><br/>And so you should never allow objects to exist that are invalid. EVERY object should be a valid object.<br/><br/>At the absolute minimum objects should be able to default every attribute to something reasonable and unlikely to cause problems.<br/><br/>But this still results in excess and wasteful work, because the object has to transition through two or more states.<br/><br/>You start with an object with parameters and defaults, and you validate them. And then you change on of the attributes immediately, validating it AGAIN. In the mean time, your object exists in a state that it will never actually be used in.<br/><br/>And so everywhere you possibly can, you should be setting attributes in the constructor rather than afterwards.
+<pre>
+my $object = Class->new(
+    foo => 1,
+    bar => 2,
+);
+$object->do_something;
+</pre>
+Less state, less complexity, less CPU, and less bugs.<br/><br/>If we accept this model of pushing all the configuration into the object up front to reduce state, then why change the object arbitrarily?<br/><br/>In fact, anything that you ARE going to change should be done under very controlled conditions.<br/><br/>It should require a dedicated method to apply the change, it should require validation, and work. It shouldn't be trivial, and it shouldn't be automatic.<br/><br/>If I had my way, Moose would set is => 'ro' by default, to make people think before they go about simply allowing stuff to change.
+ 
+It also happens to let you shrink down the API markedly.<br/><br/>There are three potential use cases available when implementing accessors. Everything readonly, everything readwrite, or mixed.<br/><br/>With Object::Tiny, I was aiming for the smallest possible code.<br/><br/>Implementing either all-readonly or all-readwrite can be done with the following.
+<pre>
+use Class qw{
+    foo
+    bar
+};
+</pre>
+By contrast, if we want to allow mixed readonly and readwrite, we would need some way of distinguishing. Something like the following.
+<pre>
+use Class {
+    readonly => [ 'foo' ],
+    readwrite => [ 'bar' ],
+};<br/><br/>use Class [ qw{
+    foo
+} ], [ {
+    bar
+} ];<br/><br/>use Class {
+    foo => 'ro',
+    bar => 'rw',
+};
+</pre>
+No matter how you try, there's always an inherent additional element of complexity that results from the split between them.<br/><br/>And so the decision to go with all-readonly in Object::Tiny is a combination of these two issues.<br/><br/>If went with all-readwrite, I'm practically encouraging bad behaviour and more bugs. If I went with mixed accessors, the API would remain relative complex.<br/><br/>In the end, the best way to achieve both API simplicity and code safety is to only provide read-only accessors, and anything more complex should require both though and effort.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Immutable objects</h2>
+<h3><a href="/user/zby/">zby</a> on 2010-08-15T09:13:10</h3>
+Thanks for the reply, what you write here is very close to nothingmuch's two essays: <a href="http://blog.woobling.org/2009/05/immutable-data-structures.html" title="woobling.org">Immutable Data Structures</a woobling.org> and <a href="http://blog.woobling.org/2009/05/immutable-data-structures-cont.html" title="woobling.org">Immutable Data Structures (cont.)</a woobling.org>.  As a comp-sci graduate and ML programmer I like this style of programming and I understand very well these arguments, but just a few months ago, following links from <a href="http://p.einarsen.no/psychology-of-perl-talk-links/" title="einarsen.no">Psychology of Perl talk links</a einarsen.no>, I encountered this article: <a href="http://www.cs.cmu.edu/user/NatProg/papers/Stylos2007CreateSetCall.pdf" title="cmu.edu">Usability Implications of Requiring Parameters in Objects' Constructors</a cmu.edu> which states:<blockquote><div><p>A comparative study was
+performed to assess how professional programmers
+use APIs with required parameters in objects'
+constructors as opposed to parameterless "default"
+constructors. It was hypothesized that required
+parameters would create more usable and self-
+documenting APIs by guiding programmers toward the
+correct use of objects and preventing errors. However,
+in the study, it was found that, contrary to
+expectations, programmers strongly preferred and
+were more effective with APIs that did not require
+constructor parameters.</p></div>
+</blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Immutable objects</h2>
+<h3><a href="/user/hdp/">hdp</a> on 2010-08-15T13:41:25</h3>
+<p>That article's irrelevant.</p><p>1) We're talking about named constructor arguments vs. attribute setters, not positional constructor arguments vs. attribute setters; we already know that named &gt; positional for readability, maintainability, etc. in most cases.  OK, now we also know that that's even true if the named arguments are spread out over several lines of code.  Big deal.</p><p>2) How people interact with constructor arguments has absolutely nothing to do with the potential complexity of your objects introduced by letting attributes be changed not only immediately after construction but also 5 packages away and 12 scopes up.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

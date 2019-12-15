@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: What's all the fuss about base.pm?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>What's all the fuss about base.pm?</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2007-07-31T11:10:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This post on p5p is worth repeating:<br/><br/>
+Johan Vromans wrote:
+>>From Ricardo SIGNES >  Perl-Critic-Tics-0.002 >
+>   Perl::Critic::Policy::Tics::ProhibitUseBase :
+> 
+>     "use base qw(Baseclass);
+> 
+>     You've seen that a hundred times, right? That doesn't mean that
+>     it's a good idea. It screws with $VERSION, it (temporarily)
+>     clobbers your $SIG{__DIE__}, it doesn't let you call the base
+>     class's import method, it pushes to @INC rather than replacing it,
+>     and it devotes much of its code to handling the nearly totally
+>     unused fields pragma -- but the multiple inheritence that pushing
+>     to @INC sets up is not supported by fields."
+> 
+> Is this still true? I thought most of these issues were dealt with.<br/><br/>If they aren't, <a href="http://rt.cpan.org/Public/Dist/Display.html?Name=base">nobody's reported them.</a><br/><br/>* The $SIG{__DIE__} issue is fixed.
+* I don't know what people are talking about screwing with $VERSION.
+* You shouldn't be importing functions from a superclass and nobody's
+  stopping you from adding a "use Baseclass" if you really want to.
+* I've yet to see a practical reason why pushing to @INC is wrong.
+  If it replaced @INC the same people would be complaining I'm sure.
+* Who cares how much code it devotes to fields?
+* Who cares if fields doesn't support MI?  Does anyone use fields anymore?<br/><br/>Most folks miss the important points:
+* It happens at compile time.
+* It has error checking.<br/><br/>That its at compile time avoids some nasty circular dependency issues such as...<br/><br/><code>
+# File A.pm
+package A;<br/><br/>use B;
+@ISA = qw(B);<br/><br/>use C;<br/><br/>1;<br/><br/>
+# File B.pm
+package B;<br/><br/>sub foo { 42 }<br/><br/>1;<br/><br/>
+# File C.pm
+package C;<br/><br/>print A->isa("B") ? "Yes\n" : "No\n";
+print A->can("foo") ? "Yes\n" : "No\n";<br/><br/>1;
+</code><br/><br/>Use base instead and that all works.  Yes, C should be using A but I've read a lot of commercial code that just assumes other modules are loaded and its a horrible thing to debug.</p>
+
+
+<hr/>
+
+
+
+<h2>Importing</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-07-31T11:26:02</h3>
+<p> <em>* You shouldn't be importing functions from a superclass and nobody's stopping you from adding a "use Baseclass" if you really want to.</em> </p>
+
+<p>True, but it's frustrating to inherit from a base class which might need arguments passed to its import method.  There was some discussion about this on P5P and I recall someone suggesting something like this:</p> <p><blockquote> <div><tt>use base<br>&nbsp; 'SomeClass',<br>&nbsp; 'SomeOtherClass' =&gt; { import =&gt; [ qw/import args/ ] };</tt></div> </blockquote>  <p>That would be backwards compatible and get around that limitation.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Importing</h2>
+<h3><a href="/user/drhyde/">drhyde</a> on 2007-08-01T12:16:33</h3>
+Also import() isn't just used to, umm, import.  It's quite a common idiom to use it to pass global settings to a class, such as telling it to put temporary files in a particular place, or changing its default timezone.  Those still have their place in OO programming.
+
+<p>Even so, I don't consider this to be a problem with base.pm.  If I really need to do things like that, the work-around is trivial.</p>
+
+
+
+<h2>Re:Importing</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2007-08-01T21:58:19</h3>
+Here's what I expressed on p5p:  80% of the code and syntax will be devoted to a feature that you use 1% of the time and has a perfectly reasonable work around that everyone understands.  Just not worth the extra work/complexity/documentation/bugs.<br><br><code><br>
+&nbsp; &nbsp; &nbsp; &nbsp; use base qw(Foo);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; use Foo qw(some args);<br></code><br><br>And isn't it "let's add just one more feature" that got base.pm in this situation in the first place?
+
+
+
+
+
+</blockquote>
+
+
+<h2>The $VERSION &quot;issue&quot;</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2007-07-31T11:48:37</h3>
+<p><blockquote> <div><em>* I don't know what people are talking about screwing with $VERSION.</em></div> </blockquote>
+
+<p>Not that I think it's a problem - but I think folk are referring to base setting VERSION to '-1, set by base.pm' if it's undef.</p>
+
+<p>Adrian (thoroughly in the "liking base" camp)</p>
+
+
+
+<h2>Re: base.pm</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2007-07-31T13:05:59</h3>
+The policy in question comes from Perl-Critic-Tics, which describes itself as:  The Perl-Critic-Tics distribution includes extra policies for Perl::Critic to address a fairly random assortment of things that make me (rjbs) wince.<br><br>In other words:  it's things that I don't want to see in my code.  If you want to be like me, swell.<br><br>I don't think any of the things I listed are *bugs*, they're just things that *I don't like*.<br><br>"You shouldn't be importing functions from a superclass."  Wishing doesn't make it so.  In the cases where this is practical, I will end up saying "use Baseclass (...); BEGIN{@ISA = 'Baseclass';}"  Now maybe I am going to use base elsewhere.  Did I use it first?  Well, now I clobbered ISA.  So I need to remember to use base second or, if I need to use things first, I need to push to @ISA.  Or I could just not ever use base, and then I will not have to worry about this.<br><br>To enforce this, maybe I'll write a Perl::Critic policy and put it in my private collection of them.  Not only will I help myself write better code, I'll get to start a lively discussion about how I'm a bitcher and not a do-er!<br><br>I agree that people would complain if base replaced ISA.  Its current behavior is well documented and well established.  That's why I don't want to use it: changing it would probably be more annoying to everyone involved than adding some goofy method to say "set, don't push."<br><br>By not using base.pm, I minimize the ways in which I am likely to confuse myself.<br><br>I admit that my comment about fields is a red herring.  What I don't like is the fact that it deals with fields at all, not that it has X amount of code.  I don't like it because it has to be documented.  If a novice programmer is looking at my code and sees that it uses "base," he may not know what base is and will consult the documentation.  The documentation will talk about fields, which sound like some sort of basic and important thing for classes, but are not.  Despite this, neither base nor fields says, "please don't use me, because we are from another planet."  Is this a nit pick?  Sure.  It's just one more little reason that I don't see much value in using base in my code.<br><br>It's nice that base.pm easily moves ISA-setting and module requirement into one statement at compile time.  I am aware of the need to do this, though, and I can put it in a BEGIN block.  I do not worry about remembering this, because I'm familiar with the need to do so.  I'm less likely to remember that I made a decision to stop using base.pm, which is why I wrote a policy for that, and not a policy to make sure that @ISA is only set during compile time.<br><br>As per your request, I have filed tickets.  I only thing one of them is much of a bug.  It's the one you seem to know nothing about, so I am sorry that I didn't report it the first time it annoyed me.<br><br><a href="http://rt.cpan.org/Ticket/Display.html?id=28579" title="cpan.org">http://rt.cpan.org/Ticket/Display.html?id=28579</a cpan.org>
+
+
+
+<h2>Bogus argument</h2>
+<h3><a href="/user/Corion/">Corion</a> on 2007-07-31T16:41:03</h3>
+<p><blockquote> <div><i>Yes, C should be using A but I've read a lot of commercial code that just assumes other modules are loaded and its a horrible thing to debug.</i></div> </blockquote>
+<p>What a bogus argument. I would accept this if you had said "I have written a lot of commercial code that just assumes<nobr> <wbr></nobr>...", but arguing a (unremovable, by now) misfeature of your code as something actually beneficial is quite a stretch. I hadn't looked at the source code of <tt>base.pm</tt> before people argued against it, but for my taste it is far too close to the code of <tt>UNIVERSAL::require</tt> which also silently gobbles up errors happening during <tt>require</tt>ing a file. The custom $SIG{__DIE__} handler also is an unneccessary complication that stems from the same idea that errors should not be visible upwards.</p>
+<p>Now, neither of these two points are what constitutes a "bug", but for some code that should basically be (less the error checking for recursive inheritance)</p> <p><blockquote> <div><tt>package base;<br>use strict;<br> <br>sub import {<br>&nbsp; &nbsp; my ($class,$base) = @_;<br>&nbsp; &nbsp; my $target = caller();<br>&nbsp; &nbsp; (my $file = $base) =~ s!::|'!/!g;<br>&nbsp; &nbsp; $file<nobr> <wbr></nobr>.= ".pm";<br>&nbsp; &nbsp; require $file;<br>&nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; &nbsp; no strict 'refs';<br>&nbsp; &nbsp; &nbsp; &nbsp; push @{ "$target\::ISA" }, $base;<br>&nbsp; &nbsp; };<br>};<br> <br>1</tt></div> </blockquote>  <p> <tt>base.pm</tt> has far too many lines and does far too many contortions that I do not want to track down just in case I have a weirdo error that <tt>base.pm</tt> chooses to suppress. Also, no bad action-at-a-distance occurs by messing with <tt>$VERSION</tt> and all errors point directly to the source like <tt>Can't locate Foo.pm in @INC (...</tt> instead of <tt>Base class package "Foo" is empty.</tt> - in 95% of the cases, that's exactly what's wanted, because somebody misspelled <tt>Foo</tt>.</p>
+<p>(Yes, I'm aware that my code forces every base class to be in a file with a name that matches that base class. If you don't want that, write your own <tt>@INC</tt> hook or fiddle with <tt>%INC</tt>.)</p>
+<p>Anyway - I started out liking <tt>base.pm</tt>, but after looking at the source code and having been bitten by UNIVERSAL::require gobbling my (syntax) errors far too many times, I don't want to become one of the people with anecdotal evidence that <tt>base.pm</tt> has bugs.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Bogus argument</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2007-08-01T22:02:38</h3>
+I think we're having a violent agreement.  My example about the commercial code was illustrating the importance of inheriting at compile time vs setting @ISA at run time.  All the other details of "use base" are orthogonal.<br><br>Some people remember to put a BEGIN around setting @ISA (and @EXPORT) but most don't either because they forget or aren't aware.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Using subtests</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Using subtests</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-10-26T13:02:58</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>In writing <a href="http://github.com/Ovid/Pod-Parser-GroffMom/">Pod::Parser::Groffmom</a>, I decided to start using the new <a href="http://search.cpan.org/dist/Test-Simple/lib/Test/More.pm#subtest">subtest</a> feature in <tt>Test::More</tt>.  Since I added that, I may as well eat my own dog food.</p>
+
+<p>Why would you want subtests?  As test suites grow in size, you often see stuff like this:</p>
+
+<pre>{
+    diag "Checking customer";
+    ok my $customer = Customer->new({
+      given_name  => 'John',
+      family_name => 'Public',
+    }), 'Creating a new customer should succeed';
+    isa_ok $customer, 'Customer';
+
+    can_ok $customer, 'given_name';
+    is $customer->given_name, 'John',
+      'given_name() should return the correct value';
+    # ... and so on
+}</pre>
+
+<p>Programming like this is sometimes useful when we want to:</p>
+
+<ol>
+  <li>Locally override a subroutine, method or variable.</li>
+  <li>Create new variables without them leaking to a file scope.</li>
+  <li>Group a bunch of tests.</li>
+</ol>
+
+<p>Points 1 and 2 are obvious, but what about 3?  A sure sign of a desire for grouping comes when you see test output like this (from my <a href="http://search.cpan.org/dist/Sub-Information/">Sub::Information</a> tests):</p>
+
+<pre>ok 5 - Sub::Information->can('name')
+ok 6 - ... and its helper module should not be loaded before it is needed
+ok 7 - ... and it should return the original name of the subroutine
+ok 8 - ... and its helper module should be loaded after it is needed</pre>
+
+<p>That's an example of writing tests in a <em>narrative</em> style (something <a href="http://www.modernperlbooks.com/mt/index.html">chromatic</a> taught me) so that the output can be (somewhat) human-readable.  It's also a case of me writing a test in such a way that I have four assertions logically grouped together to test the behavior of a single feature (think "xUnit").  By grouping tests this way and by encapsulating our scope, we can often more easily refactor our tests in a way that makes sense.  So I decided to use subtests.  Here's what it looks like:</p>
+
+<pre>#!/usr/bin/env perl
+ 
+use strict;
+use warnings;
+ 
+use Test::Most tests => 5;
+use Pod::Parser::Groffmom;
+ 
+my $parser;
+ 
+subtest 'constructor' => sub {
+    plan tests => 2;
+    can_ok 'Pod::Parser::Groffmom', 'new';
+    $parser = Pod::Parser::Groffmom->new;
+    isa_ok $parser, 'Pod::Parser::Groffmom', '... and the object it returns';
+};
+ 
+subtest 'trim' => sub {
+    plan tests => 2;
+    can_ok $parser, '_trim';
+    my $text = <<' END';
+ 
+this is
+ text
+ 
+    END
+    is $parser->_trim($text), "this is\n text",
+      '... and it should remove leading and trailing whitespace';
+};
+ 
+subtest 'escape' => sub {
+    plan tests => 2;
+    can_ok $parser, '_escape';
+    is $parser->_escape('Curtis "Ovid" Poe'), 'Curtis \\[dq]Ovid\\[dq] Poe',
+      '... and it should properly escape our data';
+};
+ 
+subtest 'interior sequences' => sub {
+    plan tests => 6;
+    can_ok $parser, 'interior_sequence';
+ 
+    is $parser->interior_sequence( 'I', 'italics' ),
+      '\\f[I]italics\\f[P]', '... and it should render italics correctly';
+    is $parser->interior_sequence( 'B', 'bold' ),
+      '\\f[B]bold\\f[P]', '... and it should render bold correctly';
+    is $parser->interior_sequence( 'C', 'code' ),
+      '\\f[C]code\\f[P]', '... and it should render code correctly';
+    my $result;
+    warning_like { $result = $parser->interior_sequence( '?', 'unknown' ) }
+    qr/^Unknown sequence \Q(?<unknown>)\E/,
+      'Unknown sequences should warn correctly';
+    is $result, 'unknown', '... but still return the sequence interior';
+};
+ 
+subtest 'textblock' => sub {
+    plan tests => 2;
+    my $text = <<' END';
+This is some text with
+  an embedded C<code> block.
+    END
+    my $expected = <<' END';
+This is some text with
+  an embedded \f[C]code\f[P] block.
+ 
+    END
+    can_ok $parser, 'textblock';
+    eq_or_diff $parser->textblock( $text, 2, 3 ), $expected,
+      '... and it should parse textblocks correctly';
+};</pre>
+
+<p>(Note that the top level plan only lists five tests because each subtest is counted as one test)</p>
+
+<p>And the output:</p>
+
+<pre>$ prove -lv t/internals.t 
+t/internals.t .. 
+1..5
+    1..2
+    ok 1 - Pod::Parser::Groffmom->can('new')
+    ok 2 - ... and the object it returns isa Pod::Parser::Groffmom
+ok 1 - constructor
+    1..2
+    ok 1 - Pod::Parser::Groffmom->can('_trim')
+    ok 2 - ... and it should remove leading and trailing whitespace
+ok 2 - trim
+    1..2
+    ok 1 - Pod::Parser::Groffmom->can('_escape')
+    ok 2 - ... and it should properly escape our data
+ok 3 - escape
+    1..6
+    ok 1 - Pod::Parser::Groffmom->can('interior_sequence')
+    ok 2 - ... and it should render italics correctly
+    ok 3 - ... and it should render bold correctly
+    ok 4 - ... and it should render code correctly
+    ok 5 - Unknown sequences should warn correctly
+    ok 6 - ... but still return the sequence interior
+ok 4 - interior sequences
+    1..2
+    ok 1 - Pod::Parser::Groffmom->can('textblock')
+    ok 2 - ... and it should parse textblocks correctly
+ok 5 - textblock
+ok
+All tests successful.
+Files=1, Tests=5,  2 wallclock secs ( 0.03 usr  0.01 sys +  0.29 cusr  0.07 csys =  0.40 CPU)
+Result: PASS</pre>
+
+<p>That quickly showed an annoyance.  Using subtests surprised me even though I created them!  Specifically, having to specify a plan for every subtest is frustrating, but I don't know the number of tests before I've written them.  Thus, I have to use <tt>no_plan</tt> for each subtest and then switch it afterwards.</p>
+
+<p>I think a better strategy is clear:  if no plan is included in a subtest, an implicit <a href="http://search.cpan.org/dist/Test-Simple/lib/Test/More.pm#done_testing">done_testing</a> should be there.  Thus, you can write subtests without specifying a plan but still have a bit of safety.  I think I know how to implement this and it would make test author's lives simpler.</p></p>
+
+
+<hr/>
+
+
+
+<h2>useful example</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2009-10-26T20:36:29</h3>
+<p>This was a useful example, Ovid.</p><p>I agree being able to skip declaring a plan inside of a subtest would be a nice feature.</p>
+
+
+
+<h2>the summary line: before or after the subtest?</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2009-11-02T16:18:35</h3>
+<p>I tried using this today and noticed another detail: The subtest name is printed *after* the sub-test output. I expected that it would be printed *before* the output, as it appears in the test.</p><p>I don't know if this change is possible with the TAP structure or not.</p>
+
+
+
+<blockquote>
+
+<h2>Re:the summary line: before or after the subtest?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-11-02T23:12:17</h3>
+<p>You'd have to block the entire subtest output until the final test is done and <em>then</em> print the summary line followed by the subtests.  If you have long-running tests/nested subtests, your test suite would repeatedly appear to freeze.</p><p>Or are you just thinking the name should be printed first and then reprinted after the test, along with the ok/not ok result?</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

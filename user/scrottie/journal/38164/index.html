@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of scrottie: Patricia Trees sucking up RAM in Perl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Patricia Trees sucking up RAM in Perl</h1>
+<h2><a href="/user/scrottie/">scrottie</a> on 2008-12-25T21:18:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Inspired by Gnutella, I've been playing with full text search again.  Gnutella 0.6 uses Bloom filters to create distributed indexes.  A separate Bloom filter, which happens to be a bitfield, is created by each host and then propagated out to the network.  Each keyword of each file that host is sharing is marked in the Bloom filter.  That looks something like this:
+<pre> 
+    for(qw/z9Qfz3Uk XTmj9pmX hDI3hI7R/) {
+        my $str = $word . '|' . $_; # $word is the word we're searching for
+        my $hex = Digest::SHA1::sha1_hex($str); # 40 bytes
+        my $num = hex(substr($hex, 0, 7));  # 7 hex digit so as not to overflow a 32 bit signed int
+s.
+        vec $bits, $num%$bitfield_size, 1 or goto didnt_find_it; # $bits is the Bloom filter bitfield for the current host (or doc, or whatever)
+    }
+</pre>
+That computes three bit positions for the search word and tests to see if all of them are set.  If so, and the ratio of set bits to clear bits isn't too high, then the word probably exists in the index.  Each word is hashed against three fixed other strings and the hash is used as the bit positions.  This could be replicated for each word, making sure all three (or however many) bits for each word of several words are all set.  perl.com had an article on this that's better than my short description here.
+<br><br>
+It's a bit of a shortcut to hash the entire library of a node into one bitfield.  While the host might have files collectively containing all of those keywords, there's no way to know whether they're all part of the title of the same file being shared.  In Gnutella, the next step is to contact the host and query it directly, or more likely send a query to the network to be routed to that host and then wait for a reply.<br><br>
+When I first build a full-text search for a site, I did the thing that almost everyone does and built an inverted substring index.  I find all unique occurrences of word fragments from something like four characters all the way up to eight or so, and kept them in one table.  Another table had a list of all documents in the system (static pages, product entries in the database, categories, authors, and so on).  Another table was a hinge table between the two, just relating the IDs of one table to the ID of another table along with the numeric position in the document for each match.
+This worked, but it was surprisingly slow and large.  The client happened to have a friend who worked at Google and at some point asked them to look at my work, so I got an email out of the blue from some Google employee laughing at me, telling me to use Patricia trees "like Google does".
+<br><br>
+Wikipedia has a nice diagram and probably a better description, but, essentially, a Patricia tree is a tree with a branching factor of ASCII or UNICODE or whatever.  A binary tree has a branching factor of two -- each node can have up to two other nodes hanging off of it.  A Pat tree might have a branching factor of 26 if you only did uppercase letters, or around 100 if you did upper, lower, numbers, symbols, and whitespace.
+It gets rid of the need to associate every tiny substring with the position in the document.  For example, if you were indexing the word "document", you wouldn't have to index "docu", "docum", "docume", etc.  A user searching for "docu" would find at that node a list of every place that "docu" appeared by itself, but if you were then to recurse through all of the nodes below that one, you'd find everywhere "document" appears, everywhere "documentary" appears, and so on.  "document" need only be filed under "document", not every shortened permutation of itself.
+Only the leaf nodes referencing where that complete word appears (in a list of [document, offset] pairs), in my implementation.
+<br><br>
+Having the whole catalog in a tree also lets you implement things like "0..99 bottles of beer on the wall" like Google has.  Rather than finding an exact place in the tree and then recursing through everything under it, you recurse from one above it and selectively descend into things that match.
+Recursing below a node and tallying how many hits there are in each direction, you could suggest probable competitions to searches -- as Google does.
+I expect you could implement a regex parser that operated on Pat trees rather than strings.
+Bloom filters allow for none of this.
+<br><br>
+The Bloom filter based search thing I wrote is operating at weehours.net right now on the shared URL log the denizens use.
+It has one bitfield per URL indexed that are either 1k, 2k, etc as needed to have a 0.2% utilization (percent of bits set).  The largest pages wound up with bitfields 64k long.  When the system indexes a page, it then looks at the utilization, and if it is too high, it re-indexes the page (without fetching it again, of course) using a bitfield exactly doubled in size.  The search winds up with the same 31 bit numbers but takes those modulo the bitfield size so it doesn't need to re-hash the words to search different sized bitfields. 
+<br><br>
+On my laptop, I rewrote the thing to use Bloom filters.  Well, it took easily 100 times as much memory as the bitfields.  I couldn't index more than 40 or 50 of the documents, of the thousands in the list, before running out of memory.
+When I describe Patricia trees and Google to programmers, the first question they have is usually, how do you store that in a database?  And then, how do you store that in a MySQL database?
+You could have a table of root characters that references a self-referencing table that forms a tree, but, like storing this in Perl hashes referencing, the overhead is insane.
+I don't have a good idea of how Google does it.
+If you do, I'd love to hear your thoughts.
+It is easy enough to partition a Pat tree.
+One node could have everything starting with 'a', another 'b', and so on, or it could be done randomly and probablistically if spread across enough nodes, and then all nodes could be queried (or one of each 'a' node, one 'b' node, etc) and the results combined.
+From Google's descriptions of "clusters" of nodes, where each cluster has a complete result set and there are thousands of clusters, it sounds like they're doing something like this.
+My ambition is to take a random, probablistic partitioning and create a Gnutella-like distributed Patricia tree search, much as Gnutella has a distributed Bloom filter index.
+Patricia trees may also be merged together as any other tree may be, and since the leaf nodes contain information about which document and where the string is found, trees may be merged without losing track of where on the network the string was found.
+<br><br>
+So, I'm writing this to normalize my own mental state... to think outloud.  But also because I love to talk about this stuff.  Some of these nuggets need to propagate.
+I read in Dr. Dobbs Journal long ago about an efficient representation of binary trees in RAM.
+The naive way to implement a highly saturated (where most paths are taken for the first so many hops) is with pointers.
+The root node has pointers to the 2nd order nodes.  Those have pointers to the 3rd order nodes.  And so on.  This assures that a large amount of memory will be used representing something that's ultimately redundant.
+The alternative is to decide to which order the tree is highly saturated and turn that part into a flat table using a bit of pointer arithmetic.
+A series of "left right right left right" describing the passage through the binary tree can be represented as a series of binary 0's and 1's which are in turn used as an offset into a table.
+In the Dr. Dobb's Journal article, I think the entire depth of a fixed size binary tree was represented that way.  Then the positions in the tables were pointers to linked lists of results for that position (and above positions) in the tree or further binary tree or something.
+This is exactly the difference of declaring a datastructure in C as int x[100][100][100] or doing void *x; x = calloc(100, sizeof(void *)); for(i=0;i<100;i++) { x[i]=calloc(100, sizeof(void *)); } etc for three dimensions.  The first one takes advantage of prior knowledge of the fixed sizes of the dimensions to construct one large, flat table and compute positions in it, whereas the other needs to bounce off of pointers at each hop.
+So, my goal is to try to change the Pat tree implementation to use one large flat Perl array to shave off the first four or five dimensions of the Pat tree, and compute indices into it.  If I fold case and fold whitespace and symbols together, I get a 729 position array for two dimensions, 19683 long array for three dims, and a 531441 position array for four dims.
+Each position would need to hold a list of un-folded strings (the string so far with symbols and case put back in) and then a Pat tree structure for the rest of the string after that point, hopefully after it starts to get a lot more sparse and a lot less memory is used in the overhead of the structure.
+<br><br>
+Another question I have is, is there some standardized format for distributing full-text indices that I could use rather than trying to invent my own?
+<br><br>
+I put my notes from a Perl Mongers presentation on Pat trees at http://slowass.net/user/scott/tmp/pat-notes.txt.  In the interest of simplicity, the document and location of the hit are stored at each step along the way rather than at the end.  That really bugs me now.  I should fix that.  That only manages to shave off the logic that recurses the graph to find everything under a point.
+But it should give the basic idea.
+It's also runnable, and when you run it, it indexes itself, then searches for all occurrences of "Google".
+<br><br>
+-scott</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

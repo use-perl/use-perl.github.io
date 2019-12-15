@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Hash interpolation failure in string</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Hash interpolation failure in string</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-07-31T12:43:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>So a coworker wanted to know the syntax for getting hash interpolation to work.  He had something similar to this:</p>
+
+<pre>print "value is $data{'value'}\n";</pre>
+
+<p>I assured him that would be fine but he said that he's been bitten by this before, even when using interpolated strings.  So just to be sure, I wrote up a simple test.  One test line fails.  Without running that, can you guess which one and why?</p>
+
+<pre>#!/usr/bin/perl
+
+use strict;
+use warnings;
+use Test::More tests => 6;
+
+my %french_for = (
+    one => 'un',
+);
+
+my $num = 'one';
+is "$french_for{one}",      'un', 'bare literal key';
+is "$french_for{'one'}",    'un', 'single quoted literal key';
+is qq[$french_for{"one"}],  'un', 'double quoted literal key';
+is "$french_for{$num}",     'un', 'bare variable key';
+is "$french_for{'$num'}",   'un', 'single quoted variable key';
+is qq[$french_for{"$num"}], 'un', 'double quoted variable key';</pre>
+
+<p>To be fair, I guess the failure isn't <em>too</em> surprising but in reading through perltrap, it doesn't appear to be documented.  Is it documented and I just missed it?</p></p>
+
+
+<hr/>
+
+
+
+<h2>Single quoted variable</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-07-31T12:52:09</h3>
+Surely:<br><br>is "$french_for{'$num'}",   'un', 'single quoted variable key';<br><br>Will fail. You've single quoted '$num' hence you're looking for the key "\$num".
+
+
+
+<blockquote>
+
+<h2>Re:Single quoted variable</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-07-31T13:20:41</h3>
+<p>Yes, that's the failure, but I don't know why that should be obvious because if you add <tt>diag "'$num'"</tt> to the end of that script, you get this:</p> <blockquote> <div><tt># 'one'</tt></div> </blockquote> <p>In other words, a variable in single quotes will interpolate if it's embedded in a double quoted string but <em>not</em> used as the key to a hash or an index into an array.  That seems a bit odd and it would be nice if it were documented better.  I should submit a patch for perltrap if it's not documented.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Single quoted variable</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-07-31T13:39:28</h3>
+I tend to consider hash interpolation as being outside of the string, even though it's embedded. I consider there to be an invisible ". and<nobr> <wbr></nobr>." around it.
+
+
+
+<h2>Re:Single quoted variable</h2>
+<h3><a href="/user/Smylers/">Smylers</a> on 2006-07-31T14:22:03</h3>
+<blockquote><div>a variable in single quotes will interpolate if it's embedded in a double quoted string but <em>not</em> used as the key to a hash or an index into an array. That seems a bit odd</div></blockquote>
+
+<p>Actually what seemed odd to me was that the first example (with single quotes around the literal) worked OK.  But given that, I did expect it to fail round a variable (as in I guessed what the failure would be before even seeing your list of choices).</p>
+
+<p>Yes directly in a double-quoted string literal single quotes don't prevent a variable between them from being interpolated, but then those single quotes do do something: they end up in the output.</p>
+
+<p>You've already established that single quotes inside a hash key inside double quotes are different from single quotes directly inside double quotes because they are not taken literally; the key was <code>one</code>, not <code>'one'</code>.</p>
+
+<p>So that shows that in that circumstance the quote marks are actually behaving like quote marks rather than merely as literal characters, in which case it seems consistent and predictable that they would act in the way that single quotes do everywhere else and not permit interpretation.</p>
+
+<p>Smylers</p>
+
+
+
+<blockquote>
+
+<h2>Re:Single quoted variable</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-07-31T14:45:49</h3>
+<p>Well, basically the stuff after a $ or @ sigil gets treated sort of like it's code to be executed.  This leads to the following:</p> <blockquote> <div><tt>&nbsp; temp $ touch foo.bar<br>&nbsp; temp $ ls<br>&nbsp; foo.bar<br>&nbsp; temp $ perl -e 'print "$ENV{`rm foo.bar`}"'<br>&nbsp; temp $ ls<br>&nbsp; temp $</tt></div> </blockquote> <p>I know you and I have discussed this bit, but others might want to be aware of it.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Hm.</h2>
+<h3><a href="/user/hex/">hex</a> on 2006-08-01T11:17:57</h3>
+I certainly wasn't aware of that behavior. I would have expected the double quotes to cause everything inside to be interpolated, presumably starting with the innermost thing ($num in this case).
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

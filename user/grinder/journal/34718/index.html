@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of grinder: Another fun (?) SQL puzzle</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Another fun (?) SQL puzzle</h1>
+<h2><a href="/user/grinder/">grinder</a> on 2007-10-19T11:20:42</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>So, I have a database with a particularly nasty design decision. We have people who belong to cost centres, usually only one, but sometimes with a prorata on two cost centres. The programmer responsable for creating the table denormalised things, so rather than having</p>
+
+<pre>
+    EMP1  UNIT1 50%
+    EMP1  UNIT2 50%
+    EMP2  UNIT3 100%
+    EMP3  UNIT1 100%
+</pre>
+
+<p>we have something that looks like</p>
+
+<pre>
+    EMP1   UNIT1   UNIT2    50   50
+    EMP2   UNIT3   null    100    0
+    EMP3   UNIT1   null    100    0
+</pre>
+
+<p>That is, both cost centre ids in the same table, the second one usually null. It is a given that there will never be more than two. This table is of course an utter bitch to work with. Turns out we can cheat a bit, by only keeping track of the rate of the first centre, the second is just 100-first (which also helps cut down round-offs). Let us create a table to play with:</p>
+
+<pre>
+create table t1 (
+   id_person varchar(10),
+   rate      number(5,2),
+   unit1     varchar(3),
+   unit2     varchar(3),
+   val1      number(10),
+   val2      number(10)
+);
+insert into t1 values ('alice',   1, 'U1', null,   10,   20);
+insert into t1 values ('bob',     1, 'U2', null,    4,    8);
+insert into t1 values ('carol', 0.5, 'U1', 'U2',  300,  600);
+insert into t1 values ('david', 0.2, 'U1', 'U3', 6000, 8000);
+</pre>
+
+<p>Now I want the sum the values val1 and val2 by unit, keeping in mind that for 'david', VAL1 6000 * 0.2 = 1200 is summed to U1, and the difference, 4800, to U3. Similarly, for VAL2, 1600 to U1 and 6400 to U3. In other words, I want the following result set:</p>
+
+<pre>
+    U1 1360 1920
+    U2  154  308
+    U3 4800 6400
+</pre>
+
+<p>Now the only way that I can see is to:</p>
+
+<ol>
+<li>Sum the value proratas for all people on their first cost centre. If they have one centre, they get the full hit, otherwise it's prorata'ed between it and the second.</li>
+<li>Union the above with the people having two centres, by subtracting the prorata of the first centre from the total value to arrive at the second prorata (to minimise roundoff errors, otherwise the sum of both centres will lose a cent compared with the initial sum from time to time).</li>
+</li>Treat all that as a derived table, and sum the results.
+</ol>
+
+<p>This gives the following:</p>
+
+<pre>
+select
+     S.UNIT  UNIT
+    ,sum(V1) V1_TOT
+    ,sum(V2) V2_TOT
+from (
+    select
+         unit1            UNIT
+        ,sum(val1 * rate) V1
+        ,sum(val2 * rate) V2
+    from
+        t1
+    group by
+        unit1
+    union select
+         unit2                   UNIT
+        ,sum(val1 - val1 * rate) V1
+        ,sum(val2 - val2 * rate) V2
+    from
+        t1
+    where
+        unit2 is not null
+    group by
+        unit2
+) S
+group by S.UNIT
+order by S.UNIT
+</pre>
+
+<p>That's pretty ugly. Is there a better way?</p></p>
+
+
+<hr/>
+
+
+
+<h2>Ugly problems sometimes need  ugly solutions</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2007-10-19T23:37:37</h3>
+Somewhere you have to map one row to two.  Doing it as a union query is the most natural approach in SQL.  As ugly as it is, other solutions are uglier.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Beautiful Freebase Metadata Dreams Slain</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Beautiful Freebase Metadata Dreams Slain</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-08-11T21:27:46</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>So I've been hacking on a pet project and thought that <a href="http://www.freebase.com/">Freebase</a> would be my answer.  As far as I can tell, it's not.  Not even close.  Right now, Freebase is like a huge Wikipedia, but with a nice query language on top.  I needed a list of all countries in the world along with basic stats like capital, population, GDP, official language, etc.  Here's the script I hacked together:</p>
+
+<pre>use strict;
+use warnings;
+
+use WWW::Metaweb;
+
+my $mh = WWW::Metaweb->connect(
+    server      => 'www.freebase.com',
+    read_uri    => '/api/service/mqlread',
+    trans_uri   => '/api/trans',
+    pretty_json => 1
+);
+
+my $countries = '[{"type":"/location/country","name":null}]';
+my $result    = $mh->read( $countries, 'perl' ) or die $WWW::Metaweb::errstr;
+my @countries = sort map { $_->{name} } @$result;
+
+# http://www.freebase.com/app/queryeditor
+my %country_stats;
+
+for my $country (@countries) {
+    my $country_info = sprintf <<'    END' => $country;
+    [{
+      "type": "/location/country",
+      "name": "%s",
+      "capital":null,
+      "currency_used": [],
+      "form_of_government": [],
+      "gdp_nominal" : [{"timestamp":null,"currency":null,"amount":null}],
+      "gdp_nominal_per_capita" : [{"timestamp":null,"currency":null,"amount":null}],
+      "/location/statistical_region/population" : [{"number":null,"timestamp":null}],
+      "official_language":[{"name":null}]
+    }]
+    END
+    print "Reading the data for $country\n";
+    my $result = $mh->read( $country_info, 'perl' )
+      or die $WWW::Metaweb::errstr;
+    use Data::Dumper;
+    $Data::Dumper::Indent   = 1;
+    $Data::Dumper::Sortkeys = 1;
+    print Dumper($result);
+}</pre>
+
+<p>Not only do I get only 100 countries returned -- including the Weimar Republic and West Germany (but not East Germany) -- most of whom have almost no data associated with them.  The ones which do have data often have curious results which might be correct (see the official languages), but without context, who knows?  Oh, and <tt>WWW::Metaweb</tt> needs a monkey patch to get around an incompatible API change in <tt>JSON::XS</tt>.  One suggestion on the Freeweb message boards involved posting back the correct information.  This sounds reasonable, but at the end of the day, it also sounds like a lot of work, particularly since I didn't want to base my project on Freebase.  I just saw it as a useful source of information.  Freebase looks awesome, but it's not quite there yet.  Or I don't understand it.  Who knows?</p>
+
+<p>I'll have to figure out a better way of extracting this information (CIA World Factbook sounds good), but then figuring out the posting API for Freebase just sounds like more work that will distract me from my main project.</p>
+
+<p>Back to the drawing board.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Tips</h2>
+<h3><a href="/user/Skud/">Skud</a> on 2009-08-11T23:09:12</h3>
+<p>1) If you want more than 100 results, up the limit to a higher number; 100 is the default.  Use "limit" : 500 or whatever.</p><p>2) You probably want to mark some of your clauses as optional; as it stands, if the system doesn't know the capital of a country, it will be entirely excluded.</p><p>3) The Weimar Republic *is* a country -- or was.  That's perfectly valid in Freebase. The country type is used for past and present countries and things that act like countries (eg. have an ISO code).  Admittedly this might not quite be what you expect, at first glance.</p><p>One way to query for what you probably want is to query for things that are countries, which have an ISO code, and which are not also co-typed as administrative division.  That should get you something approximating the list you expect -- if I'm guessing right about what you do expect<nobr> <wbr></nobr>:)</p><p>Also, re: updating data in the system, you don't need to use the write API.  You can simply do it via <a href="http://freebase.com/" title="freebase.com">http://freebase.com/</a freebase.com> by clicking on "Edit" wherever necessary.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Tips</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-08-12T06:17:53</h3>
+<p>Thank you!  I'll give it another go.  Understanding the ins and outs of MQL is harder than I thought!<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Tips</h2>
+<h3><a href="/user/Skud/">Skud</a> on 2009-08-12T06:27:48</h3>
+Jump on IM or IRC (irc.freenode.net #freebase) if you'd like some realtime help.  Remembering that I'm on the US West Coast, of course -- late in your day and early in mine would probably be our most likely crossover point.  I'm skud11111 on AIM/YIM and kirrily.robert@gmail.com on GTalk.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Tips</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-08-12T12:24:02</h3>
+<p>And on the API thing, would the most prominent Freebase Perl person be interested in taking over and fixing the Freebase module?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Tips</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-08-12T12:38:27</h3>
+<p>Which module is that?  Kirrily already has the <a href="http://search.cpan.org/dist/Metaweb/" title="cpan.org">Metaweb</a cpan.org> module and there's a <a href="http://search.cpan.org/dist/WWW-Metaweb/" title="cpan.org">WWW::Metaweb</a cpan.org> module also.  Regrettably, both fail to install due to incompatible API changes to JSON modules.  I've a locally hacked copy of <tt>WWW::Metaweb</tt> (and <a href="http://rt.cpan.org/Public/Bug/Display.html?id=48595" title="cpan.org">I have filed a bug report</a cpan.org>), so it's easy to fix, but newcomers might be confused.</p><p>I'm not certain which of these modules would be of greater benefit, though.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re: languages</h2>
+<h3><a href="/user/Skud/">Skud</a> on 2009-08-11T23:17:10</h3>
+Oh, btw, re: languages... the languages listed are taken from Wikipedia at <a href="http://en.wikipedia.org/wiki/index.html?curid=576" title="wikipedia.org">http://en.wikipedia.org/wiki/index.html?curid=576</a wikipedia.org> -- looking at the topic history ( <a href="http://www.freebase.com/history/view/en/austria" title="freebase.com">http://www.freebase.com/history/view/en/austria</a freebase.com> ) or explore view ( <a href="http://www.freebase.com/tools/explore/en/austria" title="freebase.com">http://www.freebase.com/tools/explore/en/austria</a freebase.com> ) should help you understand where certain information comes from.  For the most part, our country data comes from Wikipedia infoboxes.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

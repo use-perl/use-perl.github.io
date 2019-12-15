@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of miyagawa: Three levels of Perl/Unicode understanding</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Three levels of Perl/Unicode understanding</h1>
+<h2><a href="/user/miyagawa/">miyagawa</a> on 2008-02-20T10:28:27</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>(Editorial: Don't frontpage this post, editors. I write it down here to summarize my thought, wanting to get feedbacks from my trusted readers and NOT flame wars or another giant thread of utf-8 flag woes)<br/><br/>I can finally say I fully grok Unicode, UTF-8 flag and all that stuff in Perl just lately. Here are some analysis of how perl programmers understand Unicode and UTF-8 flag stuff.<br/><br/>(This post might need more code to demonsrate and visualize what I'm talking about, but I'd leave it as a homework for readers, or at least thing for me to do until YAPC::Asia if there's a demand for this talk :))<br/><br/><strong>Level 1. "Take that annoying flag off, dude!"</strong><br/><br/>They, typically web application developers, assume all data is encoded in utf-8. If they encounter some wacky garbaged characters (a.k.a Mojibake in Japanese) which they think is a perl bug, they just make an ad-hoc call of:<br/><br/><pre>Encode::_utf8_off($stuff)</pre><br/><br/>to take the utf-8 flag off and make sure all data is still in utf-8 by avoiding any possible latin-1-utf8 auto upgrades.<br/><br/>This is level 1. Unfortunately, this works okay, assuming their data is actually encoded only in utf-8 (like database is utf-8, web page is displayed in utf-8, the data sent from browsers is utf-8 etc.). Their app is still broken when they call things like length(), substr() or regular expression because the strings are not UTF-8 flagged and those functions don't work in Unicode semantics.<br/><br/>They can optionally use "use encoding 'utf-8'" or CPAN module <a href="http://search.cpan.org/user/audreyt/encoding-warnings">encoding::warnings</a> to avoid auto-upgrades at all, or catch such mistakes, or use <a href="http://search.cpan.org/user/taniguchi/Unicode-RecursiveDowngrade-0.03/">Unicode::RecursiveDowngrade</a> to turn off UTF-8 flag on complex data structure.<br/><br/><strong>Level 2. "Unicode strings have UTF-8 flags. That's easy"</strong><br/><br/>They make an extensive use of Encode module encode() and decode() to make sure all data in their app is UTF-8 flagged. Their app works really nice in Unicode semantics.<br/><br/>They sometimes need to deal with UTF-8 bytes in addition to UTF8-flagged strings. In that case, they use some hacky modules named <a href="http://search.cpan.org/search?query=forceutf8&mode=all">ForceUTF8</a>, or do things like<br/><br/><pre>utf8::encode($_) if utf8::is_utf8($_)</pre><br/><br/>to assume that "Unicode strings should have UTF-8 flagged, and those without the flag are assumed UTF-8 bytes."<br/><br/>This is Level 2. This is a straight upgrade from Level 1 and fixes some issues of Level 1 (string functions not working in Unicode semantics, etc.), but it's still too UTF-8 centric. They ignore why perl5 treats strings this way, and still hate SV Auto-upgrade.<br/><br/>To be honest I was thinking this way until, like early 2007. There's a couple of my modules on CPAN that accepts both UTF-8 flagged string and UTF-8 bytes, because I thought it'd be handy, but actually that breaks latin-1 strings if they're not utf-8 flagged, which is rare in UTF-8 centric web application development anyway, but still could happen.<br/><br/>I gradually have changed my mind when I talked about how JSON::Syck Unicode support is broken with <a href="http://search.cpan.org/user/mlehmann/">Marc Lehmann</a>, and when I read the tutorial by and attended to the Perl Unicode tutorial talk by <a href="http://search.cpan.org/user/juerd/">Juerd Waalboer</a> in YAPC::EU.<br/><br/><b>Level 3. "Don't bother UTF-8 flag"</b><br/><br/>They stop guessing if a variable is UTF-8 flagged or not. All they need to know is that a string is whether bytes or characters, by checking how a scalar variable is generated. <br/><br/>If it's bytes, use decode() to get Unicode strings. If it's characters, don't bother if it's UTF-8 flagged or not: if it's not flagged they'll be auto-upgraded thanks to Perl, so you don't need to know the internal representations.<br/><br/>So it's like a step back from Level 2. "Get back to the basic, and think why Perl 5 does this latin-1 to utf-8 auto upgrades."<br/><br/>If your function or module needs to accept strings that might be either characters or bytes, just provide 2 different functions, or some flag to explicitly set. Don't auto-decode bytes as utf-8 because that breaks latin-1 characters if they're not utf-8 flagged. Of course the caller of the module can call utf8::upgrade() to make sure, but it's just a pain and anti-perl5 way.<br/><br/>There's still a remaining problem with CPAN modules, though. Some modules return strings in some occasion and not otherwise. For instance, $c->req->param($foo) would return UTF-8 flagged string if Catalyst::Plugin::Unicode is loaded and bytes otherwise. And using utf8::is_utf8($_) here might cause bugs like described before. <br/><br/>Well, in C::P::Unicode example, actually not. using C::P::Unicode guarantees that parameters are all utf-8 flagged even if the characters contain latin-1 range characters. Not using the plugin guarantees the parametes are not flagged at all. So it's a different story.<br/><br/>(To be continued...)</p>
+
+
+<hr/>
+
+
+
+<h2>Thanks</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2008-02-20T13:11:19</h3>
+That's a very clear explanation of what I've thought for some time, but was unable to phrase.<br><br>A quick way to upgrade yourself from level 2 to 3 is reading <a href="http://juerd.nl/site.plp/perluniadvice" title="juerd.nl">http://juerd.nl/site.plp/perluniadvice</a juerd.nl><nobr> <wbr></nobr>;-).
+
+
+
+<blockquote>
+
+<h2>Re:Thanks</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2008-02-20T22:50:16</h3>
+Thank *you* for the good tutorial.<br><br>So, I've been thinking there need to be some standards for CPAN modules to declare if it accept/return strings or bytes. (If they need to handle both)<br><br>For instance, HTML::Parser has an instance method called <a href="http://search.cpan.org/user/gaas/HTML-Parser-3.56/Parser.pm#Unicode" title="cpan.org">utf8_mode</a cpan.org>.<br><br>Another example (that triggered me to write this entry) is Catalyst's <a href="http://search.cpan.org/user/mramberg/Catalyst-Runtime-5.7012/lib/Catalyst.pm#$c-%3Euri_for(_$path,_@args?,_%5C%25query_values?_" title="cpan.org">uri_for() method</a cpan.org>. At some release the developers changed the implementation to accept only strings (UTF-8 flagged or not) in its %query_values hash.<br><br>Based on the complaints and patches made by Japanese developers, they changed the code to accept both strings OR utf-8 bytes, by doing utf8::encode() if utf8::is_utf8(); Like said in the post, this might break latin-1 strings if it's not explicitly upgraded by users using utf8::upgrade() before passing it to the method.<br><br>I was suggesting them to make another method, like uri_for_bytes, so as it won't do any utf8::encode() inside the module to treat everything as bytes. But another idea flashed me like "Hey, perl has a core pragma to say that".<br><br>bytes.pm.<br><br>Does this sound crazy if we change the behavior of these modules by looking at %^H hash values to see if bytes.pm is enabled? (Maybe we can wrap it like bytes::enabled). I know enabling bytes.pm affects functions like index(), substr() and length() globally, so this might not be what you want. They just might want to pass one argument as bytes, and let the other modules/behaviors still be in Unicode semantics. Maybe some packaged scope for bytes pragma?<br><br>Hmm.
+
+
+
+<blockquote>
+
+<h2>Strings or bytes</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2008-02-21T02:22:43</h3>
+Strings or bytes is not the right distinction, because both kinds are strings. I usually call them "text string" and "binary string", or "character string" and "byte string". Sometimes I call the former "Unicode string" to emphasize that all text strings are Unicode strings.<br><br>A trap is the UTF-8 string, which is a <em>byte</em> string <em>representing</em> characters, and has "the flag" <em>off</em> (which to perluninewbies is confusing because this flag is called UTF8). Compare this with the result of pack "N*", LIST, which is a byte string representing <em>numbers</em>. You'll note that UTF-32 looks a lot like pack N* in practice<nobr> <wbr></nobr>:).<br><br>I strongly believe that the behavior of accepting both UTF-8 encoded strings, and SvUTF8 flagged strings, in the same function, is wrong.<br><br>I also strongly suggest that any use of "use bytes" and functions in the utf8:: namespace, is misguided. If you want to use bytes, either have a function that deals only with byte input, or have a function that deals only with text input and encode it yourself. The bytes.pm stuff does not encode, it provides a view into perl's internal byte buffer. For text strings, the encoding of this buffer may be either utf8 <em>or latin1</em>.<br><br>For DBIx::Simple I have a similar dilemma. I can easily add automatic decoding/encoding for database values, and would love to do so. But databases can also be used for storing binary values. My current plan is to release a very simple CPAN module:<br><br>(Typed in my browser, untested.)<p><blockquote> <div><tt>package BLOB;<br>
+&nbsp; <br>sub mark {<br>&nbsp; &nbsp; my $class = shift;<br>&nbsp; &nbsp; my $self = \shift;<br>&nbsp; &nbsp; bless $self, $class;<br>}<br>
+&nbsp; <br>use base Exporter;<br>our @EXPORT = qw(is_blob);<br>
+&nbsp; <br>sub is_blob {<br>&nbsp; &nbsp; my $blob = shift;<br>&nbsp; &nbsp; return undef if not blessed \$blob;<br>&nbsp; &nbsp; return (\shift)-&gt;isa('BLOB');<br>}<br>1;<br>
+&nbsp; <br>=head1 SYNOPSIS<br>
+&nbsp; <br>&nbsp; &nbsp; use BLOB;<br>
+&nbsp; <br>&nbsp; &nbsp; BLOB-&gt;mark($jpeg_data);<br>&nbsp; &nbsp; print is_blob($jpeg_data);&nbsp; # 1<br>
+&nbsp; <br>&nbsp; &nbsp; my $bytes = is_blob($foo) ? $foo : encode_utf8($foo);</tt></div> </blockquote> Then, DBIx::Simple doesn't have to parse SQL and know which columns are blobs: the user can mark a string as a BLOB and I can just skip encoding for those values. PerlIO layers could be told to skip things marked as BLOB when encoding too.<br><br>Functions that for some reason need to accept both kinds of string (which can be necessary to support existing stuff, or in heavily abstracted code, but should generally be avoided), can then just tell the user to mark byte strings as blobs before passing them.<br><br>To take it one step further, it should have a mechanism like encoding::warnings in place to disallow (fatal error would be best, I believe) upgrading a BLOB.
+
+
+
+<blockquote>
+
+<h2>Re:Strings or bytes</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2008-02-21T02:32:59</h3>
+Hm, just to clarify, I prefer to use characters vs. bytes like you say. If I sometimes use "strings" somewhere, it's just a slip of keystrokes, or I meant Unicode strings instead.<br><br>And also, I'm a bit afraid that you misunderstood what I meant with mention to bytes.pm. I didn't mean we should call "use bytes" in this situation to force string operations to be bytes-wise. Not at all.<br><br>I meant declaring "use bytes" *might be* a good way for programmers to tell the module authors "Hey I want this module to do whatever string operations as bytes, not as characters".<br><br>But obviously that has a side effect and might not be a good thing at all. But I like the idea of having a pragma or something to explicitly say "I DONT WANT UNICODE WISE HERE".<br><br>BTW, I find that BLOB module would be useful for other stuff too.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Strings or bytes</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2008-02-21T02:59:57</h3>
+"use bytes;" is lexical: it cannot influence what a module does. I don't know who to thank for this, but I'm happy that at least my code won't be broken at a distance by the numerous uninformed and misinformed people who throw a "use bytes" at their code to replace one kind of (for them) vague behavior with another kind of vague behavior.<nobr> <wbr></nobr>:)<br><br>Experience has show so far that the only workable way of supporting both byte strings and text strings in your function, is to provide two separate functions, or a mechanism to indicate what kind of string you're passing. My BLOB thing would be a standardized way of saying "this is a byte string, not a text string" that is very probably drop-in compatible with existing code.<br><br>With the BLOB you're effectively saying "I DON'T WANT UNICODE HERE", but you're still dependent on the module author to comply. Fortunately, scanning documentation for the word "BLOB" is easily done<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Strings or bytes</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2008-02-21T03:23:01</h3>
+Agreed in both: we should use two different functions to accept characters or bytes, and also BLOB.pm would be useful to DWIM.<nobr> <wbr></nobr>:)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

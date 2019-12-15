@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of leo: Parrot Calling Conventions</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Parrot Calling Conventions</h1>
+<h2><a href="/user/leo/">leo</a> on 2005-07-03T11:46:19</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><b>WWCPD: Calling Conventions</b>
+
+<p>The original design was not only rather <a
+href="http://www.sidhe.org/user/dan/blog/archives/000413.html">heavyweight</a>,
+it was also incomplete and a bit blurry. It was lacking
+support for MMD argument signatures, return value context,
+typechecking, and so on.</p>
+<p>I'll try do describe some reasons, why we changed calling conventions
+to use a <a
+href="http://svn.perl.org/parrot/trunk/docs/pdds/pdd03_calling_conventions.pod">
+new abstract scheme</a>. The major change is that all the
+argument passing is now done by dedicated opcodes, which
+allows any later implementation and adaption under the hood
+without changing the ABI of the <a 
+href="http://www.parrotcode.org/">Parrot VM</a>.</p>
+
+<b>MMD Signatures</b>
+
+<p>A function call:</p>
+
+<code>  foo(Px, Iy)</code>
+
+<p>was translated to these argument-related opcodes (function
+lookup and call opcodes omitted for brevity):</p>
+
+<code>  set I0, 1       # prototyped call<br>
+  set I1, 1       # 1 INT argument<br>
+  set I2, 0       # 0 STR arguments<br>
+  set I3, 1       # 1 PMC argument<br>
+  set I4, 0       # 0 NUM arguments<br>
+  set P5, Px      # get PMC argument<br>
+  set I5, Iy      # get INT argument<br>
+  set S0, "foo"   # function name</code>
+
+<p>A lot of opcodes to dispatch, but takes almost no time with
+the JIT runtime. Fine so far. Another function call:</p>
+
+<code>  foo(Ix, Py)</code>
+
+<p>produced exactly the same call register setup - these two
+function calls can not be discerned when, it comes to multi
+method dispatch.</p>
+
+<p>Now the first argument setup just translates to:</p>
+
+<code>  set_args "(0b10,0)", Px, Iy</code>
+
+<p>and the second is:</p>
+
+<code>  set_args "(0,0b10)", Ix, Py</code>
+
+<p>Thus we not only saved 7 opcode dispatches per function
+call, we got a clear type information of the caller's
+arguments including the argument order. You don't have to
+set these type bits yourself, the assembler does it
+according to the passed arguments, so just writing: </p>
+
+<code>  set_args "(0,0)", Ix, Py</code>
+
+<p>works fine.</p>
+
+<b>Type checking</b>
+
+<p>In the old scheme you could happily call a function
+with:</p>
+
+<code>  foo(Px, Iy)</code>
+
+<p>which was defined as:</p>
+
+<code>  .sub foo<br>
+    .param float n<br>
+    .param string s</code>
+
+<p>The .param was just translated to:</p>
+
+<code>  foo:<br>
+    set Nx, N5      # get 1st NUM param into n<br>
+    set Sy, I5      # get 1st STR param into s</code>
+
+<p>Due to the register usage of argument passing the function
+would have picked up whatever happens to be in registers N5
+and S5 and would run - probably not long though. A possible
+"solution" would have been to force all compilers and Parrot
+hackers to emit code to first verify the passed arguments.
+That's of course another bunch of opcodes, bulky and
+error-prone. Now the function defines precisely what it
+awaits:</p>
+
+<code>  .sub foo<br>
+    get_params "(0b11,0b1)", Nx, Sy</code>
+
+<p>Again the type bits are filled in by the assembler. But
+during the call sequence, the argument passing code can
+verify the types (and counts) of arguments and parameters.
+Conversions to and from PMC parameters are specified and
+done automatically. Mismatches are reported by an
+exception.</p>
+
+<b>Implicit register usage</b>
+
+<p>The central mechanism of a function call in the old scheme
+was just the plain argumentless opcode:</p>
+
+<code>  invoke</code>
+
+<p>It would pick up whatever happens to be in P1 and uses it as
+the continuation of the call. P2 was defined to be the
+invocant, if it's a method call. And so on - and it call's
+whatever is in P0. That's per se fine, if all code writers
+and compilers strictly use this convention and don't forget
+to NULLify registers that shouldn't be used for the call,
+but it's a major PITA for the assembler, which ought to
+track the control flow for proper register allocation: is the
+invoke a function call, a yield, a return from a function?
+Well it's not defined, it could be everything. Not a few
+lines inside imcc are trying to track down the usage of invoke
+opcodes to do the right thing. You can imagine that this
+does not contribute to clear code.</p>
+
+<b>Method invocant</b>
+
+<p>The old call scheme demanded that the invocant is passed
+out-of-band in P2. It's also only available in functions
+declared as methods by a special <i>interpinfo</i> call. This
+doesn't really match our major target languages, where the
+invocant just happens to be the first param of a method.</p>
+
+<p>Calling a function as a method or vice versa would have
+needed to shift PMC arguments down or up to get everything
+into the registers that the callee expects.</p>
+
+<b>Return value context</b>
+
+<p>The old scheme had no provision for specifying, what and how
+many return results the caller expects. Now the
+<i>get_results</i> opcode is emitted before the actual function
+call, so that a function return has a chance to return what
+the caller <i>want</i>s.</p>
+
+<b>Future and optimization</b
+
+<p>In the old scheme the lower 16 registers of each kind
+were volatile (each function return could set these
+registers).  This implies that you usually have to move
+registers from the preserved area into the lower half,
+during the call sequence registers are moved into the
+callee's lower half, from where another round through all
+parameters would have placed everything in the preserved
+area. This are three passes over all arguments - hardly to
+avoid in the general case.</p>
+
+<p>The old call scheme reserved 4*16 registers just for
+function calls and returns. This accounts for 320 bytes (on
+a 32-bit machine) that have to be allocated per call to pass
+e.g. just one word argument to an one-liner function or an
+attribute accessor method.</p>
+
+<p>Ok, we are not doing optimzation now - that's fine. But the
+old calling scheme would have prevented all future
+optimizations that will be needed. You can't do any
+optimizations later when the call scheme is carved in stone
+and just reserves half of the register resources for
+itself.</p>
+
+
+<p>---<br>WWCPD ... why we change(d) parrot's design</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

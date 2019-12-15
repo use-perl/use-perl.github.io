@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of wickline: a colorful waste of time</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>a colorful waste of time</h1>
+<h2><a href="/user/wickline/">wickline</a> on 2004-12-20T00:02:27</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>It's <a href="http://use.perl.org/user/pudge/journal/22326">Pudge's fault</a>, no it's <a href="http://use.perl.org/comments.pl?sid=24094&cid=36877">Aristotle's fault</a>. OK, I guess it's really my own fault. I spent a silly amount of time getting the hilight script to handle nested parens in a fashion which didn't bug me...<br/><br/>I'll be curious to hear if it handles all of Aristotle's favorite test cases too.<br/><br/>-matt<br/><br/><ECODE>
+#!/usr/bin/perl -wnp<br/><br/>use strict;
+use Term::ANSIColor;
+use Getopt::Std;<br/><br/>our( @COLOR, $REGULAR_EXPRESSION, $LINE_NUMBER, $NUM_MATCHES, @START, @END, @PROCESSED );<br/><br/>use constant ENTIRE_MATCH => 0;<br/><br/>BEGIN {
+    getopts( 'c:' ) && @ARGV or die <<"    END_USAGE";
+usage: $0 [ -c color ] pattern [ file... ] [ < input ]
+    You can use capturing parens in your pattern.
+    If you provide multiple atrributes via the -c option,
+    the first will be used to color the portion matching
+    the pattern, the second will color the portion matching
+    the first capturing parens, the third will color the
+    portion matching the second capturing parens, etc.
+    Extra colors will be ignored. Extra parens will be
+    colored the same as the non-captured matching text.<br/><br/>    % cat notes.txt
+financial notes...
+\$25 I owed to "bob smith" on 20041211 explanation: brewfest  # some meta data here
+\$1 I paid to "sally johnson" on 20041212 explanation: sodas  # some meta data here
+\$25 I paid to "bob smith" on 20041213 explanation: cash      # some meta data here
+\$1 I recd from "sally johnson" on 20041215
+\$42 I paid to "" on 200412157 explanation: top secret xmass
+other notes...
+\$100_000_000_000 might be nice to have, eh?
+I wonder what I'm doing on tuesday next week.
+I like pie.
+    % $0  \\
+    -c'cyan,  bold, red,   green, yellow,       magenta,    blue,  white on_red, bold    '  \\
+       '\\\$\\d+ (I (?:(owed)|(paid)|(recd)) \\S+) "([^"]*)" on (\\d+) *(explanation: (.+))?#?'  \\
+       < notes.txt
+    END_USAGE
+    # yes the above looks ugly, but it prints out a tidy usage example<br/><br/>    @COLOR = split /,/, our $opt_c || 'bold red';
+    $REGULAR_EXPRESSION = qr/@{[ shift ]}/;
+}<br/><br/>s{ $REGULAR_EXPRESSION }{  paint_match( ENTIRE_MATCH )  }gsex;<br/><br/>sub init_match_info {
+    return unless $. > ( $LINE_NUMBER || 0 );
+    $LINE_NUMBER = $.;
+    @START       = @-;
+    @END         = @+;
+    $NUM_MATCHES = $#END;
+    @PROCESSED   = ();
+}<br/><br/>sub paint_match {
+    init_match_info();<br/><br/>    my $match = shift;
+    return $_ if $match > $NUM_MATCHES;<br/><br/>    my( $result, $cursor ) = ( '', $START[ $match ] );<br/><br/>    for my $nested_match (  $match + 1  ..  $NUM_MATCHES  ) {
+        next if empty( $nested_match ) || $PROCESSED[ $nested_match ];;
+        last unless match_x_contains_match_y( $match, $nested_match );<br/><br/>        $result .= paint_substr(  $cursor,  $START[ $nested_match ],  $match  );
+        $result .= paint_match(  $nested_match  );<br/><br/>        $cursor = $END[ $#PROCESSED ];
+    }<br/><br/>    $result .= paint_substr(  $cursor,  $END[ $match ],  $match  );
+    $PROCESSED[ $match ]++;
+    return $result;
+}<br/><br/>sub paint_substr {
+    my( $start, $end, $match ) = @_;
+    return '' unless $end > $start;
+    return colored(  substr( $_, $start, $end - $start ),  colors_for_match( $match )  );
+}<br/><br/>sub empty{  ! $END[ shift() ]  }<br/><br/>sub match_x_contains_match_y {
+    my( $x, $y ) = @_;
+    return(
+        ! empty( $x )
+        and
+        $END[ $x ] > $START[ $y ]
+        and
+        $START[ $x ] <= $END[ $y ]
+    );
+}<br/><br/>sub colors_for_match {
+    my $match = shift;
+    return $COLOR[ ENTIRE_MATCH ]
+        if (  $match == ENTIRE_MATCH  or  ! $COLOR[ $match ]  );
+    return map {
+        match_x_contains_match_y( $_, $match)  ? $COLOR[ $_ ]  : ();
+    } ENTIRE_MATCH .. $match;
+}
+</ECODE></p>
+
+
+<hr/>
+
+
+
+<h2>googley colors</h2>
+<h3><a href="/user/wickline/">wickline</a> on 2004-12-20T00:09:55</h3>
+You know how google always colors cached pages a certain way? Well it might be nice if this script did the same...<br> <br>instead of<blockquote><div> <tt>&nbsp; &nbsp; @COLOR = split<nobr> <wbr></nobr>/,/, our $opt_c || 'bold red';</tt> </div></blockquote>maybe<blockquote><div> <tt>&nbsp; &nbsp; @COLOR = split<nobr> <wbr></nobr>/,/, our $opt_c || $ENV{HILIGHT_COLORS} || 'bold red';</tt> </div></blockquote>-matt<br>
+
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-05-19T08:59:03</h3>
+Just so you know, I haven&#8217;t forgotten this. It&#8217;s just that my mills grind slowly, and sometimes very, very slowly&#8230;
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

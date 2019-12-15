@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: A simple explanation of traits</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>A simple explanation of traits</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-11-19T19:31:57</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Someone on the Portland Perl Mongers list asked for a simple explanation of traits.  Here it is.</p>
+
+<blockquote>What I love about perl's oo is that we really don't need all of the formalisms that appear in other languages.</blockquote>
+
+<p>Yes and no.  There's no question that Perl's model is extremely flexible, but sometimes you want to break instead of bend.  The problems with multiple inheritance are extremely well-known and well-documented.   Ruby-style mixins and Java interfaces are two attempts to avoid this (note that both languages only support single inheritance) but both of these are also broken.  Mixins have ordering problems and interfaces force you to redefine the implementation every time -- even if the implementation doesn't change.</p>
+
+<blockquote><em>A trait is essentially a group of pure methods that serves as a building block for classes and is a primitive unit of code reuse.</em><br>
+<br>
+So, can you spell that in Perl?  It sounds suspiciously like it's nothing more than a module that allows you to import some methods into your namespace.  Or is that a mixin?</blockquote>
+
+<p>That's the basics of it (traits are very simple to use.  It's the theory behind traits which throws a few people off).</p>
+
+<p>Traits, however, are far more powerful than mixins.  Imagine, for example, that you have two traits:  TSpouse and TBomb.  Each of those traits provides two methods, set_fuse() and explode().  You want to institute a "FamilyMember" class and use those traits.  Naturally, you want to use the TSpouse::explode() method because it's non-lethal (usually).  You want to use the TBomb::set_fuse() method because you can control the timing.</p>
+
+<p>If these were mixins, you have a problem.  With Ruby, you would get the set_fuse() and explode() methods from whichever of these mixins you used last.  If you want one from each, you have to use delegation or something similar.  That forces you to write more code and, being lazy, we don't want to do that.</em>
+
+<p>With traits, if there are method conflicts, the traits fail <em>at compile time</em> and you have to explicitly resolve the problem:</p>
+
+<pre>package FamilyMember;
+use Class::Trait
+  TSpouse => { exclude => ['set_fuse'] },
+  TBomb   => { exclude => ['explode'] };</pre>
+
+<p>And now FamilyMember-&gt;can('explode') (from TSpouse) and FamilyMember-&gt;can('set_fuse') (from TBomb).</p>
+
+<p>However, if the TSpouse and TBomb traits had no conflicts, it would be as simple as this:</p>
+
+<pre>use Class::Trait qw(TSpouse TBomb);</pre>
+
+<p>And you have everything you need.  Further, because these methods are flattened into the FamilyMember class, Perl doesn't need to search @ISA to find them.  That's a nice performance boost to go along with the complexity management.</p>
+
+<p>In a nutshell, the reasoning behind traits is simple.  A class needs to provide *everything* you should be able to do with that class.  Thus, it needs to be complete.  If you think of classes for code reuse benefits (for example, when we inherit from classes), then they should be as small as possible so we don't accidentally pull in more stuff than we want or need.  Think "cohesion".</p>
+
+<p>So classes should generally be both complete and small, but these needs often conflict.  Since traits are both small and provide code reuse, they satisfy both requirements.  Further, unlike Java interfaces, they provide the implementation so you don't have to keep rewriting it.  Like Java interfaces, they fail <em>at compile time</em> if you've not used them correctly.  Unlike Ruby mixins, they don't have ordering problems.</p>
+
+<p>The compile-time failure is a very important feature.  If you forget to test a method which requires another method, you don't want to see the failure three months down the road when the system is in production.  Note that this feature is not perfect.  If you forget to specify a method a trait requires, due to Perl's dynamic nature Perl has no way of verifying that <tt>$self-&gt;get_reciept;</tt> is misspelled.</p>
+
+<p>Another vitally important feature is that in addition to being able to use traits, you can now query an object to find out its capabilities:</p>
+
+<pre>if ( $object->does('TBomb') ) {
+  # we know it responds to explode() and set_fuse() messages
+}</pre>
+
+<p>Or, more realistically:</p>
+
+<pre>if ( $employee->does('TManager') ) {
+  # we can now safely use management functions
+}</pre>
+
+<p>Note that Class::Trait supports renaming does() if it conflicts with any of your methods.</p>
+
+<p>I'm still working on Class::Trait and doing some deep internals work with it, but the basic features are there.</p></p>
+
+
+<hr/>
+
+
+
+<h2>While I don't understand it &quot;all&quot;...</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2005-11-19T23:58:37</h3>
+My brain keeps telling me that is a great way to pass methods around. More thought is needed.
+
+
+
+<blockquote>
+
+<h2>Re:While I don't understand it &quot;all&quot;...</h2>
+<h3><a href="/user/chaoticset/">chaoticset</a> on 2005-11-20T15:22:31</h3>
+Echo that -- while I can't mentally reconcile it with a lot of other things I actually do understand, somehow it sounds attractive and handy.
+<p>
+Research need is implied.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Thanks for the Explanation!</h2>
+<h3><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2005-11-20T22:12:38</h3>
+<p>
+Hi Ovid!
+</p>
+<p>
+Thanks for the explanation. I understood everything (or at least hope I did). Traits sound very cool and everything, and I'll keep them in mind if I ever find a need to use them.
+</p>
+<p>
+Also thanks for working on the module! &lt;hug<nobr> <wbr></nobr>/&gt;
+</p>
+<p>
+BTW, how are traits related to Perl 6's Roles? Or to Class::Roles? I sort-of was told that they are related on IRC once. I should note that I could not understand what Roles are from the OOP Apocalypse, and no one yet was able to explain to me what they were. (including the <a href="http://search.cpan.org/user/chromatic/Class-Roles-0.30/lib/Class/Roles.pm" title="cpan.org">Class::Roles POD documentation</a cpan.org>). I thought I might eventually need to study the code, but maybe now I won't.
+</p>
+<p>
+Thanks again.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Thanks for the Explanation!</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-11-20T23:47:43</h3>
+<p>Traits are pretty much the same thing as Perl 6 roles.  However, the original trait descriptions did not allow for the application of traits at runtime.  Perl 6 roles do and some of the CPAN implementations for Perl 5 do allow runtime application.</p>
+
+<p>As for how Class::Trait compares with Class::Role, see <a href="http://use.perl.org/comments.pl?sid=29466&amp;cid=44633" title="perl.org">this comparison</a perl.org> (that link also includes a couple of comments about Class::Roles).</p>
+
+<p>It's clear to me now that Class::Trait needs to support runtime trait application, so this is my next major step.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

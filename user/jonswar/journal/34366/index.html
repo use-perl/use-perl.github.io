@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jonswar: A standard logging API</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>A standard logging API</h1>
+<h2><a href="/user/jonswar/">jonswar</a> on 2007-09-06T21:52:13</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>It seems as if every CPAN module has its own way of logging debug information and error conditions. For example:<p>
+
+<ul>
+<li>LWP - activate by use'ing LWP::Debug; outputs to STDERR
+<li>DBI - activate by calling DBI->trace(); outputs to STDERR or a file
+<li>Rose::DB - activate by setting various $Debug package variables; outputs to STDERR
+<li>Encode::* - activate by modifying various DEBUG subroutines to return 1; outputs using warn()
+<li>Apache::* - activate by setting the Apache log level and restarting; outputs to the Apache logs
+</ul>
+
+In addition, there must be CPAN modules that have interesting things to say but choose not to log at all, because they don't want to invent another logging mechanism or become dependent on an existing one.<p><p>
+
+This situation is pretty much the opposite of what I want when developing a large application. I want a single way to turn logging on and off, and to control where logs get sent, for all of the modules I'm using.<p><p>
+
+This being Perl, there are many fine logging frameworks available: Log::Log4perl, Log::Dispatch, Log::Handler, Log::Agent, Log::Trivial, etc. So why do CPAN modules eschew the use of these and invent their own mechanisms that are almost guaranteed to be less powerful?<p>
+
+<ul>
+<li>The very existence of so many logging modules means that there is no one standard that a CPAN author would feel comfortable binding their users to. As usual, TMTOWTDI is a double-edged sword.<p>
+<li>A logging framework can be a significant dependency for a module to have, easily dwarfing the size of the module itself. For small modules that want to minimize dependencies, depending on Log4perl (for example) is a non-starter.
+</ul>
+
+<b>A Common Log API</b><p><p>
+
+One thing to notice is that while the logging frameworks all differ in their configuration and activation API, and the set of features they support, the API to log messages is generally quite simple. At its core it consists of<p>
+
+<ul>
+<li>A set of valid log levels, e.g. debug, info, warn, error, fatal
+<li>Methods to log a message at a particular level, e.g. $log->debug()
+<li>Methods to determine if a particular level is activated, e.g. $log->is_debug()
+</ul>
+
+I expect most CPAN modules would happily stick to this API, and let the application worry about configuring what's getting logged and where it's going. Therefore...<p><p>
+
+<b>Proposed Module: Log::Any</b><p><p>
+
+I propose a small module called Log::Any that provides this API, with no dependencies and no logging implementation of its own. Log::Any would be designed to be linked by the main application to an existing logging framework.<p><p>
+
+A CPAN module would use it like this:<p>
+
+<pre>
+    package Foo;
+    use Log::Any;
+    my $log = Log::Any->get_logger(category => __PACKAGE__);
+
+    $log->error("an error occurred");
+
+    $log->debug("arguments are: " . Dumper(\@_))
+        if $log->is_debug();
+</pre>
+
+By default, methods like $log->debug would be no-ops, and methods like $log->is_debug() would return false.<p><p>
+
+As a convenient shorthand, you can use<p>
+
+<pre>
+    package Foo;
+    use Log::Any qw($log);
+</pre>
+
+to create the logger, which is equivalent to the first example except that $log is (necessarily) a package-scoped rather than lexical variable.<p><p>
+
+How does an application activate logging? The low-level way is to call Log::Any->set_logger_factory (better name pending) with a single argument: a subroutine that takes a log category and returns a logger object implementing the standard logging API above. The log category is typically the class doing the logging, and it may be ignored.<p><p>
+
+For example, to link with Log::Log4perl:<p>
+
+<pre>
+    use Log::Any;
+    use Log::Log4perl;
+
+    Log::Log4perl->init("log.conf");
+    Log::Any->set_logger_factory
+       (sub { Log::Log4perl->get_logger(@_) });
+</pre>
+
+To link with Log::Dispatch, with all categories going to the screen:<p>
+
+<pre>
+    use Log::Any;
+    use Log::Dispatch;
+
+    my $dispatcher = Log::Dispatch::Screen->new(...);
+    Log::Any->set_logger_factory(sub { $dispatcher });
+</pre>
+
+To link with Log::Dispatch, with different categories going to different dispatchers:<p>
+
+<pre>
+    use Log::Any;
+    use Log::Dispatch;
+
+    my $dispatcher_screen = Log::Dispatch::Screen->new(...);
+    my $dispatcher_file   = Log::Dispatch::File->new(...);
+
+    sub choose_dispatcher {
+        my $category = shift;
+        $category =~ /DBI|LWP/ ? $dispatcher_file : $dispatcher_screen;
+    }
+    Log::Any->set_logger_factory(\&choose_dispatcher);
+</pre>
+
+This API is a little awkward for the average user. One solution is for logging frameworks themselves to provide more convenient mixins, e.g.:<p><p>
+
+<pre>
+   use Log::Dispatch;   # this also defines Log::Any::use_log_dispatch
+   my $d = Log::Dispatch::File->new(...);
+   Log::Any->use_log_dispatch($d);  # calls set_logger_factory for you
+
+   use Log::Log4perl;   # this also defines Log::Any::use_log4perl
+   Log::Any->use_log4perl();        # calls set_logger_factory for you
+</pre>
+
+set_logger_factory would be implemented so as to take effect on all existing as well as future loggers. Any $log objects already created inside modules will automatically be switched when set_logger_factory is called. (i.e. $log will probably be a thin proxy object.) This means that Log::Any need not be initialized by the time it is used in CPAN modules, and it allows set_logger_factory to be called more than once per application.<p><p>
+
+<b>Promoting Use</b><p>
+
+For Log::Any to be useful, a substantial number of modules - especially major modules - would have to adopt its use. Fortunately, with its minimal footprint and standalone nature, authors should not find Log::Any a difficult dependency to add. Existing logging mechanisms, such as LWP::Debug and $DBI::tfh, could easily be converted to write *both* to their existing output streams and to Log::Any. This would preserve backward compatibility for existing applications, but allow new applications to benefit from more powerful logging. I would be willing to submit such patches to major module authors to get things going.<p><p>
+
+Feedback welcome. Thanks!<p><p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>I'm not a fan of the syntax...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-09-07T01:06:33</h3>
+I'm not sure why, but I think the API lacks a certain elegance.<br><br>Personally I'd have done the name'ology differently (although tbh I'm not sure what I'd have used instead).<br>
+
+
+
+<blockquote>
+
+<h2>Re:I'm not a fan of the syntax...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-09-07T01:11:26</h3>
+Upon re-reading I think two things I'm not a fan of are the "Any" suffix, and the use of package-named class-level storage.<br><br>What if I want to make an logger for a single object...
+
+
+
+<blockquote>
+
+<h2>Re:I'm not a fan of the syntax...</h2>
+<h3><a href="/user/jonswar/">jonswar</a> on 2007-09-07T04:23:27</h3>
+As far as the package-named class-level storage: the "use Log::Any qw($log)" syntax is just a convenient shorthand that, imho, will be good enough for some modules. If you are uncomfortable with this, you can use the more standard syntax<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $log = Log::Any-&gt;get_logger(category =&gt; '...');<br><br>and you would use this to create a lexically scoped logger or a logger contained in an object.<br><br>As far as the "Any" name - I agree, it isn't ideal, but I haven't been able to think of a better alternative. The problem is that most log frameworks already have a generic sounding name - e.g. Log::Dispatch - so somehow I have to name this in a way that distinguishes it from yet another logging framework.<br>
+
+
+
+<blockquote>
+
+<h2>Re:I'm not a fan of the syntax...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-09-07T08:50:28</h3>
+I don't mean for $log, I mean for "category =&gt; '...'.<br><br>That implies you are keeping inside Log::Any a hash of some sort with the class as the key and an object or log class as the value. That's what I meant by the class-level storage.<br><br>As for<nobr> <wbr></nobr>::Any, I notice that Log::Abstract seems to be unused at the moment, if you do a CPAN search for "Abstract" and have a read through some of the modules there, there is a precent for this general type of thing.<br>
+
+
+
+<blockquote>
+
+<h2>Re:I'm not a fan of the syntax...</h2>
+<h3><a href="/user/jonswar/">jonswar</a> on 2007-09-07T18:02:34</h3>
+&gt; As for<nobr> <wbr></nobr>::Any, I notice that Log::Abstract seems to be unused at the moment, if you do a<br>&gt; CPAN search for "Abstract" and have a read through some of the modules there, there is a<br>&gt; precent for this general type of thing.<br><br>Thanks, I like that name much better! "Any" has always seemed rather...indecisive. I'm going to retroactively change this in the journal entry.<br><br>&gt; I don't mean for $log, I mean for "category =&gt; '...'.<br>&gt;<br>&gt; That implies you are keeping inside Log::Any a hash of some sort with the class as the key<br>&gt; and an object or log class as the value. That's what I meant by the class-level storage.<br><br>So the question is whether get_logger() automatically memoizes based on the category name, or whether this is the responsibility of the underlying logging package and/or the code registered in set_logger().<br><br>I had leaned towards memoizing, because most logging packages will not handle this for you (log4perl being the exception) and it seems like the expected behavior.<br><br>I wonder what the point would be of creating multiple Log::Abstract loggers with the same category anyway, given that category is the only data upon which the application has to decide what logging package and settings will be used. That is, given two calls<br><br>
+&nbsp; &nbsp; &nbsp; my $logger1 = Log::Abstract-&gt;get_logger("foo");<br>
+&nbsp; &nbsp; &nbsp; my $logger2 = Log::Abstract-&gt;get_logger("foo");<br><br>wouldn't these pretty much have to return the same logger, unless the routine passed to set_logger() was changing its behavior over time?<br><br>Remember that set_logger can be called more than once in an application to effectively change all existing abstract loggers. So there is little reason for the routine passed to set_logger() to be dynamic across anything other than category.<br><br>I hope that makes sense.<br><br>Jon<br>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Some nits to pick</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2007-09-07T05:14:49</h3>
+Generally, I think this is a good idea, but I have some nits to pick.<br><br>First, the <code>set_logger()</code> method is not actually setting a logger at all, which is confusing. It's setting a callback that returns a logger, so maybe it should be <code>set_logger_factory()</code> or something like that. This is particularly problematic since there's a <code>get_logger()</code> method, which doesn't return the thing passed to <code>set_logger()</code>!<br><br>I'm not sure that passing in a sub ref is the best API either. My gut feeling is that "the average programmer" isn't really comfortable with subroutine references. OTOH, I see the need for being able to pass in a log making strategy, as opposed to a single log object.<br><br>Maybe there could be a super-simple API where you pass in a log object, and a more complex API where you pass in a sub ref or logger factory class.<br><br>I also wonder how this package-level globalness will work. What if I have a CPAN module that wants to set the <code>Log::Any</code> logger, and I want to use that module in my app but set a different logger? Is it last set wins?<br><br>Imagine the problems this could cause under mod_perl. Maybe the answer for mod_perl is that your app needs to set the logger on every request, not just once at startup time.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Some nits to pick</h2>
+<h3><a href="/user/fireartist/">fireartist</a> on 2007-09-07T08:07:12</h3>
+I got the impression that all CPAN modules should use the logging interface, but not set any logger themselves.<br>So the only place the logger would be set would be in your 'top level' application, or framework (catalyst, jifty, etc).
+
+
+
+<blockquote>
+
+<h2>Re:Some nits to pick</h2>
+<h3><a href="/user/jonswar/">jonswar</a> on 2007-09-07T18:14:28</h3>
+That's exactly right. Since the setting of Log::Abstract is (by design) global across the application, it would be considered bad behavior for an arbitrary CPAN module to muck with it, in the same way it would be bad behavior to unset $^W, or clear @ARGV, or read from STDIN - unless that was part of the proscribed behavior of the module.<br>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Some nits to pick</h2>
+<h3><a href="/user/jonswar/">jonswar</a> on 2007-09-07T18:34:56</h3>
+&gt; First, the set_logger() method is not actually setting a logger at all, which is<br>&gt; confusing. It's setting a callback that returns a logger, so maybe it should be<br>&gt; set_logger_factory() or something like that. This is particularly problematic since<br>&gt; there's a get_logger() method, which doesn't return the thing passed to set_logger()!<br><br>You're right, set_logger() should be renamed, though I'm not sure I can bear to use "factory".<nobr> <wbr></nobr>:)<br><br>&gt;<br>&gt; I'm not sure that passing in a sub ref is the best API either. My gut feeling is that "the<br>&gt; average programmer" isn't really comfortable with subroutine references. OTOH, I see the<br>&gt; need for being able to pass in a log making strategy, as opposed to a single log object.<br>&gt;<br>&gt; Maybe there could be a super-simple API where you pass in a log object, and a more complex<br>&gt; API where you pass in a sub ref or logger factory class.<br><br>Unfortunately, a super-simple API wouldn't work for log4perl.<br><br>Perhaps set_logger_factory() or whatever it is ultimately called should be the low-level interface, and logging frameworks can provide higher-level mixins to make things easy for the average user. e.g.<br><br>
+&nbsp; &nbsp; &nbsp; use Log::Dispatch;   # this also defines Log::Abstract::use_log_dispatch<br>
+&nbsp; &nbsp; &nbsp; my $dispatcher = Log::Dispatch::File-&gt;new(...);<br>
+&nbsp; &nbsp; &nbsp; Log::Abstract-&gt;use_log_dispatch($dispatcher);<br><br>
+&nbsp; &nbsp; &nbsp; use Log::Log4perl;   # this also defines Log::Abstract::use_log4perl<br>
+&nbsp; &nbsp; &nbsp; Log::Abstract-&gt;use_log4perl();   # no argument needed<br><br>&gt;<br>&gt; I also wonder how this package-level globalness will work. What if I have a CPAN module<br>&gt; that wants to set the Log::Any logger, and I want to use that module in my app but set a<br>&gt; different logger? Is it last set wins?<br>&gt;<br>&gt; Imagine the problems this could cause under mod_perl. Maybe the answer for mod_perl is<br>&gt; that your app needs to set the logger on every request, not just once at startup time.<br><br>I just think we have to trust modules not to muck with global state that they aren't meant to muck with. mod_perl and other persistent environments depend on this in a variety of ways.<br><br>And yes, I think the last set has to win, to allow applications to modify the setting in mid-stream.<br><br>Jon<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:Some nits to pick</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-09-08T17:46:30</h3>
+<p><blockquote> <div><p>You&#8217;re right, <code>set_logger()</code> should be renamed, though I&#8217;m not sure I can bear to use &#8220;factory&#8221;.<nobr> <wbr></nobr>:)</p></div> </blockquote>
+
+<p>The name you are looking for is <code>register_logger</code>.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Any</h2>
+<h3><a href="/user/acme/">acme</a> on 2007-09-07T08:43:03</h3>
+I'm not really a fan of the<nobr> <wbr></nobr>::Any namespace - JSON::Any being particularly bad as all the JSON modules have different quirks and JSON::XS is clearly way above the rest. Why couldn't we just pick one logging module as good enough and call it best practice?
+
+
+
+<blockquote>
+
+<h2>Re:Any</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-09-07T08:53:17</h3>
+I believe the optimum number of CPAN modules for any single topic is seven<nobr> <wbr></nobr>:)<br><br>There's also a Log::Tiny module potentially coming (not from me, I just got the email asking to review it, and it's being munged to bring it up to<nobr> <wbr></nobr>::Tiny spec at the moment).<br><br>On a side note of trivia, this is the second time I've had a proposed Log::Tiny one, in the end the first person decided he wasn't willing to cripple it enough to meet the criteria, so it ended up being called something else.
+
+
+
+<h2>Re:Any</h2>
+<h3><a href="/user/jonswar/">jonswar</a> on 2007-09-07T18:18:25</h3>
+This project arose from trying to pick a logging scheme for Mason. I decided pretty quickly to standardize on log4perl, until I talked to Dave, who understandably demanded consideration for Log::Dispatch users.<br><br>I figure if a single little project can't even decide on a best logging module, it'll be damned near impossible to get the whole community to agree.<nobr> <wbr></nobr>:)<br>
+
+
+
+
+
+</blockquote>
+
+
+<h2>why the &quot;if&quot; clause?</h2>
+<h3><a href="/user/thepler/">thepler</a> on 2007-09-07T21:54:57</h3>
+<code>
+$log-&gt;debug("a debug message")
+        if $log-&gt;is_debug();
+
+</code>
+<p>I'm not sure why you want the "if" clause.  I'd prefer to have the debug method just do nothing unless debugging is enabled.  If you're trying to avoid a method call, you'd want:
+</p><p>
+<code>
+$log-&gt;debug("a debug message") if $is_debug;
+</code>
+</p><p>
+though personally I'd just prefer:
+</p><p>
+<code>
+$log-&gt;debug("a debug message");
+</code></p>
+
+
+
+<blockquote>
+
+<h2>Re:why the &quot;if&quot; clause?</h2>
+<h3><a href="/user/jonswar/">jonswar</a> on 2007-09-08T03:37:22</h3>
+You're right, that was a poorly chosen example. Yes, $log-&gt;debug() won't do anything unless debugging was enabled. Here's a more appropriate use of the conditional:<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; $log-&gt;debug("current args: " . Dumper(\@_))<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if $log-&gt;is_debug();<br><br>The idea is to use the conditional when you don't want to compute the arguments (in this case, Dumper()) unnecessarily.<br>
+
+
+
+<blockquote>
+
+<h2>Re:why the &quot;if&quot; clause?</h2>
+<h3><a href="/user/thepler/">thepler</a> on 2007-09-11T11:49:13</h3>
+I seem to recall that one of the other logging modules (I forget which) uses a sub for that.
+<p>
+<code>
+$log-&gt;debug(sub {"current args: " . Dumper(\@_)});
+</code></p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Great work, and can I have stealth loggers?</h2>
+<h3><a href="/user/Perlmeister/">Perlmeister</a> on 2007-09-08T20:32:58</h3>
+Hi Jonathan,
+
+you're addressing something really important here.
+<p>
+ It is really
+unfortunate that important CPAN modules like LWP or Rose::DB don't have
+usable logging mechanisms in place. Once you're used to category-based
+logging it's hard to go back to these home-grown and less convenient
+solutions.
+</p><p>
+I think it's a great idea to promote standardized logging on CPAN and
+letting the user choose the actual implementation will definitely help
+to make strides towards that goal.
+</p><p>
+By the way, I don't agree that "For small modules that want to minimize
+dependencies, depending on Log4perl (for example) is a non-starter." The
+Log4perl core doesn't have dependencies other than perl's core modules.
+</p><p>
+One thing missing from your proposal is Log4perl's<nobr> <wbr></nobr><a href="http://log4perl.sourceforge.net/releases/Log-Log4perl/docs/html/Log/Log4perl.html#579d1" title="sourceforge.net">:easy mode</a sourceforge.net>. If you
+think about it, getting a logger and calling its method is a lot of
+typing, given that you just want to log something. That's why in
+Log4perl you can use
+</p><p>
+    <tt>DEBUG "Log this!";</tt>
+</p><p>
+and you're done. No getting a logger, no method calling, no category
+passing. It's all automatic. Behind the scenes, it gets a 'stealth
+logger' with the category set to the current package and calls the
+appropriate logging method on it. This feature is huge. I'm using it
+almost exclusively in everything I write.
+</p><p>
+Any chance of adding that?
+</p><p>
+One thing to watch out for is performance. People don't want their applications to slow down just because a module has a logging capability. Ideally, it could just be de-compiled, Log4perl has an experimental feature called <a href="http://log4perl.sourceforge.net/releases/Log-Log4perl/docs/html/Log/Log4perl.html#f2bf4" title="sourceforge.net">resurrect</a sourceforge.net> which does something along these lines, although it's somewhat hacky.
+</p><p>
+Keep up the great work!
+</p><p>
+-- Mike Schilli</p>
+
+
+
+<blockquote>
+
+<h2>Re:Great work, and can I have stealth loggers?</h2>
+<h3><a href="/user/jonswar/">jonswar</a> on 2007-09-09T04:17:20</h3>
+&gt; By the way, I don't agree that "For small modules that want to<br>&gt; minimize dependencies, depending on Log4perl (for example) is a<br>&gt; non-starter." The Log4perl core doesn't have dependencies other<br>&gt; than perl's core modules.<br><br>Fair enough.<br><br>&gt;<br>&gt; One thing missing from your proposal is Log4perl's<nobr> <wbr></nobr>:easy mode<br>&gt; [sourceforge.net]. If you think about it, getting a logger and<br>&gt; calling its method is a lot of typing, given that you just want<br>&gt; to log something. That's why in Log4perl you can use<br>&gt;<br>&gt; DEBUG "Log this!";<br>&gt;<br>&gt; and you're done. No getting a logger, no method calling, no<br>&gt; category passing. It's all automatic. Behind the scenes, it gets<br>&gt; a 'stealth logger' with the category set to the current package<br>&gt; and calls the appropriate logging method on it. This feature is<br>&gt; huge. I'm using it almost exclusively in everything I write.<br>&gt;<br>&gt; Any chance of adding that?<br><br>Did you see this in the posting?<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; As a convenient shorthand, you can use<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; package Foo;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; use Log::Abstract qw($log);<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; to create the logger, which is equivalent to the first example except that $log is<br>
+&nbsp; &nbsp; &nbsp; &nbsp; (necessarily) a package-scoped rather than lexical variable.<br><br>So this creates a logger for you with the category set to the current package, similar to easy mode. The syntax is pretty minimal. The problem I have with the DEBUG etc keywords is that they promote inefficient behavior. e.g.<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; DEBUG "Current arguments: " . Dumper(\@_);<br><br>will take the performance hit for Dumper() even when debug logging isn't turned on. This may be fine for a particular application where performance is not an issue, but I would never want to encourage any CPAN module author to do this.<br><br>In fact, in this thread on perl.module-authors,<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; <a href="http://groups.google.com/group/perl.module-authors/msg/cbd5a168d5d780a8?hl=en&amp;" title="google.com">http://groups.google.com/group/perl.module-authors/msg/cbd5a168d5d780a8?hl=en&amp;</a google.com><br><br>it was suggested that even the usual "fast" $log-&gt;is_debug() check is too much of a hit. So I proposed we export a live $log_is_debug variable that would change dynamically to reflect the current level.<br><br>I suppose one could combine the syntaxes:<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; DEBUG "Current arguments: " . Dumper(\@_) if $log_is_debug;<br><br>but at this point you are only saving 6 characters or so.<br><br>&gt;<br>&gt; One thing to watch out for is performance. People don't want<br>&gt; their applications to slow down just because a module has a<br>&gt; logging capability.<br><br>Exactly my point above.<nobr> <wbr></nobr>:)<br><br>Thanks for your positive feedback! I will definitely need to have the support of major logging frameworks such as log4perl for this module to be a success.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Great work, and can I have stealth loggers?</h2>
+<h3><a href="/user/Perlmeister/">Perlmeister</a> on 2007-09-09T06:16:06</h3>
+&gt; So this creates a logger for you with the category set to the current<br>&gt; package, similar to easy mode. The syntax is pretty minimal.<br><br>Ah, gotcha. So you would call<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; $log-&gt;debug(...)<br><br>instead of<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; DEBUG "..."<br><br>which is probably acceptable in terms of additional key strokes<br>(although it might throw off novices).<br><br>&gt; The  problem I have with the DEBUG etc keywords is that they promote<br>&gt;inefficient behavior. e.g.<br>&gt;<br>&gt;      DEBUG "Current arguments: " . Dumper(\@_);<br>&gt;<br>&gt; will take the performance hit for Dumper() even when debug logging<br>&gt; isn't turned on.<br><br>Sure, although I don't see how<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; $log-&gt;debug("Current arguments: " . Dumper(\@_));<br><br>is any different. By the way, in Log4perl you can pass a subroutine ref<br>to the method, which eliminates the problem:<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; DEBUG sub { "Current arguments: " . Dumper(\@_) };<br><br>Efficient, but ugly<nobr> <wbr></nobr>:).<br><br>While you're at it, here's my pipe dream: I want something like Dtrace,<br>where the logging framework zeroes out the opcodes that are currently<br>inactive, and the interpreter rushes through them at light speed with<br>practically no overhead.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Great work, and can I have stealth loggers?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-09-09T15:47:51</h3>
+<p>Assertions were going to make that possible in 5.10.</p>
+
+<p>Unfortunately they were recently removed from bleadperl.<nobr> <wbr></nobr><tt>:-(</tt> </p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Any updates on this?</h2>
+<h3><a href="/user/Hercynium/">Hercynium</a> on 2008-01-24T20:22:14</h3>
+I just stumbled across this thread, and I must admit - it's exactly what I was thinking about for the past few weeks... I need logging, but don't want to tie my users to un-wanted dependencies. Better yet, is that the users could *choose* their preferred logging deps.<br><br>Is there any code out in the wild yet? I may have a few CPAN-bound uses for it!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

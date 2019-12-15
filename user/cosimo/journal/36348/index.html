@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of cosimo: I'm not sure I understand SQL...</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>I'm not sure I understand SQL...</h1>
+<h2><a href="/user/cosimo/">cosimo</a> on 2008-05-07T08:30:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Can any good souls out there explain to me <b>why</b> this SQL query actually works? And no, it doesn't matter what it does... I already know that :)
+</p>
+
+<p><pre>
+    SELECT concept, count(*) AS cnt, c.rtype
+      FROM concepts JOIN conceptbindings AS c
+        ON (c.conceptid = concepts.id)
+  GROUP BY concept
+  ORDER BY cnt DESC
+     LIMIT 0,100;
+</pre></p>
+
+<p>
+If there's some explanation which I missed entirely (and that's possible), good.<br/>
+If there's not, can you guess the DBMS ? :)
+</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Missing aggregate function?</h2>
+<h3><a href="/user/dakkar/">dakkar</a> on 2008-05-07T11:03:39</h3>
+<p>The weird part is that the join is a 1-m, right? That is, conceptbindings.conceptid is not UNIQUE. Thus, c.rtype should not be admissible in the SELECT clause. A proper DBMS would complain about the fact that you need an aggregate function (like COUNT, or MIN).</p>
+
+<p>MySQL does not complain, right?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Missing aggregate function?</h2>
+<h3><a href="/user/cosimo/">cosimo</a> on 2008-05-07T11:40:55</h3>
+<p>Exactly. <code>c.rtype</code> shouldn't be there, or an aggregate function should be used.
+Or, you could <code>GROUP BY c.rtype</code> too.</p>
+
+<p>But as it is, it shouldn't work. At least within my current understanding of SQL...</p>
+
+<p>And yes, it's MySQL 5.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Missing aggregate function?</h2>
+<h3><a href="/user/dakkar/">dakkar</a> on 2008-05-07T12:35:02</h3>
+<p>I <em>think</em> MySQL takes the first value it sees for that file, within the group</p>
+
+<p>The reasonableness of this is debatable, but at least make getting <em>some</em> result easier...</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Missing aggregate function?</h2>
+<h3><a href="/user/emazep/">emazep</a> on 2008-05-08T10:39:03</h3>
+Really, <tt>c.rtype</tt> should not be admissible there even if <tt>conceptbindings.conceptid</tt> was <tt>UNIQUE</tt> (that is, it was a 1-1 relation), since there would be anyway no guarantee that <tt>c.rtype</tt> had a unique value for each <tt>concept</tt> <em>group</em> (value).<br>
+Simply, the SQL standards for <tt>GROUP BY</tt> require that the columns in the select list must be in the <tt>GROUP BY</tt> expression or they must be arguments of aggregate functions (PostgreSQL would indeed complain, and so does even MS Access<nobr> <wbr></nobr>:-)
+<br> <br><br/><br/>Cosimo, you're right about SQL, this behaviour just depends on the leading "My"<nobr> <wbr></nobr>;-)<br>
+It's however legal in Transact-SQL, which explains why it works under Sybase (with the semantics reported by runrig).
+<br> <br>
+Ciao a tutti,<br>
+Emanuele
+
+
+
+<blockquote>
+
+<h2>Re:Missing aggregate function?</h2>
+<h3><a href="/user/revdiablo/">revdiablo</a> on 2008-05-12T02:33:09</h3>
+<p><blockquote> <div><em>Simply, the SQL standards for GROUP BY require that the columns in the select list must be in the GROUP BY expression or they must be arguments of aggregate functions</em></div> </blockquote>
+
+<p>That's not entirely true.  The standards after 1992 state that the column must either be in the GROUP BY, part of an aggregate function, OR a "functional dependent" of something in the GROUP BY.</p>
+
+<p>I'm not sure if we can demonstrate a presence or lack of functional dependence based solely on the original SQL posted, but the spec is a little more nuanced than your quote suggests.</p>
+
+<p>I gleaned this information from the following URL:</p>
+
+<p> <a href="http://dev.mysql.com/tech-resources/articles/debunking-group-by-myths.html" title="mysql.com">http://dev.mysql.com/tech-resources/articles/debunking-group-by-myths.html</a mysql.com> </p>
+
+
+
+<blockquote>
+
+<h2>Re:Missing aggregate function?</h2>
+<h3><a href="/user/emazep/">emazep</a> on 2008-05-12T11:01:31</h3>
+<p><div class="quote">That's not entirely true.  The standards after 1992 state that the column must either be in the GROUP BY, part of an aggregate function, OR a "functional dependent" of something in the GROUP BY.</div>  <p>
+As far as I can see this was introduced in SQL:1999, while it's quite common to quote as <em>SQL standards</em> just SQL-92 (or even just SQL-89), since some think that later revisions are not to be considered real standards anymore:<br>
+<a href="http://www.tdan.com/view-articles/4923/" title="tdan.com">http://www.tdan.com/view-articles/4923/</a tdan.com> <br>
+<a href="http://articles.techrepublic.com.com/5100-10878_11-1046268.html" title="com.com">http://articles.techrepublic.com.com/5100-10878_11-1046268.html</a com.com>
+</p> <p>
+Anyway you're formally correct<nobr> <wbr></nobr>;-)
+</p> <p><div class="quote">I'm not sure if we can demonstrate a presence or lack of functional dependence based solely on the original SQL posted, but the spec is a little more nuanced than your quote suggests.</div>  <p>
+Good point.
+</p> <p>
+I implied that if we had had a way to be sure that <tt>c.rtype</tt> had a unique value for each <tt>concept</tt> value (which is what functional dependence mean), there would have been no ambiguity. But I haven't probably been clear enough.<br>
+(BTW, I see <strong>no</strong> way to demonstrate that <tt>c.rtype</tt> is functionally dependent on <tt>concept</tt>, given solely the original SQL posted, as I said in my post).
+</p> <p>
+However for the record, even if we had <tt>concept</tt>, <tt>c.rtype</tt>, <tt>concepts.id</tt> and <tt>c.conceptid</tt> all UNIQUE, PostgreSQL (v. 8.3.1) would anyway complain with:
+</p> <p>
+<tt>ERROR:  column "c.rtype" must appear in the GROUP BY clause or be used in an aggregate function</tt>
+</p> <p><div class="quote"> <p>I gleaned this information from the following URL:</p>
+<p> <a href="http://dev.mysql.com/tech-resources/articles/debunking-group-by-myths.html" title="mysql.com">http://dev.mysql.com/tech-resources/articles/debunking-group-by-myths.html</a mysql.com> </p> </div>  <p>
+It also says:</p><p><blockquote> <div><small> <em>
+In MySQL, one can write GROUP BY queries that reference non-aggregated columns in the SELECT list that are not included in the GROUP BY clause, even if these columns are not functionally dependent upon the GROUP BY clause. This behaviour conforms to none of the SQL standard's versions.
+</em> </small></div> </blockquote>
+which is probably the answer Cosimo was looking for.
+ <p>
+Thanks for sharing this resource.
+</p> <p>
+Ciao!
+</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Weird cartesian join</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2008-05-07T17:02:53</h3>
+It surprised me when I saw that Sybase accepted a similar syntax. But the result seemed next to useless. Non-aggregate columns not in the "group by" clause result in a cartesian join, so, every row in the conceptbindings table (via the rtype column) will join with every combination of conceptid and count. I'm not sure if MySQL behaves the same or differently.
+
+
+
+<blockquote>
+
+<h2>Re:Weird cartesian join</h2>
+<h3><a href="/user/cosimo/">cosimo</a> on 2008-05-07T20:27:09</h3>
+MySQL returns "some value", maybe the first, for each row of grouped concept. But yes, I'd rather prefer a cartesian product than this unexpected behaviour, even if I can understand why it's like that...
+
+
+
+<blockquote>
+
+<h2>Re:Weird cartesian join</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-05-08T02:18:17</h3>
+Oh no you don't.  Not after you've screwed up and accidentally done a cartesian product between 100,000 records and 100,000 records <b>again</b>.<br><br>I loathed that.<br><br>If they want to save me time, just make the GROUP BY clause optional.  Because 99% of the time my GROUP BY clause is just going to be all of the non-aggregate functions in my SELECT clause.  And I hate having to type in all of that duplicate information.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

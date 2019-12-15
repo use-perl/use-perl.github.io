@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of AndyArmstrong: Perl debugger: stop at a specific test number</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl debugger: stop at a specific test number</h1>
+<h2><a href="/user/AndyArmstrong/">AndyArmstrong</a> on 2008-02-28T19:48:12</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I like data driven tests. The general pattern is a big array of test cases
+and some driver code at the bottom that loops over the cases applying the same
+assertions to each of them.</p>
+
+<p>That's all well and good until you want to use the Perl debugger to step
+through test #1967 of 2673. There's no good place to set a break point because
+the driver loop will execute many times before it hits the test you want to
+single step through. You can fake it like this:</p>
+
+<pre>
+if (Test::Builder->new->current_test >= 85) {
+    $DB::single = 1;
+}
+</pre>
+
+<p>Setting <code>$DB::single</code> to a true value makes the debugger break
+at the following line. It'd be much nicer though to be able to set a magic
+breakpoint in the debugger that'd stop at test #1967. Add the following code
+to your ~/.perldb and that's exactly what you'll be able to do.</p>
+
+<pre>
+my @opts = qw( windowSize=30 );
+
+if ( $] >= 5.010000 ) {
+    push @opts, "HistFile='" . glob( '~/.perldb_history' ) . "'";
+}
+
+parse_options( $_ ) for @opts;
+
+@DB::testbreak = ();
+
+# Monkeypatch cmd_b (set breakpoint)
+my $cmd_b = \&DB::cmd_b;
+*DB::cmd_b = sub {
+    my ( $cmd, $line, $dbline ) = @_;
+    if ( $line =~ /\s*#\s*(\d+(?:\s*,\s*\d+)*)$/ ) {
+        my %seen;
+        @DB::testbreak = grep { !$seen{$_}++ }
+          sort { $a <=> $b } ( split( /\s*,\s*/, $1 ), @DB::testbreak );
+    }
+    else {
+        $cmd_b->( @_ );
+    }
+};
+
+sub afterinit {
+    $trace |= 4;    # Enable watchfunction
+}
+
+sub watchfunction {
+    if ( @DB::testbreak && exists $INC{'Test/Builder.pm'} ) {
+        my $next = Test::Builder->new->current_test + 1;
+        if ( $next >= $DB::testbreak[0] ) {
+            shift @DB::testbreak
+              while @DB::testbreak && $next >= $DB::testbreak[0];
+
+            my $depth = 1;
+            while ( 1 ) {
+                my ( $package, $file, $line ) = caller $depth;
+                last unless defined $package;
+                last unless $package =~ /^Test::/;
+                $depth++;
+            }
+            $DB::stack[ -$depth ] = 1;
+        }
+    }
+
+    return;
+}
+</pre>
+
+<p>It modifies the debugger's 'b' (breakpoint) command so that you can
+type:</p>
+
+<pre>
+  DB<1> b #1967
+  DB<1> c
+</pre>
+
+<p>That'll run the tests until immediately after test #1966 and then stop,
+ready for the setup to the test you're interested in. Regular breakpoints
+still work as normal.</p>
+
+<p>It's a little rough and ready. It decides which scope to stop in by
+unwinding the call stack skipping past any packages that are called
+<i>Test::*</i> - if your package naming doesn't work like that you'll have to
+hack it about a bit.</p>
+
+<p>If you have any improvements please let me know.</p></p>
+
+
+<hr/>
+
+
+
+<h2>hjuh?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-02-29T03:01:07</h3>
+Doesn't just plain "b Test::Builder-&gt;new-&gt;current_test &gt;= 85" work?<br>
+
+
+
+<blockquote>
+
+<h2>Re:hjuh?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-02-29T10:13:54</h3>
+<p>You can type that if you want, but I'd much rather type 'b #87'.</p>
+
+<p>Yeah, it's not as generic as what you've written, but at the end of the day, I want a lot more people playing with the debugger so they can, er, debugger it.</p>
+
+
+
+<blockquote>
+
+<h2>Re:hjuh?</h2>
+<h3><a href="/user/AndyArmstrong/">AndyArmstrong</a> on 2008-02-29T11:35:51</h3>
+<p>Also, no - it doesn't work. You need a line number or subroutine name before the condidtion.</p>
+
+<p>You can use:</p> <p><blockquote> <div><tt>&nbsp; w Test::Builder-&gt;new-&gt;current_test &gt;= 87</tt></div> </blockquote>  <p>which is nearly the right thing - but that halts inside Test::Builder - so then you have to hit r a few times to get back to the debuggee.</p>
+
+<p>So it's sugar, it gets you to the right place simply, and in my case - because I have the debugger set up to take my editor to whatever file / line it stops on - it stops a lot of spurious windows containing the source of Test::Builder and whatever is layered between Test::Builder and the debuggee from opening.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

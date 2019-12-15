@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of lachoy: OI2 actions are just plain old objects</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>OI2 actions are just plain old objects</h1>
+<h2><a href="/user/lachoy/">lachoy</a> on 2004-12-16T19:28:40</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>"Think your objects are usable? Try instantiating them in a test framework." I don't remember where I read this statement but it's something I strongly agree with. It's not only so you can make your objects testable, it's that in a testing framework you don't typically have your framework or container built up my the myriad typical steps: like in Java -- first Tomcat which creates a JNDI service and places in it your JDBC connection, and then Spring (or whatever) which reads in X other configuration files, and then.... A testing framework generally assumes none of that, drawing back all the layers until you're exercising the actual object rather than any of its dependencies. If you're able to easily instantiate your objects in a testing framework you've probably reached a good level of simplicity.
+
+<p>Most of OpenInteract2 adheres to this fairly well. The only caveat is that for many things to work properly you do need to instantiate the <a href="http://www.openinteract.org/docs/oi2/OpenInteract2/Context.html">Context</a>, but you don't have to do so in a web server or even a persistent environment. Of the other core pieces of the framework the one developers encounter most often is the <a href="http://www.openinteract.org/docs/oi2/OpenInteract2/Action.html">Action</a>.  You might be surprised that these aren't tied to the web either -- they're just normal objects. Their primary purpose is to generate content, and there's nothing that says you have to be instantiated in a web server to do so.</p>
+
+<p>One of their other purposes is to act as application integration points. Because Actions are <a href="http://search.cpan.org/dist/Class-Observable/">observable</a> we can use them to fire events that other classes or objects can catch. As an example: when I post this news article to my OI2 website, the 'News' action will fire a 'post add' event to all its observers. <a href="http://search.cpan.org/dist/OpenInteract2-Observer-UsePerlPost/">One of those observers</a> takes the 'news' object given as part of the event, pulls content from it and posts that content to <a href="http://use.perl.org/user/lachoy/journal/">my use.perl journal</a>. The 'News' action doesn't know it's being observed, the journal posting observer doesn't know who threw the observation -- nice and decoupled code.</p>
+
+<p>But what happens when one of the observers doesn't fire properly? 
+(For instance, when you learn that your observer assumes that it's
+running in a web environment...)  The observation is gone, right? Not
+so fast -- remember, the observation is just a method call with particular parameters, and our
+'News' action is just an object. So why not just create the object and make the method call with the same parameters?</p>
+
+<p>As a corrollary to "Try instantiating them in a test framework"
+I add this: "Try instantiating them in a standalone script." Here's
+one such script using OI2 that takes the ID of the news object for
+which it should fire the 'post add' observation again:</p>
+
+<pre>
+#!/usr/bin/perl
+ 
+use strict;
+use Log::Log4perl qw( :easy );
+ 
+Log::Log4perl->easy_init( $WARN );
+ 
+my ( $news_id, $site_dir ) = @ARGV;
+$site_dir ||= $ENV{OPENINTERACT2};
+unless ( $news_id and $site_dir ) {
+    die "Usage: $0 news-id [ site-dir ]\n",
+        "   Can use OPENINTERACT2 env instead of 'site-dir'\n";
+}
+ 
+require OpenInteract2::Context;
+my $CTX = OpenInteract2::Context->create({
+    website_dir => $site_dir,
+});
+ 
+# Get the news object to fire observation for
+my $news = OpenInteract2::News->fetch( $news_id );
+unless ( $news ) {
+    die "No news found with ID '$news_id'\n";
+}
+ 
+# Get our news action
+my $news_action = $CTX->lookup_action( 'news' );
+ 
+# Uncomment to use debug only
+#$news_action->param( use_perl_debug => 'yes' );
+ 
+# Fire the observation
+$news_action->notify_observers( 'post add', $news );
+</pre>
+ 
+<p>Not too hard, and you know it works because my previous news posting <a href="http://use.perl.org/user/lachoy/journal/22331">got sent</a> to use.perl properly! What's nice is that we're using the same methods and patterns that
+we'd use if we were running inside Apache/mod_perl or any other
+application container -- the application code is isolated from that, unless you <b>want</b> to be tied to your container. (Sidenote: I really like the <tt>easy_init()</tt> shortcut of <a href="http://search.cpan.org/dist/Log-Log4perl/">Log4perl</a> - you don't need a complicated configuration to use it in simple cases, but you still get all the benefits you need them.)</p>
+
+<p>I'll talk more about how the observer works later.</p>
+
+<p>Posted from <a href="http://www.cwinters.com/">cwinters.com</a>; <a href="http://www.cwinters.com/news/display/?news_id=3313">read original</a></p></p>
+
+
+<hr/>
+
+
+
+<h2>Standaloneability</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2004-12-16T21:25:55</h3>
+Very important to be able to do this because you can also instantiate them in a debugger session (I love "m") and run the profiler to see what's happening.  All of which is much harder in situ.
+
+<p>I guess it's all about creating your equivalent of the Unix philosophy - lots of small loosely coupled things that know how to talk to each other.
+
+</p><p>-Dom</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

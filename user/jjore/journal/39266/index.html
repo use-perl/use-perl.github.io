@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjore: You'll miss Carp in Ruby</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>You'll miss Carp in Ruby</h1>
+<h2><a href="/user/jjore/">jjore</a> on 2009-07-11T05:08:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>In Perl, you have a nice built in library called Carp which gives you stack traces including the parameters on the stack. If you desire, you can dump the entire contents of any variable in any argument in your backtrace. If you <em>really</em> desire, you can modify your caller's variables.<br/><br/>This isn't possible in ruby-1.8.x due to mistakes or oversights in the design.<br/><br/>In perl, here's a sample of what you can do easily:<br/><br/><pre>
+use Carp qw( cluck );
+sub a { cluck('Message') }
+sub b { a( 1 .. 2 ) }
+sub c { b( 'a' .. 'c' ) }
+c();
+</pre><br/><br/>which prints your stack:<br/><br/><pre>
+Message at - line 2
+	main::a(1, 2) called at - line 3
+	main::b('a', 'b', 'c') called at - line 4
+	main::c() called at - line 5
+</pre><br/><br/>There's other options like Carp::confess() to throw an exception with a stack trace, Carp::longmess() to make the string you see above, the module Carp::Always (<a href="http://search.cpan.org/dist/Carp-Always>) to make Carp be your default behavior.<br">http://search.cpan.org/dist/Carp-Always>) to make Carp be your default behavior.<br</a><br/>Carp is based on the caller() function which returns many pieces of information: class, filename, line, function, has args?, context, eval() text, is require?, compilation/pragma info. If you read perldebguts, you learn to also get the arguments:<br/><br/><pre>
+sub b {
+    package DB;
+    () = caller 1;
+    say "caller's args=@DB::args";
+    $DB::args[0] = 'Zappo';
+    return;
+}
+sub a {
+    say "args=@_";
+    b();
+    say "args=@_";
+}
+a( 'flash' );<br/><br/># args=flash
+# caller's args=flash
+# args=Zappo
+</pre><br/><br/>I tried, I really tried to add this into Ruby-1.8.6. The problem is that for each ruby function, it uses actual C recursion to go deeper and it passes the arguments as an Array. For something like this:<br/><br/><pre>
+def c(x);      end
+def b(x); c(3); end
+def a(x); b(2); end
+a(1)
+</pre><br/><br/>something like this happens in C:<br/><br/><pre>
+rb_call(a,[1]) {
+  rb_call(b,[2]) {
+    rb_call(c,[3]) {
+    }
+  }
+}
+</pre><br/><br/>The problem being... how do you access the arguments without a pointer? You don't. Perl works because it is "stackless" in the sense of nested perl functions don't usually make the C stack go deeper and "stack based" in the sense that all arguments are pushed onto an application level stack.<br/><br/>Ruby's caller() function is like a particularly stupid perl version. You get the filenames, line numbers, and method names but that's it.<br/><br/>As is, it is nearly impossible to implement a useful stack trace in ruby-1.8.6. I've got a vague idea I might go learn how gdb extracts the backtrace, then walk that to find the argument arrays but OMG, that is such an ugly idea. I've got some x86 assembly books I might drag out to help with this.</p>
+
+
+<hr/>
+
+
+
+<h2>Some help maybe</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2009-07-15T00:27:18</h3>
+This post may be of interest to you:
+<p>
+<a href="http://weblog.jamisbuck.org/2006/9/22/inspecting-a-live-ruby-process" title="jamisbuck.org">http://weblog.jamisbuck.org/2006/9/22/inspecting-a-live-ruby-process</a jamisbuck.org>
+</p><p>
+Be sure to follow the comments, too.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Some help maybe</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2009-07-20T02:26:56</h3>
+<p>Ah, gleaning the information from backtrace() is nicer than using rb_eval() which would be my normal first pass trick. That is, in any language like Perl, Ruby, or I assume Python, if there's a C API that exposes an eval() function, you can get enormous powers just by driving eval() from gdb.</p><p>FWIW and because I the weblog.jamisbuck.org blog software comments aren't working for me, the clean bit of fu to glark the call stack is packaged as a GDB function thusly:</p><blockquote><div><p> <tt>define ruby_backtrace<br>&nbsp; set $ary = (struct RArray)backtrace(-1)<br>&nbsp; set $count = (long)($ary-&gt;len)<br>&nbsp; set $index = (long)0<br>&nbsp; while&nbsp; &nbsp; $index &lt; $count<br>&nbsp; &nbsp; set&nbsp; &nbsp; $str = (struct RString)rb_ary_entry($ary, $index)<br>&nbsp; &nbsp; set&nbsp; &nbsp; $ptr = (char*)($str-&gt;ptr)<br>&nbsp; &nbsp; x/1s *$ptr<br>&nbsp; &nbsp; set&nbsp; &nbsp; $index = (long)($index + 1)<br>&nbsp; end<br>end</tt></p></div> </blockquote><p>HOWEVER.</p><p>This still misses the point since what I originally complained of, the arguments to the functions are *still* missing and for exactly the same reasons.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

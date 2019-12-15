@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: CPANDB 0.05 - A bunch of new tricks, and pretty graphs!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>CPANDB 0.05 - A bunch of new tricks, and pretty graphs!</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2009-07-30T15:15:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>The experimental <a href="http://ali.as/top100">Top 100</a> website has been working well for the last month, tracking modules and failures in them.<br/><br/>I have, however, had to exclude the CPAN Testers reports of DCOLLINS. In his rush to WTFPWN the top contributors list on CPAN Testers, a number of fairly nasty runs of false FAIL and UNKNOWNs were generated, enough that it was distorting the league table.<br/><br/>However, whatever these were can be fixed, or someone can create a mechanism for tracking which report ids are considered bad, so these can be removed from my stats after the fact.<br/><br/>But now, onwards.<br/><br/>The thing that's been bothering me is that these numbers just feel wrong, or at least naive. It's one thing to say that something depends on 100 modules, but when 30 of these are the twisted internal dependencies of the toolchain, it doesn't necessarily convey the amount of meaning that it should.<br/><br/>So I've been working on a second-generation graph for CPANDB 0.05, and it has just been uploaded for your consuming pleasure.<br/><br/>Firstly, the new graph merges in a LOT more metadata about distribution, which should allow me to make new and interesting Top 100 lists.<br/><br/>  CREATE TABLE distribution (
+  	distribution TEXT NOT NULL PRIMARY KEY,
+  	version TEXT NULL,
+  	author TEXT NOT NULL,
+  	meta INTEGER NOT NULL,
+  	license TEXT NULL,
+  	release TEXT NOT NULL,
+  	uploaded TEXT NOT NULL,
+  	pass INTEGER NOT NULL,
+  	fail INTEGER NOT NULL,
+  	unknown INTEGER NOT NULL,
+  	na INTEGER NOT NULL,
+  	rating TEXT NULL,
+  	ratings INTEGER NOT NULL,
+  	weight INTEGER NOT NULL,
+  	volatility INTEGER NOT NULL,
+  	FOREIGN KEY ( author ) REFERENCES author ( author )
+  )<br/><br/>You can see a "meta" column, which is a true/false flag for whether or not the distribution has a META.yml file, and a license key for the declared license, which matches the value used to create the "License: " distribution header on search.cpan.org.<br/><br/>The new "rating" and "ratings" columns represent a merge of the CPAN Ratings data. Both the average score, and the number of ratings.<br/><br/>What is more interesting, however, are the dependency tables.<br/><br/>  CREATE TABLE requires (
+  	distribution TEXT NOT NULL,
+  	module TEXT NOT NULL,
+  	version TEXT NULL,
+  	phase TEXT NOT NULL,
+  	PRIMARY KEY ( distribution, module, phase ),
+  	FOREIGN KEY ( distribution ) REFERENCES distribution ( distribution ),
+  	FOREIGN KEY ( module ) REFERENCES module ( module )
+  )<br/><br/>The requires table now tracks, correctly, both the phase ( "runtime", "build", or "configure" ) of the dependency, and the module version that is declared.<br/><br/>This allows the creation of a more nuanced distribution dependency graph edge table.<br/><br/>  CREATE TABLE dependency (
+  	distribution TEXT NOT NULL,
+  	dependency TEXT NOT NULL,
+  	phase TEXT NOT NULL,
+  	core REAL NULL,
+  	PRIMARY KEY ( distribution, dependency, phase ),
+  	FOREIGN KEY ( distribution ) REFERENCES distribition ( distribution ),
+  	FOREIGN KEY ( dependency ) REFERENCES distribution ( distribution )
+  )<br/><br/>In the new dependency table, the module-level requires values are mapped against Module::CoreList to identify which (if any) distribution dependencies are actually just dependencies on the core, and if so what Perl core they were available in.<br/><br/>More on that in a bit.<br/><br/>Finally, I've added direct integration for all three major graphing libraries. Graph.pm is useful for mathy type things, Graphiz.pm is useful for generation visualisation, and Graph::Easy is there... well because I could. Graph::Easy is unfortunately too slow to render anything useful for most graphs that I work with.<br/><br/>Lets take a look at the Graphviz.pm support in action, with the famously "Dependency Free" Mojo! :)<br/><br/>Lets start with a raw dependency graph.<br/><br/>  CPANDB->distribution('Mojo')->dependency_graphviz->as_svg('Mojo.svg');<br/><br/>That code fragment will get you something like this.<br/><br/><a href="http://svn.ali.as/graph/Mojo.svg">http://svn.ali.as/graph/Mojo.svg</a><br/><br/>As you can see, the "dependency free" Mojo shows as having a whole damned lot of dependencies. But then so will just about anything, because most of it is that twisty mess down the bottom that is the toolchain.<br/><br/>This is the same kind of graph logic that is used for the Heavy 100 list, and shown in this context, it is clearly less accurate than it should be.<br/><br/>What this graph REALLY represents is the API level dependencies. It's helping to show, for example, what will break if a module in the chain does a backwards-incompatible API change, or forcefully adds a new Perl 5.010 restriction.<br/><br/>So seen in this context, the "Volatile 100" list is doing what it is intended to do, while the "Heavy 100" isn't really working properly.<br/><br/>But what if we filter down to just the runtime dependencies. The new graph structure lets us do this easily for the first time!<br/><br/>  CPANDB->distribution('Mojo')->dependency_graphviz(
+      phase => 'runtime',
+  )->as_svg('Mojo-runtime.svg');<br/><br/>Now we get something like this.<br/><br/><a href="http://svn.ali.as/graph/Mojo-runtime.svg">http://svn.ali.as/graph/Mojo-runtime.svg</a><br/><br/>Now, this graph SHOULD represent the API-level dependencies needed at run-time. Which should also match the list of modules that Mojo needs to load into memory at runtime.<br/><br/>The problem with THAT is that there's no less than 4 different distributions that are declaring a run-time dependency on Test-Simple, which is CLEARLY wrong.<br/><br/>This issue stems from the limitation in ExtUtils::MakeMaker to only list runtime dependencies as dependencies. Module::Build has no such problem, and Module::Install works around the problem by generating the META.yml itself and just letting EU:MM do the Makefile.<br/><br/>This graph is also what your downstream packagers see the dependency graph like. Because debian and friends can't automatically distinguish run-time dependencies from testing dependencies, they end up installing way more Perl modules than are actually going to be used.<br/><br/>Now, this is still the API level dependencies. But what if we now introduce a dependency filter on a version of Perl. This will cull out from the graph anything that was already available in the core.<br/><br/>Because a lot of these depend on version "0" (i.e. anything) we should be able to use a very very old Perl and still see a lot of modules fall off.<br/><br/>  CPANDB->distribution('Mojo')->dependency_graphviz(
+      perl  => 5.005,
+      phase => 'runtime',
+  )->as_svg('Mojo-runtime-5.005.svg');<br/><br/>For convenience, all version dependencies in CPANDB are stored in canonical decimal format.<br/><br/>So now, we have the list of modules that will need to be installed on top of a base Perl 5.005 install. And that looks like this.<br/><br/><a href="http://svn.ali.as/graph/Mojo-runtime-5.005.svg">http://svn.ali.as/graph/Mojo-runtime-5.005.svg</a><br/><br/>That drops the dependency graph a little, removing Getopt::Long and File::Path, which have been in the core a looong time. It's also going to remove things like Exporter most of the time too.<br/><br/>But 5.005 is old an uninteresting, so lets move the version up to the current "Long term support" version for the toolchain.<br/><br/>  CPANDB->distribution('Mojo')->dependency_graphviz(
+      perl  => 5.006002,
+      phase => 'runtime',
+  )->as_svg('Mojo-runtime-5.006002.svg');<br/><br/>... which gets us this<br/><br/><a href="http://svn.ali.as/graph/Mojo-runtime-5.006002.svg">http://svn.ali.as/graph/Mojo-runtime-5.006002.svg</a><br/><br/>NOW we're looking a bit more controlled. This almost halves the number of things that need to be installed.<br/><br/>Of course, this is all mostly irrelevant right, because Mojo depends on Perl 5.8.<br/><br/>Well, except it doesn't. It's Makefile.PL, now that has a 5.008001 dependency in it. But nowhere in the Mojo.pm file or in it's META.yml does it actually declare or enforce a version lock.<br/><br/>Lets contrast this to the version graph in the latest release...<br/><br/>  CPANDB->distribution('Mojo')->dependency_graphviz(
+      perl  => 5.010,
+      phase => 'runtime',
+  )->as_svg('Mojo-runtime-5.010.svg');<br/><br/>... which produces this ...<br/><br/><a href="http://svn.ali.as/graph/Mojo-runtime-5.010.svg">http://svn.ali.as/graph/Mojo-runtime-5.010.svg</a><br/><br/>... and as you can see, with the current 5.10.0 release there are indeed no dependencies!<br/><br/>Now all we need to do is step back to the oldest version they SAY that they support with no deps and confirm it...<br/><br/>  CPANDB->distribution('Mojo')->dependency_graphviz(
+      perl  => 5.008001,
+      phase => 'runtime',
+  )->as_svg('Mojo-runtime-5.008001.svg');<br/><br/>...which makes this...<br/><br/><a href="http://svn.ali.as/graph/Mojo-runtime-5.008001.svg">http://svn.ali.as/graph/Mojo-runtime-5.008001.svg</a>.<br/><br/>Wait a second, what's this.<br/><br/>On Perl 5.008 Mojo is NOT dependency free. CPANDB says that it needs to upgrade Test-Simple. But surely that's wrong, because it only needs Test::More 0.<br/><br/>A quick look at the META.yml for Mojo shows the reason.<br/><br/>It's that dependency they have there to <a href="http://search.cpan.org/perldoc?Test::Builder::Module">Test::Builder::Module</a> that is causing the dependency on a more modern Test-Simple distribution.<br/><br/>Sebastian confirms that the Mojo team have indeed made a mistake and overlooked that dependency, as well as the lack of an actual Perl dependency declaration on Perl 5.8.1. And of course, now they have been revealed, they'll likely be fixed in a matter of days.<br/><br/>The Top 100 site should pick up some new lists in the next few weeks, but in the mean time you might like to play with the CPANDB graph generator yourself.<br/><br/>And fortunately you can do this in a way that doesn't involve writing code, via the new "cpangraph" tool that is installed with CPANDB.<br/><br/>Rather than with the code snippits I showed you, those graphs were ACTUALLY being produce by the equivalent command line call (because I'm lazy)<br/><br/>  cpangraph Mojo
+  cpangraph --phase=runtime Mojo
+  cpangraph --phase=runtime --perl=5.005 Mojo
+  cpangraph --phase=runtime --perl=5.006002 Mojo
+  cpangraph --phase=runtime --perl=5.010 Mojo
+  cpangraph --phase=runtime --perl=5.008001 Mojo<br/><br/>For one final example of a large graph, here is the install graph for Padre on Perl 5.008008, shown with the "rankdir" option to get a left to right ordering.<br/><br/>  cpangraph --rankdir --perl=5.008008 Padre<br/><br/><a href="http://svn.ali.as/graph/Padre-5.008008.svg">http://svn.ali.as/graph/Padre-5.008008.svg</a><br/><br/>The Padre team has been using this graph to look for places we might be able to remove wasteful dependencies. The results have been excellent. We've managed to remove around 10-15 dependencies, resulting in Padre moving OFF the Heavy 100 list.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Useful</h2>
+<h3><a href="/user/phillipadsmith/">phillipadsmith</a> on 2009-07-30T22:13:20</h3>
+<blockquote><div><p>The Padre team has been using this graph to look for places we might be able to remove wasteful dependencies. The results have been excellent. We've managed to remove around 10-15 dependencies, resulting in Padre moving OFF the Heavy 100 list.</p></div>
+</blockquote><p>Very cool and useful. Nicely done.</p>
+
+
+
+<h2>Debian packaging</h2>
+<h3><a href="/user/fade/">fade</a> on 2009-08-19T10:53:22</h3>
+"Because debian and friends can't automatically distinguish run-time dependencies from testing dependencies, they end up installing way more Perl modules than are actually going to be used."<br/><br/>Not true, Debian supports both run-time and build-time dependancies. Testing modules should be listed as build-time deps in a Debian package.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

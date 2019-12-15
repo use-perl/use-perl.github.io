@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Explaining explain()</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Explaining explain()</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-02-16T12:48:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>On the Perl-QA list, Gabor Szabo pointed out a problem with the testing toolchain.  <a href="http://search.cpan.org/dist/Test-Most/">Test::Most</a> is advertised as a drop-in replacement for <a href="http://search.cpan.org/dist/Test-Simple/">Test::More</a>, which is was.</p>
+
+<p>The problem is that <tt>Test::More</tt> has also added my <a href="http://search.cpan.org/dist/Test-Most/lib/Test/Most.pm#explain">explain</a> function.  <tt>explain</tt> is very handy in tests because it lets you do this:</p>
+
+<pre>explain $some_data;</pre>
+
+<p>It's like <tt>diag()</tt>, but only outputs when the tests are run in verbose mode.  Thus, if you do <tt>make test</tt>, you won't see a bunch of irrelevant information dumped to the terminal.  Further, it automatically calls <tt>Data::Dumper::Dumper()</tt> on references so programmers no longer curse when they see this:</p>
+
+<pre># ARRAY(0x80631d0)</pre>
+
+<p>It's a very handy tool in testing, but Schwern was concerned that it was doing too much.  What if you want to automatically expand the references, even when you're not in verbose mode?  There's a great argument for this:</p>
+
+<pre>isa_ok $some_object, "Some::Class" or diag explain $some_object;</pre>
+
+<p>If there's a failure, you might want to see it right away.  So in <tt>Test::More</tt>, explain just formats the data and you have to call one of the following:</p>
+
+<pre>diag explain $some_data;   # always appears
+note explain $some_data;   # only appears in verbose mode</pre>
+
+<p>That covers everything.  I felt that a simple <tt>explain $some_data</tt> was the common case and I wanted to optimize for that.  Schwern argued that it was trying to do too much and wanted the separation of concerns.  That's a very reasonable argument, but what Schwern and I both missed was what Gabor pointed out.  It breaks the <tt>Test::Simple</tt> to <tt>Test::More</tt> to <tt>Test::Most</tt> upgrade path.  The functions behave differently and <tt>Test::Most</tt> is no longer a drop in replacement.</p>
+
+<p>So let's take this to its logical conclusion (with apologies to Schwern for this fun :)</p>
+
+<p><tt>diag()</tt> formats your data and outputs it to the diagnostic filehandle (typically STDERR).  But wait!  It's doing too much and we should separate the formatting from the displaying.  Since we can't just print it (we need to make sure it goes to the correct handle), we do this:</p>
+
+<pre>output diag explain $some_data;</pre>
+
+<p>Oh, that fails.  Because <tt>output()</tt> doesn't know if it's outputting TAP or diagnostics, we need this:</p>
+
+<pre>output diagnostics diag explain $some_data;</pre>
+
+<p>Shove a few colons in there and we can call this a DSL!</P>
+
+<p>However, what we really want is <em>respect</em>.  We want this from the Java programmers.  So with some <a href="http://search.cpan.org/dist/Acme-Dot/">Acme::Dot</a> love, we can do this:</p>
+
+<pre>Tests.output.diagnostics.diag.explain($some_data);</pre>
+
+<p>Now those Java programmers are going to take us seriously!</p>
+
+<p>I want <tt>explain $some_data;</tt> to <em>just work</em>.</p></p>
+
+
+<hr/>
+
+
+
+<h2>For a moment there&amp;#8230;</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-02-16T20:10:30</h3>
+<p>&#8230; I thought the title of this entry was &#8220;Everything <code>explain()</code>&#8221;. The reality was a bit of a let-down.<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+<blockquote>
+
+<h2>Re:For a moment there&amp;#8230;</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-16T20:31:42</h3>
+<p>My reality is a let-down for many people.  I'm getting used to it<nobr> <wbr></nobr>:)</p>
+
+
+
+<h2>Re:For a moment there&amp;#8230;</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2009-02-16T23:21:09</h3>
+<p>Everything explain() Yoda does.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>The Domino Theory of Design</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2009-02-16T21:07:10</h3>
+<p>Something that is lost in the caricature is that by Test::Most::explain() wrapping up output and dumping you can not use explain() to output as part of a normal failure.  I like to do this:</p><blockquote><div><p> <tt>is_deeply $have, $want or diag explain $have;</tt></p></div> </blockquote><p>Test::Most thinks the opposite use case is important, it's the equivalent of "note explain".  If you read the docs for explain() in Test::More and Test::Most it's pretty clear we have different ideas about how it's to be used.  I could have just decided which one the user gets to do, and screwed the rest, but I err on the side of flexibility.</p><p>It's worth noting that Test::More::explain() is hard wired to "prove -v" so not only does it make you rerun the test to get your diagnostics (which makes heisenbugs difficult to track), but you have to be running it through prove.  prove and I are not joined at the hip, but since that's how most users do it I guess that's ok.  Oh, and if you want to archive your test results you don't get the extra output unless you remembered to run it in verbose mode... through prove.  But most people don't archive test results so I guess that's ok, too.</p><p>And really, it's five characters.  A place in Pittsburgh I worked had a saying: "Just because you drive to Ohio doesn't mean you're going to California".  Put another way, it's the Ben &amp; Jerry's fallacy.  That being since eating too much ice cream is bad for you, eating one scoop of ice cream is bad for you and you should never eat ice cream.</p><p>Looking at it another way, Ovid has declared a <a href="https://secure.wikimedia.org/wikipedia/en/wiki/Domino_theory" title="wikimedia.org">Domino Theory</a wikimedia.org> of Design.  That one step towards Java will lead the surrounding code becoming more Java-like and so on until you're supporting Central American dictators and involved in two land wars in Asia.  I mean... until half a year after the decision was made you're still arguing over five characters.<nobr> <wbr></nobr>:P</p><p>Speaking of reductio ad Java, oddly enough yes, that is basically the way Test::More is going and for basically the right reasons.  But it is doing it *internally*, at the Test::Builder level and below what the user normally sees.  A good interface is not just flexible, but knows when and how much flexibility to show.  Java falls flat on it's face by giving you all the flexibility all the time.  Equivalent to one of those monster all-in-one remote controls.</p><p>As an aside, I remember a year or two ago when Java programmers discovered that inside of having to create and pass in all the delegate objects to a constructor, the constructor could make the for you!  And the they gave it some fancy name and declared that nobody else but Java had it.  In short, they discovered this:</p><blockquote><div><p> <tt>&nbsp; &nbsp; sub new {<br>&nbsp; &nbsp; &nbsp; &nbsp; my($class, %args) = @_;<br>
+&nbsp; <br>&nbsp; &nbsp; &nbsp; &nbsp; # Wow, we can initialize objects for you!<br>&nbsp; &nbsp; &nbsp; &nbsp; $args{buffer}&nbsp; ||= Some::Buffer-&gt;new;<br>&nbsp; &nbsp; &nbsp; &nbsp; $args{storage} ||= Some::Storage-&gt;new;<br>
+&nbsp; <br>&nbsp; &nbsp; &nbsp; &nbsp; return bless \%args, $class;<br>&nbsp; &nbsp; }</tt></p></div> </blockquote><p>But I digress.  A lot.</p><p>Deciding what diagnostic information to display to the user and when is a test by test choice, so it's part of the user visible Test::More interface.  Deciding what filehandle to output to and what format to output is a choice that effects the whole test suite.  It's a choice to be made once and so is pushed down to the Test::Builder level, out of the user's way but available.</p><p>The increased flexibility will allow you can flip a few switches and have all your testing modules start outputting XML or POSIX or nothing (oft requested so you can use testing functions as normal comparison functions) instead of TAP.</p><p>In the end, I point all this out as much because I get a kick out of needling Ovid as to show that Test::More and Test::Most have different design philosophies and that's just fine.  It's all working as designed.  We don't have to agree on the One True Way because there is none.  Different modules addressing different use cases but all working together and all benefiting from the flexibility built into the system.</p>
+
+
+
+<blockquote>
+
+<h2>The Inertia Theory of Design</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-16T21:37:41</h3>
+<p>You're absolutely right that my solution is not as flexible.  But<nobr> <wbr></nobr>...</p><p>Years ago I worked at a company where we made revenue projections for a particular industry.  Industry executives could log on and when they saw what they were trying to project, they had a "weighting" factor that they could enter and the numbers would be adjusted with that.  For the sake of argument, we'll say that number defaulted to 12, but based on the executive's knowledge of what they were offering, they would adjust that up or down.</p><p>After six months of hard labor, one programmer had revamped the system and the weighting factor defaulted to "15".  Our customers were livid.  They accused us of "cooking the books".  Even though our new numbers were more accurate, somehow the executives thought we were cheating and demanded that we change the default back to 12.  Our better revenue projections, ironically, became a PR disaster.</p><p>I and another programmer were called into a meeting with a Vice President and he asked us to change the number.  The other programmer went to the whiteboard and started sketching.  He explained how the resources worked, what weights were assigned to them, how revenue was multiplied by those weights and how six months of intensive regression analysis and revamping of our statistical model, blah, blah, blah and circles and arrows and a paragraph on the back of each one.</p><p>Fifteen minutes later, the programmer finished.  The vice president looked at him and said "Yeah, now can you change the f***ing number to 12?"</p><p>Inertia is a terrible thing<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Inertia Theory of Design</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2009-02-16T23:20:05</h3>
+<p>Yes, inertia driving design is bad.  What does it have to do with this?</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Inertia Theory of Design</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-17T10:12:40</h3>
+<p>The vice president argued for a suboptimal solution because that's how things are now.  Though I've got other reasons for wanting <tt>explain()</tt> to function the way it does, part of the reason to keep it the same is because that's how things are now.</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Inertia Theory of Design</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2009-02-17T20:18:07</h3>
+<p>I think it's the "But..." that made me think it was an accusation that Test::More's explain() is the result of Design by Inertia... which doesn't make any sense since Test::More can't "do it the way it was always done" for something that didn't exist.  Design by Inertia would have been to do what Test::Most does.</p><p>Are you considering changing explain() in Test::Most?</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Inertia Theory of Design</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-17T20:40:32</h3>
+<p>I wasn't planning on changing explain() in Test::Most.  From what I can tell, it's now used widely enough that I'm not keen on breaking backwards-compatibility without a strong reason.</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Inertia Theory of Design</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2009-02-18T20:53:03</h3>
+<p>So 12 it is then!<nobr> <wbr></nobr>:P</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:The Inertia Theory of Design</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2009-02-16T23:22:46</h3>
+<p>PS  That was at R*****k, right?</p>
+
+
+
+<h2>Re:The Inertia Theory of Design</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2009-02-16T23:41:56</h3>
+<p>I had a job like that. A huge commericial real estate company wanted to have all sorts of fancy graphs about prices and market conditions, but they didn't know how to do it themselves.</p><p>It turns out prices had nothing to do with the market. They just increased monotonically. They lost interest in showing customers market data after that.</p><p>In that case, I'd change the number back to 12, but insert a +3 somewhere else.<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

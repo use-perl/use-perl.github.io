@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of avar: Partly-compatable regular expressions</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Partly-compatable regular expressions</h1>
+<h2><a href="/user/avar/">avar</a> on 2007-06-23T04:49:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Since I finished my changes to what will become the pluggable regex
+API in perl 5.10 I've been working on writing re::engines again, first
+on Plan 9 and then on finishing PCRE which audrey and yves started
+(but didn't quite finish).<br/><br/>I based the new PCRE wrapper on the Plan 9 and upgraded the underlying
+PCRE library to 7.2, and aside from a bug in how split is handled it
+works for most of the cases where the Perl engine does.<br/><br/>Having wrapped PCRE running Perl's own regex tests under PCRE becomes
+really easy. There are almost 1300 test for the regex syntax in
+t/op/regex.t in perl core. Running these under re::engine::PCRE
+reveals the following incompatibilities (and some bugs) between it and
+Perl:<br/><br/>(?{}) and (??{}) tests fail (obviously). Getting at least (?{}) to
+work might be possible with pcre's callout mechanims but I haven't
+looked closely at that.<br/><br/>A few tests such as "bbbbXcXaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" =~
+/.X(.+)+X/ fail because PCRE recurses away and runs into its internal
+MATCH_LIMIT while recursing. Using pcre_dfa_exec() instead of
+pcre_exec() yields a match but the DFA routine has different matching
+semantics.<br/><br/>One test fails because PCRE treats [a-[:digit:]] as an invalid range
+while Perl takes it to mean a character class matching 'a', '-' or a
+[:digit:]. Perl is probably being too permissive in this case.<br/><br/>"aba" =~ /^(a(b)?)+$/; say "$1-$2" will yield "a-b" under PCRE but
+"a-" under Perl. That is, PCRE eats the inner (b) while perl goes with
+the outer +. Both match the entire string.<br/><br/>Perl accepts curly modifiers on (?!) e.g. /foo(?!bar){2}/ but PCRE
+doesn't. I couldn't get Perl to do anything useful with that
+though. /foo(?!bar{2})/ works in both engines and doesn't match "foo"
+followed by "barbar".<br/><br/>PCRE does not match <<!>!>!>><>>!>!>!> against
+^(<(?:[^<>]+|(?3)|(?1))*>)()(!>!>!>)$ but Perl does. I haven't looked
+into why.<br/><br/>PCRE does not support (*FAIL) and (*F) which cause the pattern to
+fail, nor does it support (*ACCEPT).<br/><br/>Three tests try to match \x{85} against \R in an UTF-8 upgraded string
+("\305\205") in a pattern that wasn't compiled with PCRE_UTF8. This
+isn't a PCRE issue but an API usage problem in re::engine::PCRE, the
+best solution is probably to upgrade all patterns and strings to
+UTF-8 before calling pcre_compile/pcre_exec.<br/><br/>PCRE accepts numeric keynames such as ^(?'0'ook)$, ^(?<0>ook)$,
+^(?<1a>ook)$. These all match the literal string "ook" and set up the
+named capture "0" or "1a". Perl does not currently accept named
+buffers that start with a number.<br/><br/>re::engine::PCRE doesn't support multiple named match buffers under
+the same name while Perl does. At first I thought this was a PCRE
+limitation but it turns out that I just didn't know about the
+PCRE_DUPNAMES option:)<br/><br/>So aside from inline eval re::engine::PCRE is pretty much a drop-in
+replacement for Perl's engine. And perhaps more significantly PCRE's
+compatability can now be tested (and errors fixed) by running it
+against Perl's own test suite.<br/><br/>To run Perl's tests on PCRE get blead and re::engine::PCRE 0.10
+(coming to a CPAN near you), build it and run:<br/><br/>    perl5.9.5 -Mblib t/perl/regexp.t<br/><br/>By default it skips the failing tests, these can currently be enabled
+by commenting out line 86 in regexp.t:<br/><br/>    @pcre_fail{@pcre_fail} = ();</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

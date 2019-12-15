@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: How we deploy massive Perl applications at work</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>How we deploy massive Perl applications at work</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2010-07-20T02:25:21</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Every now and then, we hear people talking about mechanisms for doing Perl in a commercial environment and how they deal with packaging and dependencies.<br/><br/>This is mine.<br/><br/>At Corporate Express, our main Perl application is a 250,000 line non-public monster of a website that has over 100,000 physical users and turns over about a billion dollars. It implements huge amounts of complex business functionality, and has layer upon layer of security and reliability functions in it because we supply to multinationals, governments and the military (only the stuff that doesn't blow up of course). Our .pm file count is around 750, and our test suite runs for about 4 hours (and is only around one third complete).<br/><br/>Lest you suspect that 200,000 lines is wasted in re-implementing stuff, the main Build.PL script has around 110 DIRECT dependencies, and somewhere in the 300-500 range of recursive dependencies. Loading the main codebase into memory takes around 150-200meg of RAM.<br/><br/>When I joined the team, the build system was horribly out of date. The application was stuck on an old version of RedHat due to go out of support, and as a Tier 1 application we are absolutely forbidden from using unsupported platform.<br/><br/>So I took on the task of upgrading both the operating system and the build system for the project. And it's a build system with a history.<br/><br/>Once upon a time, long ago, the project went through a period where the development team was exceptionally strong and high skilled. And so of course, they created a roll-your-own build system called "VBuild".<br/><br/>They built their own Perl, and along with it they also built their own Apache, mod_perl, and half a dozen other things needed by the project. This is similar to many suggestions I hear from high-skilled people today, that at a certain point it's better just to build your own Perl. VBuild this created in the pre-commercial Linux era, so it's not an entirely unreasonable decision for that time period.<br/><br/>Unfortunately, a few years later the quality of the team dropped off and VBuild turned into a maintenance nightmare because it required a high-skill person to maintain it.<br/><br/>At the time, the Tier 1 "Must be supported" policy was coming into effect, and after the problems with custom-compiling they decided to go with the completely opposite approach of using only vendor provided packages, in a system called "UnVBuild".<br/><br/>Since their platform of choice was RedHat, this had become troublesome even before I arrived. Worse, in the change from RHEL 4 to RHEL 5, some of the vendor packages for things like XSLT support were dropped entirely leaving us in a bind.<br/><br/>My first instinct was to return to the build everything approach, but the stories (and commit commentary) from that time period reinforced the idea that complete custom build was a bad idea. Office supplies is hardly a sexy industry, and the ability to entice good developers into it is a quite legitimate risk.<br/><br/>So in the end, I went with an approach we ended up nicknaming "HalfBuild". The concept behind it is "Vendor where possible, build where needed".<br/><br/>We use a fairly reasonable chunk of vendor packages under this model. Perl itself, the Oracle client, XML::LibXML and a variety of other things where our version needs are modest and RHEL5 contains it. We also use a ton of C libraries from RHEL5 that are consumed by the CPAN modules, like all the image libraries needed by Imager, some PDF and Postscript libraries, and so on.<br/><br/>One RPM "platform-deps" meta-package defines the full list of these system dependencies, and that RPM is maintained exclusively by server operations so that we as developers are cryptographically unable to add major non-Perl dependencies without consulting them first.<br/><br/>On top of this is one enormous "platform-cpan" RPM package built by the dev team that contains every single CPAN dependency needed by all of our Perl projects.<br/><br/>This package lives in its own home at /opt/cpan and is built using a process rather similar to the core parts of Strawberry Perl. With PREFIX pointing into /opt/cpan, we first build a hand-crafted list of distribution tarballs to upgrade RHEL5 to a modern install of CPAN.pm (without overwriting any normal system files).<br/><br/>We then boot up the CPAN client from /opt/cpan, and tell it to install all the rest of the dependencies from a private internal CPAN mirror which is rsynced by hand specifically for each new CPAN build. This ensures that the build process is deterministic, and that we can fix bugs in the build process if we need to without being forced to upgrade the modules themselves).<br/><br/>The CPAN client grinds away installing for an hour, and then we're left with our "CPAN Layer", which we can include in our application with some simple changes to @INC at the beginning of our bootstrapping module.<br/><br/>The /opt/cpan directory for our project currently weighs in at about 110meg and contains 2,335 .pm files.<br/><br/>Updating /opt/cpan is still something of an exercise even under this model because of potential upgrade problems (Moose forbidding +attributes in roles hit us on our most recent upgrade) but the whole process is fully automated from end to end, and can be maintained by a medium-skill Perl hacker, rather than needing an uberhacker.<br/><br/>Over the last 2 years, we've upgraded it around once every 6 months and usually because we needed to add five or ten more dependencies. We tend to add these new dependencies as early as we can, when work that needs them is confirmed but unscheduled.<br/><br/>We also resort to the occasional hand-copied or inlined pure-Perl .pm file in emergencies, but this is temporary and we only do so about once a year when caught unprepared (most recently Text::Unidecode for some "emergency ascii'fication" of data where Unicode had accidentally slipped in).<br/><br/>While not ideal, we've been quite happy with the /opt/cpan approach so far.<br/><br/>It means we only have to maintain 5 RPM packages rather than 500, and updating it takes one or two man-days per 6 months, if there aren't any API changes in the upgrade.<br/><br/>And most importantly it provides us with much better bus sensitivity, which is hugely important in applications with working lives measured in decades.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Thanks</h2>
+<h3><a href="/user/berekuk/">berekuk</a> on 2010-07-20T03:30:11</h3>
+<p>Thanks for this, I would love to hear more similar stories from other people.</p><p>In our case, we are still trying to be perfectionists and maintain &gt;300 in-house<nobr> <wbr></nobr>.deb packages and several hundreds of hand-builded cpan packages as well.<br>Actually, in our case our "application" consists of many various scripts and daemons, working on different hosts and clusters, so it is impossible to pack everything in one package anyway.</p><p>I've been dreaming for a long time about fully-automated cpan-to-deb (and cpan-to-rpm) buildfarm which would build all cpan modules for every popular distribution. Actually, several of us from moscow-pm group tried to hack one recently, but nobody had enough cpan/debian toolchain experience to make it work yet. I wonder if we should ask for community help with it...</p>
+
+
+
+<blockquote>
+
+<h2>Re:Thanks</h2>
+<h3><a href="/user/brother/">brother</a> on 2010-07-20T12:25:10</h3>
+&lt;p&gt;I have just given up handling dependencies with one debian package per cpan distribution. For some time I have thought about how to build a bundle in the most maintainable way.<br><br>&lt;p&gt;My current solution is to build a quite clean chroot of Debian Lenny and then use cpanm to install some modules in<nobr> <wbr></nobr>/usr/local and as the last step I'm making a package with everything in<nobr> <wbr></nobr>/usr/local. The chroot is build with:<br><br># debootstrap --arch amd64 --variant=buildd --include=cdbs,libwww-perl lenny<nobr> <wbr></nobr>/mnt http://ftp.se.debian.org/debian/<br><br>And then I have a simple Makefile installing everything needed:<br><br>#!/usr/bin/make<br><br>build:<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; PERL_MM_USE_DEFAULT=1 perl -MCPAN -e 'CPAN::Shell-&gt;install("App::cpanminus")'<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; cpanm Moose AnyEvent JSON:XS Yadda:Yadda:Yadda<br><br>install:<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; install -d $(DESTDIR)/usr/local<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; cp -a<nobr> <wbr></nobr>/usr/local/* $(DESTDIR)/usr/local<br><br>For the cpan-to-deb buildfarm, have you looked at Jos Boumans' work with http://debian.pkgs.cpan.org/ (No, I don't considder CPANPLUS::Dist::Deb as good as the packages generated by dh_make-perl and the Debian Perl Group - but it might be a good place to start)
+
+
+
+<h2>Re:Thanks</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-07-21T01:35:12</h3>
+<p>We have something similar of course, web cluster + application server + integration server + internal web server, but we've found that it's easier to just deploy the whole project to all the servers, and only start up the parts that are relevant.</p><p>For example, the internal and external websites share the same web application code, but the controllers and dispatch paths are only loaded into memory if that "profile" is enabled in configuration for that server.</p><p>So while the public facing web servers do theoretically have all the application server and internal website code on them, we can be sure they will never be loaded and run.</p><p>That said, we aren't a public facing website and we're just a front end to an ERP monstrosity sitting behind us, so we can take some minor liberties in that regard.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>cpan mirror</h2>
+<h3><a href="/user/spazm/">spazm</a> on 2010-07-21T17:34:23</h3>
+Thank you for this look into your process.  It is great to hear how different companies do this internally.  I hosted a discussion on this at LA.pm and was surprised by the variety.
+<p>
+How do you maintain your CPAN mirror? What is your process for verifying that updated modules are needed or allowed?  How do you mark packages you do not want to update?</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

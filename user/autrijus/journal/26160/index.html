@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autrijus: Day 182 (r6110): Wildcard types, type operators, logic progr</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Day 182 (r6110): Wildcard types, type operators, logic progr</h1>
+<h2><a href="/user/autrijus/">autrijus</a> on 2005-08-07T20:34:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>The Perl 6 design team gathered twice today (well, it's two days for them, but
+one day to me), to form consensus on all sorts of design issues.  Chip was kind
+enough to relay part of the discussion to <code>#perl6</code>.  Below are collected from the IRC notes -- none of these is set in stone; they are not official until a fuller writeup is produced and made into p6l/Synopses.
+
+<p>
+I like the <code>.variants</code> selector:
+
+<pre>
+# &f is a multi sub
+multi f (Int $x) {...}
+multi f (Num $x) {...}
+multi f (Str $x) {...}
+
+# &g is also multi sub, with Int and Num forms
+my &g := &f.variants(Int);
+
+# &h is now a single sub
+my &h := &g.variants(Num);
+</pre>
+
+This replaces the old ugly <code>&f:(Int)</code> syntax.
+
+<p>
+I brought up a couple type-theoretical issues that's crucial to full type inferencing, and received satisfactory solutions.  In particular, the arrow type operator is borrowed from ML/Haskell.  The two forms below are equivalent:
+
+<pre>
+my sub negate (Num $x --> Num) { ... }
+my Num sub negate (Num $x) { ... }
+</pre>
+
+The return type then follows the full inferencing rules.  That is, the inner <code>return()</code> will only accept Num or its subtype (eg. Int); the caller to <code>negate</code> needs to accept Num or its supertype (eg. Complex).
+
+<p>
+However, sometimes the user wants runtime coercion.  In that case, the old <code>returns Num</code> form is used.  It's not part of the subroutine type, so the caller does not see it.  Hence the two forms below are equivalent:
+
+<pre>
+my sub negate (Num $x) returns Num { ... }
+my sub negate (Num $x --> Any) returns Num { ... }
+</pre>
+
+<p>
+The rule of thumb is: If you want compile time typecheck, use the arrow type. If you want runtime (possibly failing) coercion, use <code>is returns</code>.
+
+<p>
+Attentive reader may note that the <code>Any</code> type above is used in a contravariant position.  Indeed, that's the second topic I raised: <code>Any</code> will henceforth act as a <em>wildcard type</em> -- that is, it's both a supertype of any type, <em>and</em> the subtype of any type.  In the words of chip:
+
+<pre>
+<chip> hey, neat: Any is shorthand for any(@all_types)
+<autrijus> yeah. that's what it means :)
+<chip> "I love it when a plan comes together."
+</pre>
+
+<p>
+The overloading of junctive value operators to mean intersectional type operators has been controversial for quite some time.  luqui proposed another set of <b>Set</b> operators, written as <code>(+)</code> (union), <code>(-)</code> (difference), <code>(*)</code> (intersection).  Hence, we can write <code>(Num (-) Int)</code> to mean nonintegral numbers. They also have unicode renderings, like <code>(Num &#8854; Int &#8853;  Animal &#8856; Red)</code>.
+
+<p>
+To compare set member equality and Hash keys for unrestricted key types, we need a generic identity tester for objects (comparing their <code>.id</code>) and values (comparing their type and presentation).  Because <code>=:=</code> is taken to test container bindings, it looks like infix <code>eqv</code> is getting introduced to test generic equivalence.
+
+<p>
+Inspired by <a href="http://use.perl.org/user/Ovid/journal/26146">Ovid's journal</a>, I've been learning <a href="http://www.informatik.uni-kiel.de/user/mh/curry/">Curry</a>, a Haskell descendent that adds logic programming (i.e. Prolog).  Taking Curry's treatment of free variables (<code>let x free in ...</code>) and assertions (<code>succ x =:= succ y</code>), and luqui's suggestion of a <code>`</code> twigil to mean free variables, I produced this pseudocode for <a href="http://use.perl.org/comments.pl?sid=27980">discussion</a>:
+
+<pre>
+multi append ([], @ys) { @ys }
+multi append ([*$x, *@xs], @ys) {
+    ($xs, append @xs, @ys)
+}
+sub last (@l) {
+    my ($`x, @`xs);
+    append(@`xs, [$`x]) === @l;
+    $`x;
+}
+</pre>
+
+Note how the language solves <code>$`x</code> all by itself.  It's just blue-sky talk at this moment -- no-one thinks we should delay Perl 6 any further to chase logic programming.  However, it's good to think about the semantics and how it may be supported by a future version or extension modules.
+
+<p>
+In other news:
+
+<ul>
+<li>putter posted a <a href="http://sial.org/pbot/12303">half-finished patch</a> to pave the way to write a Rules engine in Perl 6. 
+<li>iblech added Junction support for the Javascript backend.
+<li>brentdax discovered a <a href="http://svn.openfoundry.org/pugs/t/pugsbugs/parse-fail.t">degenerate case</a> in parser that looks like the cause of quite a few exponential slowdowns.
+<li>putter did a heroic undertaking in reviving hundreds of PGE tests to the main <code>t/</code> tree, verifying it with PGE from 0.2.3.  Now pmichaud should have plenty of failing tests to motivate his PGE hacking...
+<li>Stevan starts aligning the Perl 5 edition of object metamodel to the non-nominal treatment adopted by Haskell and Javascript backends, and produced a CPAN module, Class::C3, to expose the new C3 dispatch order to regular Perl5 programs.
+<li>fglock fulfilled his promise and produced <a href="http://svn.openfoundry.org/pugs/ext/Array-Lazy/">Array-Lazy</a>, the prototype for proper generators and iterators support.
+</ul>
+
+There's much more to write (and backlog), but I need to wake up in 5 hours for $work, so I'd better stop now...
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Allison: bootstrapping tree transformation grammars</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>bootstrapping tree transformation grammars</h1>
+<h2><a href="/user/Allison/">Allison</a> on 2005-11-03T05:40:45</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>This week on my Parrot day, I hooked the tree grammar parser I wrote a couple weeks ago into the tree transformation engine I wrote last week. So, you can now write tree grammar rules in a nice sensible format like:
+<pre>
+    Leaf:   min(.) = {
+        $P1 = getattribute node, 'value'
+        .return ($P1) 
+    }
+</pre>
+
+<p>That rule says "When you're looking for the value of an attribute called <code>min</code> on a node called <code>Leaf</code>, it's the same value as the attribute <code>value</code> on the same node." Yes, that's PIR syntax inside the body of the block. With a little syntactic sugar: it provides you two named parameters <code>node</code> (the current node being operated on) and <code>tree</code> (the current tree being matched).
+
+<p>Ultimately there will be some prettier syntax there, but we haven't designed it yet. Using PIR in the mean-time gives lots of flexibility to experiment and figure out all the things we want tree grammars to be able to do.
+
+<p>Okay, that's cool, as far as it goes, but how is it useful? Well, to transform the tree, you just provide a rule for each node type to be transformed:
+
+<pre>
+    Leaf:   result(.) = {
+        .local pmc newnode
+        newnode = new 'Leaf'
+        $P1 = tree._AG_VISIT('gmin', node)
+        setattribute newnode, 'value', $P1
+        .return(newnode)
+    }
+</pre>
+
+<p>This rule says "When I ask for the <code>result</code> attribute, what I actually want is a new node with the right shape for the transformed tree. In this case, when I start with a <code>Leaf</code> node, I want a <code>Leaf</code> node in the new tree, but instead of the original value, give me the global minimum (<code>gmin</code>) value calculated by the grammar." (<code>_AG_VISIT</code> is a particularly ugly name for <code>get</code>. Pardon the bones still sticking out, they'll be covered soon.)
+
+<p>When you've defined <code>result</code> rules for all the node types, requesting the <code>result</code> attribute for the top level node of the tree builds up the transformed tree for you. It's not magic, but it feels like magic.
+
+<p>If you check out the <a href="http://svn.lohutok.net/nam/trunk/parrot/modules/Language/AttributeGrammar
+">repository</a>, you'll find a full test grammar in <a href="http://svn.lohutok.net/nam/trunk/parrot/modules/Language/AttributeGrammar/examples/branch_pir.g">examples/branch_pir.g</a>, and a test script that compiles the grammar and runs it against a sample tree in <a href="http://svn.lohutok.net/nam/trunk/parrot/modules/Language/AttributeGrammar/testtransform.pir">testtransform.pir</a>.
+
+<p>So, how is all of that useful? This is where we get to the 'bootstrapping' part. The tree transformation engine uses itself to compile the tree grammar syntax. First it parses the source using a PGE grammar, then it uses a tree grammar to transform the match tree that PGE produces into another tree grammar. Really, it's not magic, but it is very cool. :) So, not only does the tree transformation engine work, but it's also the first test case for demonstrating that the engine is a useful compiler tool. Lots of refactoring left to do, but it's a good start. I'm happy. :)</p>
+
+
+<hr/>
+
+
+
+<h2>Way cool</h2>
+<h3><a href="/user/Bernhard/">Bernhard</a> on 2005-11-03T10:12:58</h3>
+<p>
+this looks very nice.
+I'm almost tempted to take this and wrap it into a PIR backend for ANTLR. This way I could avoid learning Python for implementing 'Parrot bc'.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Way cool</h2>
+<h3><a href="/user/Allison/">Allison</a> on 2005-11-07T21:27:42</h3>
+If you try it and find you need some features added, let me know. I'm looking for a few real-world applications to test and expand it on.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Fun</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2005-11-03T14:24:16</h3>
+To my twisted brain this looks a lot like XSLT - basically providing templates and specifying what to generate on the output.
+
+
+
+<blockquote>
+
+<h2>Re:Fun</h2>
+<h3><a href="/user/Allison/">Allison</a> on 2005-11-07T16:31:29</h3>
+Not surprising. XSLT is another tree transformation language.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of demerphq: Data::Dump::Streamer 1.11 released</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Data::Dump::Streamer 1.11 released</h1>
+<h2><a href="/user/demerphq/">demerphq</a> on 2005-05-24T13:00:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Released the new version of DDS yesterday. Diotalevi from perlmonks worked with me to make it handle a couple of special cases in a much better way. <br/><br/>The main new features are that weakrefs, overloaded objects and closures are all now dumped properly. In particular the lexicals that are bound to a closure a dumped along with it. AFAIK this is the first tool ever to have this feature. <br/><br/>Thanks dio. :-)</p>
+
+
+<hr/>
+
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-05-24T23:32:10</h3>
+So it can serialize closures without losing information?
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/demerphq/">demerphq</a> on 2005-05-25T17:02:13</h3>
+Yep. Eg:<br> <br>D:\Development&gt;perl -MDDS -e"my $closure=do{ my $x=100; sub { $x++ } }; Dump $closure"<br> <br>my ($x);<br>$x = 100;<br>$CODE1 = sub {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $x++;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; };
+
+
+
+<blockquote>
+
+<h2>I can break this...</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2005-05-26T01:04:04</h3>
+The following code crashes.<blockquote> <div> <tt>#!<nobr> <wbr></nobr>/usr/bin/perl<br>use strict;<br>use Data::Dump::Streamer;<br> <br>Dump [<br>&nbsp; map {<br>&nbsp; &nbsp; my $x;<br>&nbsp; &nbsp; my $x_eclipse_1;<br>&nbsp; &nbsp; sub {$x}, sub {$x_eclipse_1};<br>&nbsp; } 1, 2<br>];</tt> </div> </blockquote>I thought about trying to solve this with intelligent mangling, but there is always a boundary case.  For instance if you mangle anything with $x_eclipse_1 in some way (eg make it $x__eclipse_1), what if there is a global variable $x_eclipse_1?  Now you've changed semantics or else get a crash.<p>
+
+After some thinking, the only strategy that looks like it would work perfectly is to go to a nested data structure in the event of collisions.  You could do that like this.  Suppose that you had multiple closures pointed at $foo.  Then make $foo an anonymous array of scalars and make the closures each point at $foo-&gt;[$i] where $i is an index.  In the case of @foo you can make it @{$foo[$i]} instead.  In the case of %foo you can make it %{$foo{$i}}.  In each case the eclipsing is done without accessing any other variable name that might also be accessed.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I can break this...</h2>
+<h3><a href="/user/demerphq/">demerphq</a> on 2005-05-26T05:14:06</h3>
+<p> <em>The following code crashes.</em> </p>
+<p>
+Shoot. Yep. It does. And it highlights what I forgot to document: the subs being dumped shouldn't mix the use of dynamics and lexicals with the same name, and that its is unwise to use variables matching<nobr> <wbr></nobr>/_eclipse_\d+$/. (Which personally I think is not such a terrible restriction, albeit not at all ideal.)
+</p>
+<p>
+Dealing with the former is actually very tricky, and probably wont ever be solved properly. A good example is
+</p>
+
+my $a=sub { $a++ };
+
+<p>
+The second issue regarding eclipsed variables is probably easier to solve. For instance I could verify that none of the dumped bound lexicals have  a matching name. One approach would be resolving the nesting properly via scoped blocks but there will always be pathological case that can't be reconstructed that way. At that point I'd have to start dealing with aliasing, and frankly I didnt think it was worth it prefering to rename the vars in the subs being dumped.
+</p>
+<p>
+Unfortunately its not possible to use the strategy you suggested of using an array of "versions" of the var. I actually considered something very similar but it didnt prove to be too promising because of the way Deparse uses names and the options available to me to convince it to use   names other than the ones it should. The variable name change logic doesn't involve pattern matching, its done at a lower level by fooling deparse into thinking that the variable names of the vars bound to the sub are different to what they actually are.
+</p>
+<p>
+Anyway, thanks for the heads up, Ill look into making the eclipsed var name logic smarter to prevent collisions, and ill also add some docs.
+</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>I can break this again...</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2005-05-26T01:16:37</h3>
+<blockquote> <div> <tt>#!<nobr> <wbr></nobr>/usr/bin/perl<br>use strict;<br>use vars '@x_eclipse_1';<br>use Data::Dump::Streamer;<br> <br>Dump [<br>&nbsp; map {<br>&nbsp; &nbsp; my @x;<br>&nbsp; &nbsp; sub {$x[0]}, sub {$x_eclipse_1[0]};<br>&nbsp; } 1, 2<br>];</tt> </div> </blockquote>Gets horribly confused.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

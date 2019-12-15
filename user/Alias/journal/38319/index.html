@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: CWE-732 Exploit Pervasive in Perl (and probably perl)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>CWE-732 Exploit Pervasive in Perl (and probably perl)</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2009-01-20T12:45:09</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>We Perl programmers are a fairly snooty lot when it comes to security. With our garbage collection, deep and excellent taint support, DBI placeholders and CGI libraries, it's rare to see exploits in Perl applications.<br/><br/>So when something like the <a href="http://cwe.mitre.org/top25">2009 CWE/SANS Top 25 Most Dangerous Programming Errors</a> report comes out, it's easy to just skip over yet another document decrying buffer overflows, SQL injects and other things that Perl programs don't suffer from.<br/><br/>I've had this report in my "research to look at later" bookmark list since I saw the announcement, but with Padre suffering it's first security exploit I figured I should probably look at it now.<br/><br/>The Padre exploit, for the record, is the same exploit I discovered in Komodo during PPI development, and that has remained in it (and probably other editors) for a few years now.<br/><br/>The exploit relies on the fact that in Perl, you can execute arbitrary code at compile-time. This makes "perl -c script.pl" just as dangerous as "perl script.pl". All an attacker needs to do is wrap code in a BEGIN { } block to convert a run-time attack to a compile-time attack.
+<code>
+# You really don't want to perl -c this
+BEGIN { system('rm -rf ~') }
+</code>
+In fact, I've been tempted from time to time to write an Acme::ExploitPAUSE module with something similar to this to prove it's safe.
+<code>
+$VERSION = do { system('rm -rf ~'); return '0.01'; };
+</code>
+Lingering doubts about whether or not this would actually blow up PAUSE keeps me from doing so.<br/><br/>As a result of the compile-time = run-time feature of Perl, any editor which tries to "lint" your Perl code AUTOMATICALLY at load-time by compiling it is in effect executing arbitrary code.<br/><br/>If you also associate a .pl extension with your editor, and then combine that with URL redirection, you can end up with a complete pipeline from URL -> arbitrary-code-execution.<br/><br/>Suffice it to say, we've squashed that bug. Padre requires you to take a specific user action to enable compiler-based syntax checking. This is inconvenient, but less inconvenient than losing your home directory. (We may end up implementing some kind of per-project thing later to make things a bit less tedious though)<br/><br/>Wondering what OTHER exploits Padre might be exposed I had a quick read through the CWE Top 25 report.<br/><br/>Ignoring teh buffer overflow and param-checking sort of thing, there ARE a couple of exploits that are probably quite common in Perl and CPAN.<br/><br/>The standout exploit that vast swathes of CPAN code is probably vulnerable to is <a href="http://cwe.mitre.org/data/definitions/732.html">CWE-732: Insecure Permission Assignment for Critical Resource</a>.<br/><br/>The short description of this bug is that, when reading a critical file (config files, modules, etc) you should always check the file permissions to be sure that nobody could possibly have modified it.<br/><br/>Which is to say, you should explicitly check that files could not possibly have been written to by users other than those you trust. The cheap version of this is to make sure all loaded files have 644 or better permissions. Anything with world-write permissions cannot be read, neither can group-write files if you don't trust all the members of the group.<br/><br/>When can this impact Perl code?<br/><br/>Lots of Perl program use temp files or temp directories to store data and just trust that nobody else has write permissions. Lots of Perl programs read config files without checking permissions.<br/><br/>And LOTS of Perl programs use Module::Pluggable, or have Plugin support of some kind (including Padre), which is an exploit waiting to happen if we aren't checking the permissions of the modules that we load.<br/><br/>I'm not sure if we already have something like this, but it would be interesting to see things like Module::Pluggable coming with CWE-732 support by default (presumably with an option to disable it).<br/><br/>The same could perhaps be done with Perl's "use" and "require" functions, which could validate the providence of files before they are loaded into memory.<br/><br/>I'm pondering if tainting support might be able to do this intrinsically, so that we could have certainty that programs were safe from attack.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Checking permissions is silly</h2>
+<h3><a href="/user/Ed Avis/">Ed Avis</a> on 2009-01-20T13:47:18</h3>
+<blockquote><div><p>when reading a critical file (config files, modules, etc) you should always check the file permissions to be sure that nobody could possibly have modified it.</p></div></blockquote><p>How does that help?  If an attacker has permission to change the contents of a config file then they may well have permission to chmod it back to 644 afterwards, surely?
+</p><p>
+Further, checking the permissions with stat() and then reading the file introduces a race condition, and so does reading it first and then statting.
+</p><p>
+Some programs like OpenSSH or Apache do check the permissions of private key files,<nobr> <wbr></nobr>.htpasswd files and so on.  But this is because they contain sensitive information that should not be publicly *readable*.  In any case message is more of a convenience to the user than a rigorous security measure: again, the permissions of the file can change between stat() and open().  And once a file has been publicly readable even for a moment, you should assume its contents are no longer secret (so just running chmod will quieten the message, but not fix the problem).
+</p><p>
+Now there are many security holes associated with<nobr> <wbr></nobr>/tmp and assuming nobody else can write to it.  These are mostly symlink attacks based on predictable filenames and can be avoided by using File::Temp rather than handrolled code.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Checking permissions is silly</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-01-20T14:24:36</h3>
+<p>&gt; How does that help? If an attacker has permission to change the contents of a config file then they may well have permission to chmod it back to 644 afterwards, surely?</p><p>No, they can't.</p><p>(Unless the attacker has root in which case the security of your program is irrelevant anyway)</p><p><code><br>adam@svn:~$ sudo vi tmp.pl<br>adam@svn:~$ sudo chmod 666 tmp.pl<br>adam@svn:~$ vi tmp.pl<br>adam@svn:~$ chmod 644 tmp.pl<br>chmod: changing permissions of `tmp.pl': Operation not permitted<br></code></p><p>&gt; Further, checking the permissions with stat() and then reading the file introduces a race condition</p><p>No, it doesn't. (mostly)</p><p>If the file is secure and not world-writable at the time you stat, and then you read it, the only way it could be vulnerable is if you (or you in another program, or root) changed the permissions to world-writable between the time you did the stat and when you read it.</p><p>There may be other race conditions of course, but assuming none of the programs you might be running would delete the file and create it again fresh, and none will intentionally make the file insecure, it's reasonable to expect the file to be secure.<nobr> <wbr></nobr>/tmp is, of course, a whole different story.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Checking permissions is silly</h2>
+<h3><a href="/user/Ed Avis/">Ed Avis</a> on 2009-01-20T16:52:12</h3>
+<blockquote><div><p>No, they can't.
+<br>
+(Unless the attacker has root in which case the security of your program is irrelevant anyway)</p></div></blockquote><p>Well, quite.  To change files in<nobr> <wbr></nobr>/etc you need to be root, and if you are root then you can make it appear that the files have not been altered.  There are conceivable cases where by some freak event a config file was set up as o+w but the directory was not writable, but I have a hard time believing it's the application's job to check for that, any more than I think applications should be constantly scanning and rescanning allocated memory to check for bit flips caused by cosmic rays.</p><blockquote><div><p>If the file is secure and not world-writable at the time you stat, and then you read it, the only way it could be vulnerable is if you (or you in another program, or root) changed the permissions to world-writable between the time you did the stat and when you read it.</p></div></blockquote><p>Well exactly!  And isn't that just the kind of thing that the 'guideline' is checking for?
+</p><p>
+Similarly: if the file is secure and not world-writable at the time the program is installed, and then you read it, the only way it could be vulnerable is if you (or you in another program, or root) changed the permissions and/or file contents between the time you installed the program and when you ran it.  So why is that case any more worth checking for?  The difference is only one of timespan, not principle.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Checking permissions is silly</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-01-20T17:35:32</h3>
+<p>&gt; So why is that case any more worth checking for?</p><p>We don't always only read files that were created at the time a program was installed?</p><p>Plugins appear afterwards, config files get backed up and restored. Who's to say the program hasn't been upgraded since you last ran?</p><p>There's a range of cases where this problem could appear from and not all of them would be a problem during the race window. But I agree some might, so it probably does makes sense to check both initially and then on the opened file handle.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Checking permissions is silly</h2>
+<h3><a href="/user/Arador/">Arador</a> on 2009-01-20T16:19:53</h3>
+&gt; Further, checking the permissions with stat() and then reading the file introduces a race condition, and so does reading it first and then statting.<p>You can open a file, and then stat the file handle...</p>
+
+
+
+<blockquote>
+
+<h2>Re:Checking permissions is silly</h2>
+<h3><a href="/user/Ed Avis/">Ed Avis</a> on 2009-01-20T16:55:47</h3>
+<blockquote><div><p>You can open a file, and then stat the file handle...</p></div></blockquote><p>Doesn't help.  The permissions can be changed after you stat and while you still have the file open.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Checking permissions is silly</h2>
+<h3><a href="/user/spinclad/">spinclad</a> on 2009-01-20T21:19:06</h3>
+It closes, not the case of its permissions changing, but of statting and reading different files, because the file (in a writable directory, like<nobr> <wbr></nobr>/tmp) got renamed in the interim.
+<p>
+A tighter permission check, reasonably cheap: fstat, read, fstat again and check nothing but access time has changed.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Template Toolkit</h2>
+<h3><a href="/user/bart/">bart</a> on 2009-01-21T00:05:43</h3>
+<p>Well, the thing that always irked me, is how templates can be "compiled" (= converted to perl code which, when executed, produces the desired output from the template) and stored to disk, for simply reloading and running later. The compiled templates <em>must</em> be writable by the program that compiles and uses them, in order to be able to recompile them on the fly, if necessary; and which may running under the same under-privileged user as all other users are using; for example, when running as a CGI script.</p><p>That way, all those other users can modify the code that will simply be executed by the other program.</p><p>And that's just one scenario, I'm sure you can come up with plenty of others.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Template Toolkit</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2009-01-21T01:41:51</h3>
+<p>Very good point.</p><p>I just skip the write-to-disk step. If your process is long-lived enough, then the compile time of the template is trivial. The biggest cost in that case is if you have too many templates to comfortably fit in RAM.</p><p>If I understand Template::Provider correctly, then COMPILE_DIR defaults to disabled anyway, so this isn't a problem unless you turn it on.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Template Toolkit</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-01-21T17:09:07</h3>
+<p>I've found it quite useful to just compile every possible loadable template in advance<nobr> <wbr></nobr>:)</p><p><a href="http://search.cpan.org/user/adamk/Template-Provider-Preload-0.05/lib/Template/Provider/Preload.pm" title="cpan.org">http://search.cpan.org/user/adamk/Template-Provider-Preload-0.05/lib/Template/Provi<nobr>d<wbr></nobr> er/Preload.pm</a cpan.org></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

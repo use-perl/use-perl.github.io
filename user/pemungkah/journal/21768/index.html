@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pemungkah: blosmail.pl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>blosmail.pl</h1>
+<h2><a href="/user/pemungkah/">pemungkah</a> on 2004-11-08T20:51:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>My <a href="http://ibiblio.org/emusic-l/">other</a> weblog is <a href="http://www.blosxom.com/">Blosxom</a>-based. I find I don't update it as often as I could/should, mostly because it's a pain to update - log in to the remote server, write the entry, save it ... it just loses the immediacy for me. I've tried a couple of the Bloxsom plugins to make it easier, but I haven't been happy with any of them.<br/><br/>I saw <a href="http://www.pipetree.com/testwiki/Blosmail">blosmail.pl</a> go by on <a href="http://del.icio.us">del.icio.us</a> today. It's a little Perl script that parses a mail message and posts it to your Blosxom weblog. Immediately alarms began to go off - the EMUSIC-L weblog isn't exactly <a href="http://boingboing.net/">BoingBoing</a> in terms of traffic, but I could just see my poor little weblog getting spammed up the wazoo.  Okay, so there's a password-protection feature. You put the password <i>in the mail</i> and send it. This didn't strike me as a whole lot better - I wanted something that would be easy to do, but hard enough to crack that it really wouldn't be worth it. <br/><br/>So the following code code does an MD5 hash of the body of the message with a secret string stored on the server. If the hashes match, the post is accepted. At the moment, it still takes a little more work than I'd like: I have to run the message text through an external script and then paste the resultant hash back into the message. What this really wants is a drag-and-drop applet (probably doable with Platypus) or a full-fledged OS X service.<br/><br/>Anyway, here's blosmail-md5.pl. 
+<i>Update:</i> After seeing <a href="http://complicity.uvsc.edu/bog/blosmail.dat">this</a> happen to someone, I separated the blosmail config directory from the Blosxom data directory. (Yes, I did drop them a note.)
+<pre>
+#!/usr/bin/perl -w<br/><br/># blosmail
+# Allows you to post (and modify) blosxom entries via email
+# Version 0+1a
+# DJ Adams June 2002<br/><br/># See http://www.pipetree.com/testwiki/Blosmail
+# Changes
+# 0+1b fixed secret mechanism
+# 0+1a added -secret parameter
+# 0+1  original version
+#
+# Modified 8-Nov-2004 by Joe McMahon
+# - folded in Doug Alcorn's 'category and title from subject' extension
+# - added security via MD5 hash of content<br/><br/>use strict;
+use File::Path;
+use File::Temp qw/ tempfile /;
+use FileHandle;
+use CGI qw/:standard :debug/;
+use Digest::MD5;<br/><br/># --- Configurable variables -----<br/><br/># Where are my blog entries kept?
+my $datadir = "/Users/joe/blosxomdata";
+my $configdir = "/Users/joe/blosmail_config";<br/><br/># --------------------------------<br/><br/>$datadir = "$datadir/".param('-blog') if param('-blog');
+my $fh = new FileHandle;<br/><br/># Get the list of valid email addresses
+my @validEmail = $fh->open("< $configdir/blosmail.dat") ? (<$fh>) : ();
+chomp @validEmail;<br/><br/># Read in whole mail and split into headers and body
+my ($headers, $body);
+{
+  local $/ = undef;
+  ($headers, $body) = split("\n\n", <STDIN>, 2);
+}<br/><br/># Check MD5 sums: combine the local copy of the password and the post text
+# and sum them. Should match the sum that appears on the first line.
+if (param('-sum')) {
+  (my $incoming_sum, $body) = split(/\n/, $body, 2);
+  chomp $incoming_sum;
+  $fh->open("< $configdir/secret.dat") or die "No local secret\n";
+  my $local_secret = <$fh>;
+  chomp $local_secret;
+  my $ctx = Digest::MD5->new();
+  $ctx->add($local_secret.$body);
+  my $local_sum = $ctx->hexdigest;
+  die "Incorrect checksum" if $local_sum
+   ne $incoming_sum;
+}<br/><br/># Check it's from a valid email address
+my ($from) = $headers =~ /^From:\s.*?<([^>]+)>.*?$/m;
+die "Entry from invalid email address" unless grep(/$from/, @validEmail);<br/><br/># Determine filename and write entry
+my ($category, $title) = 
+   ($headers =~ /^Subject:\s+BLOG\/([^\s]*)\s*(.*)$/m) 
+      ? ($1, $2)
+      : ""; 
+die "No title supplied\n" unless ($title);<br/><br/>unless (-d "$datadir/$category") {
+    mkpath ("$datadir/$category", 0, 02775) or
+        die "Can't create '$category' directory, $!\n";
+}
+my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+$year +=1900;
+$mon += 1;
+my $filename;
+($fh, $filename) = tempfile("${year}${mon}${mday}XXXXXX", SUFFIX => ".txt", DIR => "$datadir/$category", UNLINK => 0);
+print $fh $title, "\n";
+foreach my $line (split /\n/, $body) {
+    last if ($line =~ /^--/);
+    print $fh $line, "\n";
+}
+$fh->close;<br/><br/>chmod 0644, "$datadir/$filename";
+</pre></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

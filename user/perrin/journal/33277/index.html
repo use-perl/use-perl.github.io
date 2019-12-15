@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of perrin: MySQL bulk loading techniques</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>MySQL bulk loading techniques</h1>
+<h2><a href="/user/perrin/">perrin</a> on 2007-05-14T22:35:43</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I'm working on the next generation of the data warehouse described <a href="http://www.oreillynet.com/pub/a/databases/2007/04/12/building-a-data-warehouse-with-mysql-and-perl.html">here</a> by Sam Tregar.  This time, I'm trying to keep it up-to-date in near real-time.  Because of this, I have several new constraints on how I load data:
+</p>
+<ul>
+<li>The tables are all InnoDB.  This is necessary because there will be long-running queries running on these tables while data is being loaded, and that requires the MVCC support in InnoDB.  MyISAM tables would block updates while anyone is reading.  Incidentally, contrary to what people often claim on Slashdot, converting these tables to InnoDB improved query performance quite a bit.  Only the loading speed suffered compared to MyISAM tables.
+<li>We can't disable the indexes while loading.  This is a huge help in the current system where we load into an off-line database.  The <CODE>ALTER TABLE DISABLE KEYS</CODE> and <CODE>ALTER TABLE ENABLE KEYS</CODE> commands allow the indexes to be rebuilt in bulk.  If we did this to an on-line table though, anyone using it would suddenly have no indexes available.  Also, InnoDB doesn't have the same bulk index creation optimization, although this is supposed to be coming soon.
+<li>The incoming data will be a mix of new rows and updates to existing rows.
+<li>Some of the loads will be partial data for a table, i.e. not all data loads cover all columns in the target table.
+</ul>
+<p>
+So, I had a few ideas of ways to load the data and wanted to see what would give me the best results.  I made a quick and dirty benchmark script and tried them out on a relatively small table (~50K rows) which I loaded with 20K rows and then tested ways of copying the full data in, meaning a combination of new rows and updates.  Here are the results.
+</p>
+<p>
+The fastest approach is an INSERT...SELECT with an ON DUPLICATE KEY UPDATE clause.  That looks a bit like this:</p>
+<p>
+<CODE>
+INSERT INTO foo_test
+SELECT * FROM foo
+ON DUPLICATE KEY UPDATE
+bar=VALUES(bar), baz=VALUES(baz),...  
+</CODE>
+</p>
+<p>This was pretty fast, coming in at 29 seconds.  Some people have trouble with the <code>INSERT...SELECT</code> because it takes a shared lock (like <code>SELECT...FOR UDPATE</code>) on the source table while it runs.  This is apparently fixed in MySQL 5.1 by using row-based replication.  It's also not really an issue for us because we're doing this work on a replicated database, so the worst case is that the replication falls behind a bit while the statement runs.
+</p>
+<p>
+Although it won't work for us, I tried <code>REPLACE</code> as well, just to see how it compared.  It was quite a bit slower, coming in at 54 seconds, or almost twice as long.
+</p>
+<p>I considered trying a combination of <code>INSERT IGNORE...SELECT</code> and a bulk <code>UPDATE</code> (using a join), but figured this would do poorly if the <code>SELECT</code> had any real work in it, since it would be running twice.
+</p>
+<p>
+The most common workaround for people who have trouble with the <code>INSERT...SELECT</code> locking is to use a temporary file with <code>SELECT INTO OUTFILE</code> and <code>LOAD DATA INFILE</code>.  I tried that next.  The dump is really fast, taking only 1 second.  Loading is complicated by the fact that you can't do updates with <code>LOAD DATA INFILE</code>, so I decided the best thing would be to load the data into a temporary table and then do an <code>INSERT...SELECT</code> from that.
+</p>
+<p>I got that load to go very quickly by making my temp table a MyISAM one and running an <code>ALTER TABLE DISABLE KEYS</code> on it before loading.  It loaded in 3 seconds.  Then I did the same <code>INSERT...SELECT</code> from the temp table which took the same 29 seconds (and I never built the indexes because I didn't need them).  In total, the temp file only added 4 seconds or 14% overhead.  This seems like a good solution for people who run into locking issues.
+</p>
+<p>Then I tested using two database handles, one to <code>SELECT</code> and one to <code>INSERT/UPDATE</code>, pumping the data from one to the other.  I was pretty sure I couldn't beat the <code>INSERT...SELECT</code> with this approach, but we have some situations where we need to process every row in perl during the load, such as geocoding addresses or applying logic that gets too ugly when done in SQL.
+</p>
+<p>
+I played around with the frequency of commits and with MySQL's multi-row <code>INSERT</code> extension, and got this reasonably fast.  It ran in 43 seconds, or a bit less than 50% slower than the <code>INSERT...SELECT</code>.
+</p>
+<p>
+Looking at how fast the <code>LOAD DATA INFILE</code> was, I tried a different approach for processing every row, doing a <code>SELECT</code> and writing the rows out with Text::CSV_XS.  Then I loaded that file into a temp table with <code>LOAD DATA INFILE</code> and did an <code>INSERT...SELECT</code> from the temp table as before.
+</p>
+<p>
+This was much better.  Dumping the <code>SELECT</code> with Text::CSV_XS only took 3 seconds and, combined with the 4 second load, it only adds 24% overhead and gives me a chance to work on every row in perl.  It's also much simpler to code than the multi-row <code>INSERT</code> stuff.
+</p>
+<p>
+I should point out that working with these large data sets row by row requires the "mysql_use_result" option, which makes the server spool results to the client instead of dumping them all at once.  I activate it for specific statement handles like this:
+</p>
+<p>
+<code>
+my $sth = $dbh->prepare($sql, {mysql_use_result => 1});
+</code>
+</p>
+<p>If anyone has additional ideas, I'd be interested in hearing them.  For now, I'm happy with the first approach for updates that can all be done in SQL and the last one for updates that require perl processing on every row.
+</p></p>
+
+
+<hr/>
+
+
+
+<h2>Great article for future reference</h2>
+<h3><a href="/user/Ron Savage/">Ron Savage</a> on 2007-05-17T00:48:19</h3>
+$many x $thanx for the effort.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

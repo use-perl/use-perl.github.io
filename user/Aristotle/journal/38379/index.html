@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Aristotle: A better quoting-aware word-splitting regex</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>A better quoting-aware word-splitting regex</h1>
+<h2><a href="/user/Aristotle/">Aristotle</a> on 2009-01-31T15:47:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Anyone who has read Jeff Friedl&#8217;s book can write a decent basic word splitter regex off the cuff:</p>
+
+<pre>
+m{ \G [ ]* (
+    " [^"\\]* (?: \\. [^"\\]* )* "
+    |
+    [^ ]+
+) }gsx
+</pre>
+
+<p>I have written and used this many times. What has always bugged me about it, however, is that it captures the delimiters along with the content, so afterwards you have to do something like this to the captured value:</p>
+
+<pre>
+s!\A"(.*)"\z!$1!;
+</pre>
+
+<p>This is&#8230; not pretty.</p>
+
+<p>Of course, you could use two captures:</p>
+
+<pre>
+m{ \G [ ]* (?:
+    " ( [^"\\]* (?: \\. [^"\\]* )* ) "
+    |
+    ( [^ ]+ )
+) }gsx
+</pre>
+
+<p>But then you need to check which of the two captures has the value &#8211; is it in <code>$1</code> or <code>$2</code>? So this is still inelegant. The pattern has already done all the work of examining the string &#8211; why can&#8217;t it provide its results in an invariant form?</p>
+
+<p>The problem is that the presence of the trailing quote must be dependent on the presence of a leading quote, so you must keep the quotes inside the alternation, so there is no way to avoid having either two distinct captures that exclude the quotes or a single broad capture that includes them.</p>
+
+<p>Except, of course, you don&#8217;t have to and there is. True enough: when you rely on the matcher to pick an alternation implicitly, the quotes must be included in the alternation. But by using an extended regular expression feature (that has been marked experimental for a decade &#8211; what&#8217;s up with that?), namely conditional matches, you can make the match of the trailing quote conditional on the leading quote independently of an alternation.</p>
+
+<pre>
+m{ \G [ ]*
+     (")?
+     ( (?(1)
+         [^"\\]* (?: \\. [^"\\]* )*
+         |
+         [^ ]+
+     ) )
+     (?(1)")
+}gsx
+</pre>
+
+<p>And of course you can (and must, in this case) use a conditional match in the middle to explicitly specify which of the cases to pick, depending on the presence of the leading quote.</p>
+
+<p>This way, you can match surrounding delimiters in a captured alternation for some of its cases but not others, without having to include the delimiters in the capture.</p>
+
+<p>Note that the interesting capture is now <code>$2</code>, not <code>$1</code> &#8211; we need the first capture for the quote, since conditional matches can only use captured groups as conditionals. However, the matched word is <em>always</em> in <code>$2</code>, regardless of whether quotes were involved. Furthermore, <code>$1</code> has now turned into a true boolean flag, whereas previously this information had to be inferred (however easily).</p>
+
+<p>This pleases me.</p></p>
+
+
+<hr/>
+
+
+
+<h2>How about using $+ ?</h2>
+<h3><a href="/user/bart/">bart</a> on 2009-02-01T01:33:27</h3>
+<p>TIMTOWTDI, but you don't <em>have</em> to jump through all those hoops, just to get one definite capture variable for every case. Just take a look at <a href="http://perldoc.perl.org/perlvar.html?#$+" title="perl.org"> <code>$+</code> </a perl.org> and you'll see it was especially designed for these cases, where you have captures in alternatives and you don't know which alternative matched. So, you can just use your 2 captures regex, and simply get the one you want with <code>$+</code>.</p><p>But, I think this probably is not such a good idea. You ought to strip the backslashes in those quoted strings that are just there to escape special characters (backslashes and quotes). Unless, if you always want to remove these backslashes, whether the string was quoted, or not.</p>
+
+
+
+<blockquote>
+
+<h2>Re:How about using $+ ?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-02-01T08:28:56</h3>
+<p>Two upsides of using conditional match:</p><ul>
+<li>It works in multiple-capture scenarios.</li><li>It provides a boolean flag capture.</li></ul><p>The boolean flag makes it particularly nice to make the backslash stripping conditional on the presence of quotes.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

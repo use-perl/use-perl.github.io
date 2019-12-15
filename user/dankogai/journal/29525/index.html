@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of dankogai: PerlIO Benchmark</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>PerlIO Benchmark</h1>
+<h2><a href="/user/dankogai/">dankogai</a> on 2006-05-04T09:10:22</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I had a chance to benchmark various PerlIO layers.  The result was striking.</p>
+Benchmarking code:
+<pre>
+use strict;
+use warnings;
+use Benchmark qw(timethese cmpthese);
+our $test_file = 'test.txt';
+# 64 chars including LF;
+my $test_line = join '', ( '0' .. '9', 'A' .. 'Z', 'a' .. 'z', '_', "\n" );
+sub make_test_file {
+    my $kb    = shift;              # size in KB
+    my $block = $test_line x 16;    # 1024 bytes;
+    my $fh;
+    open $fh, ">:raw", $test_file or die "$test_file:$!";
+    print {$fh} $block for ( 1 .. $kb );
+    close $fh;
+    # slurp once to make sure the file buffer is in effect;
+    open $fh, "<:raw", $test_file or die "$test_file:$!";
+    my $content = do { local $/; <$fh> };
+    close $fh;
+}
+sub make_tester {
+    my $layer = shift;
+    my $openarg = $layer ? "<:$layer" : "<";
+    sub {
+        open my $fh, $openarg, $test_file or die "$test_file:$!";
+        $_ ne $test_line and die while (<$fh>);
+        close $fh;
+      }
+}
+my %these = map { $_ => make_tester($_) } qw( raw perlio mmap );
+$these{nolayer} = make_tester(q());
+
+for my $filesize ( map { 4**$_ } ( 0 .. 4 ) ) {
+    make_test_file($filesize);
+    print "#### Testing for $filesize KB Read\n";
+    cmpthese( timethese( 0, \%these ) );
+}
+delete $these{raw};    # because this guy is too slow on large files!
+for my $filesize ( map { 4**$_ } ( 5 .. 8 ) ) {
+    make_test_file($filesize);
+    print "#### Testing for $filesize KB Read\n";
+    cmpthese( timethese( 0, \%these ) );
+}
+__END__
+</pre>
+The result on my MacBook Pro:
+<pre>
+#### Testing for 1 KB Read
+Benchmark: running mmap, nolayer, perlio, raw for at least 3 CPU seconds...
+           Rate     raw    mmap  perlio nolayer
+raw       213/s      --    -95%    -98%    -98%
+mmap     4492/s   2007%      --    -55%    -64%
+perlio  10088/s   4632%    125%      --    -19%
+nolayer 12488/s   5758%    178%     24%      --
+#### Testing for 4 KB Read
+Benchmark: running mmap, nolayer, perlio, raw for at least 3 CPU seconds...
+          Rate     raw    mmap  perlio nolayer
+raw     55.7/s      --    -99%    -99%    -99%
+mmap    3722/s   6578%      --    -42%    -49%
+perlio  6375/s  11338%     71%      --    -13%
+nolayer 7305/s  13008%     96%     15%      --
+#### Testing for 16 KB Read
+Benchmark: running mmap, nolayer, perlio, raw for at least 3 CPU seconds...
+          Rate     raw    mmap  perlio nolayer
+raw     13.5/s      --    -99%    -99%    -99%
+mmap    1849/s  13550%      --    -25%    -30%
+perlio  2469/s  18123%     34%      --     -7%
+nolayer 2649/s  19455%     43%      7%      --
+#### Testing for 64 KB Read
+Benchmark: running mmap, nolayer, perlio, raw for at least 3 CPU seconds...
+          Rate     raw    mmap  perlio nolayer
+raw     3.53/s      --    -99%   -100%   -100%
+mmap     693/s  19567%      --    -10%    -14%
+perlio   767/s  21651%     11%      --     -5%
+nolayer  810/s  22872%     17%      6%      --
+#### Testing for 256 KB Read
+Benchmark: running mmap, nolayer, perlio, raw for at least 3 CPU seconds...
+           Rate     raw  perlio nolayer    mmap
+raw     0.937/s      --    -99%   -100%   -100%
+perlio    187/s  19804%      --     -4%     -6%
+nolayer   194/s  20582%      4%      --     -2%
+mmap      198/s  21062%      6%      2%      --
+#### Testing for 1024 KB Read
+Benchmark: running mmap, nolayer, perlio for at least 3 CPU seconds...
+          Rate  perlio nolayer    mmap
+perlio  46.8/s      --     -5%    -11%
+nolayer 49.2/s      5%      --     -7%
+mmap    52.8/s     13%      7%      --
+#### Testing for 4096 KB Read
+Benchmark: running mmap, nolayer, perlio for at least 3 CPU seconds...
+          Rate  perlio nolayer    mmap
+perlio  12.4/s      --     -4%     -4%
+nolayer 12.9/s      4%      --     -1%
+mmap    13.0/s      4%      1%      --
+#### Testing for 16384 KB Read
+Benchmark: running mmap, nolayer, perlio for at least 3 CPU seconds...
+          Rate  perlio nolayer    mmap
+perlio  2.96/s      --     -5%     -6%
+nolayer 3.11/s      5%      --     -1%
+mmap    3.14/s      6%      1%      --
+#### Testing for 65536 KB Read
+Benchmark: running mmap, nolayer, perlio for at least 3 CPU seconds...
+        s/iter  perlio    mmap nolayer
+perlio    1.35      --     -8%     -8%
+mmap      1.25      8%      --     -0%
+nolayer   1.24      9%      0%      --
+</pre>
+<p>no layer being the fastest is no surprise for me.  It's synonym for <tt>:perlio</tt> on most platforms and with no option you have no overhead for setting layer.  What's so surprising is that :raw being so slow.  I got similar result on my FreeBSD boxes.</p>
+<p>Dan the Just Another Perl Benchmarker</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

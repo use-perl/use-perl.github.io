@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Matts: Non-blocking IMAP</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Non-blocking IMAP</h1>
+<h2><a href="/user/Matts/">Matts</a> on 2006-08-30T17:42:39</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>In thinking about things to ship with AxKit2 I thought it would be cool to have a webmail that doesn't suck written in Perl. You know - drag and drop with AJAX, HTML editor, decent speed, etc.<br/><br/>Of course all the perl IMAP libraries are blocking - they don't drop in well to a non-blocking framework. So I set out to write a non-blocking library for IMAP.<br/><br/>Turns out it was easier than I hoped. Net::IMAP::Simple (which is probably "Simple" because it doesn't support much of IMAP, but I'll probably figure that out in a few weeks) is mostly really well written, and was fairly easy to extend. I had to re-write quite a few of the methods, though some of the changes can probably be incorporated into the base class as they make for a nice improvement to the design.<br/><br/>Result is I can now do this:
+<pre>
+use Net::IMAP::Simple::NB;<br/><br/>Danga::Socket->AddTimer(0, sub {
+    # Create the object
+    my $imap = Net::IMAP::Simple::NB->new('felony:143') ||
+       die "Unable to connect to IMAP: $Net::IMAP::Simple::errstr\n";
+    
+    print "IMAP: $imap\n";
+    
+    $imap->login('matt','xxxxxxx', sub {
+        my $login_ok = shift;
+        if ($login_ok) {
+            print "Login OK\n";
+            $imap->select("INBOX", sub {
+                my $nm = shift;
+                print "Got $nm Messages\n";
+                my $i = 1;
+                my $sub;
+                $sub = sub {
+                    my $headers = shift;
+                    print grep { /^Subject:/ } @$headers;
+                    $i++;
+                    $imap->top($i, $sub) unless $i == $nm;
+                };
+                $imap->top($i, $sub);
+            });
+        }
+    });
+});<br/><br/>Danga::Socket->EventLoop;
+</pre>
+Where the "sub" callbacks are called when the Net::IMAP::Simple methods return with their responses, and in the meantime the event loop is not blocked.<br/><br/>One of the problems with building IMAP based webmail is you don't want to be re-establishing connections to the IMAP server on every hit. AxKit2 can get around that problem by just keeping the connection open and hooking the request up to the right connection using a cookie/session-id.<br/><br/>Lots of work still to do, but now it's just a small matter of programming.</p>
+
+
+<hr/>
+
+
+
+<h2>closure-callback model rocks</h2>
+<h3><a href="/user/jmason/">jmason</a> on 2006-08-30T18:04:46</h3>
+that use of sub { } closures to handle event-driven programming rocks so hard -- I used it a lot in SA 3.2 in the Mail::SpamAssassin::AsyncLoop class, too.<br><br>I'd hate to have to go back to the old model of event-driven programming, with objects to hold all state between events, etc.
+
+
+
+<blockquote>
+
+<h2>Re:closure-callback model rocks</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-08-31T05:31:22</h3>
+Closures are such an incredibly powerful programming paradigm, especially for this kind of app - it's hard to believe that some languages get by without them.<br><br>What's really cool is that closures in perl just do what you expect them to do. The hard thing to do is explain closures and make them look like they might not be what's expected - because when you look at the syntax you just think "yep, that's normal".
+
+
+
+
+
+</blockquote>
+
+
+<h2>Leaky?</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2006-08-31T23:24:03</h3>
+Don't those kinds of closures leak (anonymous recursive subs, that is), unless maybe you use maybe Scalar::Util::weaken or one of those <a href="http://use.perl.org/user/Stevan/journal/30675" title="perl.org">combinator</a perl.org> -type thingies (or some Devel::* module I think or something else)? Or do you really even care in this instance?<nobr> <wbr></nobr>:-)
+
+
+
+<blockquote>
+
+<h2>Re:Leaky?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-09-01T16:09:08</h3>
+I don't think they leak - there were some bugs with eval blocks and anonymous subs, but I think all those leaks have been closed now.<br><br>This design is used a lot by IO::AIO (which is used in some people's production apps) and thus if it leaked we would find out about it darn fast.
+
+
+
+<blockquote>
+
+<h2>Re:Leaky?</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2006-09-01T18:37:57</h3>
+I thought it happened whenever you had the <code>my $sub; $sub = sub {<nobr> <wbr></nobr>...$sub... };</code> construct, and that whenever that code got called, the reference count for $sub would never go to zero. Is what you're doing any different than this (leaks in 5.8), or did this sort of thing recently get fixed?:<blockquote> <div><tt>my $foo = sub {<br>&nbsp; my $sub;<br>&nbsp; $sub = sub {<br>&nbsp; &nbsp; $sub;<br>&nbsp; };<br>};<br> <br>my $i;<br>print "Start: ";<br>&lt;STDIN&gt;;<br>while (++$i) {<br>&nbsp; my $f = $foo-&gt;();<br>&nbsp; unless ( $i % 100_000 ) {<br>&nbsp; &nbsp; print "$i: ";<br>&nbsp; &nbsp; &lt;STDIN&gt;;<br>&nbsp; }<br>}</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Leaky?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-09-01T18:51:55</h3>
+That does indeed seem to leak, but it's fixed by adding weaken($sub) inside the anonymous sub, so that's no big deal to me. Thanks for the heads up though.
+
+
+
+<blockquote>
+
+<h2>Re:Leaky?</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2006-09-01T23:57:00</h3>
+I know weaken() was one of the options, but I'm trying to become a functional weenie, so I'm starting to like the combinator approach (this example ripped and tweaked from the Moose source):<blockquote> <div><tt>sub U {<br>&nbsp; &nbsp; my $f = shift;<br>&nbsp; &nbsp; sub { $f-&gt;($f, @_) };<br>}<br> <br>sub Y {<br>&nbsp; &nbsp; my $f = shift;<br>&nbsp; &nbsp; U(sub { my $h = shift; sub { $f-&gt;(U($h)-&gt;())-&gt;(@_) } })-&gt;();<br>}<br> <br># Now we need a recursive anonymous function<br>my $fact = Y(sub {<br>&nbsp; my $f = shift;<br>&nbsp; sub {<br>&nbsp; &nbsp; my $n = shift;<br>&nbsp; &nbsp; return 1 if $n &lt; 2;<br>&nbsp; &nbsp; return $n * $f-&gt;($n-1);<br>&nbsp; }<br>});<br> <br>print $fact-&gt;(5), "\n";</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Leaky?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-09-02T01:03:42</h3>
+Yeah, it's just a shame that code is so cryptic. No wonder perl gets a bad rap (though I guess it's copied from some lamda calculus stuff). You'd think they could use more than single character variables and function names for it all.
+
+
+
+<blockquote>
+
+<h2>Re:Leaky?</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2006-09-02T07:41:08</h3>
+<p>I agree that the Y() is cryptic (and you can't blame perl too much), but the U() is not that hard to understand, and if they're tucked away in a library (as they are in Moose::Autobox albeit in an OO form), then you don't have to look at them, and they're pretty simple to use. In other words, "don't look behind the curtain, just use the Y-combinator"<nobr> <wbr></nobr>:-)</p>
+<p>If you have freedom in what args your recursive sub accepts (which I assume you don't in the above instance), then you can let the first arg be the sub itself, and just use the U() by itself:</p><blockquote> <div><tt>my $fact = U(<br>&nbsp; sub {<br>&nbsp; &nbsp; my ($f,$n) = @_;<br>&nbsp; &nbsp; return 1 if $n &lt; 2;<br>&nbsp; &nbsp; return $n*$f-&gt;($f,$n-1);<br>&nbsp; }<br>);<br> <br>print $fact-&gt;(5),"\n";</tt></div> </blockquote>Or my favorite:<blockquote> <div><tt>sub Y { goto $_[0] }<br> <br>my $fact = sub {<br>&nbsp; my ($f,$n) = @_;<br>&nbsp; return 1 if $n &lt; 2;<br>&nbsp; return $n*$f-&gt;($f,$n-1);<br>};<br>print Y($fact, 5),"\n";</tt></div> </blockquote>
+
+
+
+<h2>Y combinator</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-03T23:34:22</h3>
+<p>It&#x2019;s the construct that&#x2019;s cryptic, not the Perl code. It&#x2019;s no easier to understand in Lisp, although the core concept is actually very simple. The basic idea is that you make an anonymous function recursive by making it take a reference to itself as a parameter, so that it can call that to recurse on itself.</p>
+
+<p>The actual implementation requires doing a series of code sit-ups that makes the fully built combinator very hard to follow. I think I&#x2019;ll have to rewrite it for myself in Perl rather than trying to follow along in one of the Scheme-based explanations, in order to actually grok it fully.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Y combinator</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-09-03T23:51:46</h3>
+I think decently named params would make it understandable.
+
+
+
+<blockquote>
+
+<h2>Re:Y combinator</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-04T16:25:05</h3>
+<p>I would usually agree but in this case I don&#x2019;t see how. Using <tt>$func</tt> or <tt>$closure</tt> in place of <tt>$f</tt> wouldn&#x2019;t do anything to clarify any of what&#x2019;s going on, and I can&#x2019;t think of any good name of <tt>$h</tt>. The functions are no easier to name more sensibly. It would help the legibility of the Y combinator to break it down a bit and assign subexpressions to suitably named variables, but the difference wouldn&#x2019;t be anything to write home about.</p>
+
+<p>These are simply near-unreadable constructs. And it doesn&#x2019;t really matter, because:</p>
+
+<ul>
+<li>Once they&#x2019;re written, you can use them without having to remember exactly how they work. You just memorise how to appropriately curry your recursive closures, which is pretty trivial, and just use it.</li>
+<li>If you want to make sure you&#x2019;re not just cargo-culting, you can pull up an explanation of how to build up the combinator and derive it yourself.</li>
+</ul>
+
+<p>In practice these things just don&#x2019;t need to be readable once you get one working; you find out what the Y combinator is for and how it works, then memorise how to use it and stop sweating the details.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Y combinator</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-09-04T16:39:10</h3>
+So here's where I'm coming from: The Y combinator is useless in the code I showed, because $sub isn't called explicitly - it's a callback. So having the Y combinator re-written to be more readable, with better variable names, and comments, might allow me to write a version specifically for my code that doesn't require the use of weaken().
+
+
+
+<h2>Re:Y combinator</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-09-04T18:15:00</h3>
+<blockquote> <div><em>In practice these things just don&#8217;t need to be readable once you get one working;</em></div> </blockquote>
+
+<p>That sums up my frustrations with higher order mathematics pretty effectively.  I strongly <em>suspect</em> that the Haskell compiler rejects identifiers with more than one vowel or over eight characters, but I can't <em>prove</em> it, for example.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Y combinator</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-04T19:44:57</h3>
+<p>I suppose. I can&#x2019;t read the Y combinator either, y&#x2019;know. I <em>can</em> derive it when I start from scratch, though, and for as long as that model is in my head, I can reason about it.</p>
+
+<p>I just can&#x2019;t build it inductively from reading the source/expression. I have to deduce it every time from scratch.</p>
+
+<p>It may be a matter of practice.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Leaky?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-09-04T19:45:25</h3>
+So here's a version that doesn't leak, that uses this approach, and isn't so darn cryptic:<blockquote> <div><tt># wrap an anonymous function into a function that takes $func as the first<br># parameter so we can make use of it from within the call.<br>sub wrap_func {<br>&nbsp; &nbsp; my $func = shift;<br>&nbsp; &nbsp; return sub { $func-&gt;($func, @_) };<br>}<br>
+&nbsp; <br>...<br># sometime later...<br>
+&nbsp; <br>$imap-&gt;message_info($i, wrap_func(sub {<br>&nbsp; &nbsp; my $sub = shift;<br>&nbsp; &nbsp; my $flags = shift;<br>&nbsp; &nbsp; my $headers = shift;<br>&nbsp; &nbsp; print "Date: $flags-&gt;{DATE}\n";<br>&nbsp; &nbsp; print "Flags: " . join(', ', keys %$flags) . "\n";<br>&nbsp; &nbsp; print grep {<nobr> <wbr></nobr>/^Subject:/ } @$headers;<br>&nbsp; &nbsp; $i++;<br>&nbsp; &nbsp; $imap-&gt;message_info($i, wrap_func($sub)) unless $i == $nm;<br>}));</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Leaky?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-04T21:26:44</h3>
+<p>Well yes, you get away without the Y combinator here. <tt>wrap_func</tt> is a rather nondescript name, though, don&#x2019;t you agree? A better one might be something like <tt>curry_self</tt> or <tt>apply_self_maker</tt> or some such, although it&#x2019;s probably not obvious to someone without basic knowledge of functional programming why these names are in fact better. All of them sound similarly meaningless, though the better ones might even be a little scary. And to someone with functional programming knowledge, <tt>U</tt> would be just as descriptive anyway; in fact, to such a programmer your choice of name is much <em>worse</em> than using <tt>U</tt>. So it&#x2019;s not clear to me that you can gain actual clarity by &#x201c;better&#x201d; naming.</p>
+
+<p>Note that you get away with the U combinator here, which is self-explanatory anyway. Try doing the same with the Y combinator and you&#x2019;ll have a lot less luck.</p>
+
+<p>If it&#x2019;s not clear yet, I happen to think that understanding the Y combinator (what it&#x2019;s for and how it&#x2019;s derived) is an important part of any good programmer&#x2019;s education. For a demonstration of why, just take note that your recursive function is broken. To fix it, change the last line:</p> <blockquote> <div><tt>$imap-&gt;message_info($i, $sub) unless $i == $nm; # no wrap_func</tt></div> </blockquote> <p>Applying the U combinator to itself does not yield the U combinator. So if you call <tt>wrap_function</tt> on the return of <tt>wrap_function</tt>, you will get an ever deeper onion of closures that apply the previous wrapper to itself plus their arguments, accumulating wrappers going down the layers, until finally the last wrapper applies the original function to itself plus all the wrappers plus the passed parameters. Ie. after four applications you&#x2019;d have a wrapped wrapped wrapped wrapper equivalent to this:</p> <blockquote> <div><tt>sub {<br>&nbsp; &nbsp; my $func = shift;<br>&nbsp; &nbsp; my $f_inner1 = sub { $func-&gt;($func, @_) };<br>&nbsp; &nbsp; my $f_inner2 = sub { $f_inner1-&gt;($f_inner1, @_) };<br>&nbsp; &nbsp; my $f_inner3 = sub { $f_inner2-&gt;($f_inner2, @_) };<br>&nbsp; &nbsp; return sub { $f_inner3-&gt;($f_inner3, @_) };<br>}</tt></div> </blockquote> <p>That&#x2019;s obviously not going to work.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Leaky?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-09-04T21:34:31</h3>
+Your "fix" doesn't work.<br><br>wrap_func() took a function, and returned a new function that took the given $func as the first argument. Therefore, in my callback $sub is not "wrapped", so needs to be re-wrapped.
+
+
+
+<blockquote>
+
+<h2>Re:Leaky?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-04T22:01:22</h3>
+<p>Oh d&#x2019;uh. I got confused between properties of the Y and U combinators.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Leaky?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-09-04T22:07:54</h3>
+I'm shocked. How could you confuse the two!
+
+
+
+<blockquote>
+
+<h2>Re:Leaky?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-04T22:23:33</h3>
+<p>Heh. I&#x2019;d read about the Y combinator before but I only started studying it in anger yesterday because I realized I wouldn&#x2019;t actually understand it on any deeper level if I didn&#x2019;t sit down to derive it from first principles for myself.</p>
+
+<p>My grasp is strengthening by the hour, but you can see I&#x2019;m not quite there yet.<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

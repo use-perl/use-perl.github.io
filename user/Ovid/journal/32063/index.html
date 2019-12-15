@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: runtests --recurse --exec 'some_prog %s' t/</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>runtests --recurse --exec 'some_prog %s' t/</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-01-03T18:25:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>One of the features I'm working on for <a href="http://search.cpan.org/dist/TAPx-Parser/">TAPx::Parser</a> is the ability to test <em>anything</em>.  Admittedly, this is a big attempt, but here's what I'm thinking.  Imagine the following program:</p>
+
+<pre>#!/usr/bin/perl
+
+use Test::HTML::Lint tests => 1;
+
+my $file = shift;
+open my $fh, '<', $file
+  or die "Cannot open ($file) for reading: $!";
+my $html = do { local $/; <$fh> };
+
+html_ok( $html, "$file has valid HTML" );</pre>
+
+<p>Now that looks weird.  Why would I want arguments to a test script?  Well, name it <tt>test_html</tt> and you can do this ('extension' is deliberately misnamed):</p>
+
+<pre>runtests --recurse --exec 'test_hml %s' --xtension 'html?' www/</pre>
+
+<p>You've now turned all HTML files in your <tt>www/</tt> directory into tests!</p>
+
+<p><tt>--exec</tt> is expected to take a <tt>sprintf</tt> format which will be opened with this:</p>
+
+<pre>my $fh      = gensym;
+my $command = sprintf $exec, $arg;
+if ( open $fh, "$command |" ) {
+    return TAPx::Parser::Iterator->new($fh);
+}
+else {
+    ...
+}</pre>
+
+<p>So long as whatever you pass into <tt>--exec</tt> outputs TAP, you can test anything you want.  In fact, it doesn't even have to be filenames.  You could pass a list of urls to <tt>runtests</tt> and have your testing utility fetch them and run tests on them.</p>
+
+<p>What I'm trying to figure out is how to easily handle a test suite with test programs written in Perl, C, etc.  My current plans only allow one type of <tt>--exec</tt> at a time.  Thoughts?</p>
+
+<p><strong>Update:</strong>  I might just make the <tt>%s</tt> optional in the format and tack it on to the end if it's not in the string.  I'd also disallow any other % sign in the format since that would screw up the <tt>sprintf</tt>.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Beware of strange characters...</h2>
+<h3><a href="/user/dakkar/">dakkar</a> on 2007-01-03T19:48:10</h3>
+<p>You might not want to use <code>sprintf</code> and the string form of pipe <code>open</code>. Think what happens when you get a file name containing spaces, or asterisks, or pipe characters, or anything else that's special to the shell (yes, I actually had such names: one of my applications used TT2 to generate documents, and the <em>file names</em> themselves were expanded by TT2, so I had names like <code>[% customer.name | filename %] - [% orders.last_number | format('%04d') %].txt</code> )</p>
+
+<p>I'd suggest doing what <code>find</code>'s <code>exec</code> option does: gobble up all parameters up to a literal<nobr> <wbr></nobr><code>;</code>, and substitute the filename in place of a literal <code>{}</code>.</p>
+
+
+
+<h2>URLs?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-01-04T08:02:05</h3>
+Excuse my ignorance on what features you already have...<br><br>Does this thing have URI support yet?<br><br>Can I say "Go test that URL that will spit you back TAP" and have it work?<br>
+
+
+
+<blockquote>
+
+<h2>Re:URLs?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-01-04T09:45:00</h3>
+<p>This feature is not yet ready but I'm already getting email asking for it so I need to see if I can get this out the door by this weekend at the latest.  My biggest obstacle, actually, isn't getting this feature to work (it's fairly simple), but getting <tt>TAPx::Harness</tt> output as similar as possible to <tt>Test::Harness</tt> output.  I don't want to suprise users too much by making the output radically different, but I also have so much more information I can present, if they users want it (such as <em>which</em> tests unexpectedly succeeded), that the output has to be different in some ways.</p>
+
+<p>On the off chance you were asking a different question, here's a more complete description of the rationale and implementation.</p>
+
+<p>In <a href="http://perl-qa.yi.org/index.php/TAP::Harness#TAP::Harness::Source" title="yi.org">Schwern's original plan for this</a yi.org>, he wanted to have a bunch of separate "source" modules:</p>
+
+<ul>
+  <li>TAP::Harness::Source::String</li>
+  <li>TAP::Harness::Source::PerlDotT</li>
+  <li>TAP::Harness::Source::HTMLValidator</li>
+  <li>TAP::Harness::Source::HTTP</li>
+  <li>TAP::Harness::Source::Executable</li>
+  <li>... and so on</li>
+</ul>
+
+<p>You can go back to that link and see what he was thinking, but I've realized that the bottleneck in that approach is that most end users are going to wait for someone else to write a <tt>TAP::Harness::Source::...</tt> module for their particular needs rather than write it themselves.  Or such a source module will already have been written but it's features will be too limited.  My approach allows you to write a simple test program which takes an input and figures out how to test it.  For example:</p> <p><blockquote> <div><tt>#!/usr/bin/perl<br> <br>use Test::More tests =&gt; 4;<br>use Test WWW::Mechanize;<br> <br>my $mech = Test::WWW::Mechanize-&gt;new;<br>my $url&nbsp; = shift;<br>$mech-&gt;get_ok(<br>&nbsp; $url,<br>&nbsp; "We should be able to fetch ($url)"<br>);<br>$mech-&gt;title_like(<br>&nbsp; qr/^Login to control panel for/,<br>&nbsp; "... and page should be a customer control panel login page"<br>);<br>$mech-&gt;content_like(<br>&nbsp; qr/Copyright 2007 by Acme Corp/,<br>&nbsp; '... and it should have our copyright'<br>);<br>$mech-&gt;page_links_ok("... and links from this page should be good");</tt></div> </blockquote>  <p>Then you just use any of a variety of methods to pass a list of URLs to it.  One of the simplest, if you name the above program <tt>test_control_panel_logins</tt>:</p> <p><blockquote> <div><tt>runtests 'test_control_panel_logins' &lt; list_of_control_panel_urls.txt</tt></div> </blockquote>  <p>Thus, as long as you can figure out how to write a test for something, you could use <tt>runtests</tt> to test anything.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

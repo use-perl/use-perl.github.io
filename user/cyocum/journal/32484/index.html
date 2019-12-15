@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of cyocum: PGE and Basic 1964: an Annotated Journey</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>PGE and Basic 1964: an Annotated Journey</h1>
+<h2><a href="/user/cyocum/">cyocum</a> on 2007-02-23T20:09:42</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I have watched the development of Perl6 and Parrot for some time.  When PGE was released, making development of languages for Parrot easier, I was very excited.  I have worked previously on an internal web testing language for a well known e-tailer.  That was based on antlr and in Java.  So, recently, I finally decided to bite the bullet, especally after chromatic's <a href="http://www.oreillynet.com/onlamp/blog/2006/03/inside_parrots_compiler_tools.html">blog post</a> about his experience with parrot's compiler toolchain.</p>
+
+<p>First, however, I needed a project that was fairly simple but had some hard tricks later on.  I decided that I would reach back in time to Dartmouth BASIC from 1964.  There is a <a href="http://www.bitsavers.org/pdf/dartmouth/BASIC_Oct64.pdf">manual</a> [warning: PDF] available that does a good job of describing the language.</p>
+
+</p>After reading this and the <a href="http://www.pmichaud.com/2006/pres/yapc-parsers/start.html">presentation</a> on PGE, I decided to figure out how to use PGE.  In this endeavor, I downloaded a recent tar-ball and compiled it on my FreeBSD machine that I used for this kind of stuff.</p>
+
+<p>The best place to look for code to steal is in the parrot/languages directory.  Among the best places to get understanding is in the abc (a bc clone) language and punie (perl 1 in PGE).  You will find their grammars in their /src directories.</p>
+
+<p>As for PGE itself, from what I understand, it is a subset of the Perl6 grammar feature that compiles down to PIR for use with Parrot.  The mechanism that does this is in parrot/compilers/pge/pgc.pir which will take your grammar and output the PIR to standard out.  This PIR is not, at this point (a tar-ball just before parrot 0.4.9), output a ready to run grammar.  You need to provide a bit of superstructure.  What I did was crib code from abc.pir in /parrot/languages/abc/src which looks like this:</p>
+<pre>
+.namespace [ 'Basic64' ]
+
+.sub '__onload' :load :init
+    load_bytecode 'PGE.pbc'
+    load_bytecode 'PGE/Text.pbc'
+    load_bytecode 'PGE/Util.pbc'
+    load_bytecode 'PGE/Dumper.pbc'
+    load_bytecode 'Parrot/HLLCompiler.pbc'
+
+    # import PGE::Util::die into Basic64::Grammar
+    $P0 = get_hll_global ['PGE::Util'], 'die'
+    set_hll_global ['Basic64::Grammar'], 'die', $P0
+
+    $P0 = new [ 'HLLCompiler' ]
+    $P0.'language'('Basic64')
+    $P0.'parsegrammar'('Basic64::Grammar')
+.end
+
+.sub 'main' :main
+    .param pmc args
+    $P0 = compreg 'Basic64'
+    $P1 = $P0.'command_line'(args, 'target' => 'parse')
+.end
+
+.namespace [ 'Basic64::Grammar' ]
+.include 'basic_gen.pir'
+</pre>
+
+<p>The last line is the most important as this is where you include the output from pgc.pir.</p>
+
+<p>Once you have that in place, you can start working on your grammar.  The rest of this will be me discussing my grammar.  Any feedback would be very much appreciated.  I have probably made many mistakes (both in code and conceptual) and there are a few things that still need to be done but it seems to parse my, admittedly nonsensical, basic program made up of different BASIC statements.</p>
+
+<pre>
+grammar Basic64::Grammar;
+</pre>
+
+<p>As with the new structure for parsing in Perl6, this declares a new grammar in its own namespace.  In a fully functioning Perl6, this would allow it to reside in its own file and it would be an error to declare any other user defined type in that file.</p>
+
+<pre>
+token TOP { ^ <program> $ }
+</pre>
+
+<p>This declares the beginning of the program with a sub-rule (don't worry, we will get to rules and tokens in a moment).</p>
+
+<pre>
+token linenum { <digit>+ }
+</pre>
+
+<p>A token is a sub-rule that defines the very basic structures of your language.  Much like a scanner in lex, it defines the bits of your language rather than the structure of your language.  This token defines the program line number that is the most recognizable part of every BASIC program.</p>
+
+<pre>
+token term {
+        | $<float>:=[ \d+<dot>\d* | <dot>\d+ ]
+        | $<integer>:=[\d+]
+        | <func>
+        | $<indent>:=[<[a..z]><[_a..z0..9]>*]
+}
+</pre>
+
+<p>This defines the different kinds of numbers (float and integer), variable names (ident), and built-in functions (func) which can be used in expressions.  The strange format basically states "bind this regular expression to this variable that will be used later".  In this case "later" means in mathematical expressions which are valid in the language.  The "|" is the alternation operator and tells the parsers that it is float or integer or func or ident.  The <dot> is a convenience token that parses a '.' rather than having to put \. in the grammar itself.  The [] is a means of grouping but not a character class.  The <[a..z]> replaces [] as character classes in Perl6.</p> 
+
+<pre>
+token func {
+        <func_name><'('><expr><')'>
+}
+</pre>
+
+<p>This defines what a function should look it.  It probably should be a rule rather than a token because it describes the syntax of the language rather than just the basic bits of the language.</p>
+
+<pre>
+token func_name {
+        sin
+        | cos
+        | tan
+        | atn
+        | exp
+        | abs
+        | log
+        | sqr
+        | rnd
+        | int
+}
+</pre>
+
+<p>This describes the names of the built-in functions that are provided in BASIC.</p>
+
+<pre>
+rule program { [<statement> <';'>]+ | <error: syntax error> }
+</pre>
+
+<p>A rule is what describes the actual syntax of your language. the <> declare a non-capturing sub-rule.  the <';'> means to match exactly that character.  In this case, it means that each statement must end with a ;.  I know that this is not good BASIC but to make \n the line end would require that I change <ws> (the white space rule which is automatically applied unless redefined by the grammar).  I will change it eventually.  The [] creates a group with the '+' modifier which means that it must match one or more times.  The <error: syntax error> is essential to the grammar because otherwise, as I found out, parrot will throw a Null PMC error when trying to parse your language.</p>
+
+<pre>
+rule statement {
+        <linenum>
+                [
+                        <let_statement>
+                        | <dim_statement>
+                        | <print_statement>
+                        | <goto_statement>
+                        | <gosub_statement>
+                        | <next_statement>
+                        | <next_statement>
+                        | <end_statement>
+                        | <stop_statement>
+                        | <return_statement>
+                        | <for_statement>
+                        | <if_statement>
+                        | <func_statement>
+                ]
+}
+</pre>
+
+<p>This states that a statement rule has a linenumber token in the beginning and one of these sub-statements and ends in a ; character.</p>
+
+<pre>
+rule let_statement { <'let'> <expr> }
+rule dim_statement { <'dim'> <ident> <'('> <digit>+ <')'> }
+rule print_statement { <'print'> <PGE::Text::bracketed: "> }
+rule goto_statement { <'goto'> <linenum> }
+rule gosub_statement { <'gosub'> <linenum> }
+rule next_statement { <'next'> <ident>+ }
+rule end_statement { <'end'> }
+rule stop_statement { <'stop'> }
+rule return_statement { <'return'> }
+rule for_statement { <'for'> <expr> <'to'> <expr> [<'step'> <expr>]? }
+rule if_statement { <'if'> <expr> <'then'> <linenum>}
+rule func_statement { <'def'> <'fn'><[a..z]><'('><ident>+<')'> <'='> <expr>}
+</pre>
+
+<p>These are the sub-statements that create the bulk of BASIC.  There are few interesting points here.  First, the <pre><'let'></pre> means to match exactly those characters in a rule.  The <expr> is a sub-rule that defines the mathematical expressions in BASIC which I will discuss soon.  The <PGE::Text::bracketed: "> is a special phrase in PGE that allows you to create balanced character.  For now, print will have balanced " to make a string.  PGE::Text::bracketed can also take (), {}, and [].  PGE will keep track of different levels of the characters and everything else which massively simplifies writing a grammar.  Notice the for_statement, it has an optional part of the rule which is grouped by the [] and augmented by the ?, which means match zero or one time only.</p>
+
+<pre>
+rule 'expr' is optable { ... }
+</pre>
+
+<p>This creates the operator precedence table that will be used in BASIC for a mathematical expression, as I have discussed above.  Again, this massively simplifies writing grammars.  Of course, there is more to it than that as you must define what your operators are.</p>
+
+<pre>
+proto 'term:' is precedence('=') is parsed(&term) { ... }
+</pre>
+
+<p>I am not sure what the proto stands for in Perl6 grammars but it is used here to define operators and their precedence.  The 'term:' operator is the top level of the operator table.  The precedence adverb tells PGE how each operator should be applied.  The adverb 'is parsed' tells PGE to use the token called term that we defined at the beginning of the file.  This is why many of the built-in functions of BASIC are defined in the token term section because they can be applied in an expression and take themselves expressions as their argument.  The braces are, in grammars generally, used to indicate actions when the parser reaches that spot.  I am not sure what the { ... } is for but each of the operator rules has them in all examples that I have seen so I added them here.</p>
+
+<pre>
+#parens
+proto 'circumfix:( )'  is equiv('term:') 
+    is pirop('set')
+    { ... }
+</pre>
+
+<p>As withe the PGE::Text::bracketed above, the expressions can have circumfix operators which encircle an expression.  The adverb 'is equiv' tells PGE that the parens bind as tightly as the highest precedence level, in this case term.  If the operator has a PIR equivalent, you can use the adverb 'is pirop' to indicate this.</p>
+
+<pre>
+# negation
+proto 'prefix:-'
+    is looser('term:')
+    is pirop('neg')
+    { ... }
+</pre>
+
+<p>For the operators to work correctly, you must order them in some way.  I took from the abc language and keeping an eye on the C operator precedence table simplified the abc language one.  Here you will see the adverb 'is looser' and this indicates the precedence hierarchy.  I will append the other operators here for reference.  An astute reader will notice that in the rules above the <let_statement> rule does not have an = in its rule but the <func_statement> does.  I am not sure what the problem is here (and it is probably my problem not PGE's) as the <let_statement> parses just fine but the <func_statement> does not and seems to need that extra = sign to parse.  Another thing that an astute reader will notice is that there are several different types of operators: circumfix, prefix, infix, and postfix.  This corresponds to its position in an expression.</p>
+
+<pre>
+## exponentiation
+proto 'infix:^'
+    is looser('prefix:-')
+    { ... }
+
+#multiply
+proto 'infix:*'
+    is looser('prefix:-')
+    is pirop('mul')
+    { ... }
+
+#divide
+proto 'infix:/'
+    is equiv('infix:*')
+    is pirop('div')
+    { ... }
+
+#add
+proto 'infix:+'
+     is looser('infix:*')
+     is pirop('add')
+     { ... }
+
+#subtract
+proto 'infix:-'
+    is equiv('infix:+')
+    is pirop('sub')
+    { ... }
+
+#assign
+proto 'infix:='
+    is looser('infix:+')
+    is assoc('right')
+    is past('assign')
+    is lvalue(1)
+    { ... }
+
+</pre>
+
+<p>The last part of the grammar are the relational operators.  In the case of BASIC, >,<,<=,>=, and <pre><></pre> (meaning not equal).  I borrowed this code from punie's grammar almost directly.  I am not sure what the adverb 'is assoc' means but I left it in there just in case it broke without it.</p>
+
+<pre>
+ #relational operators
+proto 'infix:<'  is looser('infix:=') is assoc('non') {...}
+proto 'infix:>'  is equiv('infix:<')   is assoc('non') {...}
+proto 'infix:<=' is equiv('infix:<')   is assoc('non') {...}
+proto 'infix:>=' is equiv('infix:<')   is assoc('non') {...}
+proto 'infix:<>' is equiv('infix:<')   is assoc('non') {...}
+</pre>
+
+<p>The last but not least is compiling you grammar.  As you noticed above, there is some superstructure that needs to be in place.  What I generally do is compile the grammar and out put to a basic_enc.pir file which I then include at the bottom of my superstructure I then do 'parrot/parrot -o basic.pbc basic.pir' then to run my test file against I do 'parrot/parrot basic.pbc test.bas' which will either dump a valid match object to my screen where I can check to see if it parsed the way I expected or throw a Null PMC error, which means that there is something wrong with my grammar otherwise it will tell me that it failed to parse the source.  Currently, my test file looks like this:</p>
+
+<pre>
+##TODO:
+##Make dim work correctly (ie. 10 dim b(10,10))
+##Redefine <ws> to deal with \n as line end and REM as comment
+##Matrix operations
+##Allow scientific notation numbers
+
+10 let foo = 5 + 5;
+20 dim a(10);
+30 print "blah";
+40 goto 10;
+50 gosub 20;
+60 next bar;
+70 end;
+80 stop;
+90 return;
+100 for x = 1 to 5;
+110 for y = 1 to 10 step 2;
+120 if z > 5 then 10;
+130 def fna(blah) = 5 + z;
+140 let foo = sin(5);
+150 let foo = -6;
+160 let foo = (5 + 5);
+170 let foo = 5^5;
+180 let foo = 1.2;
+190 let foo = .2;
+</pre>
+
+<p>At this point, my next step would be to look into TGE which is the language to create abstract syntax trees in the parrot compiler tool chain.  I am still in the preliminary stages of that particular task and I hope to write a similar post about my experiences with TGE as with PGE.  At this point, I would like to thank Patrick R. Michaud and Allison Randal, who has worked very hard on TGE and PGE.  They made writing language grammars fun and interesting.  With these tools, I could write up and test bits of a grammar at a time and run them against my cooked up code.  I would also like to thank everyone who has worked on the ParrotVM as it makes playing with a VM fun. I have a full VM that I can play with to my hearts content.  Again, Thank You!  I am looking forward to my first really working version of the language.</p>  
+
+<p>I would like to reiterate that I would appreciate any recommendations, suggestions, and criticism.  I have a few questions as well.  For instance, is the <func> rule in the token term the correct way of writing in built-in functions?  Anyway, I will leave this for now and I hope this helps anyone else learning PGE.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Adding basic to the Parrot repository</h2>
+<h3><a href="/user/Bernhard/">Bernhard</a> on 2007-02-24T19:58:36</h3>
+<p>
+'languages/BASIC' in the Parrot SVN repository is very much abandoned. I think it's a good idea to replace that with your PGE based implementation.
+</p>
+<p>
+Please open a ticket on by sending an email to parrotbug@parrotcode.org, or mail me directly, if you are interested in that.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

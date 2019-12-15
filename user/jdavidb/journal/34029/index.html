@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jdavidb: Oracle gem of the day: converting epoch seconds</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Oracle gem of the day: converting epoch seconds</h1>
+<h2><a href="/user/jdavidb/">jdavidb</a> on 2007-08-07T15:15:16</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>To my knowledge, there is no Oracle TO_DATE format specifier for converting from epoch seconds to a DATE or TIMESTAMP.  There should be.</p>
+
+<p>To my knowledge, there is no Oracle built-in function to convert epoch seconds to a DATE or TIMESTAMP.  There should be.</p>
+
+<p>However, converting epoch seconds is not very hard.  By definition, epoch seconds are seconds since January 1, 1970.  So add the seconds to 1970.</p>
+
+<p>Since my problem doesn't specify anything about location, time zone, or daylight saving time, my solution doesn't do anything to account for those.  If you use this, you might want to think about those.  I think everybody ought to just use UTC anyway. :)</p>
+
+<p>Also, I don't specify the hour, minute, and second of the epoch I'm adding to.  I may have some logic error here.  It's good enough for my purposes, but if you need to use this, think about it and make sure it does the right thing before you depend on it. :)</p>
+
+<pre>
+CREATE OR REPLACE FUNCTION from_epoch(v_epochseconds NUMBER)
+RETURN TIMESTAMP
+AS
+BEGIN
+ RETURN TO_TIMESTAMP('1970-01-01', 'YYYY-MM-DD') + v_epochseconds / 86400;
+END;
+/
+</pre>
+
+<p>86400 of course is the number of seconds in a day, so the division converts your input value to days for use with Oracle's arithmetic.</p>
+
+<p>By the way, this also doesn't account for leap seconds.</p>
+
+<p>Hmm, probably if I'm going to use TIMESTAMP instead of date I should convert the input value to a real, first-class, INTERVAL value and add that instead of relying on an implicit conversion from number to days.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Mostly Unrelated</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2007-08-07T17:10:45</h3>
+I know I've searched for Oracle epoch seconds before and come up with something similar to what you are using.  I did it again today when I saw this post and ran across something bizarre (yet interesting):
+<a href="http://www.dizwell.com/prod/node/67" title="dizwell.com">The story behind the Oracle DATE datatype</a dizwell.com>.
+
+
+
+<h2>Don't work in seconds from 1970</h2>
+<h3><a href="/user/$Bob/">$Bob</a> on 2007-08-07T18:07:21</h3>
+I dealt with this issue a long time ago (Oracle 7 or 8, IIRC), and I haven't had to deal with Oracle in quite a while, so forgive me if my examples seem a bit hazy, or if Oracle's handling of these issues has improved.<br><br>In my experience, Oracle doesn't understand time zones, daylight savings adjustments, leap seconds, or anything else that makes dealing with date/times easy.  So, the shortcut I eventually came up with was to use seconds from "now" as the epoch.  That way you can deal with the various other issues in Perl, where the solutions are well documented.<br><br>So in Perl, I'd pull a "date" out of the database and add it to the value of time(), then convert that to whatever date/time format I needed.  I'd do the reverse if I was sending a date to Oracle.<br><br>In Oracle, I'd get a value, divide it by (24 * 60 * 60), and add it to whatever function gave you the current timestamp.  I'd do the reverse if I was sending a date to Perl.<br><br>Clock drift may skew the results slightly, but that's correctable to within a second by using NTP on the machines.<br><br>I don't know how things have changed since then, but I hope this helps.
+
+
+
+<blockquote>
+
+<h2>Re:Don't work in seconds from 1970</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2007-08-07T18:17:35</h3>
+<p>Today Oracle understands time zones and daylight savings time if you use the TIMESTAMP WITH TIMEZONE data type, which is sort of a superset of the DATE datatype.  There is also a plain TIMESTAMP datatype that has some features beyond DATE but does not do timezones.</p>
+
+<p>The only time I really had to mess with this was when I had Log4perl logging to a database table, and I demanded that the timestamp field be a TIMESTAMP WITH TIMEZONE in UTC time, with UTC as the TIMEZONE value.  Somewhere back in my journal I have info about how I did this.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

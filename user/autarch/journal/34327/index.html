@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autarch: Monkey patching CPAN distros with CPAN.pm</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Monkey patching CPAN distros with CPAN.pm</h1>
+<h2><a href="/user/autarch/">autarch</a> on 2007-09-03T17:53:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+<a href="http://search.cpan.org/user/flora/">Florian Ragwitz</a>, a Perl
+guy and Debian developer, brought to my attention a really cool new
+feature in recent versions of CPAN.pm, called "Distroprefs". It allows
+you to configure CPAN.pm to do various custom "things" when installing
+a distro. One major use case is automating interactive installers with
+Expect, which is obviously useful.
+</p>
+
+<p>
+Another thing you can do is tell CPAN to apply a patch to a module as
+it installs it. To make things extra cool, it can fetch this patch off
+of CPAN itself, making it easy to create "mini-forks" of a module. Of
+course, long term, we want to get these patches integrated back into
+the distro, <em>or</em> create a real fork with a different name, but
+in the short-term this can be quite handy.
+</p>
+
+<p>
+The particular module that Florian and I were discussing
+is <a
+href="http://search.cpan.org/dist/Devel-Cycle">Devel::Cycle</a>. This
+is in turn used
+by <a
+href="http://search.cpan.org/dist/Test-Memory-Cycle">Test::Memory::Cycle</a>. I
+use the latter module in various distros where I want to make sure
+that I'm properly weakening references to prevent circular references,
+which lead to memory leaks.
+</p>
+
+<p>
+Devel::Cycle has a cool feature where it will
+use <a href="http://search.cpan.org/dist/PadWalker">PadWalker</a> to
+peak inside closures as part of its cycle detection. This is great,
+since it's quite easy to create a circular reference with a
+closure. What's not so great is that Devel::Cycle is pretty broken
+when it does this. If the closure contains any references which aren't
+references to
+scalars, <a href="http://rt.cpan.org/Ticket/Display.html?id=25360">it
+blows up</a>.
+</p>
+
+<p>
+I ran into this when writing a test
+for <a
+href="http://search.cpan.org/dist/DateTime-Format-Builder">DateTime::Format::Builder</a>,
+which had circular references that needed removing. I fixed
+Devel::Cycle, submitted a patch via the RT ticket, and installed the
+patched version locally. This let me run the tests to prove that the
+circular ref was fixed, and I uploaded a new version of
+DateTime::Format::Builder to CPAN. This promptly caused breakage
+because <em>everyone else's</em> Devel::Cycle is still broken.
+</p>
+
+<p>
+So distroprefs to the rescue! I've uploaded my patch for Devel::Cycle
+to CPAN and you can configure your CPAN.pm to apply it. First start
+the cpan shell and run <code>o conf init /prefs/</code> and <code>o
+conf init /patch/</code>. This lets you tell the cpan shell where to
+find your distropref files and where to find the programs it needs to
+apply patches. Match sure to save your prefs with <code>o conf
+commit</code> if you don't have autocommit enabled.
+</p>
+
+<p>
+Then create a file in your distroprefs dir (which is
+probably <code>~/.cpan/prefs</code>)
+named <code>LDS-Devel-Cycle.yml</code> (That's
+[AUTHOR]-[DISTRONAME].yml). In that file stick this bit of YAML:
+</p>
+
+<pre>
+---
+comment: "Fixes coderef bug"
+match:
+  distribution: "^LDS/Devel-Cycle-1\.07\.tar\.gz$"
+patches:
+  - "DROLSKY/patches/Devel-Cycle-1.07-DROLSKY-coderef.patch.gz"
+</pre>
+
+<p>
+The "comment" bit isn't necessary but it's a nice feature so you know
+what this is for. Then next time you install Devel::Cycle 1.07, it
+will apply my patch as well.
+</p>
+
+<p>
+There's still a couple things missing to make this really
+useful. First, after you install the patched version, there won't be
+any indication that your 1.07 is different from the vanilla 1.07. I'm
+not sure exactly how this should work, though. My first thought was
+that the patcher could patch the version # too, to something like
+"1.07-coderef-patch". That doesn't scale beyond one patch, and
+non-numeric version numbers always make the toolchain cry anyway.
+</p>
+
+<p>
+Second, there's no good mechanism for advertising the existence of
+these patches. Ideally, this would be integrated into
+search.cpan.org. It could even let you select some patches and
+generate the necessary YAML bits for you to store.
+</p>
+
+<p>
+The CPAN distro comes with a directory full of examples distropref
+files. You
+can <a
+href="http://search.cpan.org/src/ANDK/CPAN-1.9102/distroprefs/">browse
+it via search.cpan.org</a>. There's a ton of examples, and if you
+click on a module you're familiar with, you'll get the idea of how it
+all works really quickly.
+</p>
+
+<p>
+I think this is a really interesting idea and I give Andreas major
+props for writing it. If only he'd publicized it ;)
+</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

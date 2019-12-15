@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Heading towards PPI 1.200, featuring new features!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Heading towards PPI 1.200, featuring new features!</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2006-10-07T05:02:19</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Thanks to a large spurt of activity by Chris Dolan (much of it for the purpose of adding new features and policies to <a href="http://search.cpan.org/perldoc?Perl::Critic">Perl::Critic</a>) the 1.118 version of <a href="http://search.cpan.org/perldoc?PPI">PPI</a> (currently on CPAN) will now be considered the last version in the 1.100 series of releases.<br/><br/>The next few releases will be developer releases, versioned as 1.199_xx, for testing the new features which will appear in 1.200.<br/><br/>At this point I'd expect something like 5-10 releases in the 1.199_xx series, as we'll need to write some even-more-paranoid tests for a couple of the new features and ramp up the line-noise testing again for a while. Please note that this increased line noise testing also means the install time for the PPI dev releases will be relatively long.<br/><br/>Currently, there are three major features scheduled for the 1.200 release.<br/><br/><b>1. Newline round-tripping</b>
+<blockquote>The one current caveat to PPI's "100% round-trip guarantee" is that it will localize the newlines to the current platform, if your files are set to the "wrong" platform.<br/><br/>I did this originally because I was concerned about "regex soup" issues (because the regex form of a cross platform newline is not /\n/, but /\015{1,2}\012|\015\012/ and would need to be used in a lot of places) and because no software that I'm aware of effectively deals with files that contain mixed newlines, so I didn't have good working system to copy off.<br/><br/>But Chris and the Perl::Critic guys <b>really</b> want to have the newlines in the PDOM model with byte-level correct. In particular, they want to create policies detecting and/or banning wrong-platform or mixed-platform newlines, and currently only access to a document can be guaranteed by Perl::Critic because of things like STDIN/STDOUT pipe mode. They don't necesarily have access to the original file to run their newline checks.<br/><br/>After much email too'ing and fro'ing, Chris has managed to convince me he can implement full newline round-tripping, to the point where if your file starts with mixed newlines, we can output the original newlines correctly on a byte for byte basis.<br/><br/>I like to think of this is making PPI 110% round-trip compliant! :)<br/><br/>Obviously this is going to create some issues for people currently using code that uses plain newlines regular expressions or simple splits, so the default behaviour will probably remain as localized newlines in the model, with some sort of document constructor flag in place to control newline behaviour.<br/><br/>For example, potentially it may look like.
+<code>
+my $doc = PPI::Document->new( 'filename.pm',
+    newlines => 'local',   # current behaviour
+    newlines => 'cr',      # force to a specific newline type
+    newlines => 'mixed',   # line-by-line accurate with auto-default
+    newlines => 'cr-mixed' # line-by-line with explicit default
+    );
+</code>
+Most of the hard work is, as usual, dealing with edge cases.<br/><br/>For example, search (Perl::Critic's use case) is fine, but what happens when you insert a tree section into a document, and they have different newlines? What if both the inserted content and the document have mixed newlines? (think cut and paste)<br/><br/>Resolving those weird cases will take some work, but I think we have a conceptual design that will mean that for most people, the API will just Do What You Mean and all current code and behaviours will be back-compatible.
+</blockquote>
+<b>2. Sub-classing of PPI::Token::Number</b>
+<blockquote>Numbers in Perl are extraordinarily complicated. While PPI does a pretty good job of identifying numbers, it hasn't typed them very well.<br/><br/>Currently it has a single PPI::Token::Number class, with a ->type method to identify binary, hex, octal, and so on and so forth.<br/><br/>After reading through the code following the 1.000 release, Audrey Tang made the offhand comment that having a ->type method was silly, since for data objects (which is what the PDOM objects are) their class <b>is</b> their type, and that I should just have subclassed the main number class into a series of sub-classes for each type of number.<br/><br/>It was such an obvious thing to do that it's been near the top of my to do list ever since, but I've never had the time to sit down and implement it.<br/><br/>Fortunately, Chris has decided to take a shot at it as well, and seems to be getting along quite well. The actual sub-classes are yet to be finalised though, because we might end up with some unusual cases like PPI::Token::Number::Unicode (which is something you probably don't want to know exists).<br/><br/>But it should all be resolvable.<br/><br/>And with numbers refactored, that creates an opportunity to implement a third long-desired feature, that the number problem was blocking.
+</blockquote>
+<b>3. Adding the PPI::Element::literal method</b>
+<blockquote>
+One of the original "really cool uses" for PPI was the idea that you can take features of various modules that are currently suspicious from a security point of view (or can only be used safely in limited situations), and make them completely safe for use everywhere (although of course at a speed penalty).<br/><br/>One of these modules with existing security issues is <a href="http://search.cpan.org/perldoc?Data::Dumper">Data::Dumper</a>. Data::Dumper dumps out Perl structures as Perl code and uses the interpreter to read it back in.<br/><br/>However, arbitrarily parsing data in the form of code creates a security hole big enough to drive a truck through.<br/><br/>The PPI::Element::literal method is a solution for this sort of problem, and has been in planning a while.<br/><br/>This method will take an element, for example the string 'foo', and return the literal value of it, as if Perl itself has parsed it as a value.<br/><br/>This seems fairly trivial, until you consider that we can implement the literal method recursively.<br/><br/>So now we can take something like the following...
+<code>
+$VAR1 = {
+    foo => [
+        1, 2, 3, qw{foo bar}, {
+            this => \'that',
+        },
+    ],
+    qr/\n/,
+};
+</code>
+... and we can determine that something will be assigned to $VAR1, and then determine what the literal vale of the structure will be that you are assigning, exactly as if Perl had parsed it. In the ->literal implementation we can trap anything with an error, illegal content, or catch things that can't be determined at all (think "foo$bar") and throw an exception.<br/><br/>With sane number classes, we can start implementing the literal method for numbers, and then from there also implement it for the string types, hash|array|scalar|ref constructors, and so on and so forth (possibly even including bless( $var, 'class') expressions in the Data::Dumper output in some cases).<br/><br/></blockquote>
+<b>Other additions for 1.200</b><br/><br/>As well as the three major features detailed above, 1.200 will also see the PPI::Document::File class upgraded from experimental to supported (in preparation for larger and more complex things changing documents), another layer of self-analysis test scripts, and the usual set of minor parsing bugs.<br/><br/>Most notably, with the literal method coming, I'd like to try and support explicit constructors (think +{ foo => 'bar' } and similar things) better, and handle the "block vs hash constructor" problem a bit better.<br/><br/>And of course, the line noise tests will now start throwing BOTH types of newlines at us.<br/><br/>As for when 1.200 is expected to be release, I think definitely by Christmas.<br/><br/>Hopefully this Christmas :)</p>
+
+
+<hr/>
+
+
+
+<h2>truly awesome</h2>
+<h3><a href="/user/amoore/">amoore</a> on 2006-10-09T17:02:55</h3>
+Thanks for all of your work on PPI. It's making it possible (maybe even easy?) to have tons of cool tools like Perl::Critic, more automated refactoring in our editors, static source code analyzers, and all of that stuff I haven't even thought of. Thanks again!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

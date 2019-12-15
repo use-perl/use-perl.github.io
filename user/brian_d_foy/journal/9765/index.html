@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: Cleaning up after the CDDB</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Cleaning up after the CDDB</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2003-01-05T00:43:36</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Since I am mostly away from any sort of network, I have been cleaning up things on my laptop.  Today I went through about 20Gb of MP3s to see how badly the CDDB had classified them.<br/><br/>The CDDB works well for "popular" music---that stuff that gets put into "Rock", "Alternative", and so on.  It works less well for compilations, like "Soundtracks" since the phrase "Various Artists" ends up in the artist portion of the ID.  Apparently it works poorly for show tunes---people seem to really care about the performers so they get really specific with the artist portion of the ID to the extent that every song on the CD has a different artist string even though it is the same cast.  People almost always butcher western art music ("Classical" to most people) so that any information show up anywhere---track name in artist, performer in CD name, different languages in descriptions for different tracks, and then the really FUBARed CDs I just type in myself.<br/><br/>I started to work on a little Perl script to do this stuff for me, but since I use a Mac I get to use iTunes.  As I tried a few things in iTunes, I discovered that I could get the job done faster and easier with very little programming.  Most of the changes relate to special cases anyway, so automating the task is not that helpful.<br/><br/>If I change the tag if iTunes, it:<br/><br/><ul>
+<li>Updates the iTunes database and playlists
+<li>Updates the ID tag in the actual file
+<li>Moves the file to a new artist directory (if my music is in the iTunes
+Music Library)
+</ul><br/><br/>This is all very cool. I wanted to reorder the directory structure by artist anyway, and now I do not have to mess with File::Find to do that.  Moving around 20Gb of data on a mostly full 40Gb drive is a slow process.<br/><br/>I can also select several tracks from a playlist and affect them in parallel.  I can change them to have the same artist, title, or whatever.  Again, very cool if the change is simple.<br/><br/>Often the change is not simple.  While trying to fix the ID tags for Glenn Gould's English Suites, I needed to take part of the old title string and combine it with part of the old artist string.  The title had the name of the major work, while the artist had the name of the movement in that piece (instead of, say, "Glenn Gould" or "Johann Sebastian Bach").  Each track had a unique artist string, and some tracks had the names of the major work while others were left blank (ending up with "Track 02" and so on) meaning that they were the same as the previous track.  <br/><br/>This looks like a tough programming problem, but it really is not that bad if I break it into little problems.  Too often I see programmers (oh, that includes me sometimes too) try to solve several problems at once, which makes their solutions very complex.  Complex solutions suck because they make for complicated maintenance.<br/><br/>The first problem is getting the track names in order.  If I can make the "Track N" strings match the major work name, I have solved one problem, and the next problem, combining that name with the movement name, is much easier.<br/><br/>I wrote a little AppleScript to grab the selected tracks in the playlist (which need not be contiguous), grab the "name" of the first track in the selection, and use that for the name of the remaining tracks.  I need to be careful here---depending on which way I have playlist ordered (ascending or descending in a certain column), the first track may be different than what I see as the first track in the window.  I omit the debugging output, although anyone who uses this may want to insert a dialog box that confirms the change before AppleScript makes the change.<br/><br/><pre>
+tell application "iTunes"
+	set myWindow to browser window 1
+	set mySelection to selection of myWindow
+	set myNewName to name of first item in (get the selection of browser window 1)
+	repeat with myTrack in (get the selection of browser window 1)
+		set name of myTrack to myNewName
+	end repeat
+end tell
+</pre><br/><br/>Now the names of the tracks should be half-right.  I still need to combine them with the string in the artist portion.  I do this a bit differently because I do not need to select tracks since I want to change all tracks in the playlist at the same time.  I tell iTunes to cycle through all of the tracks, join the name and artist strings with a ", ", then set the name to the combined string.  Once the string in the artist section is safely in the track name, I set the artist string to the real artist, which for me means the performer (iTunes has a separate column for composer---see the Edit>View Options... menu item to see how you can change the columns in iTunes).<br/><br/><pre>
+tell application "iTunes"
+	set myPlaylist to playlist "To Do"
+	repeat with i from 1 to count of tracks of myPlaylist
+		set myTrack to track i of myPlaylist
+		set myArtist to artist of myTrack
+		set myName to name of myTrack
+		set myNewName to myName & ", " & myArtist
+		set name of myTrack to myArtist
+		set artist of myTrack to "Glenn Gould"
+	end repeat
+end tell
+</pre><br/><br/>As I cleaned up other things, I moved them to the "To Do" playlist and made slight modifications to these two scripts.  Eventually Mac::iTunes will make this even easier, and I want to wait for an OS X version of Mac::Glue to do it since Mac::AppleScript is slow.  I still need to write some Perl to clean up other problems with the tags (or write some powerful text processing AppleScript code---ughhh).  I have another 30Gb or so of MP3s on another machine, and once I get them together I will be highly motivated to automate their cleanup.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

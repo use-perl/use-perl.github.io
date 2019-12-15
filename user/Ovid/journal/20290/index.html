@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: bblaunch segfault in Fedora Core 2</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>bblaunch segfault in Fedora Core 2</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2004-08-07T10:10:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Posted primarily as a google lookup.</p>
+
+<p>Once again I need to brush up on my C.  In order to get <a href="http://use.perl.org/user/Ovid/journal/20279">borderless terminals with <tt>aterm</tt> and <tt>fluxbox</tt></a> working, I had to use <tt>bblaunch</tt>.  As it turns out, <a href="http://packages.qa.debian.org/b/bblaunch.html">bblaunch</a>, an unmaintained program that both blackbox and fluxbox use, has the following line of code in it:</p>
+
+<pre>sprintf(launchargs.call, "%s", (char *)atoi(argv[0]));</pre>
+
+<p>With <tt>launchargs</tt> being a struct:</p>
+
+<pre>typedef struct LArgs
+  { 
+    char call[1024];
+    char command[1024];
+    unsigned long flags, attrib, workspace, stack, decoration;
+    unsigned long pause;
+    Bool iconic;
+  } LArgs;</pre>
+
+<p>While that line works fine in Redhat 8, it segfaults under Fedora Core 2.  As it turns out, <tt>launchargs.call</tt> is not actually used, so I was able to comment out that line in bblaunch and recompile and everything worked fine.  Now I need to dig in to find out the reason for the segfault.  If only I knew C as well as Perl.</p></p>
+
+
+<hr/>
+
+
+
+<h2>chasing segfaults</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2004-08-07T10:48:17</h3>
+<blockquote><div>Now I need to dig in to find out the reason for the segfault. If only I knew C as well as Perl.</div></blockquote>
+<p>If you've not got a coredump already from it, I'd suggest running it under gdb and using that to
+see where it goes boom. All the code looks legal, and I can't see anything that can actually go wrong. Except that <code>argv[0]</code> might be a null pointer. Which seems unlikely, but is the only possible problem that I can spot.</p>
+
+
+
+<h2>Strange construct</h2>
+<h3><a href="/user/VSarkiss/">VSarkiss</a> on 2004-08-07T11:52:30</h3>
+<p>Unless something weird is going on, <code>argv[0]</code> should be the program name.  So doing an <code>atoi</code> will generally produce nothing useful, unless the program's name is <tt>666</tt> or some such.</p>
+<p>That said, it seems a far simpler way to do what the code's doing is to just use sprintf to do the work:</p><blockquote><div> <tt>sprintf(launchargs.call, "%d", argv[0]);</tt> </div></blockquote>Which would do nothing -- including not segfault -- if <code>argv[0]</code> isn't numeric.
+<p>Fair warning: it's 4:30 am as I write this, after a bout of insomnia.  Use at your own risk.<nobr> <wbr></nobr>;-)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Strange construct</h2>
+<h3><a href="/user/rooneg/">rooneg</a> on 2004-08-07T14:59:34</h3>
+Worse yet, calling atoi on it will give you back an integer, which is then being cast to a char *, so you're looking in whatever bit of memory the integer value you get refers to and treating it as a character array.  There's nothing good that can come of this, it's quite broken.
+
+
+
+<blockquote>
+
+<h2>Re:Strange construct</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2004-08-07T21:48:58</h3>
+<p>Oh yes, crap. I missed that cast.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Strange construct</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2004-08-07T21:51:28</h3>
+<blockquote><div>Unless something weird is going on, argv[0] should be the program name.</div></blockquote>
+<p>True. There's insufficient context to see whether anyone modified <code>argv</code> (<code>++argv</code> or somesuch). I'm not sure if I'd count modifying <code>argv</code> as weird though, as I've been known to write code that increments it in a <code>while</code> loop to process all command line arguments.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Strange construct</h2>
+<h3><a href="/user/VSarkiss/">VSarkiss</a> on 2004-08-07T22:11:41</h3>
+<p>I meant unless <code>argv</code> isn't even the command line: if it's an array internal to the program or something.  Nothing in C enforces using <code>argc</code> and <code>argv</code> for program arguments; it's just a convention that is all too often broken.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of LTjake: handling HTTP response codes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>handling HTTP response codes</h1>
+<h2><a href="/user/LTjake/">LTjake</a> on 2003-07-23T12:38:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>After <a href="http://www.diveintomark.org/">Mark</a>'s <a href="http://diveintomark.org/archives/2003/07/21/atom_aggregator_behavior_transport_level.html">post</a> yesterday on how atom aggregators should handle http response codes, I decided to bring our (currently in-house-only) RSS aggregator up to speed. I think it's safe to assume that both RSS and atom aggregators should handle HTTP in the same manner.</p>
+<p>The structure of the aggregator is a little weird because it's a server-based "what's new?" type app and not a desktop/personal news reader.</p>
+<p>There are two main parts to the app that read a feed.</p>
+<ol>
+<li>the update_cache.pl script (scheduled to run every couple of hours)</li>
+<li>the actual web app which reads only from the cache</li>
+</ol>
+<p>So, i really only had to deal with the update_cache.pl script since it's the only part that actually deals with external sites.</p>
+<p>I was able to check off a few of the <a href="http://diveintomark.org/archives/2003/07/21/atom_aggregator_behavior_transport_level.html">requirements</a> off right away.</p>
+<ul>
+<li>It already handled Etags and Last-Modified dates (even though it's in-house only right now, we want it to play nice with externals servers when the time comes)</li>
+<li>Referer and User-Agent were set appropriately.</li>
+<li>https is supported (simply by installing <a href="http://search.cpan.org/author/CHAMAS/Crypt-SSLeay-0.51/">Crypt::SSLeay</a>)</li>
+<li>A requirement not on the list, but important to note is that it supports the file:// protocol so all local feeds can be read straight off the file system (it also returns a Last-Modified date! <a href="http://search.cpan.org/author/GAAS/libwww-perl-5.69/">LWP</a> rocks!)</li>
+</ul>
+<p>Adding gzip and deflate support was a snap -- along with sending the right header with my request</p>
+<code>$request->header( Accept_encoding   => 'gzip; deflate' );</code>
+<p>handling the returned data was too easy:</p>
+<code>
+if ( my $encoding = $response->header( 'Content-Encoding' ) ) {<br />
+ &nbsp; &nbsp;require Compress::Zlib;<br /><br />
+ &nbsp; &nbsp;$data = Compress::Zlib::memGunzip( $data )  if $encoding =~ /gzip/i;<br />
+ &nbsp; &nbsp;$data = Compress::Zlib::uncompress( $data ) if $encoding =~ /deflate/i;<br />
+}
+</code>
+<p>LWP was handling redirects automatically which was alright except that there needs to be a distinction between temporary redirects (300, 302, 307) and permanent ones (301). I had to add in a loop and use <code>simple_request()</code> so i could see what was returned after each request. After a permanent redirect, the URL will be permanently updated in the config file (temp redirects will not affect the config).</p>
+<p>Speaking of redirects, code 304 Not modified is listed under <code>is_redirect()</code> -- which is a little misleading (but true to the <a href="http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html">specs</a>).</p>
+<p>I didn't make any special rules for any codes that fall under <code>is_error()</code>. It currently only reports that an error occurred -- I haven't decided how much of Mark's recommendation I want to follow for this app.</p>
+<p>Other than that, I still need to look at authentication -- basic auth. is handled in the URL only, but that poses a security risk since i use URL as a key, stored in a user-cookie for customization purposes -- and proxy support.</p>
+<p>Mark put up some <a href="http://diveintomark.org/tests/client/http/">tests</a> today. Sadly there are only atom based feeds so, i can't try to parse the data, but the status codes that they return seem useful.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

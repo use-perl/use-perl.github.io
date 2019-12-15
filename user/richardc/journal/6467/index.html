@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of richardc: The curious case of File::Find</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>The curious case of File::Find</h1>
+<h2><a href="/user/richardc/">richardc</a> on 2002-07-19T05:19:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>So there was a London.pm technical meeting last night, earlier today, something like that.  <a href="http://use.perl.org/user/acme/journal">Leon</a> gave a short talk about some modules he particularly liked and some he didn't.  On his naughty list was <a href="http://search.cpan.org/doc/JHI/perl-5.8.0-RC3/lib/File/Find.pm">File::Find</a>
+<p>
+Personally, I don't have a problem with File::Find, but I know from my time on irc that people whine about it a lot.  My hunch as to why people don't like it is that it makes you use callbacks, which can confuse people.  To add insult to confusion, once you're in the callback you have to gyrate oddly with package variables.
+<p>
+The started me wondering, if so many people don't like the thing, why isn't there an alternative?  Of course this took me nowhere, so I just wrote it off as insufficient JFDI in the world.
+<p>
+So now, until I either crack it or get bored, I'm trying to come up with a better way to do what File::Find gives you, and it's not proving terribly easy.
+<p>
+What I'm currently thinking of something like:<br>
+<code>my @found = NewFind->name( '*.mp3' )->type( 'file' )->size( '&lt;1000K' )->find( '.' ); # finds all smallish mp3s</code>
+<p>
+Each method returns an object apart from the find method, which returns a list of things that matched your specification.  An or-like operation could look like this:<br>
+<code>my $f = NewFind->type( 'file' )->or( NewFind->name( '*.mp3' ), NewFind->name( '*.ogg' ) ); # search for oggs and mp3s</code>
+<p>
+How does that hit people - rampant wheel reinvention, or a good start?  Comments and alternative api suggestions welcome, hopefully we can get to something that will suit how people want to find files.</p>
+
+
+<hr/>
+
+
+
+<h2>Yes!</h2>
+<h3><a href="/user/kasei/">kasei</a> on 2002-07-19T07:06:30</h3>
+<p>
+Looks good. Grouping in the search clause might be awkward syntactically, but for fairly simple stuff, I like it. You might also provide a way to provide a code block that returns a boolean for custom stuff; So, adding to your example, try looking for smallish mp3s that have some specific ID3 tag:
+</p>
+
+<code>
+my @found = NewFind-&gt;name( '*.mp3' )-&gt;type( 'file' )-&gt;size( '&lt;1000K' )-&gt;custom( sub {<nobr> <wbr></nobr>...search for id3 tags here... } )-&gt;find( '.' );
+</code>
+
+<p>
+"custom" is probably the wrong name for it, but (hopefully) you understand what I'm getting at.
+</p>
+
+<p>
+Come to think of it, the search for mp3s OR oggs would be easy with Q::S:
+</p>
+
+<code>
+my $f = NewFind-&gt;type( 'file' )-&gt;name( any('*.mp3', '*.ogg') );
+</code>
+
+<p><nobr> <wbr></nobr>:)
+</p>
+
+
+
+<h2>Syntactic sugar for less verbosity</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2002-07-19T07:12:52</h3>
+Random thoughts<nobr> <wbr></nobr>:<p>
+<tt>NewFind-&gt;file()</tt> instead of <tt>-&gt;type('file')</tt>
+<br>
+<tt>NewFind-&gt;name( '*.mp3', '*.ogg' )</tt> to get a shorter 'or' condition (in this case, can
+be written as
+<tt>NewFind-&gt;name( qr/\.(mp3|ogg)$/ )</tt>)
+<br>
+Provide an <tt>-&gt;exec( \&amp;command )</tt> hook, similar to the -exec option to find(1) : i.e., gets the pathname as its only parameter,
+returns true or false.
+<br>Think about -prune and finddepth.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Syntactic sugar for less verbosity</h2>
+<h3><a href="/user/richardc/">richardc</a> on 2002-07-19T09:01:43</h3>
+<cite>NewFind-&gt;file() instead of -&gt;type('file')</cite> <p>
+Yes, I was being very literal in a transliteration of a find(1) example, apart from making it longer of course.
+</p><p>
+<cite>NewFind-&gt;name( '*.mp3', '*.ogg' ) to get a shorter 'or' condition (in this case, can be written as NewFind-&gt;name( qr/\.(mp3|ogg)$/ )) </cite> </p><p>
+I like both of those.</p><p>I still think there's need for a form of <code>or</code>.  I just can't think of a good example right now.</p>
+
+
+
+<blockquote>
+
+<h2>Good example for 'or'</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2002-07-19T09:16:54</h3>
+<tt>my $finder = NewFind-&gt;or(<br>&nbsp; NewFind-&gt;name( '*.pl' ),<br>&nbsp; NewFind-&gt;exec( sub {<br>&nbsp; &nbsp; my $file = shift; my $fh;<br>&nbsp; &nbsp; if (open $fh, $file) {<br>&nbsp; &nbsp; &nbsp; my $shebang = &lt;$fh&gt;;<br>&nbsp; &nbsp; &nbsp; close $fh;<br>&nbsp; &nbsp; &nbsp; return $shebang =~<nobr> <wbr></nobr>/^#!.*\bperl/;<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; return 0;<br>&nbsp; } ),<br>);</tt>
+
+
+
+<h2>Re:Syntactic sugar for less verbosity</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-07-19T17:01:52</h3>
+<p>You still need an explicit <code>or</code> when your conditions are not on the same variable.  The form shown here works for <code>var == val1 or val2</code> but not <code>var1 == val1 or var2 == val2</code>.  For example, file is greater than 500M or older than 3 days.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Syntactic sugar for less verbosity</h2>
+<h3><a href="/user/richardc/">richardc</a> on 2002-07-21T11:04:59</h3>
+I'm sorry, I don't follow.  <code>var == val1 or val2</code> seems to be like <code>name('*.mp3', '*.ogg')</code> and <code>var1 ==  val1 or var2 == val2</code> is:<blockquote><div> <tt># files greater than 500M or older than 3 days<br>F-&gt;or( F-&gt;size( '&gt;500M' ),<br>&nbsp; &nbsp; &nbsp; &nbsp;F-&gt;age ( '&gt; 3 days' )<br>&nbsp; &nbsp; &nbsp;);</tt> </div></blockquote> <p>
+As in rafaels "Good example for 'or'" post</p>
+
+
+
+<blockquote>
+
+<h2>Re:Syntactic sugar for less verbosity</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-07-29T13:54:01</h3>
+<p>Yes, you followed what I was saying.  I was giving an example where you have to have an explicit F-&gt;or method.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Syntactic sugar for less verbosity</h2>
+<h3><a href="/user/richardc/">richardc</a> on 2002-07-22T19:17:25</h3>
+My thoughts about finddepth are to ignore it, as it confuses me.
+<p>
+Can I get a quick show of hands as to whether people will really miss this?  If so then I'll find a way to make it work.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Interface</h2>
+<h3><a href="/user/PerfDave/">PerfDave</a> on 2002-07-19T10:24:52</h3>
+<p>Yeah, I thought about doing a "nice" version of File::Find myself. I wanted to tie in a few things as well - the ability to get structured data as well as lists from it, and to cache data.</p><p><p>I'm not sure I like the stream-y interface you've got here - powerful, but violates the KISS principle which makes File::Find such a pain in the arse to use at the moment. I'd pictured more of a hash-based interface, but I hadn't thought of options so much (but I guess they could be done either by regexps or arrays).</p>
+
+<p> <code>my $fh = File::Find::Foo-&gt;new ( { start =&gt; '.', name =&gt; ['*.ogg', '*.mp3'], maxdepth =&gt; 2 } );</code> </p>
+
+<p>Note the use of an array for alternation, and the way the parameters are the same as you pass to find(1). I suspect '.' would be a sensible default for the start attribute. The new() command should do the file search and keep it in an internal data structure.</p>
+
+<p> <code>$fh-&gt;gettree();</code> should return a based data structure, while <code>$fh-&gt;getlist();</code> will get a list of filenames relative to <code>start</code>. There should be some kind of refresh() method to run the search again if files have changed.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Interface</h2>
+<h3><a href="/user/richardc/">richardc</a> on 2002-07-19T11:15:24</h3>
+<cite>I'm not sure I like the stream-y interface you've got here - powerful,</cite>
+<p>
+I wasn't either, hence the posting, but then I saw Rafael's beautiful "Good example for 'or'" for which powerful is certainly one of the words I'd use.
+</p><p>
+By stream-y I assume you mean the chaining of method calls?  If you don't like it you can always do it in longhand:<br> </p><blockquote><div> <tt>my $f = NewFind-&gt;new();<br>$f-&gt;name( '*.mp3', '*.ogg' );<br>$f-&gt;size( '&lt;10000' );<br>my @potayto = $f-&gt;find('.');<br> <br>my @potahto = NewFind-&gt;name( '*.mp3', '*.ogg' )<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-&gt;size( '&lt;10000' )<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-&gt;find('.');</tt> </div></blockquote> <p>
+
+<cite> but violates the KISS principle</cite> </p><p>
+I'm with <a href="http://www.xray.mpe.mpg.de/mailing-lists/perl5-porters/2002-07/msg00447.html" title="mpe.mpg.de">Jarkko</a mpe.mpg.de> on this one</p><p>
+More seriously, I don't see what's not simple in calling methods on an object.
+</p><p>
+<cite> $fh-&gt;gettree(); should return a based data structure, while $fh-&gt;getlist(); will get a list of filenames relative to start. There should be some kind of refresh() method to run the search again if files have changed.</cite>
+</p><p>
+Your <code>getlist</code> seems to be my <code>find</code>, your <code>refresh</code> seems to be my <code>find</code> called a second time.  <code>gettree</code> is interesting, could you provide a simulated dump of what it would hold?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Interface</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2002-07-19T12:12:53</h3>
+Whenever I see method chaining, I take the opportunity to point out Robin Houston's <a href="http://search.cpan.org/search?dist=Want" title="cpan.org">Want</a cpan.org> module.  Take a look.  Maybe you could use it.
+
+
+
+<blockquote>
+
+<h2>Re:Interface</h2>
+<h3><a href="/user/richardc/">richardc</a> on 2002-07-19T12:52:39</h3>
+It's an interesting module, sure enough.  I don't really imagine needing to bring the big guns in.<p>
+
+My current plan is to call the module File::Find::Ruleset.  This seems to do some of the hard explaining for me, there are two types of methods, those that add rules to the ruleset, and those that ask questions of it.
+</p><p>
+The methods that add new rules (name, size, exec, or) return the ruleset object, which makes chaining easier.  Those that ask questions (find, find_as_superbly_complex_hash) will return what is expected of them.  I don't imagine someone would really want to write:</p><blockquote><div> <tt>my @files = File::Find::Ruleset-&gt;name( '*.mp3', '*.ogg' )<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-&gt;exec( sub { artist( $_ ) eq 'Black Lace' } )<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-&gt;find( $HOME )<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-&gt;find( '/mnt/mp3' );</tt> </div></blockquote> <p>
+And after their first run-time error they shouldn't really do it again.  Actually, having said that Want is a fine way to stop that exploding at the user, or at least to throw a more reasonable error message.</p><p>
+btw. I'm really liking the -&gt;exec rule now.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Interface</h2>
+<h3><a href="/user/PerfDave/">PerfDave</a> on 2002-07-19T12:13:52</h3>
+<p>The notation of chaining method calls like that is an unfamiliar one to me at least (see, told you I was crap), and probably to the target audience of the module (viz. those who find all those icky callbacks in File::Find too tricky).</p>
+
+<p>As for the tree, I envisaged some kind of structure depending on what parameters you pass to the find involving some quantities of stat()ing etc., thusly:</p>
+
+<p><blockquote><div> <tt>$VAR1 = {<br>&nbsp; &nbsp; &nbsp; name =&gt; '.',<br>&nbsp; &nbsp; &nbsp; path =&gt; '.',<br>&nbsp; &nbsp; &nbsp; abspath =&gt; '/home/richardc',<br>&nbsp; &nbsp; &nbsp; type =&gt; 'directory',<br>&nbsp; &nbsp; &nbsp; children =&gt; [<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; name =&gt; 'music',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; path =&gt; './music',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; abspath =&gt; '/home/richardc/music',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; type =&gt; 'directory',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; children =&gt; [<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; name =&gt; 'S Club 7 - Party.mp3',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; path =&gt; './music/S Club 7 - Party.mp3',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; abspath =&gt; '/home/richardc/music/S Club 7 - Party.mp3',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; type =&gt; 'file'<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ]<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; },<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; name =&gt; 'Procul Harum - A Whiter Shade of Pale.ogg',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; path =&gt; './Procul Harum - A Whiter Shade of Pale.ogg',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; abspath =&gt; '/home/richardc/music/Procul Harum - A Whiter Shade of Pale.ogg',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; type =&gt; 'file'<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ]<br>&nbsp; &nbsp; }</tt> </div></blockquote> 
+
+<p>Basically enough information to reconstruct the file list but letting you walk the tree structure.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Interface</h2>
+<h3><a href="/user/Thomas/">Thomas</a> on 2002-07-19T15:10:12</h3>
+It was almost the same thing I came up when thinking about it.<br> <br><br/><br/>I'd like to see something like this:<br> <br><br/><br/><code>my @files = find('/tmp', { maxdepth =&gt; 10, mindepth =&gt; 5, name =&gt; qr/\.*\.c$/ });</code> <br> <br><br/><br/>(Which I btw already have working in a small example I hacked together.) I really like your idea of using arrays for alternation, but how do you decide wheter to AND or OR? (AND doesn't make much sense in your example though). <br> <br><br/><br/>Instead of returning the files I'd also consider an 'exec' like option that took a sub ref or function and just passed the filename to it as the first argument.<br> <br><br/><br/>That is about all I'd need from a Perl find.
+
+
+
+<blockquote>
+
+<h2>Re:Interface</h2>
+<h3><a href="/user/Thomas/">Thomas</a> on 2002-07-19T16:42:14</h3>
+I've made a quick implementation of what I'd like to see File::Find offer instead. I think it might be a good idea to do a real print function and instead call the one I've used 'return'.<br> <br>It is of course not nearly done, but if anyone feel they like the concept and want to use it please feel free to do so.<br> <br>package Find;<br> <br>use strict;<br>use vars qw($VERSION @EXPORT @EXPORT_OK %EXPORT_TAGS @ISA);<br>require Exporter;<br> <br>@ISA = qw(Exporter);<br>@EXPORT = qw(find);<br>@EXPORT_OK = qw(find);<br> <br>$VERSION = '0.1';<br> <br>sub find {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $dir = shift || die "Need a directory to start at\n";<br>
+&nbsp; &nbsp; &nbsp; &nbsp; die "Not a directory\n" unless -d $dir || ref($dir) eq 'ARRAY';<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $opts = shift || {};<br>
+&nbsp; &nbsp; &nbsp; &nbsp; $opts-&gt;{print} = defined($opts-&gt;{print}) ? $opts-&gt;{print} : 1;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $depth = 1;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my @files = ();<br>
+&nbsp; &nbsp; &nbsp; &nbsp; if (ref($dir) eq 'ARRAY') {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; traverse_dir($_, $depth, $opts, \@files) for @{$dir};<br>
+&nbsp; &nbsp; &nbsp; &nbsp; } else {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; traverse_dir($dir, $depth, $opts, \@files);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return @files;<br>}<br> <br>sub traverse_dir {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $dir_name = shift;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $depth = shift;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $opts = shift;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $files_ref = shift;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; if (defined($opts-&gt;{maxdepth}) &amp;&amp; $opts-&gt;{maxdepth} {_ok} = 1;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; if (defined($opts-&gt;{name})) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if ($file !~<nobr> <wbr></nobr>/$opts-&gt;{name}/) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $opts-&gt;{_ok} = 0;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; if (defined($opts-&gt;{mindepth})) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if ($depth {mindepth}) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $opts-&gt;{_ok} = 0;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; if ($opts-&gt;{_ok}) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if ($opts-&gt;{print}) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; push @{$files_ref}, $dir_name . "/" . $file;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (defined($opts-&gt;{'exec'})) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &amp;${$opts-&gt;{exec}}($dir_name . "/" . $file);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; traverse_dir($dir_name . "/" . $file, $depth + 1, $opts, $files_ref) if -d $dir_name . "/" . $file;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; closedir(DH);<br>}<br> <br>1;<br> <br>__END__<br> <br>=head1 NAME<br> <br>Find - find files in filesystem<br> <br>=head1 SYNOPSIS<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; use Find;<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; find('/tmp', { 'exec' =&gt; \sub { print $_[0] . "\n"; }});<br> <br>=head1 OPTIONS<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; find('directory', {<nobr> <wbr></nobr>.. options<nobr> <wbr></nobr>.. });<br>
+&nbsp; &nbsp; &nbsp; &nbsp; find(['directory1','directory2'], {<nobr> <wbr></nobr>.. options<nobr> <wbr></nobr>.. });<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; It currently has the following options<br> <br>=head2 print<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; print in this context refers to wheter or not to return an array of<br>
+&nbsp; &nbsp; &nbsp; &nbsp; the files found.<br>
+&nbsp; &nbsp; &nbsp; &nbsp; <br>
+&nbsp; &nbsp; &nbsp; &nbsp; for (find('/tmp', { 'print' =&gt; 1 })) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print $_ . "\n";<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; Would print a list of files found in the '/tmp' directory.<br>
+&nbsp; &nbsp; &nbsp; &nbsp; print is set to return a list of files by default.<br> <br>=head2 exec<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; exec is an anonymous reference to a function to call which gets passed<br>
+&nbsp; &nbsp; &nbsp; &nbsp; as the only argument the filename matching any other conditions.<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; find('/tmp', { 'exec' =&gt; \sub { print $_[0] . "\n"; } });<br> <br>=head2 name<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; name is a regular expression to which the file is matched. If the file<br>
+&nbsp; &nbsp; &nbsp; &nbsp; in question matches the file the other tests on the file are performed.<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; find('/tmp', { name =&gt; qr/\.c$/, 'exec' =&gt; \sub { print $_[0] . "\n";} });<br> <br>=head2 maxdepth<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; maxdepth is the maximum number of directories to descend into.<br>
+&nbsp; <br>=head2 mindepth<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; mindepth is the minimum number of directories where matching starts.<br> <br>=end<br> <br>
+
+
+
+<h2>Re:Interface</h2>
+<h3><a href="/user/richardc/">richardc</a> on 2002-07-21T10:55:29</h3>
+<cite>
+my @files = find('/tmp', { maxdepth =&gt; 10, mindepth =&gt; 5, name =&gt; qr/\.*\.c$/ });
+</cite>
+<p>
+Warning: hashes found not to have a predictable order.  Evaluating the rules in a known order can have a huge effect on efficiency.  Please look at rafael's "Good example for 'or'" comment, if the exec happened first you'd really feel a hit from it just shortcutting that happens at <code>name('*.pl')</code>.
+</p><p>
+<cite>
+(Which I btw already have working in a small example I hacked together.)
+</cite>
+</p><p>
+Please, don't let me stop you releasing your code to CPAN.  Some choice in this area is good, certainly considering the current state where people just complain about the current state of affaris without writing an alternative.
+</p><p>
+For fun, mine's <a href="http://unixbeard.net/user/richardc/lab/File-Find-Ruleset/" title="unixbeard.net">here</a unixbeard.net>, note that it still needs a buttload of work on the documentation.  Later today I was planning on added some code to make this work
+</p><p><blockquote><div> <tt>my @mp3s = find_luddite( name =&gt; '*.mp3', file )-&gt;('.');</tt> </div></blockquote>
+<p>
+But maybe find_luddite isn't the best name<nobr> <wbr></nobr>:)
+</p><p>
+<cite>I really like your idea of using arrays for alternation, but how do you decide wheter to AND or OR? (AND doesn't make much sense in your example though).</cite>
+</p><p>
+AND is the default.
+</p><p><blockquote><div> <tt>Finder-&gt;files<br>&nbsp; &nbsp; &nbsp; -&gt;name( '*foo*' );</tt> </div></blockquote> <p>
+Means they have to be files, AND they have to have names that match *foo*.
+</p><p>
+<cite>
+Instead of returning the files I'd also consider an 'exec' like option that took a sub ref or function and just passed the filename to it as the first argument.
+</cite>
+</p><p>
+Check.  Well actually I pass the filename, the directory, and the full path, but that's because you never know what'll really be useful.
+</p><p>
+<cite>That is about all I'd need from a Perl find.</cite> </p><p>
+Bzzt!  About all <i>I</i> need from a find interface is File::Find.  This is a deeply bogus argument, and it's left us where we are since the dawn of time.
+</p><p>
+In writing this code I'm trying to anticipate what other users will want.  You're one of them, but you're not the only one otherwise I'd not even have thought about making the code useable as an iterator, so you'll be able to write.
+</p><p><blockquote><div> <tt>$finder-&gt;find_iteratively('.');<br>while (my $file = $finder-&gt;iterate) {<br>&nbsp; &nbsp; &nbsp;...<br>}</tt> </div></blockquote> <p>
+Warning: routines not really called <code>find_iteratively</code> and <code>iterate</code>.  They don't have names right now.
+</p><p>
+Currently the code is a wrapper around File::Find, so the iterator behavior is faked, but if I ever get brave enough to implement all the cross-platform stuff for myself then that'll be a proper iterator.  And then there will be rejoicing in the streets.  Oh yes.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Interface</h2>
+<h3><a href="/user/richardc/">richardc</a> on 2002-07-21T16:41:18</h3>
+I thunk it out a bit more, and now it's possible to do this:<blockquote><div> <tt># extract from the test suite<br># procedural form of the prune CVS demo<br>use File::Find::Ruleset 'find_ruleset';<br>$f = find_ruleset(or =&gt; [ find_ruleset( directory =&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; name&nbsp; &nbsp; &nbsp; =&gt; 'CVS',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; prune&nbsp; &nbsp; &nbsp;=&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; discard&nbsp; &nbsp;=&gt; ),<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; find_ruleset() ]);<br>my @things = $f-&gt;find('.');</tt> </div></blockquote> <p>
+Yes, it's still calling a method but if don't ever want to see an arrow you can do that too, at a slight performance cost:
+</p><p><blockquote><div> <tt>my @mp3s = find_ruleset( file =&gt; name =&gt; '*.mp3', find =&gt; '.');</tt> </div></blockquote>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Iterators?</h2>
+<h3><a href="/user/geoff/">geoff</a> on 2002-07-19T12:02:26</h3>
+MJD presents a <code>File::Find</code> replacement in his <a href="http://conferences.oreillynet.com/cs/os2002/view/e_sess/2861" title="oreillynet.com">Programming with Iterators and Generators</a oreillynet.com> tutorial (at least he did when he gave his practice session at phl.pm).  Perhaps his approach is worthy of investigating as well.
+
+
+
+<h2>and and and not</h2>
+<h3><a href="/user/wickline/">wickline</a> on 2002-07-19T18:25:40</h3>
+<tt>You need both OR and AND for sufficiently complex queries...<br> <br>&nbsp; &nbsp; (A or B) and ( (C and D) OR E )<br> <br>&nbsp; &nbsp; You could use chaining, but you'd need<br>&nbsp; &nbsp; two objects in the above, and the logic<br>&nbsp; &nbsp; might be clearer is you just had an AND<br> <br>you may want to include both OR and AND and NOT as well<br>because some folks will find it easier to compose<br> <br>&nbsp; &nbsp; (A or B) and NOT( C or D or E)<br>than<br>&nbsp; &nbsp; (A or B) and ( NOT C and NOT D and NOT E)<br> <br>...especially when C, D, E may be moderately complex.<br> <br>Maybe that's overkill though.<br> <br>To ensure overkill, also include methods for those who<br>think in terms of set operations (Union, Intersection,<br>and Difference). These could just be different names<br>for the same code.<br> <br>&nbsp; &nbsp; Union(A,B)&nbsp; &nbsp; &nbsp; =&gt;&nbsp; A OR B<br>&nbsp; &nbsp; Intersect(A,B)&nbsp; =&gt;&nbsp; A AND B<br>&nbsp; &nbsp; Difference(A)&nbsp; &nbsp;=&gt;&nbsp; NOT A<br> <br>going off the deep end, you could overload some operators<br> <br>&nbsp; &nbsp; Union(A,B)&nbsp; &nbsp; &nbsp; =&gt;&nbsp; A OR B&nbsp; &nbsp;=&gt;&nbsp; $queryA + $queryA<br>&nbsp; &nbsp; Intersect(A,B)&nbsp; =&gt;&nbsp; A AND B&nbsp; =&gt;&nbsp; $queryA * $queryB<br>&nbsp; &nbsp; Difference(A)&nbsp; &nbsp;=&gt;&nbsp; NOT A&nbsp; &nbsp; =&gt;&nbsp; !$queryA<br> <br>The result of each of the above would be a new query object.<br>Heck, you could throw in subtraction while you're at it<br> <br>&nbsp; &nbsp; $qc = $qA - $qB&nbsp; #&nbsp; &nbsp;C = A AND NOT B<br> <br>time to stop rambling<nobr> <wbr></nobr>:)<br> <br>-matt<br> </tt>
+
+
+
+<h2>How to find real Link names with File::Find::Rule</h2>
+<h3><a href="/user/venki/">venki</a> on 2007-04-09T12:54:36</h3>
+If there is a link to a directory, with File::Find::Rule, we are getting the actual names and not the link names. Is there any way to get the links also along with the real names for directories. We are getting the links also for file names, ofcourse.
+<br>
+Ex : abc -&gt; cde in directory<nobr> <wbr></nobr>/test/ and there is a file in<nobr> <wbr></nobr>/test/cde/2222. <br>
+When we do a File::Find::Rule-&gt;new()-&gt;name-&gt;(qr/\d\d\d\d/)-&gt;in("/test/"), we are getting only<nobr> <wbr></nobr>/test/cde/2222.
+<br>
+Is there any way we can get<nobr> <wbr></nobr>/test/abc/2222 also ?
+
+
+
+<blockquote>
+
+<h2>Re:How to find real Link names with File::Find::Ru</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2007-04-09T21:13:02</h3>
+You need to include the File::Find 'follow' option, which you can do in FFR with the <a href="http://search.cpan.org/user/rclamp/File-Find-Rule-0.30/lib/File/Find/Rule.pm#Matching_Rules" title="cpan.org">extras()</a cpan.org> method.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

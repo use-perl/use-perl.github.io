@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org story by grinder: This Week on perl5-porters - 24-29 February 2008</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>This Week on perl5-porters - 24-29 February 2008</h1>
+<h2><a href="/user/grinder/">grinder</a> on 2008-03-06T22:52:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><h1> <a name="this_week_on_perl5porters__2429_february_2008">This Week on perl5-porters - 24-29 February 2008</a> </h1>
+<p> <i>&quot;Is this a bug? Or why is this the expected behaviour?&quot;</i>
+-- Steffen Ullrich, playing with signal handlers.</p></p>
+<p>
+<h1> <a name="topics_of_interest">Topics of Interest</a> </h1>
+<p>
+<h2> <a name="use_encoding__utf8__bug_for_latin1_range"> <code>use encoding 'utf8'</code> bug for Latin-1 range</a> </h2>
+
+<p>The thread about <code>use encoding</code> continued this week. Juerd Waalboer
+gave one of the best concise explanations as to why the current model
+Perl uses for dealing with Unicode is broken, which is that the <code>\x</code>
+hex escape is overloaded for bytes (<code>\x2b</code> <em>versus</em> <code>\x{d0b2}</code>),
+and that it takes place too early, while the source is being read.</p>
+<p>The result of which is that a source code file encoded in an
+Asian language cannot embed a latin-1 character like an e-acute.</p>
+<p>Much discussion of remarkable civility followed, regarding what
+to do about the matter. Glenn Lindemann put forward the following
+ideas:</p>
+
+<ul>
+<li>
+<p>Deprecate <code>use encoding</code>.</p>
+</li>
+<li>
+<p>Deprecate non-ASCII characters in 5.12 source code, unless a
+source encoding has been specified.</p>
+</li>
+<li>
+<p>Allow Unicode semantics to be applied to all character operations
+on strings (case conversion, caseless comparisons and so on),
+regardless of their internal representations.</p>
+</li>
+<li>
+<p>Sort out the timing of when <code>\x</code>, <code>\x{}</code> and <code>\N</code> take effect.</p>
+
+</li>
+</ul>
+<p>No-one appeared to lament the idea of letting <code>encoding</code> go.</p>
+<p>Yves Orton pointed out that Microsoft managed to get their Unicode
+handling more or less right, albeit at a certain cost to their API,
+and regretted that Unix-like operating systems supplied the absolute
+strict minimum, pushing all the work onto each and every client
+program. Which meant that nothing really worked at all, not even
+the so-called shebang line.</p>
+<p>Juerd and Nicholas put forward that there is a case to be made for
+perl to figure out itself whether a given source file is in ASCII,
+Latin-1 or UTF-8. It turns out that it's just about impossible to
+construct a sensible Latin-1 file that also turns out to be be valid
+UTF-8. The idea is to start out in 7-bit ASCII and carry on until a
+byte with the high bit set is encountered.</p>
+<p>If this byte introduces a valid UTF-8 character, the rest of the
+file must be, too.  Any invalid byte sequences thereafter trigger
+a fatal compile-time error. Otherwise it means it must be Latin-1,
+in which case similar but different rules apply which also cause
+the compilation to halt if encodings change mid-stream. The key
+issue is to determine that the encoding does indeed change.</p>
+<p>EBCDIC was also mentioned in passing. Sadly, Perl no longer runs
+on EBCDIC due to a general lack of nurturing. Then again, if it was
+important, Nicholas felt that someone from IBM would have been in
+touch at some point.</p>
+<pre>
+  for some reason I now have a splitting headache
+  <a href="http://xrl.us/bg932">http://xrl.us/bg932</a> </pre>
+
+<p>
+<h2> <a name="interrupting_system___with_signal_depends_on_signal_handler">Interrupting <code>system()</code> with signal depends on signal handler</a> </h2>
+<p>Steffen Ullrich noticed that an <code>alarm</code> signal handler that does
+a <code>syswrite</code> as opposed to a <code>print</code> behave differently. After
+diving in through <em>pp_sys.c</em>, he noticed that he could make the
+
+<code>print</code> version (which was working correctly) behave the same
+incorrect way, by setting <code>$!</code> to undef.</p>
+<p>He produced a one-line patch that fixed the behaviour (hmm, did we
+get a test?) and Rafael applied it as change #33408.</p>
+<pre>
+  handle with care
+  <a href="http://xrl.us/bg98g">http://xrl.us/bg98g</a> </pre>
+<p>
+<h2> <a name="cpan_netbios_broadcasts">CPAN NetBIOS broadcasts</a> </h2>
+
+<p>Linda W was scratching her head wondering why CPAN installations on
+cygwin were glacially slow. After running a network trace, she
+discovered that what had been a path <em>/var/cache/cpan</em> was being
+interpreted as a UNC path (/cache/cpan on host //var).</p>
+<p>This caused the local host to send out plaintive calls for host //var
+to please call home. Michael G. Schwern thought that this sounded
+like the same problem described in CPAN bug #32813, as did Linda.</p>
+<p>Yves Orton, current maintainer of <code>ExtUtils::Install</code>, which is were
+the problem originated, pushed out a new version and Linda confirmed
+that it solved the problem.</p>
+<p>Ken Williams was not around to comment on how hard it is to use
+File::Spec correctly.</p>
+<pre>
+  not quite Unix, not quite Windows
+  <a href="http://xrl.us/bg934">http://xrl.us/bg934</a> </pre>
+
+<p>
+<h2> <a name="google_summer_of_code">Google summer of code</a> </h2>
+<p>Eric Wilhelm got the ball rolling on Perl's participation in Google's
+Summer of Code project. But you've probably heard about this in other
+venues. All hail Eric.</p>
+<p>The Perl 5 Wiki is place to go for the latest information.</p>
+<pre>
+  summertime fun
+  <a href="http://xrl.us/bg936">http://xrl.us/bg936</a>
+  <a href="http://xrl.us/bg938">http://xrl.us/bg938</a> </pre>
+<p>
+<hr>
+<h1> <a name="patches_of_interest">Patches of Interest</a> </h1>
+<p>
+<h2> <a name="sv_c_consting_goodness"> <em>sv.c</em> consting goodness</a> </h2>
+<p>Steven Schubiger's consting patch number 4 from the beginning of the month
+was applied. This lead to patches 5, 6, 7, 8 and 9, all applying ever
+more consting to <em>sv.c</em> being issued by Steven, which in turn were all
+applied by various porters.</p>
+<pre>
+  <a href="http://xrl.us/bg94a">http://xrl.us/bg94a</a> </pre>
+
+<p>
+<h2> <a name="no_archlib_in_otherlibdirs">no archlib in otherlibdirs</a> </h2>
+<p>After some long, hard thought, Andy Dougherty remembered why Reini
+Urban's plan for organising site and vendor libraries on Cygwin
+wouldn't work in the general case. So Reini withdrew his patch but
+would continue to use it locally.</p>
+<pre>
+  <a href="http://xrl.us/bg94c">http://xrl.us/bg94c</a> </pre>
+<p>On the other hand, his enhancements to <code>B::Debug</code> made it in.</p>
+<pre>
+  win some, lose some
+  <a href="http://xrl.us/bg94e">http://xrl.us/bg94e</a> </pre>
+
+<p>
+<h2> <a name="warning_message_for_m_foo__extended_and_revised">warning message for -M:Foo, extended and revised</a> </h2>
+<p>Robin Barker finally settled on ``Invalid module name :Foo with -M
+option: contains single ':''', which was good enough for Rafael</p>
+<pre>
+  colonphun
+  <a href="http://xrl.us/bg94g">http://xrl.us/bg94g</a> </pre>
+<p>
+<h2> <a name="more_diagnostics_for_fatal_pm">More diagnostics for <em>Fatal.pm</em> </a> </h2>
+<p>Slaven Rezic enhanced <code>Fatal</code> to name the builtin that could not be
+overridden in its dying message.</p>
+
+<pre>
+  if I told you I would have to kill you
+  <a href="http://xrl.us/bg94i">http://xrl.us/bg94i</a> </pre>
+<p>
+<hr>
+<h1> <a name="thread_patches">Thread patches</a> </h1>
+<p>Jerry D. Hedden is doing so much work on threads at the moment, he
+deserves his own section.</p>
+<p>First off, the patch to not install threads on non-thread builds was
+reverted (Michael G. Schwern killer argument being that at least that
+way you get a nice error message).</p>
+<pre>
+  <a href="http://xrl.us/bg94k">http://xrl.us/bg94k</a> </pre>
+
+<p>Then the CPAN 1.69 version of <code>threads</code> was synch'ed with blead.</p>
+<pre>
+  <a href="http://xrl.us/bg94n">http://xrl.us/bg94n</a> </pre>
+<p>As was <code>threads::shared</code> 1.17.</p>
+<pre>
+  <a href="http://xrl.us/bg94p">http://xrl.us/bg94p</a> </pre>
+
+<p>At the end of the week, he also delivered version 1.18, which added
+some diagnostics to help track down what's going wrong when
+<em>t/stress.t</em> decides to go belly up.</p>
+<pre>
+  <a href="http://xrl.us/bg94r">http://xrl.us/bg94r</a> </pre>
+<p>Moving along, <code>Thread::Semaphore</code> 2.07 checked in.</p>
+<pre>
+  <a href="http://xrl.us/bg94t">http://xrl.us/bg94t</a> </pre>
+
+<p>and last but not least, <code>Thread::Queue</code> 2.06 did too.</p>
+<pre>
+  <a href="http://xrl.us/bg94v">http://xrl.us/bg94v</a> </pre>
+<p>
+<hr>
+<h1> <a name="watching_the_smoke_signals">Watching the smoke signals</a> </h1>
+<p>It looked like <em>t/stress.t</em> in the threads module failed, and so
+Jerry asked if there was any chance of seeing what the new diagnostics
+had to say. Steve Hay discovered that the problem was in fact a TODO
+test that had started to pass, and Test::Smoke got confused and
+recorded it as a failure.</p>
+
+<pre>
+  Smoke [5.11.0] 33390 FAIL(F) MSWin32 WinXP/.Net SP2 (x86/2 cpu)
+  <a href="http://xrl.us/bg94x">http://xrl.us/bg94x</a> </pre>
+<p>
+<hr>
+<h1> <a name="new_and_old_bugs_from_rt">New and old bugs from RT</a> </h1>
+<p>
+<h2> <a name="segfault_when_calling__next__method_on_nonexisting_package___51092_">Segfault when calling <code>-&gt;next::method</code> on non-existing package (#51092)</a> </h2>
+
+<p>David Landgren thought that the test that Rafael Garcia-Suarez added as
+part of the fix for this bug should have had the RT bug number embedded
+in it somewhere. In other other news, we discovered that there are 485
+subscribers to perl5-porters.</p>
+<pre>
+  <a href="http://xrl.us/bg94z">http://xrl.us/bg94z</a> </pre>
+<p>
+<h2> <a name="perl5_bug_summary">Perl5 Bug Summary</a> </h2>
+<pre>
+  288 new + 1500 open = 1788 (+3 -2)
+  <a href="http://xrl.us/bg943">http://xrl.us/bg943</a>
+  <a href="http://rt.perl.org/rt3/NoAuth/perl5/Overview.html">http://rt.perl.org/rt3/NoAuth/perl5/Overview.html</a> </pre>
+
+<p>
+<hr>
+<h1> <a name="new_core_modules">New Core Modules</a> </h1>
+<dl>
+<dt> <strong> <a name="item_extutils_3a_3ainstall_version_1_2e45">ExtUtils::Install version 1.45</a> </strong></dt>
+
+<dd>
+<p>This was the fix for the <code>//var</code> problem noted by Linda W. (But stay
+tuned next week for exciting new developments).</p>
+</dd>
+<dd>
+
+<pre>
+  <a href="http://xrl.us/bg945">http://xrl.us/bg945</a> </pre>
+</dd>
+
+<dt> <strong> <a name="item_extutils_3a_3amakemaker_6_2e44">ExtUtils::MakeMaker 6.44</a> </strong></dt>
+
+<dd>
+<p>Michael G. Schwern rolled out 6.34_01 plus Yves's EU::I 1.45 as
+version 6.44. Other assorted bugfixes made it in, but Michael
+announced that he had declined to put in the fixes required to
+make paths with whitespace work correctly, saying that he wanted
+to think about a better solution.</p>
+</dd>
+<dd>
+<pre>
+  <a href="http://xrl.us/bg947">http://xrl.us/bg947</a> </pre>
+
+</dd>
+
+</dl>
+<p>
+<hr>
+<h1> <a name="in_brief">In Brief</a> </h1>
+<p>Last week, Jim Cromie had the newfound ability to hook XML analysis
+to a test suite (via the <code>PERL_XMLDUMP</code> environment variable). This
+week, Jim wrote a <strong>patch to test -Dmad's PERL_XMLDUMP= output</strong>. It
+was not applied.</p>
+<pre>
+  truly madly
+  <a href="http://xrl.us/bg949">http://xrl.us/bg949</a> </pre>
+
+<p>On the other hand, Rafael did apply his <strong>optimisation of the
+<code>OP_IS_(FILETEST|SOCKET)</code> macros</strong>, with some <code>OP *</code>/<code>int</code> fuzz.</p>
+<pre>
+  <a href="http://xrl.us/bg95b">http://xrl.us/bg95b</a> </pre>
+<p>The exact recipe for signalling a non-met prerequisite (such that a perl
+build without threads should <strong>not attempt to require threads</strong>) was nailed
+down and codified on the CPAN Testers wiki.</p>
+
+<pre>
+  <a href="http://cpantest.grango.org/">http://cpantest.grango.org/</a>
+  <a href="http://xrl.us/bg95d">http://xrl.us/bg95d</a> </pre>
+<p>Salvador Fandi&#241;o found that the documentation made no mention of
+<strong> <code>av_delete</code> calling <code>sv_2mortal</code> on the returned <code>SV</code> </strong>. Yet
+<code>av_pop</code> and <code>av_shift</code> don't and so the documentation should probably
+point out the difference.</p>
+
+<pre>
+  quirk quirk
+  <a href="http://xrl.us/bg95f">http://xrl.us/bg95f</a> </pre>
+<p>Craig Berry reported that maint-5.8 was not compiling on VMS, largely due to
+<strong>incorrect prototypes in <em>re.xs</em> </strong>. Nicholas Clark determined that
+a subsequent integration fixed the problem.</p>
+<pre>
+  a matter of time
+  <a href="http://xrl.us/bg95h">http://xrl.us/bg95h</a> </pre>
+<p>Steve Peters wanted to know why <strong>quad words on Win32</strong> weren't configured,
+since all the pieces were in place to allow them to be. Jan Dubois thought
+that it wasn't much of a problem since you really need to have <code>IVSIZE</code>
+
+defined to be 8 to take any advantage of them.</p>
+<pre>
+  mmm, bignums
+  <a href="http://xrl.us/bg95j">http://xrl.us/bg95j</a> </pre>
+<p>Nicholas Clark hacked <code>perlbug</code> to allow it to <strong>send thank-you messages</strong>
+back to the porters.</p>
+<pre>
+  send more money
+  <a href="http://xrl.us/bg95m">http://xrl.us/bg95m</a> </pre>
+
+<p>Nicholas also got his languages mixed up trying to <strong>write else if in
+C macros</strong>. Fortunately there are only four or five distinct syntaxes
+to master for writing else if constructs in all computer languages.</p>
+<pre>
+  as if
+  <a href="http://xrl.us/bg95o">http://xrl.us/bg95o</a> </pre>
+<p>
+<h2> <a name="about_this_summary">About this summary</a> </h2>
+<p>This summary was written by David Landgren. I chopped a day off this week;
+it makes it easy to start next week on the first of the month.</p>
+<pre>
+  17-23 February 2008
+  <a href="http://xrl.us/bg95q">http://xrl.us/bg95q</a> </pre>
+
+<p>Weekly summaries are published on <em> <a href="http://use.perl.org/">http://use.perl.org/</a> </em> and posted
+on a mailing list, (subscription: <em> <a href="mailto:perl5-summary-subscribe@perl.org">perl5-summary-subscribe@perl.org</a> </em>).
+The archive is at <em> <a href="http://dev.perl.org/perl5/list-summaries/">http://dev.perl.org/perl5/list-summaries/</a> </em>.
+Corrections and comments are welcome.</p>
+<p>If you found this summary useful, please consider contributing to
+the Perl Foundation to help support the development of Perl.</p></p>
+
+
+<hr/>
+
+
+
+<h2>he's not dead, he's, he's restin'!</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2008-03-07T21:11:39</h3>
+<p><blockquote><div>EBCDIC was also mentioned in passing. Sadly, Perl no longer runs on EBCDIC due to a general lack of nurturing. Then again, if it was important, Nicholas felt that someone from IBM would have been in touch at some point.</div></blockquote>
+<p>To the best of my knowledge that statement is not true.
+Specifically, it asserts that it is known that Perl does not run on EBCDIC.</p>
+
+<p>All that can be said is that we know that we have no idea of the state of
+Perl on EBCDIC, because no-one using EBCDIC sends any feedback whatsoever,
+positive or negative.</p>
+
+<p>Is there anybody out there?<nobr> <wbr></nobr>...</p>
+
+
+
+<blockquote>
+
+<h2>Re:he's not dead, he's, he's restin'!</h2>
+<h3><a href="/user/speters/">speters</a> on 2008-04-16T18:09:45</h3>
+<p>We did hear from the MPE/iX folks a while ago, so, obviously it works there.  It might be more correct to say "legacy IBM operating system" since support on z/OS is suspect and support for i5/OS (the OS formerly known as OS/400) is unknown since we've not heard from them in ages.</p>
+
+<p>The problem here is not a lack of trying as it is a lack of access.  I'm sure there is someone knowledgeable enough to help get Perl working well on EBCDIC operating system, but its not easy to come by on a desktop.  Access to existing servers with those OS's is what we need to be able to support them.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

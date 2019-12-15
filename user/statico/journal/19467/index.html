@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of statico: kwiki fury! and some mailman list moderation fun...</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>kwiki fury! and some mailman list moderation fun...</h1>
+<h2><a href="/user/statico/">statico</a> on 2004-06-24T13:59:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Wizzow!<br/><br/>Yesterday was <strong>Kwiki fury</strong> on CPAN. The new Kwiki has been released, and If you've installed it, you know that the Kwiki only provides a very mininmal, bare-bones wiki. <strong>Everything</strong> is a plugin, and between Brian and I there are fourteen plugins on CPAN -- with more to come. Luckily, by now most of the Kwiki core stuff has propagated:<br/><br/><ul>
+   <li>Kwiki (version 0.3x)</li>
+   <li>Kwiki::UserName</li>
+   <li>Kwiki::RecentChanges</li>
+   <li>Kwiki::Archive::Rcs</li>
+   <li>Kwiki::NewPage</li>
+   <li>Kwiki::Icons::Gnome</li>
+   <li>Kwiki::UserPreferences</li>
+   <li>Kwiki::Revisions</li>
+   <li>Kwiki::Search</li>
+</ul><br/><br/>Kwiki::Weather, Kwiki::Autoformat and Kwiki::VimMode are also up, Kwiki::PerlMode and Kwiki::PodMode are on the way from Brian.<br/><br/>I am also planning on marking Text::KwikiFormatish, which uses the old (<= 0.18) CGI::Kwiki formatter, as deprecated. I shall release Text::KwikiFormat to replace it.<br/><br/>On the TODO list are Kwiki::RecentChanges::RSS as well as figuring out a user database system. Currently all information is stored in browser cookies. This makes it difficult for tasks like "find me all pages that have expired and notify their maintainers." (<a href="http://cgi.ccs.neu.edu/home/bass/wiki.cgi?SystemsAmadeus">Something</a> I'm planning on implementing...)<br/><br/>Anyway, I usually paste some sort of handy code, so here it is. I hate having to open up a browser to delete spam sent to our moderated Mailman mailing list. That, combined with the prowess of Andy Lester and his WWW::Mechanize module, gives me this:<br/><br/><pre>
+#!/arch/unix/bin/perl
+use strict;
+use warnings;
+#
+# listmod - fast alternative to mailman list interface
+#
+# usage: listmod crew XXXXXXXX
+# <br/><br/>die "usage: $0 <listname> <password>\n" unless @ARGV == 2;
+my ($listname, $password) = @ARGV;<br/><br/>use CGI qw(unescape);<br/><br/>use WWW::Mechanize;
+my $m = WWW::Mechanize->new();<br/><br/>use Term::ReadLine;
+my $term = Term::ReadLine->new($0);<br/><br/># submit the form, get the cookie, go to the list admin page
+$m->get("https://lists.ccs.neu.edu/bin/admindb/$listname");
+$m->set_visible( $password );
+$m->click;<br/><br/># exit if nothing to do
+print "There are no pending requests.\n" and exit
+    if $m->content =~ /There are no pending requests/;<br/><br/># select the first form and examine its contents
+$m->form_number(1);
+my $f = $m->current_form or die "Couldn't get first form!\n";<br/><br/># get me the base form element for each email item
+my @items = map {m/^.+?-(.+)/} grep {m/senderbanp/} $f->param
+    or die "Couldn't get items in first form!\n";<br/><br/># iterate through items, prompt user, commit actions
+foreach my $item (@items) {<br/><br/>    # show item info
+    my $sender = unescape($item);
+    my ($subject) = [$f->find_input("senderbanp-$item")->value_names]->[1] 
+        =~ /Subject:\s+(.+?)\s+Size:/g;<br/><br/>    # prompt user
+    my $choice = '';
+    while ( $choice !~ /^[DAX]$/ ) {
+        print "$sender\: '$subject'\n";
+        $choice = uc $term->readline("Action: defer/accept/discard [dax]: ");
+        print "\n\n";
+    }<br/><br/>    # set button
+    $m->field("senderaction-$item" => {D=>0,A=>1,X=>3}->{$choice});
+}<br/><br/># submit actions
+$m->click;
+</pre><br/><br/></p>
+
+
+<hr/>
+
+
+
+<h2>Mech check</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2004-06-24T19:25:48</h3>
+If you're going to not check for errors yourself, may I suggest you add an <tt>autocheck =&gt; 1</tt> to your Mech constructor, so it does the checking for you and dies on error?
+
+
+
+<blockquote>
+
+<h2>Re:Mech check</h2>
+<h3><a href="/user/statico/">statico</a> on 2004-06-24T19:32:07</h3>
+Sure, thanks!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of tsee: Marcel's accessor generator benchmarking</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Marcel's accessor generator benchmarking</h1>
+<h2><a href="/user/tsee/">tsee</a> on 2008-11-03T09:22:53</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+So Marcel has been <a href="http://hanekomu.at/blog/dev/20081101-1054-dissecting_the_moose_3-benchmarking_accessor_generators.html">benchmarking accessor generators</a>. He used Class::Accessor::Fast::XS which is a verbatim copy of Class::XSAccessor with the Class::Accessor interfacing code added. But he missed out on the fastest ones bar XS accessor hand-rolling. It's a combination of using Object::Tiny's constructor and Class::XSAccessor's accessor generation. (Let's call it Object::Tiny::XS!)
+Here's the adapted code and then the results:
+</p>
+<p><a href="http://hanekomu.at/blog/dev/20081101-1258-dissecting_the_moose_4-benchmarking_accessor_generators-accessors_only.html"><b>Benchmarking attribute access only</b></a></p>
+<pre>
+#!/usr/bin/env perl
+
+use warnings;
+use strict;
+use Benchmark qw(cmpthese timethese :hireswallclock);
+
+
+package WithMoose;
+use Moose;
+has myattr => ( is => 'rw' );
+
+
+package WithMooseImmutable;
+use Moose;
+has myattr => ( is => 'rw' );
+__PACKAGE__->meta->make_immutable;
+
+
+package WithMouse;
+use Mouse;
+has myattr => ( is => 'rw' );
+
+
+package WithClassAccessor;
+use base qw(Class::Accessor);
+__PACKAGE__->mk_accessors(qw/myattr/);
+
+
+package WithClassAccessorFast;
+use base qw(Class::Accessor::Fast);
+__PACKAGE__->mk_accessors(qw/myattr/);
+
+
+package WithClassAccessorFastXS;
+use base qw(Class::Accessor::Fast::XS);
+__PACKAGE__->mk_accessors(qw/myattr/);
+
+
+package WithClassAccessorComplex;
+use base qw(Class::Accessor::Complex);
+__PACKAGE__->mk_new->mk_scalar_accessors(qw/myattr/);
+
+
+package WithClassAccessorConstructor;
+use base qw(Class::Accessor::Constructor Class::Accessor::Complex);
+__PACKAGE__->mk_constructor->mk_scalar_accessors(qw/myattr/);
+
+
+package WithMojo;
+use base qw(Mojo::Base);
+__PACKAGE__->attr('myattr');
+
+
+package WithClassMethodMaker;
+use Class::MethodMaker
+    [ scalar => [ qw/myattr/ ],
+      new    => [ qw/-hash new/ ],
+    ];
+
+
+package WithAccessors;
+use accessors qw(myattr);
+
+sub new { bless {}, shift }
+
+
+package WithObjectTiny;
+use Object::Tiny qw/myattr/;
+sub set_myattr { $_[0]->{myattr} = $_[1] }
+
+
+package WithSpiffy;
+use Spiffy -base;
+field 'myattr';
+
+
+package WithClassSpiffy;
+use Class::Spiffy -base;
+field 'myattr';
+
+package WithClassXSAccessor;
+use Class::XSAccessor accessors => { myattr => 'myattr' };
+sub new {my $class = shift; bless {@_} => $class}
+
+package WithClassXSAccessorArray;
+use Class::XSAccessor::Array accessors=> { myattr => 0 };
+sub new {my $class = shift; my %args = @_; bless [$args{myattr}] => $class}
+
+package WithObjectTinyXS;
+use Object::Tiny qw/myattr/;
+use Class::XSAccessor accessors => { myattr => 'myattr' }, replace => 1;
+
+package main;
+
+
+my $moose                      = WithMoose->new;
+my $moose_immutable            = WithMooseImmutable->new;
+my $mouse                      = WithMouse->new;
+my $class_accessor             = WithClassAccessor->new;
+my $class_accessor_fast        = WithClassAccessorFast->new;
+my $class_accessor_fast_xs     = WithClassAccessorFastXS->new;
+my $class_accessor_complex     = WithClassAccessorComplex->new;
+my $class_accessor_constructor = WithClassAccessorConstructor->new;
+my $mojo                       = WithMojo->new;
+my $class_methodmaker          = WithClassMethodMaker->new;
+my $accessors                  = WithAccessors->new;
+my $object_tiny                = WithObjectTiny->new;
+my $spiffy                     = WithSpiffy->new;
+my $class_spiffy               = WithClassSpiffy->new;
+my $direct_hash                = {};
+my $class_xsaccessor           = WithClassXSAccessor->new;
+my $class_xsaccessor_array     = WithClassXSAccessorArray->new;
+my $object_tiny_xs             = WithObjectTinyXS->new;
+
+cmpthese(timethese(-5,{
+    moose => sub {
+        $moose->myattr(27);
+        my $x = $moose->myattr;
+    },
+    moose_immutable => sub {
+        $moose_immutable->myattr(27);
+        my $x = $moose_immutable->myattr;
+    },
+    mouse => sub {
+        $mouse->myattr(27);
+        my $x = $mouse->myattr;
+    },
+    class_accessor => sub {
+        $class_accessor->myattr(27);
+        my $x = $class_accessor->myattr;
+    },
+    class_accessor_fast => sub {
+        $class_accessor_fast->myattr(27);
+        my $x = $class_accessor_fast->myattr;
+    },
+    class_accessor_fast_xs => sub {
+        $class_accessor_fast_xs->myattr(27);
+        my $x = $class_accessor_fast_xs->myattr;
+    },
+    class_accessor_complex => sub {
+        $class_accessor_complex->myattr(27);
+        my $x = $class_accessor_complex->myattr;
+    },
+    class_accessor_constructor => sub {
+        $class_accessor_constructor->myattr(27);
+        my $x = $class_accessor_constructor->myattr;
+    },
+    mojo => sub {
+        $mojo->myattr(27);
+        my $x = $mojo->myattr;
+    },
+    class_methodmaker => sub {
+        $class_methodmaker->myattr(27);
+        my $x = $class_methodmaker->myattr;
+    },
+    accessors => sub {
+        $accessors->myattr(27);
+        my $x = $accessors->myattr;
+    },
+    object_tiny => sub {
+        $object_tiny->set_myattr(27);
+        my $x = $object_tiny->myattr;
+    },
+    spiffy => sub {
+        $spiffy->myattr(27);
+        my $x = $spiffy->myattr;
+    },
+    class_spiffy => sub {
+        $class_spiffy->myattr(27);
+        my $x = $class_spiffy->myattr;
+    },
+    direct_hash => sub {
+        $direct_hash->{myattr} = 27;
+        my $x = $direct_hash->{myattr};
+    },
+    object_tiny_xs => sub {
+        $object_tiny_xs->myattr(27);
+        my $x = $object_tiny_xs->myattr;
+    },
+    class_xsaccessor => sub {
+        $class_xsaccessor->myattr(27);
+        my $x = $class_xsaccessor->myattr;
+    },
+    class_xsaccessor_array => sub {
+        $class_xsaccessor_array->myattr(27);
+        my $x = $class_xsaccessor_array->myattr;
+    },
+}));
+</pre>
+
+<p><b>Results:</b></p>
+<pre>
+class_accessor_constructor   2454/s
+moose                        4989/s
+mouse                       11187/s
+class_methodmaker           35946/s
+mojo                        52058/s
+class_accessor_complex      54325/s
+moose_immutable             60575/s
+class_accessor              75348/s
+class_spiffy                79642/s
+class_accessor_fast         89620/s
+class_accessor_fast_xs     107349/s
+spiffy                     134988/s
+class_xsacessor_array      155608/s
+class_xsacessor            173799/s
+object_tiny                234721/s
+object_tiny_xs             287949/s
+direct_hash                449616/s
+</pre>
+
+<p><a href="http://hanekomu.at/blog/dev/20081101-1054-dissecting_the_moose_3-benchmarking_accessor_generators.html"><b>Benchmarking object creation and attribute access</b></a></p>
+
+<pre>
+#!/usr/bin/env perl
+
+use warnings;
+use strict;
+use Benchmark qw(cmpthese timethese :hireswallclock);
+
+
+package WithMoose;
+use Moose;
+has myattr => ( is => 'rw' );
+
+
+package WithMooseImmutable;
+use Moose;
+has myattr => ( is => 'rw' );
+__PACKAGE__->meta->make_immutable;
+
+
+package WithMouse;
+use Mouse;
+has myattr => ( is => 'rw' );
+
+
+package WithClassAccessor;
+use base qw(Class::Accessor);
+__PACKAGE__->mk_accessors(qw/myattr/);
+
+
+package WithClassAccessorFast;
+use base qw(Class::Accessor::Fast);
+__PACKAGE__->mk_accessors(qw/myattr/);
+
+
+package WithClassAccessorFastXS;
+use base qw(Class::Accessor::Fast::XS);
+__PACKAGE__->mk_accessors(qw/myattr/);
+
+
+package WithClassAccessorComplex;
+use base qw(Class::Accessor::Complex);
+__PACKAGE__->mk_new->mk_scalar_accessors(qw/myattr/);
+
+
+package WithClassAccessorConstructor;
+use base qw(Class::Accessor::Constructor Class::Accessor::Complex);
+__PACKAGE__->mk_constructor->mk_scalar_accessors(qw/myattr/);
+
+
+package WithMojo;
+use base qw(Mojo::Base);
+__PACKAGE__->attr('myattr');
+
+
+package WithClassMethodMaker;
+use Class::MethodMaker
+    [ scalar => [ qw/myattr/ ],
+      new    => [ qw/-hash new/ ],
+    ];
+
+
+package WithAccessors;
+use accessors qw(myattr);
+
+sub new { bless {}, shift }
+
+
+package WithObjectTiny;
+use Object::Tiny qw/myattr/;
+sub set_myattr { $_[0]->{myattr} = $_[1] }
+
+
+package WithSpiffy;
+use Spiffy -base;
+field 'myattr';
+
+
+package WithClassSpiffy;
+use Class::Spiffy -base;
+field 'myattr';
+
+package WithClassXSAccessor;
+use Class::XSAccessor accessors => { myattr => 'myattr' };
+sub new {my $class = shift; bless {@_} => $class}
+
+package WithClassXSAccessorArray;
+use Class::XSAccessor::Array accessors=> { myattr => 0 };
+sub new {my $class = shift; my %args = @_; bless [$args{myattr}] => $class}
+
+package WithObjectTinyXS;
+use Object::Tiny qw/myattr/;
+use Class::XSAccessor accessors => { myattr => 'myattr' }, replace => 1;
+
+package main;
+
+cmpthese(timethese(-5,{
+    moose => sub {
+        my $obj = WithMoose->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+    moose_immutable => sub {
+        my $obj = WithMooseImmutable->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+    mouse => sub {
+        my $obj = WithMouse->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+    class_accessor => sub {
+        my $obj = WithClassAccessor->new({ myattr => 27 });
+        my $x = $obj->myattr;
+    },
+    class_accessor_fast => sub {
+        my $obj = WithClassAccessorFast->new({ myattr => 27 });
+        my $x = $obj->myattr;
+    },
+    class_accessor_fast_xs => sub {
+        my $obj = WithClassAccessorFastXS->new({ myattr => 27 });
+        my $x = $obj->myattr;
+    },
+    class_accessor_complex => sub {
+        my $obj = WithClassAccessorComplex->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+    class_accessor_constructor => sub {
+        my $obj = WithClassAccessorConstructor->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+    mojo => sub {
+        my $obj = WithMojo->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+    class_methodmaker => sub {
+        my $obj = WithClassMethodMaker->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+    object_tiny => sub {
+        my $obj = WithObjectTiny->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+    spiffy => sub {
+        my $obj = WithSpiffy->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+    class_spiffy => sub {
+        my $obj = WithClassSpiffy->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+    direct_hash => sub {
+        my $h = {};
+        $h->{myattr} = 27;
+        my $x = $h->{myattr};
+    },
+    object_tiny_xs => sub {
+        my $obj = WithObjectTinyXS->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+    class_xsacessor => sub {
+        my $obj = WithClassXSAccessor->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+    class_xsacessor_array => sub {
+        my $obj = WithClassXSAccessorArray->new(myattr => 27);
+        my $x = $obj->myattr;
+    },
+}));
+</pre>
+
+<p><b>Results:</b></p>
+<pre>
+class_accessor              159366/s
+mojo                        240146/s
+class_spiffy                250628/s
+mouse                       270458/s
+spiffy                      277170/s
+moose                       288516/s
+moose_immutable             293403/s
+class_accessor_fast         295518/s
+class_accessor_constructor  302447/s
+accessors                   318795/s
+class_accessor_complex      352492/s
+class_methodmaker           389809/s
+object_tiny                 435876/s
+class_xsaccessor            537101/s
+class_accessor_fast_xs      572424/s
+class_xsaccessor_array      620285/s
+object_tiny_xs              638328/s
+direct_hash                1183721/s
+</pre>
+
+<p>I'll leave the analysis of the results to the reader.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Mismatched headlines</h2>
+<h3><a href="/user/srezic/">srezic</a> on 2008-11-03T20:37:08</h3>
+It seems that the headlines and the source code do not match.
+
+
+
+<blockquote>
+
+<h2>Re:Mismatched headlines</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2008-11-03T21:31:16</h3>
+<p>Thanks. Damn tiny text boxes!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

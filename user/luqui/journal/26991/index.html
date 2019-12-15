@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of luqui: Memory-saving lazy attribute grammars</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Memory-saving lazy attribute grammars</h1>
+<h2><a href="/user/luqui/">luqui</a> on 2005-10-03T16:32:39</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Okay, well, my lazy implementation in Language::AttributeGrammar is really memory hungry.  Not only is there the O(mn) overhead usually present in lazy implementations, <i>all data is kept around until the end of the computation</i>.  This is silly (but it is still a trade-off).<br/><br/>I have two options for making a reasonable implementation.<br/><br/>1) Use a proper lazy approach that knows how to clean up after itself.
+2) Compile the grammar using Kastens's algorithm.<br/><br/>I'll demonstrate option 1 by showing the Branch visitor in the repmin problem:<br/><br/><pre>
+sub Branch::visit {
+    my ($self, $globalmin) = @_;
+    my ($left_min, $left_result)   =  $self->{left}->visit(thunk { $globalmin->call });
+    my ($right_min, $right_result) = $self->{right}->visit(thunk { $globalmin->call });
+    return (thunk { min($left_min->call, $right_min->call) },                 # min
+            thunk { Branch->new($left_result->call, $right_result->call) });  # result
+}
+</pre><br/><br/>Each of the $left_min etc. are thunks.  When you ->call a thunk, it runs the closure associated with it and then overwrites the closure with the value that the closure returned.  It's the standard lazy evaluation technique.<br/><br/>Now you say, "$left_min?  Why not $left->{min}?  The code would be clearer." (Also importantly -- and this is the trade-off -- you wouldn't have to know the types of the child nodes).   Well, it's about memory.  If I put all the thunks in a hash, then the values they return will be cleaned up after I run all the thunks (exhausting the pointers to the lexical pad).  However, if I put them in lexicals, then the values will be cleaned up incrementally, as soon as the computation doesn't need them anymore.  <br/><br/>For instance, you don't need the local minimum to build the result, so as soon as the local minimum of this branch is returned, there are no more references to $left_min and $right_min and they can be cleaned up.  This is more important when you're passing around large data structures, which attribute grammars often do.<br/><br/>The cool thing about this new lazy formulation (which isn't new at all, UUAG does it), is that it's time <i>and</i> memory complexity is exactly the same as Kastens's algorithm.  There is linear overhead in the number of nodes, but that has the same complexity as the attribute values themselves.  You just allocate them a little earlier.   So all that's left are the details.<br/><br/>And that brings me to option 2.  The details could be important.   Kastens's algorithm is less flexible than the lazy algorithm above because it needs to know more about the input.  Kastens's algorithm, though, can compile to an abstractionless representation, where pretty much the only operations are "bsr" and "execute attribute body".  In Perl, this will make a little difference, but not one noticable (I may benchmark to back up/invalidate this claim).  However, if you are compiling to C or a JIT, this could make a really really huge difference.  If Perl 6 gets attribute grammar support (s/If/When/, just a question of whether it's shipped or module), then it's probably a good idea to use Kastens's algorithm, because we can then compile to JITted parrot (or even C).  <br/><br/>However, all the lifetime analysis, visitation dependencies, and hard-to-compute bullshit like that in Kastens's algorithm are automatically handled using thunks and garbage collection.  That means that a lazy approach is <i>significantly</i> easier to implement.  Also, the lazy approach can accept more grammars; that is, grammars that are not "ordered attribute grammars" as in Kastens's paper.  But the class of ordered attribute grammars is already quite large, so that's probably not an issue.<br/><br/>I think I'll go with option 1, mainly because it's easier to implement.  Funny how big a factor that can be, and how little people understand how big a factor that is.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

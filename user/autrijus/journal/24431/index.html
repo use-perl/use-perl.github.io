@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autrijus: Day 87: STM: Atomic power!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Day 87: STM: Atomic power!</h1>
+<h2><a href="/user/autrijus/">autrijus</a> on 2005-04-28T19:25:43</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>At nothingmuch's request, I changed all IORef and HashTable in Pugs to use TVar, a STM-powered, concurrency-safe, deadlock-free storage.  For people who were not following along, here is a <a href="http://homepages.inf.ed.ac.uk/wadler/linksetaps/slides/peyton-jones.ppt">presentation</a> and <a href="http://research.microsoft.com/Users/simonpj/papers/stm/">paper</a> about STM as used in GHC.
+
+<p>
+This means that all our variable access are automatically atomic -- i.e. there can never be corrupted pads when pads are shared among multiple <code>async</code> blocks.  By nothingmuch and my benchmarking, there is no visible performance loss.
+
+<p>
+In other news, I eliminated the troublesome mutual module recursion, to pave a way for a new <code>EvalT</code> monad transformer that can expose <code>atomic {}</code> to Perl 6 level.  The idea is that this should work:
+
+<pre>
+    my ($x, $y) = (1, 2);
+    async { atomic { $x = $y * 10; $y = $x * 10 } };
+    async { atomic { $x = $y * 10; $y = $x * 10 } };
+    async { atomic { $x = $y * 10; $y = $x * 10 } };
+    atomic { $x = $y * 10; $y = $x * 10 };
+    say "$x, $y"; # always "20000000, 200000000"
+</pre>
+
+But this should throw a catchable exception:
+
+<pre>
+    # die "Can't perform IO inside atomic {} block"
+    atomic { say "Hello, World!" };
+</pre>
+
+I'm having some problems in modeling the neccessary <code>MonadCont</code> continuation semantic, so <code>atomic</code> is not exposed right now.  However, as a happy side effect, the elimination of mutual recursion has improved performance by another 15% or so.  Yay for a fast Pugs!
+
+<p>
+There are many other notable changes today as well:
+
+<ul>
+<li>Stevan committed a working <a href="http://svn.openfoundry.org/pugs/ext/Pod-Steam-Parser/">Pod::Stream::Parser</a> to ext/, in preparation for Pugs to be <em>self-documenting</em>.
+<li>Speaking about documentation, theorbtwo started investigating adding <a href="http://haskell.org/haddock/">Haddock</a> annotations to Pugs.  I have used Haddock for my first Haskell project, <a href="http://wagner.elixus.org/user/autrijus/darcs/openafp/docs/">OpenAFP</a>, and it is indeed very pretty and useful.
+<li>For OpenAFP, I added a <code>VOpaque</code> value type, to encapsuate any other types into an opaque reference.  The upshot is that we should be able to manipulate arbitary Haskell types (and by extension, C types) as Pugs objects soon.
+<li>nothingmuch fixed <code>eval_is</code> and <code>eval_ok</code>, then proceeds to implement <code>.wrap</code>. Juerd, I and nothingmuch all agreed that the current semantics in S06 (based on Hook::LexWrap) is very awkward, and conflicts with how <code>.assuming</code> behaves; we worked out a much more perlish semantics, and nothingmuch proceeded to implement it.
+<li>machack666 is working on supporting block closure traits like <code>FIRST</code>; his work may also provide a more generic trait system for other structures to use.
+<li>andras checked in Memory Game v0.2, this time with tooltips on each boxes and a turns counter.
+<li>iblech continues to update loose ends everywhere, including the mandelbrot tests, <code>BEGIN {...}</code> block tests, and more.
+<li>bsb, nothingmuch and I moved readline probing to <code>Makefile.PL</code>, so the interactive shell should be usable for people who needs the <code>-package readline</code> flag.
+<li>bsb tested and fixed <code>pick</code>'s behaviour on <code>one</code> junctions: <code>one(1).pick</code> should return <code>1</code>, but <code>one(1,1).pick</code> should be <code>undef</code>.
+<li>gaal made the YAML harness sort its input, so our tests are always run in the same order, regardless of the underlying filesystem. rootmj also committed a small message fix in <code>run-smoke.pl</code>
+<li>Stevan and Limbic_Region added some last/next tests.
+<li>revdiablo, our new committer, added various tests on recursive function calls and subroutine references.
+<li>mugwump added tests for a function returning its inner function, ensuring that the inner pad is being preserved.
+</ul>
+</p>
+
+See you tomorrow!
+</p>
+
+
+<hr/>
+
+
+
+<h2>Um, can you fix the URLs?</h2>
+<h3><a href="/user/hans/">hans</a> on 2005-05-01T19:28:46</h3>
+Hi,<br> <br>The two URLs about STM in the Thursday April 28 entry are identical, both referring to the presentation. Could you post the URL to the paper?<br> <br>Thanks<br> <br>Hans
+
+
+
+<blockquote>
+
+<h2>Re:Um, can you fix the URLs?</h2>
+<h3><a href="/user/autrijus/">autrijus</a> on 2005-05-03T13:17:33</h3>
+Why, sure, fixed, thanks!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

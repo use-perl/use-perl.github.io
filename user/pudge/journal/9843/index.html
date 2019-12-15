@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: Mac::Glue Thoughts</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Mac::Glue Thoughts</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2003-01-08T18:05:35</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I am kinda thinking aloud about some things ... feel free to toss in your two cents.<br/><br/><ECODE>$ osascript -e 'tell app "Finder" to get name of startup disk'
+Sweeney</ECODE><br/><br/><i>startup disk</i> is what AppleScript calls a <i>property</i>.  Each class can have properties, some of which are read-only, some of which are read-write.  If you open the Finder's dictionary in Script Editor, under the <i>application</i> class you will see numerous properties, one of which is <i>startup disk</i>.  Classes can also have <i>elements</i>, which are essentially other classes which can be referenced by some identifier (name, index, ID).<br/><br/><ECODE>get startup disk -- <i>startup disk</i> is property of Finder
+get name of startup disk -- <i>name</i> is property of <i>startup disk</i>
+get disk 3 -- 3 is the numeric index of the wanted element <i>disk</i>
+get disk "Sweeney" -- "Sweeney" is the name of the wanted element <i>disk</i></ECODE><br/><br/>Each element is an object of a specific class.  Each property also is of a specific class type, and inherits from that class type.  So <i>startup disk</i> is an object of class <i>disk</i>.  If you select the <i>disk</i> class in the dictionary, you see what elements and properties it can have, and what else it inherits from (in this case, the <i>container</i> class).  If you look at the <i>container</i> class you can see it inherits from <i>item</i>, which describes the <i>name</i> property.  So we can get the <i>name</i> of <i>startup disk</i> because it isa <i>container</i> isan <i>item</i> which has a <i>name</i>.<br/><br/>I needed to figure out how all these things worked together for Mac::Glue to work, since I am essentially rewriting AppleScript in Perl syntax.  One of the downsides is that in order to take full advantage of Mac::Glue, you need to understand a lot of this stuff, too, at least somewhat.  So in Mac::Glue, the above would be:<br/><br/><ECODE>$finder->get( $finder->prop('startup disk') );</ECODE><br/><br/>Tell the Finder to get the property <i>startup disk</i>.  Simple, right?  The get method and startup disk property both belong to the Finder's dictionary, and since Perl doesn't really keep context for OOP, we need to remind it what object we are working with.  But with tchrist's help, I do have code that will allow me to do:<br/><br/><ECODE>for ($finder) {
+	$disk = get(prop('startup disk'));
+}</ECODE><br/><br/>It imports AUTOLOAD into the current namespace, and then that AUTOLOAD calls the unknown methods on $_ (which for() set for us).  Freaky.  But I digress.<br/><br/>The other lines would look like this:<br/><br/><ECODE>$finder->get( $finder->prop(name => of => 'startup disk') );</ECODE><br/><br/>I am thinking of ways to make the syntactic sugar <i>of</i> unnecessary, but it is difficult, because with properties and elements are basically the same thing; prop('foo') is just a synonym for <TT>obj(property => 'foo')</TT>, it is the <i>name</i> of the element <i>property</i>.<br/><br/><ECODE>$finder->get($finder->obj(
+	property => 'name',
+	property => 'startup disk'
+));</ECODE><br/><br/>That makes even less sense.  But if we had simply <TT>name => 'startup disk'"</TT>, then it would try to get the element <i>name</i> whose identifier is "startup disk".  I'd need to know that <i>name</i> is intended to be a property, not an element (I can't look at "startup disk" for the answer, because I could be asking for something actually named "startup disk" instead of the property).  Witness the other two:<br/><br/><ECODE>$finder->get( $finder->obj(disk => 3) );
+$finder->get( $finder->obj(disk => "Sweeney") );</ECODE><br/><br/>And it still makes perfect sense when extended:<br/><br/><ECODE># tell app "Finder" to get name of item 12 of disk "Sweeney"
+$finder->get(
+	$finder->prop(name => item => 12, disk => "Sweeney")
+);</ECODE><br/><br/>Right now, it is essentially figured out by counting: if there is an odd element in the list, it is a property.  This works fine except for when you are getting a property of a property.  Is it possible to do it this way, to figure out that <i>name</i> is a property?  I believe that properties and elements cannot share the same name, so that I can do this.  Do I want to even try to do it, will it make it more or less confusing?
+<P CLASS="center"> <EM>Now Playing:</EM> <STRONG><A HREF="http://user@mp3.pudge.net:8000/mp3/Artists/Jon%20Gibson/Forever%20Friends/05%20Forever%20Friends.m3u?play=1">Forever Friends - Jon Gibson (Forever Friends)</A></STRONG>  </P> </p>
+
+
+<hr/>
+
+
+
+<h2>&amp;gt;&amp;gt; pudge.todo</h2>
+<h3><a href="/user/darobin/">darobin</a> on 2003-01-08T18:24:56</h3>
+<p>
+  Inline::AppleScript<nobr> <wbr></nobr>:)
+</p>
+
+
+
+<blockquote>
+
+<h2>Re: pudge.todo</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2003-01-08T18:39:01</h3>
+We already have <tt>DoAppleScript()</tt>, that's good enough.<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

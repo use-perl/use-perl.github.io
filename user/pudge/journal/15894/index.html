@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: Stupid Mac::Glue/SSH Tricks</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Stupid Mac::Glue/SSH Tricks</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2003-11-20T09:11:37</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>You may have read in my journal about how I have my ssh-agent set up on Mac OS X; briefly, I use a login plugin called SSHAgentStartup which creates an ssh-agent before logging in, and sets up the environment in ~/.MacOSX/environment.plist, so it is global to all my apps.  I have it also create a ~/.bash_ssh_env file that I can source from my bash init files.<br/><br/>Then I have a startup script that calls ssh-add without a terminal attached (<TT>ssh-add &lt;/dev/null</TT> works, though in this case it is a startup AppleScript that just does <TT>do shell script "/usr/bin/ssh-add"</TT> in a try/end try block), with SSH_ASKPASS set to the path of an app called SSHPassKey, which retrieves my ssh passphrase from the Keychain.  Since the Keychain is unlocked upon logging in, and the ssh-agent is run and its environment vars are set before this script is run, this automatically adds my keys to the ssh-agent without any extra user interaction.<br/><br/>So I just log in, and this is all set up for me: a global ssh-agent for all my GUI apps and shells, with my keys added to the agent and ready to go.<br/><br/>The only problem I have with this setup is that I like to have my Keychain lock automatically after inactivity or sleep, for security's sake; but this does not also disable the ssh-agent.  So there's a little security issue there that I wanted to address.<br/><br/>So, this ssh-lock script was born.  It checks to see if the Keychain named for the current user is locked, and if so, it removes my identities from the ssh-agent.  Mmmm, security!<br/><br/>[ Keychain Scripting is a little Faceless Background App; it will launch, but it won't show up in the Dock, and it will stay open.  The glue for this app is created automatically when you install Mac::Glue, along with several other FBAs that reside in the /System/Library/ScriptingAdditions folder (such as URL Access Scripting, which is pretty much useless from Perl, since we have LWP). ]<br/><br/><ECODE>
+#!/usr/local/bin/perl
+use warnings;
+use strict;<br/><br/>use Mac::Glue;<br/><br/>my $ssh_add = '/usr/bin/ssh-add';<br/><br/>my $kc = new Mac::Glue 'Keychain_Scripting';
+my $locked = $kc->prop(locked => keychain => scalar getpwuid($<));<br/><br/>if ($ENV{SSH_AGENT_PID} && kill 0, $ENV{SSH_AGENT_PID}) {
+	system($ssh_add, '-d') if $locked->get;
+}
+</ECODE><br/><br/>I call this from crontab (note that it sets up the ssh-agent vars first):<br/><br/><ECODE>
+ */5   * * * * source /Users/pudge/.bash_ssh_env; /Users/pudge/bin/ssh-lock
+</ECODE><br/><br/>And I also wrote a little front-end to ssh, that checks to see if my ssh-agent has my identities in it, and if not, adds them automatically, just like the startup script does, with no user interaction, unless the Keychain is locked, in which case SSHPassKey will prompt me for the Keychain password.  Then, it just goes ahead and calls ssh.<br/><br/><ECODE>
+#!/usr/local/bin/perl
+use warnings;
+use strict;<br/><br/>my $ssh = '/usr/bin/ssh';
+my $ssh_add = '/usr/bin/ssh-add';<br/><br/>if ($ENV{SSH_AGENT_PID} && kill 0, $ENV{SSH_AGENT_PID}) {
+        if (`$ssh_add -l` =~ /no identities/) {
+                `$ssh_add </dev/null`;
+        }
+}<br/><br/>system($ssh, @ARGV);
+</ECODE><br/><br/>Mmmmm, glue.</p>
+
+
+<hr/>
+
+
+
+<h2>Stupid Mac::Glue/SSH Tricks</h2>
+<h3><a href="/user/echo/">echo</a> on 2003-11-20T12:21:35</h3>
+Damn, so much effort, I am too lazy and just installed <a href="http://www.dreamflow.nl/projects/sshkeychain/" title="dreamflow.nl">SSHKeychain</a dreamflow.nl><nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Stupid Mac::Glue/SSH Tricks</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2003-11-20T15:45:48</h3>
+I've ssen this, but have been using SSHAgentStartup/SSHPassKey since before it existed, and I've never been able to figure out if it is able to set my ssh-agent environment system-wide at login, so I didn't bother switching to it.  Besides, I am happy with the setup, except for the one thing it didn't do<nobr> <wbr></nobr>... but SSHKeychain did plant the seed in my head about ssh-agent being secured when the Keychain was locked.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

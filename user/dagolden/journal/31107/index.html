@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of dagolden: RFC: Portable Alien Library System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>RFC: Portable Alien Library System</h1>
+<h2><a href="/user/dagolden/">dagolden</a> on 2006-09-24T12:41:08</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><i>This post was orginally made as <a
+href="http://win32.perl.org/wiki/index.php?title=Portable_Alien_Library_System">
+Portable Alien Library System</a> on <a
+href="http://win32.perl.org">win32.perl.org</a>.  It is reposted here for wider
+commentary.  Some additional design details, <a
+href="http://win32.perl.org/wiki/index.php?title=Talk:Portable_Alien_Library_System">
+existing commentary</a> and references can be found on that page.</i></p>
+
+<p><b>Synopsis</b></p>
+
+<ul>
+<li>Modules using "libfoo" list Alien::Foo as dependency </li>
+<li>Alien::Foo namespace used to manage external libraries </li>
+<li>Alien library files contained in the corresponding auto directory (auto/Alien/Foo) </li>
+<li>Alien modules provide an API for CC flags in Makefile.PL/Build.PL </li>
+<li>Alien modules verify library availability (e.g. in platform or Alien standard directories) </li>
+<li>Alien modules responsible for installing binary library files when necessary </li>
+<li>Alien modules support binary package download from a repository </li>
+<li>Alien modules support source compilation or binary re-packaging to the binary package format used for installation </li>
+</ul>
+
+<p><b>Introduction</b></p>
+
+<p>The Vanilla Perl Project provides a Win32 Perl and bundled compiler to build Perl modules from CPAN rather than relying on binary module package systems like PPM. Early feedback on the project demonstrate the many popular Perl modules that have dependencies on external libraries -- ones often assumed to exist on a Unix-based operating system.</p>
+
+<p>This document describes the Portable Alien Library System (PALS) -- a framework for external library dependency specification and resolution. While its inspiration is drawn from Win32, its design is intended to provide benefits to module authors and users on all platforms.</p>
+
+<p><b>Requirements</b></p>
+
+<p>This list of functional objectives is adapted from the original <a href="http://search.cpan.org/dist/Alien/">Alien</a> module and commentary in <a href="http://win32.perl.org/wiki/index.php?title=External_Library_Handling">External Library Handling</a> at win32.perl.org.</p>
+
+<p><i>Dependency specification</i></p>
+
+<p>The solution must provide a way for Perl module authors to specify a dependency on an external library. An important consideration is how a solution integrates with or diverges from existing CPAN methods and tools.</p>
+
+<p><i>Library detection</i></p>
+
+<p>Libraries may be pre-installed in well known locations (e.g. "/lib") or may be installed ad hoc. The solution will need to detect if a library (and associated headers) are available and identify the associated paths.</p>
+
+<p><i>Library configuration</i></p>
+
+<p>Given the wide variety of locations for libraries, the solution needs to provide an abstraction layer to other tools that ensures proper configuration. Examples include:</p>
+
+<ul>
+<li>Makefile.PL: compiler flags, including library and header paths </li>
+<li>Shared/dynamic library loading: libraries in non-standard locations may need changes to environment settings such as PATH or LD_LIBRARY_PATH to ensure libraries are found at runtime </li>
+<li>Other metadata: library metadata, such as version, may be required to manage dependencies </li>
+</ul>
+
+<p><i>Binary library package generation</i></p>
+
+<p>External library compilation from source can be substantially more time-consuming than typical XS compilation for Perl modules. Providing binaries of external libraries (whenever possible) from an online repository will provide a more user-friendly experience.</p>
+
+<p><i>Binary library package installation</i></p>
+
+<p>Whether compiled from source or downloaded as a binary, external modules will need to be installed such that they may be located later for library detection and configuration. The solution will need to address whether this should be platform independent or platform specific.</p>
+
+<p><b>Design criteria</b></p>
+
+<p><i>Portable</i></p>
+
+<p>External library support is a potential problem all platforms -- not just Win32 -- and developers will be more inclined to use the solution to specify external dependencies if it addresses dependency problems portably. The solution should provide a standard interface for module developers and module users that abstracts platform and compiler details.</p>
+
+<p><i>Modular</i></p>
+
+<p>Library packagers may not wish to take on responsibility for creating a solution for all platforms or all compilers or may lack the necessary know-how. The solution should modularize functionality wherever possible to allow individual library packagers to work on separate parts of the solution for platforms of interest.</p>
+
+<p><i>User-friendly</i></p>
+
+<p>The solution should degrade gently. If library support is not available for a particular platform or compiler, the solution should fail cleanly with an explanation of the dependency problem prior to generating XS compilation failures during linking.</p>
+
+<p><i>Maintainable</i></p>
+
+<p>Ongoing availability or upgrades of an external library should not depend on a single individual or on tacit, undocumented packaging know-how. As with Perl::Dist::*, the published solution should contain an automated process to convert an external library from source (or binary package) to the binary package format used by the solution.</p>
+
+<p><b>Design overview and commentary</b></p>
+
+<p>The following design description will make more sense if you examine
+the <a href="http://vanillaperl.com/images/alien_ecosystem.png">Alien Ecosystem</a>
+diagram.</p>
+
+<p><i>Dependency specification</i></p>
+
+<p>CPAN modules with external library dependencies will specify a module dependency on a corresponding Alien:: module, e.g. Alien::Foo for the "libfoo" module. Dependency management can thus be handled within the existing system using ExtUtils::MakeMaker, Module::Build or Module::Install prerequisite specifications.</p>
+
+<p>Presence of an installed Alien::Foo should be considered evidence that libfoo is available. Alien::Foo must not install if libfoo cannot be found.</p>
+
+<p><i>Library detection</i></p>
+
+<p>Library searches will need to be done in platform specific ways. Perl Config values like "libpth" could be used as a starting point.</p>
+
+<ul>
+<li>Win32: should also include the LIB environment variable and possibly the PATH environment variable for library searches </li>
+<li>Unix: should include the LD_LIBRARY_PATH environment variable (or equivalents); could also use the output of "ldconfig -p" </li>
+</ul>
+
+<p><i>Library configuration</i></p>
+
+<ul>
+<li>Makefile.PL: Alien::Base will provide an API for generating CC flags for both libraries and headers. </li>
+<li>Shared/dynamic library loading: Will need to set the shared library search path before bootstrapping XS. This could be done during import of "use Alien::Foo" or could be done via an explicit class method call. </li>
+<li>Other metadata: Alien::Foo could be extended with methods for library metadata. </li>
+</ul>
+
+<p><i>Binary library package generation</i></p>
+
+<p>Alien::Foo::* should include the full procedure needed to generate a binary library package (a ".pal" file) for a particular platform. This should include downloading sources from a URL, any preparation work or patching, and generation of the binary.</p>
+
+<p>This process could be done completely from the upstream library source, or could be a "repackaging" of another binary download, e.g. creating wrappers or definition files around a .dll on Win32.</p>
+
+<p>At worst, this might just be a series of system() calls. The point is to ensure that the full process is available for future packagers to replicate, adapt or enhance.</p>
+
+<p>Alien::Base should provide helper methods for URL downloading, PAL file generation, etc.</p>
+
+<p>After the PAL file is generated, it can be uploaded to a repository for end-users to download for installation.</p>
+
+<p><i>Binary library package installation</i></p>
+
+<p>If not available already in platform-standard library directories, the library headers and binaries should be installed into the corresponding "auto" directory for the Alien module. E.g., "site/auto/Alien/Foo" for Alien::Foo. This location should be well-defined for all platforms, since it's the same as is used for XS modules.</p>
+
+<p>Exact layout within this module is still open -- should there be "lib" and "include" subdirectories or should libraries and headers be combined in the top directory. Installation location of binary utilities included with libraries is still an open question.</p>
+
+<p>The binary package may be either generated from source or downloaded from a URL (the default option). </p>
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>The concept feels inelegant</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2006-09-25T00:39:35</h3>
+While there's some bits of what you want to do that would certainly be useful (like some sort of unified lib detection) I'm generally negative on the idea of standardising Alien, or at least, about any version of the idea that involves the CPAN installer compiling C libs.<br><br>I still much prefer the concept of having the CPAN installer "co-ordinate" with other platform-specific binary package installers.<br><br>Of course, that's an entire other problem.<br><br>Some parts of this though, like cross-language dependency specific, do need to be solved in any case though.<br>
+
+
+
+<h2>agreed</h2>
+<h3><a href="/user/jhi/">jhi</a> on 2006-09-25T04:45:04</h3>
+&gt; I still much prefer the concept of having the CPAN installer "co-ordinate" with other platform-specific binary package installers.<br><br>I.e. ask dpkg, ask rpm, ask Windows installation machinery/registry, etc. whether this external application/library/developer SDK has been installed, etc.  In itself that is not very hard: packaging tool specific plugings (query/install/uninstall) and then a large database of mappings (what is this package called under this packaging tool, and how is this package distributed into subpackages under this packaging system, and how are the versions mapped).<br><br>This, indeed, was the original idea of the Alien:: namespace.  I should know, I was in the meeting where this idea was discussed.<br><br>And I would prefer if that original idea would be kept as it is.  The idea of compiling (attempting to compile) and detecting stuff is almost completely different, and much harder.  I prefer people, including myself, first trying something simple and getting that working well.  And if you still want to go the way of test compiling, please come up with a different namespace. That's why we have different namespaces.<br>
+
+
+
+<blockquote>
+
+<h2>Re:agreed</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2006-09-25T10:37:06</h3>
+&gt; This, indeed, was the original idea of the Alien:: namespace. I should know, I was in the meeting where this idea was discussed.<br><br>I find this odd though, because I've never seen any of this.<br><br>Based on what was uploaded to CPAN, I had come to see Alien:: as "We need this one specific thing really bad, so any evil thing you have to, just get it installed".<br><br>I never really saw it as something that co-ordinates with various platform-specific backends.<br><br>If so, I would have expected some to see some sort of Install::Binary::Driver::DebianApt type structure be implemented somewhere that the Alien:: module does a build_requires: dependency on... some combination of platform detection and platform-specific drivers.<br><br>Not this current situation where everything is lumped into the Alien:: module, which seems to be to appropriate for last-resort installation, but entirely inappropriate for large scale rollout.<br><br>So how did your original concept get turned so backwards?
+
+
+
+<blockquote>
+
+<h2>Re:agreed</h2>
+<h3><a href="/user/jhi/">jhi</a> on 2006-09-27T05:26:52</h3>
+&gt; So how did your original concept get turned so backwards?<br><br>So how long have you been around this community, anyway?<nobr> <wbr></nobr>:-) Just kidding. Kind of.<br><br>That was the idea as I remember it.  Maybe I didn't communicate it clearly enough.  Maybe some other idea was thrown around that stuck more in people's minds.  Maybe I should have followed up on the idea to produce actual implementations so that there would have been a precedent.  I don't know.<br><br>But I still think it's a good idea.  Instead of trying to be essentially a cross-platform "Configure", try to be a cross-platform installation tool.  I know from experience that Configure is both a terribly good and a horribly delicate tool.  It has taken more than ten years to build and it still only works in "UNIX enough" platforms.   Trying to do something similar e.g. in Windows makes my stomach turn.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

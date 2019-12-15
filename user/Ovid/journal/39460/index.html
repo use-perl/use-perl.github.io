@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Guess the Solution: Materialized Paths and &quot;ORDER BY&quot;</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Guess the Solution: Materialized Paths and &quot;ORDER BY&quot;</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-08-14T15:07:26</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Imagine that you need to store the following tree structure in your database:</p>
+
+<pre>    5---
+   / \  \
+  62 32  7
+ /  /   / \
+9  3   29  1
+          / \
+         48  55</pre>
+
+<p>One way this is typically handled is by creating a table linking parents and children:</p>
+
+<pre>
+parent | child
+-------+------
+5      | 62
+5      | 32
+5      | 7
+62     | 9
+... and so on</pre>
+
+<p>Because SQL isn't brilliant at recursion (and because most of us aren't as brilliant as Joe Celko), we find ourselves writing several SQL calls to walk up the tree.  However, this becomes prohibitively expensive when you have millions of objects in your tree and you need to repeatedly traverse it.  Enter materialized paths.</p>
+
+<p>A materialized path is a database denormalization where you flatted each branch of the tree.  You join all of the parents, in order, with a separator character which is guaranteed not to be in the id.  So the materialized path for <tt>48</tt> might be <tt>5.7.1.48</tt>.</p>
+
+<pre>node | path
+-----+---------
+1    | 5.7.1
+3    | 5.62.3
+5    | 5
+7    | 7.32
+9    | 5.62.9
+29   | 5.7.29
+32   | 5.32
+48   | 5.7.1.48
+55   | 5.7.1.55
+62   | 5.62</pre>
+
+<p>They can be tricky to maintain, but if you get them right, you can find all parents IDs in a single SQL statement.</p>
+
+<p>Today I ran into a nasty problem where I needed the parents, but I had to guarantee that the order of those parents was preserved at the database level (via <tt>ORDER BY</tt>).  The SQL looks sort of like this:<p>
+
+<pre>SELECT *
+FROM  tree
+WHERE id IN (5,7,1,48)
+ORDER BY ...</pre>
+
+<p>Um, what goes in that order by?  I need the items returned in the same order as the ids in the <tt>IN</tt> ids.  I asked many people and they were stumped.  They came up with Oracle specific answers.  Some suggested writing the ids to a temp table with sort criteria and joining on that.  Others through up their hands.  One person suggested a complicated case statement.</p>
+
+<p>Then one of my colleagues, Mark Morgan, said "can't you just ..."</p>
+
+<p>The solution was rather counter-intuitive to me, but once I saw it, I was dumbfounded in its simplicity.  Do you see it?</p>
+
+<p><strong>Update</strong>:  I've posted the solution in the comments, so if you want to think about it a bit first, don't read 'em.</p></p>
+
+
+<hr/>
+
+
+
+<h2>FIELD?</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2009-08-14T15:33:03</h3>
+<p>Too lazy to test it by would something like</p><p>ORDER BY FIELD( id, 5,7,1,48)</p><p>do the job?</p>
+
+
+
+<blockquote>
+
+<h2>Re:FIELD?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-08-14T15:46:29</h3>
+<p>I think that's MySQL specific.  The very simple solution is much easier.</p>
+
+
+
+<blockquote>
+
+<h2>Re:FIELD?</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2009-08-14T15:57:25</h3>
+<p>Ah...</p><p>ORDER BY CHAR_LENGTH( path )</p><p>?</p>
+
+
+
+<blockquote>
+
+<h2>Re:FIELD?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-08-14T16:11:57</h3>
+<p>That's pretty much it.  I responded to Ricardo with <a href="http://use.perl.org/comments.pl?sid=43604&amp;cid=70065" title="perl.org">the solution and a caveat</a perl.org>.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>too easy?</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2009-08-14T15:43:00</h3>
+<p>This seems obvious?</p><p>
+&nbsp; &nbsp; ORDER BY id=5, id=7, id=1, id=48</p>
+
+
+
+<blockquote>
+
+<h2>Re:too easy?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-08-14T15:49:47</h3>
+<p>Is that SQL standard?  The solution I've gone with is actually much simpler.</p>
+
+
+
+<blockquote>
+
+<h2>Re:too easy?</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2009-08-14T15:52:00</h3>
+<p>I have never seen a SQL where that didn't work.  I am also interested to see what could be <i>much</i> simpler than that.<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:too easy?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-08-14T16:03:20</h3>
+<p>OK, a few people on Twitter have struck out on this and Abigail guessed something similar to what you and Adrian guessed.</p><p>The solution is:</p><blockquote><div><p> <tt>ORDER BY length(path)</tt></p></div> </blockquote><p>Turns out it's a deterministic emergent property of materialized paths.  There is one caveat I realized, though.  If you have multiple trees and you want to see the root nodes, you can do this:</p><blockquote><div><p> <tt>SELECT id FROM tree WHERE id = path;</tt></p></div> </blockquote><p>However, some people omit the ID from the path.  So you'd have this (in particular, note the <tt>path</tt> for the 5 <tt>node</tt>):</p><blockquote><div><p> <tt>node | path<br>-----+---------<br>1&nbsp; &nbsp; | 5.7<br>3&nbsp; &nbsp; | 5.62<br>5&nbsp; &nbsp; | NULL<br>7&nbsp; &nbsp; | 7<br>9&nbsp; &nbsp; | 5.62<br>29&nbsp; &nbsp;| 5.7<br>32&nbsp; &nbsp;| 5<br>48&nbsp; &nbsp;| 5.7.1<br>55&nbsp; &nbsp;| 5.7.1<br>62&nbsp; &nbsp;| 5</tt></p></div> </blockquote><p>To get the parents, you'd have to do this:</p><blockquote><div><p> <tt>SELECT id FROM tree WHERE id IS NULL;</tt></p></div> </blockquote><p>But that means when sorting paths by length, <tt>length(node)</tt> sometimes returns NULL and the sort order on that is database dependent (and usually configurable).  So you would need to do this to sort the ids correctly:</p><blockquote><div><p> <tt>ORDER BY COALESCE(length(path),0))</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:too easy?</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2009-08-14T16:21:50</h3>
+<p>Seems problematic:</p><p>1.23.45.67</p><p>1.2.3.4.5</p><p>Perhaps you could count dots.</p>
+
+
+
+<blockquote>
+
+<h2>Re:too easy?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-08-14T16:24:31</h3>
+<p>No, you can guarantee that conflicting paths won't exist as you walk up the tree.</p>
+
+
+
+<h2>Re:too easy?</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2009-08-14T16:25:27</h3>
+<p>_"Seems problematic:"_</p><p>Nah - the problem is selecting all the parents of a child in order. The length of the path is guaranteed to increase.</p>
+
+
+
+<h2>Re:too easy?</h2>
+<h3><a href="/user/huxtonr/">huxtonr</a> on 2009-08-15T08:59:33</h3>
+The advantage of explicitly counting dots (rather than relying on string length to always increase with the number of dots) is that it makes path-lengths comparable. Not directly applicable to this problem, but not uncommon.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:too easy?</h2>
+<h3><a href="/user/jmazon/">jmazon</a> on 2009-08-14T16:41:10</h3>
+Wouldn't it be enough to just ORDER BY path?
+
+
+
+<blockquote>
+
+<h2>Re:too easy?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-08-15T07:09:08</h3>
+<p>With the caveat above, yes, I think it might be.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Have you looked at nested sets?</h2>
+<h3><a href="/user/melo/">melo</a> on 2009-08-15T08:14:48</h3>
+<p>Depending on the size of the tree, I've found that the nested sets representation is very nice for queries.</p><p>The query that you need is given as an example in this page:</p><p><a href="http://dev.mysql.com/tech-resources/articles/hierarchical-data.html" title="mysql.com">http://dev.mysql.com/tech-resources/articles/hierarchical-data.html</a mysql.com></p><p>(Although this is a mysql.com site, there is nothing MySQL specific with the solution)</p><p>The problem with nested sets is updates: they might change a large number of records - worst case, inserting a new node at the left-most place will update all the rows.</p><p>But smaller trees, they work very very well.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

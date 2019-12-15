@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autarch: Discoverability in REST vs Providing an API</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Discoverability in REST vs Providing an API</h1>
+<h2><a href="/user/autarch/">autarch</a> on 2008-11-01T21:23:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I'm still stuck on the whole problem of the requirement that URIs for REST APIs be discoverable, not documented. It's not so much that making them discoverable is hard, it's that making them discoverable makes them useless for some (common) purposes.</p>
+
+<p>When <a href="/2008/10/but-i-like-docs-roy.html">I last wrote about REST</a>, I got <a href="http://use.perl.org/comments.pl?sid=41350">taken to task</a> and even called a traitor (ok, I didn't take that very seriously ;) Aristotle Pagaltzis (and Matt Trout via IRC) told me to take a look at <a href="http://tools.ietf.org/html/rfc5023">AtomPub</a>.</p>
+
+<p>I took a look, and it totally makes sense. It defines a bunch of document types, which along with the original <a href="http://www.ietf.org/rfc/rfc4287">Atom Syndication Format</a>, would let you easily write a non-browser based client for publishing to and reading from an Atom(Pub)-capable site. That's cool, but this is for a very specific type of client. By specific I mean that the publishing tool is going to be interactive. The user navigates the Atom workspaces, in the client finds the collection they're looking for, POSTs to it, and they have a new document on the site.</p>
+
+<p>But what about a non-interactive client? I just don't see how REST could work for this.</p>
+
+<p>Let me provide a very specific example. I have this site <a href="http://www.vegguide.org">VegGuide.org</a>. It's a database of veg-friendly restaurant, grocers, etc., organized in a tree of regions. At the root of the tree, we have "The World". The leafs of that node are things like "North America", "Europe", etc. In turn "North America" contains "Canada", "Mexico" and "USA". This continues until you find nodes which only contain entries, not other regions, like "Chicago" and "Manhattan".</p>
+
+<p>(There are also other ways to navigate this space, but none of them would be helpful for the problem I'm about to outline.)</p>
+
+<p>I'd like for VegGuide to have a proper REST API, and in fact its existing URIs are all designed to work both for browsers and for clients which can do "proper" REST (and don't need HTML, just "raw" data in some other form). I haven't actually gotten around to making the site produce non-HTML output yet, but I could, just by looking at the Accept header a client sends.</p>
+
+<p>Let's say that Jane Random wants to get all the entries for Chicago, maybe process them a bit, and then republish them on her site. At a high level, what Jane wants is to have a cron job fetch the entries for Chicago each night and then generate some HTML pages for her site based on that data.</p>
+
+<p>How could she do this with a proper REST API? Remember, Jane is not allowed to <em>know</em> that http://www.vegguide.org/region/93 is Chicago's URI. Instead, her client must go to the site root and somehow "discover" Chicago!</p>
+
+<p>The site root will return a JSON document something like this:</p>
+
+<pre>
+<code>
+ { regions:
+   [ { name: "North America",
+       uri:  "http://www.vegguide.org/region/1" },
+     { name: "South America",
+       uri:  "http://www.vegguide.org/region/28" } }
+   ]
+ }
+</code>
+</pre>
+
+<p>Then her client can go to the URI for North America, which will return a similar JSON document:</p>
+
+<pre>
+<code>
+ { regions:
+   [ { name: "Canada",
+       uri:  "http://www.vegguide.org/region/19" },
+     { name: "USA",
+       uri:  "http://www.vegguide.org/region/2" } }
+   ]
+ }
+</code>
+</pre>
+
+<p>Her client can pick USA and so on until it finally gets to <a href="the URI for Chicago">http://www.vegguide.org/region/93</a>, which returns:</p>
+
+<pre>
+<code>
+ { entries:
+   [ { name: "Soul Vegetarian East",
+       uri:  "http://www.vegguide.org/entry/46",
+       rating: 4.3 },
+     { name: "Chicago Diner",
+     uri:  "http://www.vegguide.org/entry/56",
+     rating: 3.9 },
+   ]
+ }
+</code>
+</pre>
+
+<p>Now the client has the data it wants and can do its thing.</p>
+
+<p>Here's the problem. How the hell is this automated client supposed to <strong>know</strong> how to navigate through this hierarchy?</p>
+
+<p>The only (non-AI) possibility I can see is that Jane must embed some sort of knowledge that she has <em>as a human</em> into the code. This knowledge simply isn't available in the information that the REST documents provide.</p>
+
+<p>Maybe Jane will browse the site and figure out that these regions exist, and hard-code the client to follow them. Her client could have a list of names to look for in order: "North America", "USA", "Illiinois", "Chicago".</p>
+
+<p>If the names changed and the client couldn't find them in the REST documents, it could throw an error and Jane could tweak the client. A sufficiently flexible client could allow her to set this "name chain" in a config file. Or maybe the client could use regexes so that some possible changes ("USA" becomes "United States") are accounted for ahead of time.</p>
+
+<p>Of course, if Jane is paying attention, she will quickly notice that the URIs in the JSON documents happen to match the URIs in their browser, and she'll hardcode her client to just GET <a href="http://www.vegguide.org/region/93">the URI for Chicago</a> and be done with it. And since sites should have Cool URIs, this will work for the life of the site.</p>
+
+<p>Maybe the answer is that I'm trying to use REST for something inherently outside the scope of REST. Maybe REST just isn't for non-interactive clients that want to get a small part of some site's content.</p>
+
+<p>That'd be sad, because non-interactive clients which interact with just part of a site are fantastically useful, and much easier to write than full-fledged interactive clients which can interact with the entire site (the latter is commonly called a web browser!).</p>
+
+<p>REST's discoverability requirement  is very much opposed to my personal concept of an API. An API is <em>not</em> discoverable, it's documented.</p>
+
+<p>Imagine if I released a Perl module and said, "my classes use Moose, which provides a standard metaclass API (see RFC124945). Use this metaclass API to discover the methods and attributes of each class."</p>
+
+<p>You, as an API consumer, could do this, but I doubt you'd consider this a "real" API.</p>
+
+<p>So as I said before, I suspect I'll end up writing something that's only sort of REST-like. I <em>will</em> provide well-documented document types (as opposed to JSON blobs), and those document types <em>will</em> all include hyperlinks. However, I'm also going to document my site's URI space so that people can write non-interactive clients.</p>
+
+
+<p>
+<em>Cross-posted from <a href="http://blog.urth.org/">House Absolute(ly Pointless)</a> - <a href="http://blog.urth.org/programming/index.html#000026">permalink</a></em>.
+</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>ORLite has this problem</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-11-02T14:20:56</h3>
+<p>I've been finding I have something of this problem with ORLite, which is intended to give you a reasonable full ORM in one line of code.</p><p>The problem is that it isn't documented like regular code is documented. It just lets you call stuff based on the database structure, and I'm finding that very very annoying.</p><p>Apart from automatically generating POD for the documentation, I'm stuck at this point.</p>
+
+
+
+<blockquote>
+
+<h2>Re:ORLite has this problem</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2008-11-02T19:14:22</h3>
+<p>Alzabo did something similar, and I did write a complete POD generator.</p><p>However, it's a little different in this case, because it's generating an API based on a database you know about, so if the rules for API generation are predictable, knowing what the API will be is simple.</p><p>If you're writing a client for a REST service, you only know what the providers of the service tell you.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Something about roses and names</h2>
+<h3><a href="/user/stu42j/">stu42j</a> on 2008-11-03T16:48:34</h3>
+<p>Just take the ideas you like about REST, build your API as you see fit and call it something else.  POX/HTTP, or whatever.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Something about roses and names</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-11-03T18:30:12</h3>
+<p> <a href="http://plasmasturm.org/log/521/" title="plasmasturm.org">As long as you understand what you lose by giving up constraints imposed by REST</a plasmasturm.org>, that&#8217;s perfectly fine.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Something about roses and names</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2008-11-03T22:08:43</h3>
+<p>AFAICT, I like everything about REST but the "start at the root and discover" rule. The rest of it, including what Roy said in his original blog post about using document types vs documenting "parameters, seems very sane.</p><p>But for me, non-interactive clients are the key target of a web-based API. I think browsers do an acceptable job of providing an interactive client already.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Something about roses and names</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-11-05T08:41:33</h3>
+<p>What I said stands: if you understand what you lose by giving up that rule (a lot &#8211; much more than na&#239;vely obvious), go ahead and give it up.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

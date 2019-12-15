@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: toke.c</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>toke.c</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2005-04-18T07:55:19</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I never quite understood why Perl offered no hooks into its lexer and parser. They're contained in the interpreter, the very same program that runs my Perl scripts.<br/><br/>So I snuck a peek at the dreaded <code>toke.c</code>. My initial thought was that it was merely a matter of calling <code>yylex()</code> after initializing a few of the global <code>PL_*</code> variables appropriately. Only that on closer inspection there turned out to be exactly 99 of these global variables involved in the lexing process, including those dealing with the various perl stacks, control OPs and symbol tables. <br/><br/>So what I did was create a C++ class with 99 member variables. Each function in <code>toke.c</code> became a method that no longer works on <code>PL_variable</code> but <code>this-&gt;pl_variable</code> instead. Some non-lexer related functions had to be modified thusly, too, such as <code>Perl_init_stacks()</code> and a handful of those <code>Perl_save_*()</code> functions in <code>scope.c</code>. The whole purpose of that was to make the lexer re-entrant.<br/><br/>With these adjustments (and a few hundred #undefs/#defines), the actual XS code is very tiny:<br/><br/><pre>
+MODULE = Perl::Lexer		PACKAGE = Perl::Lexer<br/><br/>Lexer *
+Lexer::new ()
+    CODE:
+    {
+        RETVAL = new Lexer();
+        RETVAL->Pinit_stacks(aTHX);
+    }
+    OUTPUT:
+        RETVAL
+    CLEANUP:
+        RETVAL->ME = newSVsv(ST(0));<br/><br/>void
+Lexer::set_string (SV *line)
+    CODE:
+    {
+        THIS->lex_start(aTHX_ line);
+    }<br/><br/>void
+Lexer::next_token ()
+    CODE:
+    {
+        int tok = THIS->yylex(aTHX);<br/><br/>        /* skip empty lines */
+        if (tok && THIS->bufptr) 
+            while (THIS->bufptr == '\n') THIS->bufptr++;
+	
+        if (tok == 0)
+            XSRETURN_EMPTY;<br/><br/>        EXTEND(SP, 2);
+        ST(0) = sv_2mortal(newSViv(tok));
+        ST(1) = sv_2mortal(newSVpv(TOKENNAME(tok), 0));
+        XSRETURN(2);
+    }<br/><br/>void
+Lexer::DESTROY ()
+</pre><br/><br/>And a sample script along with its output looks like this:<br/><br/><pre>
+use blib;
+use Perl::Lexer;<br/><br/>my $string = <<'EOS';
+$a{1} = 1;
+print keys %a;
+EOS<br/><br/>my $lexer = Perl::Lexer->new;
+$lexer->set_string($string);
+while (my $l = $lexer->next_token) {
+    print $l, " ";
+}
+print "\n";<br/><br/>__END__
+$ WORD { THING ; } ASSIGNOP THING ; LSTOP UNIOP % WORD ; ;
+</pre><br/><br/>A couple of problems still exist: Once the lexer sees a comment, an empty line or a shebang line, it seems to gobble up all characters up to the end of the string and thus finishes scanning. The shebang-line stuff is done in <code>S_find_beginning()</code> in <code>perl.c</code> before parsing even starts. As for empty lines, I suppose they are handled by perl's parser and not its lexer. <br/><br/>The last thing that needs to be done is making the actual attributes belonging to a token available. Ideally, this is just a matter of exposing <code>yylval</code> to the outside world.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

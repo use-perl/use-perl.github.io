@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of miyagawa: HTTP::Response::Charset</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>HTTP::Response::Charset</h1>
+<h2><a href="/user/miyagawa/">miyagawa</a> on 2006-10-07T21:22:43</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a href="http://svn.bulknews.net/repos/public/HTTP-Response-Charset/trunk">http://svn.bulknews.net/repos/public/HTTP-Response-Charset/trunk</a><br/><br/>So I created a module HTTP::Response::Charset, which detects a charset of HTTP response using various techniques (Content-Type, META tag, BOM, XML declaration and Encode::Detect). The motivation is to get correctly decoded Unicode string from any HTTP response, especially text/html, text/plain, XHTML and RSS/Atom.<br/><br/>The POD document has most of what I'd like to say, so go ahead and take a look at it. Also see <a href="http://svn.bulknews.net/repos/public/HTTP-Response-Charset/trunk/t/">Unit test suite using Test::Base</a> to see the expected behavior.<br/><br/>After I wrote this code I google codesearched for a little and found that HTTP::Message, the base class of HTTP::Response has the exact decode_content() method which I wanted to implement using charset() value. Ugh.<br/><br/>Fortunately or unfortunately, current decode_content is slightly different from what I wanted to do. decode_content first decodes content body based on Content-Encoding header, like gzip, deflate or quoted-printable. Then, if <b>the Content-Type is text/*</b>, decode the content using <b>charset value set in the header</b> (or META tag if the response is HTML).<br/><br/>This might not be good enough for some corner cases: <br/><br/>1) If there's no charset= set in Content-Type nor META tag, it tries to decode text as latin-1 by default and gives corrupted Unicode data. (You can avoid that by saying $res->decoded_body(default_charset => 'none'), though)<br/><br/>2) It does Unicode decoding only for text/* response, which means if the response is application/xhtml+xml or application/atom+xml, it doesn't.<br/><br/>(Note that I'm not saying this is a bug. For XML data you don't need to decode the text portion by yourself, since most XML parser detects the encoding when it processes XML declaration and adds UTF-8 flag internally)<br/><br/><b>Update:</b> <a href="http://use.perl.org/comments.pl?sid=33258&cid=508702">per Matts</a> this is a bug. Should I better send a patch to Gisle to decode when Content-Type matches application/(*+)xml?<br/><br/>So I hope this module supplements the situation. For 1), you can pass <br/><br/><pre>
+$res->decode_content(charset => $res->charset)
+</pre><br/><br/>to deal with the HTTP response without charset set. For 2), You can just say <br/><br/><pre>
+Encode::decode($res->charset, $res->content);
+</pre><br/><br/>for whatever MIME types you'd like to decode.<br/><br/>However, to decode gzip encoded and BOMed XML data correctly for instance, you need to write this way: <br/><br/><pre>
+my $content = Encode::decode($res->charset, $res->decoded_content(charset => 'none'));
+</pre><br/><br/>which looks a little kludgy.<br/><br/>I'm not sure if it's a good thing to hack (or extend) decoded_content method, or add another convenience method to do the right thing.<br/><br/>Any feedbacks welcome.</p>
+
+
+<hr/>
+
+
+
+<h2>No, it is a bug...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-10-07T21:29:05</h3>
+<i>(Note that I'm not saying this is a bug. For XML data you don't need to decode the text portion by yourself, since most XML parser detects the encoding when it processes XML declaration and adds UTF-8 flag internally)</i><br><br>This is a bug - for XML you're supposed to be able to declare the encoding in the protocol. It's part of the spec (but I'm too lazy to look it up right now).
+
+
+
+<blockquote>
+
+<h2>Re:No, it is a bug...</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2006-10-07T21:40:39</h3>
+Good to know and it'll be a good rationale for the module. Yeah, reading <a href="http://tools.ietf.org/html/rfc2376#page-10" title="ietf.org">http://tools.ietf.org/html/rfc2376#page-10</a ietf.org> assures me that the charset parameter is important for both text/xml and application/xml, and XML/MIME parsers should respect that.<br><br>Thanks!
+
+
+
+<blockquote>
+
+<h2>Re:No, it is a bug...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-10-07T22:53:24</h3>
+Yeah it's one of the corners of the XML spec I'm never quite sure they did the right thing on, and I would doubt many XML processing systems respect, but that's what we have to live with<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Augh META</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-10-07T22:29:36</h3>
+<p>The META tag is a nasty hack. Originally, servers were supposed to parse the outgoing document, insert the given headers into the HTTP header, and drop the tag on the floor (yes, really). Instead, clients now parse the body and then retroactively pretend the META tags had been part of the HTTP header. That leads to various kinds of nastiness. The whole is ugly and nasty and painful.</p>
+
+<p>Please <em>only</em> respect it when found in <tt>text/html</tt> content &#x2013; in <tt>application/xhtml+xml</tt> you should <em>never ever</em> look at it.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Augh META</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2006-10-08T03:14:57</h3>
+I agree. In application/xhtml+xml we should just look at BOM or XML encoding declaration, then. Changing that would be an one-line fix. Thoughts?
+
+
+
+<blockquote>
+
+<h2>Re:Augh META</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-10-08T04:03:09</h3>
+<p>In short, the rules for XML MIME types (<tt>m{application/(.*\+)?xml}</tt>) are that if the HTTP header says anything, it is authoritative; otherwise, the XML parser gets to decide from the byte stream. If you are planning to pre-decode XML content as a courtesy for people who may want to do something other than pass it to an XML parser, you should read the XML spec; it has a clear outline of the algorithm an XML parser uses to detect the encoding.</p>
+
+<p>But if you do that, be aware that XML parsers will want to decode the stream on their own anyway, so to avoid double-decoding bugs you should remove the preamble on decoding, and you should probably also make the raw byte stream available.</p>
+
+<p>Oh, and btw &#8211; defaulting to Latin1 is actually correct by the letter of the RFC for <tt>text/*</tt> MIME types. This is the major reason why <tt>text/xml</tt> is bad: if the HTTP header is silent, then an XML document served as <tt>text/xml</tt> <strong>must</strong> be decoded as Latin1 <em>regardless of any present premable</em>. That&#8217;s obviously crazy, so XML should always be served with <tt>application/*</tt> instead.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Augh META</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2006-10-08T08:39:40</h3>
+To be clear, what this module does is nothing new. This is a part of CPANization of our Plagger code to deal with real world feeds and HTML content. This code has been in my daily use against thousands of feeds and have been doing pretty good.<br><br>And I removed the META detection if MIME-type is application/xhtml+xml. Actually I could remove the entire META detection code, since it's already done in LWP::UserAgent (and LWP::Protocol) unless you call <code>$ua-&gt;parse_head(0)</code> explicitly.<br><br><cite>If you are planning to pre-decode XML content as a courtesy for people who may want to do something other than pass it to an XML parser, you should read the XML spec</cite><br><br>Yeah, the main motivation for this module is to properly decode (X)HTML content on the web to Unicode, before passing it to HTML::Parser, HTML::TreeBuilder or some regular expression based code. They all require the content decoded before reading, for us to use Unicode characters properly. (HTML::Parser document clearly recommends that and otherwise it gives you a  warning: "Parsing of undecoded UTF-8 will give garbage when decoding entities")<br><br><cite>But if you do that, be aware that XML parsers will want to decode the stream on their own anyway, so to avoid double-decoding bugs you should remove the preamble on decoding, and you should probably also make the raw byte stream available.</cite><br><br>Sure, $res-&gt;content is always there to return the raw byte stream and we don't change the behavior at all. So far as I tested on Plagger development, most XML/YAML parsers are aware of the UTF-8 flag of the body and do the right thing: XML::LibXML, XML::Parser and YAML::Syck respectively.<br><br><cite>Oh, and btw &#8211; defaulting to Latin1 is actually correct by the letter of the RFC for text/* MIME types. </cite><br><br><a href="http://tools.ietf.org/html/rfc2376#page-11" title="ietf.org">http://tools.ietf.org/html/rfc2376#page-11</a ietf.org> says it should default to "us-ascii", not "latin-1." Well, I won't be surprised since latin-1 can be considered as a super-set of us-ascii in some way.<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:Augh META</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-10-09T15:24:14</h3>
+<p>Oh. I was referring to RFC 2616 (HTTP/1.1) Section 3.7.1, which says:</p>
+
+<blockquote> <div><p>The &#8220;<tt>charset</tt>&#8221; parameter is used with some media types to define the character set (section 3.4) of the data. When no explicit charset parameter is provided by the sender, media subtypes of the &#8220;<tt>text</tt>&#8221; type are defined to have a default charset value of &#8220;<tt>ISO-8859-1</tt>&#8221; when received via HTTP. Data in character sets other than &#8220;<tt>ISO-8859-1</tt>&#8221; or its subsets MUST be labeled with an appropriate charset value.</p></div> </blockquote>
+
+<p>So RFC 3023 (which obsoletes 2376, and will in turn one day be obsoleted by <a href="http://www.w3.org/2006/02/son-of-3023/draft-murata-kohn-lilley-xml-02.txt" title="w3.org">draft-murata-kohn-lilley-xml</a w3.org>) specifies <tt>us-ascii</tt> explicitly for <tt>text/xml</tt>, in spite of RFC 2616.</p>
+
+<p>Ack. There&#8217;s so much crud to remember about charsets on the web. No wonder there&#8217;s so much breakage.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>XML is not text</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2006-10-08T23:02:32</h3>
+XML is not text, it's binary data that looks like text. It needs to live in a binary string, not a text string.<br><br>While this binary data does have text in it, not all of it actually is. The text in the binary data is encoded, and the character set for this has to be given. Indeed, with the charset attribute in the Content-Type, or in the &lt;?xml?&gt; declaration.<br><br>You need to know the right encoding, and when it's not in the document itself, you need to pass it to your XML parser, so it knows how to handle the document.<br><br>BUT...<br><br>If you decode() the data, then you're in trouble. The string returned by Perl's decode() is a Perl text string, which is a unicode string, but not a UTF-8 string, not a ISO-8859-1 string, not a Windows-1252 string, etcetera. It no longer uses "encoding" semantics. A parser that doesn't know Perl can no longer correctly parse the XML file: it requires an encoding per spec, but the document is not encoded. And any parser that does know about Perl's text strings wouldn't really be XML compliant, because XML compliancy involves handling character encodings.<br><br>Because XML is most often UTF-8 encoded, and Perl's internal encoding *happens to be* UTF-8 at the moment, such bugs can easily go unnoticed for quite a long time.<br><br>You could depend on Perl's internal behaviour. This is wrong, but reliable because it won't change any time soon anyway. If you do hack at it like this, you will create other problems that you will have to hack around. For example, you have to remove charset information from the &lt;?xml?&gt; declaration, or replace it with UTF-8. But your instinct should tell you that modifying the document before parsing it for real is incredibly bad.<br><br>So, ignore that XML looks like text, and do NOT decode it yourself. Let the XML parser do this. I suggest that for your module, you write a method that returns a list of charset and undecoded body (or use two separate methods) and document that this is the recommended way of treating XML.<br><br>See also perlunitut and <a href="http://juerd.nl/perluniadvice" title="juerd.nl">http://juerd.nl/perluniadvice</a juerd.nl><br><br>Sorry for being so brief and perhaps harsh. I hope we can quickly establish *good* examples and consistent user education, so I don't have to explain the same thing three times a day<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:XML is not text</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2006-10-09T04:22:24</h3>
+<cite>If you decode() the data, then you're in trouble. The string returned by Perl's decode() is a Perl text string, which is a unicode string, but not a UTF-8 string, not a ISO-8859-1 string, not a Windows-1252 string, etcetera.</cite><br><br>Sure, I know. I maintain XML::Atom, some Encode modules and do I18N stuff every day with Perl 5.8 server side<nobr> <wbr></nobr>:)<br><br><cite>And any parser that does know about Perl's text strings wouldn't really be XML compliant, because XML compliancy involves handling character encodings.</cite><br><br>Agreed. As I said on the other comment, I'm not planned to pass Unidecoded string to XML parser anyway, but would like to pass it to HTML::Parser (XHTML) and some regular expression based code that requires Unicode string.<br><br><cite>I suggest that for your module, you write a method that returns a list of charset and undecoded body (or use two separate methods) and document that this is the recommended way of treating XML.</cite><br><br>undecoded body is <b>always</b> available as <code>$res-&gt;content</code> which this module doesn't touch anyway, but I could add the note to the module POD document. (Thanks)<br><br>Read <a href="http://use.perl.org/comments.pl?sid=33258&amp;cid=50882" title="perl.org">http://use.perl.org/comments.pl?sid=33258&amp;cid=50882</a perl.org> for more about the motivation and the goal of this module (if you haven't).
+
+
+
+<h2>Re:XML is not text</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-10-09T15:38:18</h3>
+<blockquote>
+  <div><p>But your instinct should tell you that modifying the document before parsing it for real is incredibly bad.</p></div>
+</blockquote>
+
+<p>Oh? Why?</p>
+
+<p>A major point of the preamble as specified is that intermediaries that need to mung the content be able to safely and reliably change the preamble to reflect their modifations. (F.ex., you might want to send XML over a transport that isn&#8217;t 8-bit-safe, in which case you can transcode the document to UTF-7 and not have to parse and re-emit it as US-ASCII with entities.)</p>
+
+<p>Other than that, though, I completely agree with what you&#8217;re saying.</p>
+
+
+
+<blockquote>
+
+<h2>Re:XML is not text</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2006-10-09T22:27:33</h3>
+As I said, it's about instincts. So defining "why" will be hard<nobr> <wbr></nobr>;)<br><br>But I do think it can be summarized, so that I can avoid the explicit why-question: to modify correctly, you need to parse. You can't parse before  parsing, it's an infinite loop.
+
+
+
+<blockquote>
+
+<h2>Re:XML is not text</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-10-09T22:55:50</h3>
+<p>An XML parser has to solve the same quandary: before it can parse the document, it has to decode it, but to decode it, it needs to know the encoding, which is specified in the preamble. Oops.</p>
+
+<p>Well, no. The preamble is actually a highly restricted protocol that you can implement <em>without</em> having to parse more of the document. Read the XML spec &#8211; there is a very clear outline of the exact layout of the preamble in terms of the actual possible octet sequences. (It&#8217;s impressive how many niggles they covered in order to solve this problem completely.)</p>
+
+<p>It follows that you can safely mangle it without having to parse the document. That is <em>the whole point</em> of the preamble.</p>
+
+
+
+<blockquote>
+
+<h2>Re:XML is not text</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2006-10-09T23:23:49</h3>
+Then again the XML specification and my instincts are in heavy disagreement. But this time it works out pretty well. Neat and interesting approach of things, but of course this is yet another XML thing that's nice in theory but hard to implement correctly.<br><br>I think I'll just keep passing XML around as I get it, without modifying it before it reaches the parser.<br><br>So far, I haven't used XML with non-XML parsers.
+
+
+
+<blockquote>
+
+<h2>Re:XML is not text</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-10-10T00:10:04</h3>
+<p>Yeah, I wasn&#8217;t saying you <em>should</em> transcode the document (usually you shouldn&#8217;t) &#8211; just that if you find yourself needing to, you can do it.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

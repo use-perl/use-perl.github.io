@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Putting failure to good use</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Putting failure to good use</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2008-01-21T04:14:01</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a href="http://search.cpan.org/perldoc?HTML::TrackerLink">HTML::TrackerLink</a> is one of the first modules I ever wrote.<br/><br/>I created it for my CVS Monitor web app to let people flexible create links to bug tracking systems in their log messages, bugzilla style.<br/><br/>You give H:TL a set of name to uri mappings ( bug => 'http://host/path/bug/%n' ) and it will scan through (HTML-escaped) plain text and find any instances of "bug #1234" or "BuG 1234" or even just "#1234" (if you set a default mapping) and convert them into HTML links.<br/><br/>I've used this a few times, but I always had an issue mixing the "bug #1234" form and the "#1234" form together. You can't use a simple regex and transform one after the other, because the short form will exist in the post-processed version of the long form, and running the short form first catches cases that should match the long form.<br/><br/>This is a big problem when you are mapping to multiple systems.<br/><br/>Enter the utter disaster that was my first attempt at PPI.<br/><br/>When I first sat down to write a Perl parser, the first idea I had to was to use regexes (like everyone else does).<br/><br/>Since I had no idea how to write parsers except for some notional idea you should tokenizer before you build a syntax tree, I decided I'd start by creating a whole collection of regexes for each language element, then just "apply them in parallel" by setting the regex cursor, running every "language element" regex, and seeing which one matched at the earliest character.<br/><br/>Of course, it failed miserably, because to do that you'd need some form of grammar for Perl, and no such grammar exists.<br/><br/>On the weekend, I managed to finally get around to reimplementing this idea to fix HTML::TrackerLink.<br/><br/>Now what I do is build a set of two regex to CODE mappings (one for "with keyword" and one "without") and run them BOTH against the string, run the matched string through the transform code, then move the regex cursor to the end of the successful match. Then lather, rinse, repeat.<br/><br/>I was initially going to just use <a href="http://search.cpan.org/user/lpalmer/Regexp-Subst-Parallel-0.11/Parallel.pm">Regexp::Subst::Parallel</a> but this turned out to be one of those cases where it pays to look at the source code.<br/><br/>Luke's version uses the search regex directly, but anchors them to immediately after the cursor position. If they fail, he steps forward one character and repeats ALL the regexes.<br/><br/>This isn't TOO bad in cases where the the target string primarily contains things that fall inside a match, but is horrendously slow for "sparse matching" like my case where there might be only 2 or 3 matches in several dozen lines of text.<br/><br/>To deal with this, my version prepends a \G(.*?) to capture the entire area before the actual match. When I hit a match, I just dump $1 directly onto the output string before running the transform.<br/><br/>For anyone interested, here's the final code for the (fast) parellising search/replace. (The calling convention is identical to the function form of <a href="http://search.cpan.org/user/lpalmer/Regexp-Subst-Parallel-0.11/Parallel.pm">Regexp::Subst::Parallel</a>).<br/><br/><pre>
+sub subst {
+	my $input = shift;<br/><br/>	# Map the match regex to capture everything BEFORE the match,
+	# and the entire pattern provided.
+	# (We'll provide them as the first params)
+	my @try = map { [ qr/\G(.*?)($_->[0])/s => $_->[1] ] } @_;
+	unless ( @try ) {
+		# Handle the pathological no-replace case
+		return $input;
+	}<br/><br/>	# Start the main loop
+	my $position = 0;
+	my $len      = length $input;
+	my $output   = '';
+	while ( $position < $len ) {
+		my $found = undef;
+		my @start = ();
+		my @end   = ();
+		foreach my $r ( @try ) {
+			# Skip if it is not in the string
+			pos $input = $position;
+			next unless $input =~ $r->[0];<br/><br/>			# Skip if it DOESN'T match earlier
+			if ( $found and $start[2] <= $-[2] ) {
+				next;
+			}<br/><br/>			# This is the best option.
+			# Save the matching regex
+			$found = $r->[1];
+			@start = @-;
+			@end   = @+;
+		}<br/><br/>		# Break out if no more matches
+		last unless $found;<br/><br/>		# Append the pre-match string to the output
+		$output .= substr( $input, $start[1], $end[1] - $start[1] );<br/><br/>		# Pass the rest to the transform function
+		my $rv = $found->(
+			map {
+				substr( $input, $start[$_], $end[$_] - $start[$_] )
+			} 0 .. $#end
+		);
+		unless ( defined $rv ) {
+			# Transform is signaling an error
+			return undef;
+		}<br/><br/>		# Transform completed ok
+		$output .= $rv;<br/><br/>		# Move the match position for the next iteration
+		$position = $end[2];
+	}<br/><br/>	# Append the remainder of the string
+	return $output . substr( $input, $position );
+}
+</pre></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

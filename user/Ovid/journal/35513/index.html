@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Code Smells In Test Suites</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Code Smells In Test Suites</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-01-29T12:27:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Test suites need to be treated carefully.  There are three golden rules for them:</p>
+
+<ol>
+  <li>They must be run constantly.</li>
+  <li>Tests must never fail.</li>
+  <li>They <em>must</em> only output test information.</li>
+</ol>
+
+<p>Items #1 and #2 are generally taken as a given.  Item #3, however, is equally important and frequently ignored.</p>
+
+<p>When I first started at the BBC, our team had over 9,000 tests, coverage in the mid 80s (percentile) and all tests passed.  Rarely have I had the luxury of stepping into such an environment.  However, the test suite was <em>very</em> noisy.  Lots of diagnostic output, Perl warnings, and a user-generated warnings about some database tables being changed when they shouldn't be.  These are code smells.  Maybe nothing is really wrong, but how can we know without looking into things?</p>
+
+<p>The diagnostic output was easy to fix.  Much of this was in the form of "explanations" to programmers running tests.  By reading these comments in verbose test output, you can get a better sense of what the tests are doing.  I argued that these comments should be pushed into tests, but jplindstrom pointed out that many of these comments weren't really appropriate for tests as they explained the intent of subsequent tests.  As a result, when we switched from <tt>Test::More</tt> to <a href="http://search.cpan.org/dist/Test-Most/">Test::Most</a>, we started using the <tt>explain</tt> function.  This is a special form of <tt>&diag</tt> which skips the call to <tt>&diag</tt> unless the tests are being run in verbose mode.</p>
+
+<p>Some people would argue that extra diagnostics aren't a code smell, but when you have too many diagnostics, you can get used to seeing non-test information and it's easier to overlook real problems, such as warnings.</p>
+
+<p>I went through and fixed a lot of the warnings (most were harmless), but never had a chance to get all of them.  As a result, the "Use of uninitialized value in string" warnings thrown by our database migration tests were ignored.</p>
+
+<p>Recently I wrote some database migration code and ran those tests directly.  All tests passed, but I decided to fix the warning.  The basic structure of the code looked like this:</p>
+
+<pre>my ($dbname, $host, $port) = ($1, $2, $3);
+
+my $dump_cmd;
+
+{
+    no warnings 'uninitialized';
+    $dump_cmd = "mysqldump -h $host -P $port -u $user -p$pass --no-data $dbname"
+            . ' | grep -v Database | grep -v Server';
+}
+
+
+my $migration = DBIx::Migration->new({
+    dsn      => $dsn,
+    dir      => $dir,
+    username => $user,
+    password => $pass,
+    connect_options => $db_conf->connect_options,
+});
+
+$dsn =~ m/dbi:mysql:dbname=(.*);host=(.*);port=(.*)/;</pre>
+
+<p>How the hell did the regex for those back references wind up being <em>after</em> assignments from $1, $2 and $3?  As it turns out, this happened a long time ago.  Our tests were passing because we were using <tt>mysqldump</tt> to generate diffs, but because the arguments were undef, <tt>mysqldump</tt> was returning an error message which the tests always successfully diffed against itself.  Fixing this bug revealed that the tests should have failed many months ago.  We now have some cruft in our database as a result.  It's not too bad and doesn't affect the integrity, but it does mean that if we ever had to migrate the database back down, our code would have broken.</p>
+
+<p>Today I'm going to examine the warnings about the database tables being changed when they shouldn't be.  I have less confidence in this test suite than I did.  There <em>probably</em> isn't a problem here, but when a test suite is noisy, that's a serious smell which should be examined.</p></p>
+
+
+<hr/>
+
+
+
+<h2>stdout v stderr</h2>
+<h3><a href="/user/jmason/">jmason</a> on 2008-01-29T14:27:07</h3>
+I tend to use "classic" Test, which can still do the "silencing extra diagnostics" trick; just output the extra diagnostics on STDOUT, and keep STDERR for serious stuff (and perl warnings, of course).<br><br>when run from "make test" or "prove", the STDOUT output is hidden; when run from "make test TEST_VERBOSE=1" or "prove -v", or run directly from the commandline as "./testname.t", the STDOUT diagnostics become visible.<br><br>works great<nobr> <wbr></nobr>;)
+
+
+
+<blockquote>
+
+<h2>Re:stdout v stderr</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-01-29T15:05:44</h3>
+<p><div class="quote">I tend to use "classic" Test<nobr> <wbr></nobr>...</div>  <p>Do you mean the ancient <tt>Test.pm</tt>?  If so, you're missing out on all of the improvements made in the testing world over the years.  <tt>Test.pm</tt> should only be there for legacy support.</p>
+
+<p>If you must use that interface, at least consider using Schwern's <a href="http://search.cpan.org/dist/Test-Legacy/" title="cpan.org">Test::Legacy</a cpan.org> module.  This will allow you to keep that interface but still use other testing modules.  Of course, that changes your diagnostic output and breaks what you've described.  However, diagnostics are a small, small price to pay for using the rest of Perl's test modules<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:stdout v stderr</h2>
+<h3><a href="/user/jmason/">jmason</a> on 2008-01-29T15:31:54</h3>
+yeah, I do mean that ancient module.  and I know there are many goodies available if I was to catch up<nobr> <wbr></nobr>;)<br><br>In SpamAssassin, we have a project philosophy of attempting to keep our CPAN dependencies at a minimum, and we support perl 5.6.1 as a platform.  even Test::More didn't arrive until 5.6.2, unfortunately...<br><br>I should really use Test::More for my other modules, though.<br><br>'Of course, that changes your diagnostic output and breaks what you've described.'<br><br>really? are you saying the newer test modules remove this (very useful) behaviour?  that seems a pity!
+
+
+
+<blockquote>
+
+<h2>Re: Test::More and backcompat</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2008-01-29T18:55:42</h3>
+<p><div class="quote">In SpamAssassin, we have a project philosophy of attempting to keep our CPAN dependencies at a minimum, and we support perl 5.6.1 as a platform. even Test::More didn't arrive until 5.6.2, unfortunately...</div> Assuming you have a compatible license, you can do what the darcs project does: Ship a private copy of Test::More with the test suite suite. This eliminates problems between your test suite and different versions of Test::More as well.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Adding to the output though...</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2008-01-29T18:36:04</h3>
+I've been foraging for good ideas in Squeak/Smalltalk lately. One nice thing is that test failures have a stack saved so I can pop up the relevant process in the debugger/IDE wherever and whenever things fail.<br><br>I've been considering how well this could map to perl - whether a test failure should save the stack so tools could know exactly what was around. I'm not sure whether Perl is powerful enough to ever make use of this information. ATM, it's speculation.
+
+
+
+<blockquote>
+
+<h2>Re:Adding to the output though...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-01-30T09:47:32</h3>
+<p>You know, you might want to chat with Andy Armstrong.  He's been toying with the idea of creating a reversible debugger for Perl.  As I understand it, it's similar in concept to how video works:  occasionally save the state (a "key frame") and save then a bunch of diffs until you need to save the state again.  With that, you could just note the "time" of the test failure and persist its state.  You could then reverse to a previously known state, change parameters, run things forward again, etc.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

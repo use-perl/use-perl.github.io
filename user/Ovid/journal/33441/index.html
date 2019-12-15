@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Spot the Bug!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Spot the Bug!</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-06-06T07:33:13</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>The module:</p>
+
+<pre>package Some::Module;
+
+use strict;
+use warnings;
+
+BEGIN {
+    unless ( $ENV{'REMOTE_USER'} ) {
+        die "REMOTE_USER environment variable not defined";
+    }
+}
+
+use ProdDev::DBConnection qw<db>;   # this is not the bug!
+use Exporter::NoWork;
+
+sub dbh { db('manage') }
+
+1;</pre>
+
+<p>The (beginnings of the) tests:</p>
+
+<pre>#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use lib 'lib', 't/lib';
+use Test::More 'no_plan';    # tests => 1;
+
+my $MODULE = 'Some::Module';
+
+eval "use $MODULE";
+ok $@,   'Trying to use $MODULE without a remote user should fail';
+like $@, qr/^REMOTE_USER environment variable not defined/,
+  '... with an appropriate error message';
+
+$ENV{REMOTE_USER} = 'john q. Public';
+use_ok $MODULE, qw/dbh/;
+
+isa_ok dbh(), 'DBI::db', 'The object dbh() returns';</pre>
+
+<p>The failure:</p>
+
+<pre>t/manage......ok 1 - Trying to use Some::Module without a remote user should fail
+ok 2 - ... with an appropriate error message
+ok 3 - use Some::Module;
+Undefined subroutine &main::dbh called at t/manage.t line 17.
+ok 4 - no warnings
+1..4
+# Looks like your test died just after 4.</pre>
+
+<p>Yesterday I wrote this code right before I left and I blew quite a chunk of time trying to figure it out, even calling in another programmer who was totally mystified.</p>
+
+<p>Today I sat down at my desk, opened up the code with trepidation, and said "oh, duh!", and immediately fixed the error.  I was really, really stupid yesterday.</p></p>
+
+
+<hr/>
+
+
+
+<h2>D&amp;#8217;uh</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-06T08:41:11</h3>
+<p>Your &#8220;minimal&#8221; example was far from minimal so I suspected the wrong things for a long time&#8230; I guess that was your point. This was compounded by the fact that I have neither ProdDev::DBConnection nor a desire to install Exporter::NoWork, so I could only read and guess run than run it and poke around. Once I suspected the right thing I found the problem in 30 seconds; then I had to spend another 5 to rewrite to an actual minimal example to confirm the fix (ROT13ed):</p> <p><blockquote> <div><tt>qryrgr$VAP{qb{zl$x=$ZBQHYR;$x=~f!::!/!t;$x.".cz"}};</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:D&amp;#8217;uh</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-06-06T09:05:26</h3>
+<p>You're correct about my posting the other stuff to make it a bit more obscure since that's how things work in real life.  I could have just posted the tests and said "that's enough to find the bug", but that would have made it too easy.</p>
+
+<p>Your solution, by the way, is correct.  Of course, you knew that<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:D&amp;#8217;uh</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-06T09:56:32</h3>
+<p>Yeah. I admit that I might have been stumped <em>far</em> longer if I hadn&#8217;t read about this particular trap before, though I would have found it eventually. With knowledge of how the machinery in Perl works, it&#8217;s tractable, if not obvious.</p>
+
+<p>The average J. Random Perlhacker doesn&#8217;t know enough though, I suspect, that they could track this down without help. I have often wondered if my fix shouldn&#8217;t be applied automatically on failures of the kind you deliberately caused. It also leads me to think that such checks should be delayed from compile time if you can at <em>all</em> help it &#8211; if yours were in <code>import</code>, say, you&#8217;d have avoided this headscratching moment.</p>
+
+<p>(On an unrelated note, Exporter::NoWork makes me shudder&#8230; way too implicit. Give me Exporter::Tidy any day&#8230;)</p>
+
+
+
+<blockquote>
+
+<h2>Re:D&amp;#8217;uh</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-06-06T10:24:57</h3>
+<p>I feel a bit odd about using <tt>Exporter::NoWork</tt>, but it's standard here, so that's what I go with unless I need fine-grained control.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:D&amp;#8217;uh</h2>
+<h3><a href="/user/barbie/">barbie</a> on 2007-06-06T11:52:28</h3>
+<p>I'm glad I got it right after only glancing at it, but I am surprised that anyone used to writing tests would have not have spotted it. You actually made me doubt myself as I thought it couldn't be that obvious and I was missing something. It was only on checking Aristotle's post that confirmed that I was right.
+</p><p>Personally I would consider it bad form to have that sort of test script, as you're not cleanly testing the interface, as you've discovered<nobr> <wbr></nobr>:) It also means you're not truly testing a user situation, which ultimately is what the test scripts should be testing.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>(Brainos)</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-06T09:34:32</h3>
+<p>(Another 5 minutes, that is. Also, that was supposed to say &#8220;read and guess <strong>rather</strong> than run it&#8221;.)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

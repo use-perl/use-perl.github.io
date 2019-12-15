@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Mr. Muskrat: DBD::Mock Is Mocking Me</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>DBD::Mock Is Mocking Me</h1>
+<h2><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2005-11-10T19:42:11</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I'm trying to use placeholders with DBD::Mock and I keep getting the same results back.  I've been reading and rereading the DBD::Mock documentation hoping to figure out what I'm doing wrong.  I don't want to use the session stuff because I don't want to be stuck with a predetermined order that the queries have to follow.  Does anyone have any tips on how to do this or perhaps a different approach that I'm missing?</p>
+<pre>#!/usr/bin/perl
+use strict;
+use warnings;
+
+use DBI;
+use DBD::Mock;
+
+my $dbh = get_dbh();
+_setup_some_table( $dbh );
+
+for my $id (reverse (1 .. 2)) {
+  my @some = get_some_table($dbh, $id);
+  print "@some\n";
+}
+
+sub get_dbh {
+  my $dbh = DBI->connect( "DBI:Mock:", "", "", );
+  return $dbh;
+}
+
+sub get_some_table {
+  my $dbh = shift;
+  my $key = shift;
+  my $sql = q{SELECT * FROM SOME_TABLE WHERE ID=?};
+  my $sth = $dbh->prepare( $sql );
+  $sth->execute( $key );
+  my $row = $sth->fetchrow_arrayref();
+  return wantarray ? @$row : $row;  
+}
+
+sub _setup_some_table {
+  my $dbh = shift;
+  my @columns = qw( id who what when where why );
+  my %data = (
+    1 => [ qw( 1 joe ball now park fun ) ],
+    2 => [ qw( 2 sam hamburger tomorrow restaurant food ) ],
+  );
+  for my $id (keys %data) {
+    $dbh->{mock_add_resultset} = {
+      sql          => qq{SELECT * FROM SOME_TABLE WHERE ID=?},
+      bound_params => [ $id ],
+      results      => [ \@columns, $data{$id} ],
+    };
+  }
+}
+
+__END__
+D:\>some_mock.pl
+2 sam hamburger tomorrow restaurant food
+2 sam hamburger tomorrow restaurant food
+</pre>
+<p><b>Update:</b> I don't know why I have the bound_params in the mock_add_resultset calls because they don't get used unless you are using the sessions.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Not happy</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2005-11-10T22:41:58</h3>
+<p>Okay, I've got some code that works but I'm not  happy with it.  Talk about a kludge.</p> <blockquote> <div><tt>#!/usr/bin/perl<br>use strict;<br>use warnings;<br> <br>use DBI;<br>use DBD::Mock;<br> <br>{<br> <br>&nbsp; my @columns = qw( id who what when where why );<br>&nbsp; my %data = (<br>&nbsp; &nbsp; '1' =&gt; [ qw( 1 joe ball now park fun ) ],<br>&nbsp; &nbsp; '2' =&gt; [ qw( 2 sam hamburger tomorrow restaurant food ) ],<br>&nbsp; );<br> <br>&nbsp; &nbsp; sub setup_some_table {<br>&nbsp; &nbsp; &nbsp; my $dbh = shift;<br>&nbsp; &nbsp; my $id = shift;<br>&nbsp; &nbsp; $dbh-&gt;{mock_add_resultset} = {<br>&nbsp; &nbsp; &nbsp; sql&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; =&gt; qq{SELECT * FROM SOME_TABLE WHERE ID=?},<br>&nbsp; &nbsp; &nbsp; results&nbsp; &nbsp; &nbsp; =&gt; [ \@columns, $data{$id} ],<br>&nbsp; &nbsp; };<br>&nbsp; &nbsp; }<br> <br>}<br> <br>sub get_dbh {<br>&nbsp; my $dbh = DBI-&gt;connect( "DBI:Mock:", "", "", );<br>&nbsp; return $dbh;<br>}<br> <br>sub get_some_table {<br>&nbsp; my $dbh = shift;<br>&nbsp; my $id = shift;<br>&nbsp; setup_some_table( $dbh, $id );<br>&nbsp; my $sql = q{SELECT * FROM SOME_TABLE WHERE ID=?};<br>&nbsp; my $sth = $dbh-&gt;prepare( $sql );<br>&nbsp; $sth-&gt;execute( $id );<br>&nbsp; my $row = $sth-&gt;fetchrow_arrayref();<br>&nbsp; return wantarray ? @$row : $row;<br>}<br> <br>my $dbh = get_dbh();<br> <br>for my $id (1<nobr> <wbr></nobr>.. 2) {<br>&nbsp; my @some = get_some_table($dbh, $id);<br>&nbsp; print "@some\n";<br>}<br>__END__<br>D:/some_mock.pl<br>1 joe ball now park fun<br>2 sam hamburger tomorrow restaurant food</tt></div> </blockquote> <p>I might have to look under the hood and see how easy it will be to add support for placeholders.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Not happy</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2005-11-10T23:00:40</h3>
+<p>
+I think what you are looking for is the result set to be chosen based on both the SQL statement (which is how it currently works) and by the set of specific bound param values (which is not currently how it works). This probably wouldn't be too hard to implement actually, if I get some tuits, I will look into it this week. And of course, patches are always welcome<nobr> <wbr></nobr>:)
+</p>
+<p>
+The reason your first example did not work was because the result sets are stored with the SQL statement as the key. So when you saw the same results coming back, it was because you had actually overwritten the first mock resultset with the second mock resultset.
+</p>
+<p>
+BTW - the DBD::Mock::Session itself only checks to be sure that you have supplied the right bound parameters, it does not match the current state based on those bound param values though. Here is the exert from the docs:
+</p><blockquote>
+<div>Also, as can be seen in the the session element, bound parameters can also be supplied and tested. In this statement, the SQL is compared, then when the statement is executed, the bound parameters are also checked. The bound parameters much match in both number of parameters and the parameters themselves, or an error will be raised.</div>
+</blockquote>
+
+<p>
+- Stevan
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Not happy</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2005-11-11T02:00:06</h3>
+Yeah, I have already started looking at the code.  Once I did it was pretty obvious why it wasn't working as I wanted.  This weekend, I'll look in the cupboard and see if I have any more tuits.
+
+
+
+<h2>Not so easy</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2005-11-15T16:07:18</h3>
+I have been looking at the source and I must say that this doesn't look as easy to implement as I thought it would be.  I haven't given up but it may take a while.  I'm discovering just how little I know about how the database modules work behind the scenes.<nobr> <wbr></nobr>:)
+
+
+
+<h2>Re:Not happy</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2005-12-27T03:34:20</h3>
+No rush.  I have no use for this at the moment (I've changed jobs) but I still think it would be an awesome feature to add.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

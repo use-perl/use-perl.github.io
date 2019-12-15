@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of masak: Code generation and stone soup</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Code generation and stone soup</h1>
+<h2><a href="/user/masak/">masak</a> on 2010-01-22T16:41:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I don't know what kept me away from generating code for so long. Fear and prejudice, perhaps.</p>
+
+<p>I've been trying it the last few days, and I have two things to say. First, it's like learning to program all over again. Remember that sense of power from the early days, when just picking up coding? "Hey, I can program this piece of code to do whatever I want." Well, guess what? That feeling comes back when one starts down on the path to madn... erm, to code generation. Only it's stronger. "Hey, I can program this piece of code to program <em>that</em> piece of code to do whatever it wants!" I think I've just discovered meta-hubris. Most likely, I'm not the first to do so.</p>
+
+<p>Second, there's a flip-side to the feeling of power. That other feeling is how you feel when you knit your brows and wish that your neurons would line up a bit better so you could think more clearly about the problem at hand. Who would have thought, that feeling is also stronger when you're suddenly writing two different, entwined and related programs at the same time, in the same file. In my case, the knitted brows turn into an empty stare and a jaw left slackly agape, as I sit there wishing that I was better at context-switching between runloops.</p>
+
+<p>Honestly, I think I expected <code>eval</code> to be the source of much programmer confusion, but I have to confess that it seems I underestimated the vistas it opens up when you buy into the idea of generating exactly the piece of code you need for the task (from an AST, say), and then <code>eval</code> it into a closure. That's what <a href='http://en.wikipedia.org/wiki/Compiler#Back_end'>the back end of a compiler</a> ends up doing, so maybe I shouldn't be so surprised that it's a versatile technique.</p>
+
+<p>Lately, I've been in the business of squeezing every drop of juice out of the already implemented control flow constructs already implemented in Rakudo. I'm writing a p6regex&#8594;p6 compiler, you see. (Yes, that's <a href='http://masak.org/carl/bpw-2009-gge/talk.pdf'>a rather crazy notion</a>; thanks for asking.) Along the way, I've often felt the need for not-yet-implemented control flow. This has led me to this hope-inducing maxim:</p>
+
+<p><em>Every type of control flow in programming languages is just convenient sugar for <code>if</code> statements and <code>while</code> loops.</em></p>
+
+<p><code>if</code>s and <code>while</code>s are the stone soup to which all the rest of our control flow can be added as seasoning. <code>if</code>s let you conditionally skip ahead in code, and <code>while</code>s allow you to conditionally skip back. That's all you need.</p>
+
+<p>Here are some examples.</p>
+
+<ul>
+  <li>Switch statements are just sugar for chained <code>if</code>/<code>elsif</code>/<code>else</code> statements. Even Perl 6's <code>given</code>/<code>when</code> constructs.</li>
+  <li>The variants <code>next</code>, <code>last</code> and <code>redo</code>, either with or without a label to affect a less-than-innermost loop, can be desugared to sad boolean-ish variables, plus some <code>if</code> statements to appropriately regulate the expression of the code inside the loop. (Yes, go ahead and twitch just thinking of it. That sugar is there for a reason.)</li>
+  <li>Subroutines and subroutine calls can be simulated with the appropriate use of a switch statement and an explicit <a href='http://en.wikipedia.org/wiki/Call_stack'>call stack</a> stored in an array variable.</li>
+  <li>Even exceptions, or more generally continuations, can be desugared in this way. As soon as you have total control of the call stack, you're free to save and rewind to some previous state to your heart's content.</li>
+</ul>
+
+<p>Aside from the switch statements and unlabeled <code>next</code> etc, which already work very well in Rakudo, I've been doing the whole list of desugarings in <a href='http://github.com/masak/gge'>GGE</a> (the regex compiler). The part with the continuations was especially fun. I needed them for backtracking, at least as long as the compiler was only an interpreter.</p>
+
+<p>But then, during a fruitful discussion with diakopter++, I was told how to emulate (delimited) <code>goto</code>s with a switch and a loop. The idea is quite obvious in retrospect: just keep the current 'label' in a variable, and switch on it in each iteration. Presto! I should have thought of that. I don't even need to <a href='http://use.perl.org/user/masak/journal/40087'>flee to PIR</a> any more.</p>
+
+<p>I took the idea and generalized it to delimited <code>gosub</code>s: instead of keeping the current label in a scalar, keep it at the top of a stack. Define macro-like constructs to push to (<code>local-branch</code>) and pop from (<code>local-return</code>) the stack. Suddenly I don't need continuations as much.</p>
+
+<p>Result: <a href='http://gist.github.com/283799'>this</a>. We send in the regex <code>/&lt;[a..b]&gt; | &lt;[b..e]&gt;/</code> on the top line, along with the target string <code>c</code> to match on. The program generates an AST, an anonymous subroutine which executes the regex in atomic Perl 6 operations, and finally a match object which indeed finds <code>c</code> to be a match.</p>
+
+<p><a href='http://gist.github.com/283928'>Here's</a> a similar but slightly more involved example. And <a href='http://gist.github.com/284959'>here's</a> one doing captures and backreferences inside a quantified non-capturing group. Isn't that exquisite? (Ok, bad choice of word. Sorry.)</p>
+
+<p>As I said, I wrote most of with a feeling of being not just in over my head, but of being in over my head <em>twice</em>. I'm still a bit surprised it works. The runtime compilation seems to introduce a bit of a speed penalty, but (1) it's a one-time cost, since you can re-use the regex object, and (2) I told you it would be slow.</p>
+
+<p>The code-generating work still resides only in a local branch on my computer. I'll push it to <code>master</code> as soon as I'm done bringing GGE back to its former capabilities. (<b>Update 2010-01-24:</b> Done, and <a href='http://github.com/masak/gge/commit/f9e2d4a3d33533270a54a523277d0b9bebd995cc'>done</a>.)</p>
+
+<p>Code writing code. What a concept!</p></p>
+
+
+<hr/>
+
+
+
+<h2>the functional version</h2>
+<h3><a href="/user/hdp/">hdp</a> on 2010-01-23T02:28:08</h3>
+<p><code>while</code> is just sugar for recursion.</p>
+
+
+
+<blockquote>
+
+<h2>Re:the functional version</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-01-23T11:00:59</h3>
+Aye. Had I needed to emulate while, I might have gone down that route. Better have that tail-call optimizer ready, though, or longer loops will blow the stack.
+
+
+
+
+
+</blockquote>
+
+
+<h2>copy and paste</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2010-01-23T02:30:30</h3>
+<p>Code generation is OK if it's transient -- passed straight to a compiler and run.  If instead it's written to disk as a template, then it's just formalized copy-and-paste, with all of the maintenance downsides.</p><p>The biggest drawback to runtime code generation is obscurity.  It's opaque to static analysis and smat editors, and to most humans too.</p>
+
+
+
+<blockquote>
+
+<h2>Re:copy and paste</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-01-23T11:06:16</h3>
+<p><div class="quote"><p>The biggest drawback to runtime code generation is obscurity. It's opaque to static analysis and smat editors, and to most humans too.</p></div><p>Indeed. A static analyzer would have to be <em>really</em> smart to figure out that I'm collecting together little pieces of code as I traverse the AST...</p><p>Oh, and there seems to be another cardinal law involved in code generation: whatever happens, don't ever expect both your programs to look nicely indented anymore.</p>
+
+
+
+<blockquote>
+
+<h2>Re:copy and paste</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2010-01-23T14:42:26</h3>
+<p>In the worst case, you can use templates for the generated code.  That pulls the odd indentation out of the main code.</p>
+
+
+
+<blockquote>
+
+<h2>Re:copy and paste</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-01-23T18:28:45</h3>
+<p>I might give it a try. It does solve the templating issue, but it introduces distance between the templates and the place(s) where they're used. It's a bit of a lesser-of-two evils situation.</p>
+
+
+
+<blockquote>
+
+<h2>Re:copy and paste</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2010-01-23T20:48:45</h3>
+<p>True.  Java is actually lucky in this area: it's trivial to embed an arbitrary file in a Jar file right next to the<nobr> <wbr></nobr>.class that uses it.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Congratulations:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2010-01-23T12:00:51</h3>
+<p>You have discovered the criteria for Turing completeness.<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+<blockquote>
+
+<h2>Re:Congratulations:</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-01-23T18:24:42</h3>
+<p>Well yes, but not just that. I'm <em>using</em> the property of universality to bend a burgeoning language to my will. It's taking the general stance described in my blog post "<a href="http://use.perl.org/user/masak/journal/38430" title="perl.org">Attitude</a perl.org>" (that most bugs or missing features have a workaround), and applying it to control flow.</p><p>Maybe the point I'm proving is mainly for myself, but if I can make GGE behave like PGE (only slower), I've shown something about the capabilities of Rakudo.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

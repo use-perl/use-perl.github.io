@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Halting problem in Perl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Halting problem in Perl</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-02-14T19:45:41</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Microsoft has a program called <a href="http://research.microsoft.com/terminator/">Terminator</a> that basically tries to solve the <a href"http://en.wikipedia.org/wiki/Halting_problem">halting problem</a>.  They claim it's helped them root out some bugs in their device drivers.  Of course, we know the halting problem is unsolveable, but we also know that Microsoft engineers aren't stupid.  So what are they doing?  Well, some types of halting problems can be detected and highlighted and even if you don't find <em>all</em> bugs, even automatically finding some bugs is better than finding none.</p>
+
+<p>Though they'll be releasing papers explaining this, I'm not sure how applicable it will be in Perl.  Here's a typical example in C:</p>
+
+<pre>float x = 0.1;
+
+while (x != 1.1) {
+    x = x + 0.1;
+    printf("x = %f\n", x);
+}</pre>
+
+<p>If you translated that to Perl, would it be an infinite loop?  There's actually no way to tell just by looking directly at the code:</p>
+
+<pre>my $x = 0.1;
+
+while ($x != 1.1) {
+    $x += .1;
+    print "x = $x\n";
+}</pre>
+
+<P>Well, that certainly <em>looks</em> like an infinite loop.  Why might it not be?  Because the following might not be an infinite loop:</p>
+
+<pre>print $foo while 1;</pre>
+
+<p>We're not even talking source filters here.</p>
+
+<pre>#!/usr/bin/perl -l
+
+use strict;
+use warnings;
+
+{
+    package Arnie;
+    use overload '""' => \&to_string;
+
+    sub new { bless {}, shift }
+
+    my $x = 1;
+    sub to_string {
+        die if 5 == $x;
+        return $x++;
+    }
+}
+
+my $sarah = Arnie->new;
+print $sarah while 1;</pre>
+
+<p>I suspect this is one of many types of problems which would make such an approach difficult to use for Perl.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Action at a distance</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2006-02-14T21:01:08</h3>
+Let's ignore source filters, because presumably any proof to see if a program halts will necessarily happen on the post-filtered source.  (This is regardless of whether you're talking about C+cpp, Lisp + Macros or Perl + Source Filters.)  I'm not familiar with any of the formal theories here, but in your (somewhat contrived) example, it should be reasonably easy to tell that the second Perl program terminates.  The hard part is when your termination conditions are derived from side effects, like environment variables, time of day, or input to your program.  (Not the kind of thing you need to worry about in a device driver.)<br><br>Finding degenerate cases in Perl is actually simpler than what you posit, because of tied variables.  Because any variable can be tied, it's not immediately obvious if a program will halt, because a tied method could call <tt>die</tt>, which will be handled by an <tt>eval {}</tt> three or four levels up the stack (or not).  Then again, it may not be a tied variable; it may be a regular variable, or tied some of the time.  Then there's objects, duck typing, reblessing, etc.<br><br>Tcl has the same problem, with variable traces.  The principle is similar to a tied variable -- any variable can have a "trace" function attached to it that will fire whenever the variable is updated.  Great if you have a few magic variables that trigger a GUI update whenever they're modified.  Horrible whenever you're trying to capture full Tcl semantics, or apply any kind of reasoning on the behavior of some random Tcl program.<br><br>It's (currently) an either-or decision: either you take the benefit from increased dynamism and flexibility, or you open yourself up to the <i>possibility</i> of benefits from automated reasoning about your program.  (Note that decidability and type safety theorems don't map particularly well to C at the moment.)<br><br>All in all, these kinds of tools would be nice to have, but they aren't a compelling reason to stop using Perl.
+
+
+
+<blockquote>
+
+<h2>Re:Action at a distance</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2006-02-15T07:32:01</h3>
+This seems similar to the arguments for static typing -- it lets you build a better IDE because you can reason about the code (eg: what methods does this object have?) In a dynamic language like Perl, that's much, much harder.  But it does mean that interfaces in Perl tend towards being simpler and not <em>requiring</em> an IDE, unlike Java.
+
+<p>-Dom</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>That would still be useful in perl</h2>
+<h3><a href="/user/TeeJay/">TeeJay</a> on 2006-02-15T10:01:50</h3>
+I think you're claiming that terminator wouldn't be of use in perl programming because of some obscure edge cases.<br><br>In production code where I'd want to use something like this I work to minimise such edge cases (which simplifies maintainence and debugging), and would rather have to look through false alarms and check them than not have any help with a halting bug or infinite loop.<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

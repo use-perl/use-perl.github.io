@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: The Implications of the Bug</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>The Implications of the Bug</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-12-07T15:38:13</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><a href="http://use.perl.org/user/mscolly/">mscolly</a> correctly identified <a href="http://use.perl.org/user/Ovid/journal/39985">the SQL bug I posted</a>.  Sadly, no one discussed the implications of this bug and I think they're the most interesting part of this.  Essentially, it comes down to the following:</p>
+
+<pre>SELECT    first_name,
+          last_name,
+          order_date,
+          SUM(price) AS total                  -- what if there's no price?
+FROM      customer
+LEFT JOIN orders     ON customer.id = orders.customer_id
+LEFT JOIN order_item ON orders.id   = order_item.order_id
+GROUP BY  first_name, last_name, order_date
+HAVING    total < 15                           --  what does NULL < 15 evalute to?
+ORDER     BY order_date ASC;</pre>
+
+<p>The proper solution (as mscolly pointed out) is to change the "SUM" line to this:</p>
+
+<pre>COALESCE( SUM(price), 0 ) AS total</pre>
+
+<p>The English language, as we know, is ambiguous.  If you boss had come in and asked for all customers whose orders (more accurately, whose orders with order items) totaled less than ÃÂ£15 pounds, then the above query would have actually been correct, but another programmer coming along to maintain it could be forgiven for thinking it's in error.  If you ever write SQL which is likely to produce NULLs (e.g., outer joins), you should explicitly handle that case if you actually do anything with those NULLs.</p>
+
+<p>But in this case, "customers whose orders total less than ÃÂ£15" is significantly different in meaning than "customers who spent less than ÃÂ£15" and the latter is what we want, but the former is what we have.  While the above code <em>seems</em> logical, it gives a logically incorrect answer because it omits customers without orders (or order items), even though they're clearly intended.  However, NULLs make it very difficult to identify what you actually mean because the database can't know why something is NULL.</p>
+
+<p>Now consider a simpler, yet silly, example:</p>
+
+<pre>SELECT first_name
+FROM   employee
+WHERE  salary > 50000;</pre>
+
+<p>What happens if the <tt>salary</tt> field is NULL?  You'll get a list of employees whose <em>known</em> salary is NOT NULL.  Why might they not have a salary?  Maybe they're an hourly employee and the <tt>salary</tt> field is not applicable.  Maybe they're the CEO and he doesn't think you need to know his salary.  Maybe they're an ex-employee and they have no salary.</p>
+
+<p>Taking this a bit further, imagine that all employees in the table are current and all have salaries (no hourly workers), but the <tt>salary</tt> field is still sometimes NULL because the board of directors doesn't want you to know their salaries.  With me so far?  In this scenario, it is the case that everyone has a salary; you just don't know what some of them are.  So here's the kicker:</p>
+
+<pre>SELECT first_name
+FROM   employee
+WHERE  salary = salary;</pre>
+
+<p>That won't return anyone on the board of directors, even though you <em>know</em> they have a salary.  Furthermore, most would think it's self-evident that <em>p&nbsp;=&nbsp;p</em>, but in three value logic of databases, this is sometimes true and sometimes false.  Heck, because of this, the following does not always evaluate correctly, even though we would <em>think</em> it does:</p>
+
+<pre>SELECT service_id,
+    CASE WHEN master_brand_id =  master_brand_id THEN '='
+         WHEN master_brand_id != master_brand_id THEN '!='
+    END AS 'comparison'
+FROM service</pre>
+
+<p>Sure, you say, but you're comparing something to itself.  You don't do that in the real world.  No?  So look at this:</p>
+
+<pre>SELECT s.service_id,
+    CASE WHEN m.master_brand_id =  s.master_brand_id THEN '='
+         WHEN m.master_brand_id != s.master_brand_id THEN '!='
+    END AS 'comparison'
+FROM service      s
+     master_brand m</pre>
+
+<p>If the <tt>s.master_brand_id</tt> is allowed to be NULL, than the <tt>comparison</tt> field will always have a NULL value when <tt>s.master_brand_id</tt> is NULL.  It's easy to debug in this simple example, but what if that was a subquery?  It <em>looks</em> fine, but it all breaks down in the presence of NULL values.</p>
+
+<p>I didn't start with that example because people would say it's silly, but starting with the "order" example shows how NULLs in databases can return logically incorrect data and the reduction down to the simple <em>p&nbsp;=&nbsp;p</em> case not holding shows why this happens.</p>
+
+<p>At this point, I can see people saying "yeah, but we already know that about databases."  And this is true.  It's well-known that certain types of queries can generate NULLs even though there are no NULL values in the database.  Regrettably, many people assume the database logic is, well, logical.  The <em>p = p</em> failure is a strong rebuttal, but I suppose some people assume that hitting themselves in the head with a hammer is normal.</p>
+
+<p>If you really want to have some fun, <a href="http://thoughts.j-davis.com/2009/08/02/what-is-the-deal-with-nulls/">read this blog entry about NULL values</a>.  In the comments, the author even explains how to deal with NULLs in outer joins, but it requires a relational database (very few databases really are) and that people understand what first normal form is really about.  (If you think you know, please define "atomic values" in the comments below).</p>
+
+<p>I wonder how database design would look today if, instead of 3VL, databases threw an exception when you tried to apply an operator or aggregation ('=', '+', 'SUM', etc.) to NULL values?</p>
+
+<p>Note: I've discussed <a href="http://use.perl.org/user/Ovid/journal/27927">the problem with NULL values before</a>, but in realizing I had a better real-world example, I thought it would make more sense to readers.</p></p>
+
+
+<hr/>
+
+
+
+<h2>are you sure that works?</h2>
+<h3><a href="/user/bpphillips/">bpphillips</a> on 2009-12-07T18:56:51</h3>
+Shouldn't it be (as it appears was suggested in your earlier post):
+<br> <br>
+<code>
+SUM( COALESCE( price, 0 ) ) AS total
+</code>
+<br> <br>
+If the coalesce is outside the sume, it doesn't fix the underlying issue of apply an aggregate function on a set of data that may contain a NULL value.  Or, perhaps I'm missing something...
+
+
+
+<blockquote>
+
+<h2>Re:are you sure that works?</h2>
+<h3><a href="/user/derobert/">derobert</a> on 2009-12-07T20:19:15</h3>
+<p>SUM ignores NULLs. So the sum of 1 and NULL is 1.</p><p>SUM's behavior, of course, makes perfect sense: as 1+NULL yields NULL, so clearly the sum is 1.&lt;/sarcasm&gt;</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Not quite right</h2>
+<h3><a href="/user/huxtonr/">huxtonr</a> on 2009-12-08T01:21:02</h3>
+<blockquote><div><p>Now consider a simpler, yet silly, example:
+    SELECT first_name
+    FROM   employee
+    WHERE  salary &gt; 50000;
+What happens if the salary field is NULL? You'll get a list of employees whose known salary is NULL.</p></div>
+</blockquote><p>I can't figure out what you meant to say there, but the query doesn't seem to go with the text.</p><blockquote><div><p>In this scenario, it is the case that everyone has a salary; you just don't know what some of them are. So here's the kicker:
+
+    SELECT first_name
+    FROM   employee
+    WHERE  salary = salary;
+
+That won't return anyone on the board of directors, even though you know they have a salary.</p></div></blockquote><p>You don't know that though. Not within the terms of the database. If you did, they'd have a numeric salary and not NULL.</p><blockquote><div><p> Furthermore, most would think it's self-evident that p = p, but in three value logic of databases, this is sometimes true and sometimes false.</p></div></blockquote><p>No, not quite right. The expression p = p will always be either TRUE or NULL. Anything compared to NULL returns NULL. This will behave the same as FALSE if you test for truth since the test will still fail.</p><p>If you aren't enjoying bashing your head on these little "features" then I recommend staying well away from how nulls interact with record types. There appears to be no logic there at all.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Not quite right</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-12-08T06:51:01</h3>
+<p>Ack, fixed the typo regard "known salary is null".</p><p><div class="quote"><p>You don't know that though. Not within the terms of the database. If you did, they'd have a numeric salary and not NULL.</p></div><p>That's entirely the point.  Database "logic", when combined with NULLs, returns answers that we really know are not true.  I don't mean "within the terms of the database".  <em>p&nbsp;=&nbsp;p</em> is true, regardless of whether or not a poorly designed query language says otherwise.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

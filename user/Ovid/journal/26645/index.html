@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Spot the Bug</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Spot the Bug</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-09-08T17:22:13</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Late at night, lots of coding and a little test program confused me for a moment until I looked at it again and almost laughed myself silly.  I needed to test that I could read individual records in a file.  The records are separated by a lone dot "." appearing by itself on a line.  My intention was to open the file, read in individual records, remove that trailing dot and visually inspect the records one by one.  Spot the bug:</p>
+
+<pre>#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+my $file = shift || die "No file, dummy!";
+open FH, "<", $file or die "Could not open ($file) for reading: $!";
+local $/ = "\n.\n";
+
+while (defined (my $record = <FH>)) {
+    chomp $record;
+    print $record;
+    <STDIN>;
+}</pre>
+
+<p>Moral of this story:  don't code while tired.</p></p>
+
+
+<hr/>
+
+
+
+<h2>That's a fun bug!</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2005-09-08T17:53:34</h3>
+I stared at it and stared at it but didn't see it until I actually tried the code.  Then it hit me; "$/ has been modified so it's hanging at the &lt;STDIN&gt;!"  Thanks for a very fun lunchtime distraction.<blockquote> <div><tt>#!/usr/bin/perl<br>use strict;<br>use warnings;<br> <br>my $file = shift || die "No file, dummy!";<br>open FH, "&lt;", $file or die "Could not open ($file) for reading: $!";<br>my @records;<br> <br>{<br>&nbsp; local $/ = "\n.\n";<br>&nbsp; chomp(@records = &lt;FH&gt;);<br>};<br> <br>for my $record (@records) {<br>&nbsp; &nbsp; print $record;<br>&nbsp; &nbsp; &lt;STDIN&gt;;<br>}</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:That's a fun bug!</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-09-08T17:58:44</h3>
+<p>Yup.  That's it.  In my case, I was reading in a huge file so I didn't want to slurp it all in at once.  I went for the following fix:</p> <blockquote> <div><tt>{<br>&nbsp; local $/ = "\n";<br>&nbsp; &lt;STDIN&gt;;<br>}</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:That's a fun bug!</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2005-09-08T18:11:15</h3>
+Believe it or not that is what I did first.  There's so many different ways that you could handle this situation and that's the beauty of Perl.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-09-09T01:39:40</h3>
+<p>Hehe. I did spot it without running the code &#8211; after I stepped out of the box and started thinking about what things it does <em>other</em> than its primary goal. It took about three minutes of staring.</p>
+
+<p>I can&#8217;t think of a solution that is compact, non-obfuscatory, and avoids redundancy (ie setting <code>$/</code> twice) all at once. The best I can do is</p> <blockquote> <div><tt>while( 1 ) {<br>&nbsp; &nbsp; do {<br>&nbsp; &nbsp; &nbsp; &nbsp;local $/ = "\n.\n";<br>&nbsp; &nbsp; &nbsp; &nbsp;my $record = &lt;FH&gt;;<br>&nbsp; &nbsp; &nbsp; &nbsp;last if not defined $record;<br>&nbsp; &nbsp; &nbsp; &nbsp;chomp $record;<br>&nbsp; &nbsp; &nbsp; &nbsp;print $record;<br>&nbsp; &nbsp; };<br>&nbsp; &nbsp; &lt;STDIN&gt;;<br>}</tt></div> </blockquote> <p>The tricky bit in reformulating this is that the new record separator has to be in scope for both the <code>readline</code> as well as the <code>chomp</code>. Perl5 is definitely kludgy here &#8211; this should be a property of the filehandle, not a global variable.</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-09-09T01:43:30</h3>
+<p> <em>this should be a property of the filehandle, not a global variable.</em> </p>
+
+<p>Perl 6, baby, Perl 6.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of chromatic: Silly Little Parrot Optimizations</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Silly Little Parrot Optimizations</h1>
+<h2><a href="/user/chromatic/">chromatic</a> on 2009-05-06T21:20:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've spent the past three days profiling <a href="http://www.parrot.org/">Parrot</a> and <a href="http://www.rakudo.org/">Rakudo</a> startup times.  Christoph Otto and Vasily Chekalkin did some great work on a roadmap item I added a while back -- specifically removing thousands of exported symbols from our shared library.  (The more symbols you export, the longer dynamic linking takes.)</p>
+
+<p>As every successful optimization changes the performance profile of your application, I've found some interesting bottlenecks.  Some of them are even amusing, in the forehead-slapping "You're such a geek if you find this funny" way.</p>
+
+<p>For example, my most recent trace showed that calculating the correct method resolution order in Rakudo classes created a lot of PMCs.  In particular, a section of the algorithm removes an entry from an array by index.  (In Parrot vtable terms, this is a <code>delete_keyed_int</code> operation.)  Every instance of this PMC is a <code>ResizablePMCArray</code>, roughly akin to your standard Perl 5 array.  For some reason, RPA had no specific implementation of the <code>delete_keyed_int</code>, which takes a primitive integer value and removes the PMC at that index in the array.</p>
+
+<p>Instead, the RPA fell back to the default implementation of that operation.  It takes the primitive integer and constructs a PMC <code>Key</code> from it in a boxing operation.  Then it performs the original PMC's <code>delete_keyed</code> operation, which takes a <code>Key</code> PMC and removes the PMC identified by that key in the array.</p>
+
+<p>RPA <em>defines</em> that operation.  The first thing it does is to extract a primitive integer value from the <code>Key</code>.</p>
+
+<p>I added a local <code>delete_keyed_int</code> definition and rewrite <code>delete_keyed</code> in terms of the latter.  Rakudo now starts up 1.34% faster and allocates 9.38% fewer PMCs -- and all of those PMCs are PMCs with very short lifespans that would never survive the first garbage collection run.  Avoiding even that is a performance improvement.</p>
+
+<p>I estimate that Rakudo starts up nearly 40% faster now than it did when I started on Sunday night.  We can get it faster yet.</p></p>
+
+
+<hr/>
+
+
+
+<h2>A bas les symboles</h2>
+<h3><a href="/user/slanning/">slanning</a> on 2009-05-07T06:04:35</h3>
+<blockquote><div><p> <cite>I've spent the past three days profiling <a href="http://www.parrot.org/" title="parrot.org">Parrot</a parrot.org> and <a href="http://www.rakudo.org/" title="rakudo.org">Rakudo</a rakudo.org> startup times. Christoph Otto and Vasily Chekalkin did some great work on a roadmap item I added a while back -- specifically removing thousands of exported symbols from our shared library. (The more symbols you export, the longer dynamic linking takes.)</cite></p></div> </blockquote><p>How do you, roughly speaking, go about removing thousands of symbols from a library?</p><p>You said that, due to the local <code>delete_keyed_int</code>, Rakudo starts up 1.34% faster; and you said that Rakudo starts up 40% faster than it did on the weekend. Is a lot of that from removing the extra symbols, or is it mostly from other optimizations? (In other words, do you know how much speed-up results from removing the symbols?)</p><p> <i>P.S. I realize you're probably not responsible for the Rakudo page, but it needs a short description of Rakudo somewhere. As someone who doesn't follow Perl 6 that closely (and/or is getting senile), I just sometimes forget what the names refer to. On the other hand, the page is claiming to be a "one stop" for Rakudo news, so maybe that implies that whoever is reading it is at least minimally aware of what Rakudo is. But on the Parrot page, for example, there is a paragraph at the top of the home page saying what it is; but when I went to the Rakudo page, I was looking around for an About button/page but there doesn't seem to be any.</i> </p>
+
+
+
+<blockquote>
+
+<h2>Re:A bas les symboles</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-05-07T20:27:47</h3>
+<blockquote><div><p> <em>How do you, roughly speaking, go about removing thousands of symbols from a library?</em></p></div> </blockquote><p>We removed their external visibility.  (Apologies if you know all of this; I think it might be interesting to other readers.)</p><p>When you build a shared library in C, some of the functions and variables are usable by programs which use the shared library -- that's the point of building a shared library.  On some platforms you must explicitly mark these functions as externally visible.  Windows is an offender here.  On most Unix-like platforms with which I'm familiar, all symbols are externally visible by default.</p><p>We suffered from many failures at the linking stage where Windows builds would fail because we added functions but forgot to mark them as exported.  Modern versions of GCC include a flag which flips the external visibility of symbols: by default, they're invisible outside the shared library.  You have to add an explicit "export this symbol" annotation so that code which uses the shared library can access them.</p><p>We enabled that flag quite a while ago so that we'd stop breaking the Windows build accidentally.  With that change, any time we added a symbol which should be externally visible but forgot to annotate it correctly, even our Linux and BSD builds would fail at the linking stage, so we could correct it without waiting for feedback from a Windows tester.</p><p>That was great, but where we should be parsimonious with symbol exporting, we were overly generous.  In particular, many generated functions which should never be visible nor accessible outside of libparrot itself were in the listed of exported symbols.</p><p>When your dynamic loader loads a shared library, it has to relocate all exported symbols that you use.  Within the shared library, the compiler may have resolved all of the addresses of functions to local offsets, there's no way to predict at linking time where the library will be in memory.  Thus if you want to call a function defined in a shared library, you have to resolve its offset within the shared library with the starting memory location of the library itself.</p><p>The more externally visible symbols you have to relocate, the more time the dynamic linker spends relocating them (and the more expensive it is to find the correct symbol).</p><p>Bacek and Christoph changed a code generator so that we could remove the visibility of several thousand symbols.  I changed another code generator to remove a few thousand more.  We still export too many, but two individual changes made a huge improvement in startup time.</p><blockquote><div><p> <em>(In other words, do you know how much speed-up results from removing the symbols?)</em></p></div> </blockquote><p>The first change cut Parrot's startup time in half.  It had less of an effect on Rakudo because Rakudo does a lot more initialization.  The ~40% improvement in Rakudo came from other changes.  I don't have a profile from before that commit handy, but I estimate it was less than a 1% improvement, as Rakudo spends its time elsewhere.</p><p>I'll pass on your comments about the Rakudo home page; that's useful feedback.  Thanks.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

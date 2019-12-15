@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of scrottie: minimunny.pl - Search and Deparse (and serialize and...)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>minimunny.pl - Search and Deparse (and serialize and...)</h1>
+<h2><a href="/user/scrottie/">scrottie</a> on 2008-12-26T00:12:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've been playing with this Perl "mini munny" idea.  The name comes from a toy that's plain white and scultpable, designed to be customized.  The customizations became a trendy art form lately.  Likewise, the Perl idea is a single unit that's designed to be customized.<br/><br/>When launched, it starts listening on two ports.  One the is main Web app (that the user is developing), and the other is the admin port (that may also be customized).  The auth token to the admin gets printed on STDERR, and the user, through the admin, can chat with other connected admins, browse a tree of namespaces and fuctions in the application, edit functions in a JavaScript vi, create instances of objects, hand them to other admins, drop them, and destroy them.  There's also a box for eval'ing arbitrary snippets of code that serves as a persistent scratchpad as well.<br/><br/>I need to do some more work on restartable exceptions in Continuity as part of this idea.  And created, held objects need to define additional commands.<br/><br/>All of this -- the state of objects, modified functions, etc gets serialized with Storable and stored to disc, then reloaded on startup.<br/><br/>Eventually, this should be packaged up in a module that you can <code>use</code> from other programs.  A visual diff and version control are on the wishlist too.<br/><br/>Originally I was using B::Deparse to display the code of methods and functions for edit but I predictably decided the slightly mangled code B::Deparse produced just did too much violence to the source.  People will want to be able to make whitespace changes, change idiom, etc, and have those changes persist.  Similarly, I was using Storable's <code>$Storable::Deparse</code> and <code>$Storable::Eval</code> to persist code changes and additions, so whitespace, comments, and changes to idiom would be lost there as well too.<br/><br/>So, now I'm working on changing the whole thing to change the actual original .pl source file using Adam Kennedy's PPI.  But I wanted to leave a sort of monument to the working, if slightly violent, Deparse design I had.  So, without further ado, here's the code.<br/><br/><pre><br/><br/>use B;
+use Devel::Caller 'caller_cv'; # and several other modules<br/><br/># on startup, thaw the serialized snapshot of the program state.
+# the tree structure mirrors the module namespace structure of
+# the program, and gets copied into the namespace structure of
+# the program.
+# caller_cv(0)->() is just a recursive call to the same block.<br/><br/>if(-f "$0.store") {
+    $Storable::Eval = 1;
+    # my $save = Storable::retrieve "$0.store";
+    sub {
+        my $package = shift;
+        my $tree = shift;
+        no strict 'refs';
+        for my $k (keys %$tree) {
+            if($k =~ m/::$/) {
+                caller_cv(0)->($package.$k, $tree->{$k});
+            } elsif(ref($tree->{$k})) {
+                *{$package.$k} = $tree->{$k};
+            } else {
+                die $package.$k . " doesn't contain a ref";
+            }
+        }
+    }->sub('main::', $save);
+}<br/><br/># for both serializing the state of the program and for presenting
+# a tree view of namespaces/subroutines/methods to edit,
+# this walks the symbol table, being careful to avoid XS subs
+# and subs imported from other packages.  the B module is used
+# to figure those two things out.  it also attempts to skip modules
+# listed in %INC.
+# after this runs, the returned structure is a tree where each 
+# node is a reference to a hash, array, scalar, or a coderef,
+# or else if the key has :: as the end of its name, it's a ref to
+# another hash full of those things in another namespace.<br/><br/>my $build_tree = sub {
+    # this is used by the save-state code but also by the admin editor stuff
+    return sub {
+        my $package = shift;
+        my $node = shift() || { };
+        no strict 'refs';
+        for my $k (keys %$package) {
+            next if $k =~ m/main::$/;
+            next if $k =~ m/[^\w:]/;
+            next if grep $_ eq $k, @{ $config->{stop_modules} };
+            if($k =~ m/::$/) {  
+                # recurse into that namespace unless it corresponds to a .pm module that got used at some point
+                my $modulepath = $package.$k;
+                for($modulepath) { s{^main::}{}; s{::$}{}; s{::}{/}g; $_ .= '.pm'; }
+                next if exists $INC{$modulepath};
+                $node->{$k} ||= { };
+                caller_cv(0)->($package.$k, $node->{$k});
+            } elsif( *{$package.$k}{HASH} ) {
+                $node->{$k} = *{$package.$k}{HASH};
+            } elsif( *{$package.$k}{ARRAY} ) {
+                $node->{$k} = *{$package.$k}{ARRAY};
+            } elsif( *{$package.$k}{CODE} ) {
+                my $ob = B::svref_2object(*{$package . $k}{CODE});
+                my $rootop = $ob->ROOT;
+                # print "detected an XS sub!\n" if ! $$rootop; # Storable barfs on thawing these
+                my $stashname = $$rootop ? $ob->STASH->NAME . '::' : '(none)';
+                if($$rootop and ($stashname eq $package or 'main::'.$stashname eq $package or $stashname eq 'main::' )) {
+                    # when we eval something in code in main::, it comes up as being exported from main::.  *sigh*
+                    $node->{$k} = *{$package . $k}{CODE};
+                }
+            } else {  
+                $node->{$k} = *{$package.$k}{SCALAR}; 
+            }
+        }
+        return $node;
+    }->('main::');
+}; <br/><br/># uses the above to save state:<br/><br/>my $save_db = sub { 
+    STDERR->print("Saving db!\n\n");
+    # $Storable::Deparse = 1; 
+    Storable::nstore $build_tree->(), "$0.store.new" or do {
+        warn "saving state failed: $!";
+        # $mod_time = -M __FILE__; # XXX this requires FindBin anyway 
+        return; 
+    };          
+    rename "$0.store", "$0.store.last";
+    rename "$0.store.new", "$0.store" or do {
+        warn "renaming new save file into place failed: $!";
+    };
+};<br/><br/># Here's an out-of-context chunk of the function editing code:<br/><br/>            my $code;
+            if(do { no strict 'refs'; ${$file.'_src'} } ) {
+                no strict 'refs';
+                $code = ${$file.'_src'};
+            } else {
+                my $deparse = B::Deparse->new(); # "-p", "-sC";
+                $code = do { no strict 'refs'; $deparse->coderef2text(\&{$file}); };
+            }
+   
+            $request->print(qq{
+                <form method="post" action="/">
+                    Editing <b>$file</b><br>
+                    <input type="hidden" name="file" value="$file">
+                    <input type="hidden" name="action" value="savefile">
+                    <input type="button" value="vi" onclick="javascript: editor(document.getElementById('code'))"><br>
+                    <!--  onfocus="editor(this);"  -->
+                    <textarea rows="20" cols="80" id="code" name="editbuf">$code$endtextarea<br>
+                    Click the text box to enter vi mode!<br>
+                    <input type="submit" value="Save File">
+                </form>
+                <form method="post" action="/">
+                    <input type="hidden" name="action" value="">
+                    <input type="submit" value="Abort Edit">
+                </form>
+            });<br/><br/># and here's an out of context chunk of the code that saves after an edit:<br/><br/>        if($request->param('action') eq 'savefile') {
+            my $file = $request->param('file');
+            exists &{$file} or die "$file not found";
+            my $code = $request->param('editbuf');
+            # (my $methodname) = $file =~ m/.*::(.*)$/ or die "no method part found";
+    # XXX save and, in case of error, restore the previous coderef
+    # XXX oooops, if parse failed, can't deparse it to edit it!  so force going back into edit mode in this case, showing them $
+code again so they can fix it
+            eval { eval qq{ sub $file { $code } }; 1 } or do $request->print("parse failed: $@<br>\n");
+            do { no strict 'refs'; ${$file.'_src'} = $code; };
+            $request->print(qq{Code saved.<br>\n});
+        }   <br/><br/></pre><br/><br/>I hope you find this half as amusing as I do =)<br/><br/>-scott</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

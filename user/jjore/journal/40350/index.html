@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjore: Stop the debugger when a test fails</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Stop the debugger when a test fails</h1>
+<h2><a href="/user/jjore/">jjore</a> on 2010-05-09T17:43:40</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I was debugging some test failures earlier this morning but they were in the middle of a long test script. I thought it'd be nice if I could step through the test with the debugger and just stop whenever a test failed.<br/><br/>Here's the result. A test failure immediately followed by being in the debugger:<br/><br/><pre>
+not ok 236
+14:	                return $result;
+  DB<1>
+</pre><br/><br/>and then I could ask for the stack trace which is nice:<br/><br/><pre>
+  DB<1> T
+. = main::ok(undef) called from file `t/02_methods.t' line 796
+. = main::check_tar_extract(ref(Archive::Tar), ref(ARRAY)) called from file `t/02_methods.t' line 507
+</pre><br/><br/>I wrote the below snippet to automatically stop the debugger whenever something like ok() failed. Currently you can just drop this right after your "use Test::More" statement. I think possibly this kind of idea should be packaged in a no-muss CPAN module or perhaps directly right into Test::More.<br/><br/><pre>
+# Wrap Test::More functions with debugger breakpoints
+BEGIN {
+    use B;<br/><br/>    # Enumerate over all symbols in the main:: symbol table.
+    SYMBOL:
+    for my $symbol ( sort keys %main:: ) {<br/><br/>        # Choose only things that are functions.
+        {
+            no strict 'refs';
+            next SYMBOL if ! defined &$symbol;
+        }<br/><br/>        # Get a reference to the function.
+        my $code = do {
+            no strict 'refs';
+            \&$symbol;
+        };<br/><br/>        # Get a B::CV object so I can get at meta-data about the
+        # function.
+        my $cv   = B::svref_2object( $code );<br/><br/>        # Get the path to the compilation file. Will often be a path like
+        # '/usr/share/perl/5.10/Test/More.pm'.
+        #
+        # To visually inspect other meta-data possibly available about this function:
+        #
+        #     use Devel::Peek;
+        #     Dump( $code );
+        #
+        my $src_file = $cv->FILE;<br/><br/>        # Select only functions coming from files named like
+        # .../Test/More.pm.
+        next SYMBOL if $src_file !~ m{/Test/More\.pm$};<br/><br/>        # Propagate the old function's prototype to the new function.
+        my $prototype = prototype $code;
+        my $new_prototype =
+            defined $prototype
+            ? "($prototype)"
+            : '';<br/><br/>        # Generate the new function and replace the old function. The new function
+        # has access to the original via the closed-over $old variable.
+        my $src = qq{
+            no warnings 'redefine';
+            sub $symbol $new_prototype {<br/><br/>                # Call the original function and get the test pass/fail.
+                my \$result = \$code->( \@_ );<br/><br/>                # Debugger single-stepping mode if the test failed.
+                if ( ! \$result ) {
+                    \$DB::single = 1;
+                }<br/><br/>                # Return the test/failure.
+                return \$result;
+            }<br/><br/>            # Compilation of the new function succeeded?
+            1;
+        };
+        eval $src
+            or die $@;
+    }
+}
+</pre>
+</p>
+
+
+<hr/>
+
+
+
+<h2>I like, I like...</h2>
+<h3><a href="/user/DiamondInTheRough/">DiamondInTheRough</a> on 2010-05-09T19:40:48</h3>
+<p>I've wished I had that sort of module in the past, often when debugging testing modules. Unfortunately, I'm not to the point of being able to pull out the magic B wand and make it do what I want to do yet.</p><p>When you DO make it into a module, make the regexp <code>{/Test/(*.)\.pm\z}</code>, OK? That way it covers any testing module, not just Test::More.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I like, I like...</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2010-05-09T21:19:33</h3>
+<p>How about this?</p><blockquote><div><p> <tt>use Debugger::OnTestFailures<br>&nbsp; &nbsp; -src_rx =&gt; qr/^Test::/;</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:I like, I like...</h2>
+<h3><a href="/user/DiamondInTheRough/">DiamondInTheRough</a> on 2010-05-09T21:41:01</h3>
+That would be great, thanks!
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>mass-wrapping</h2>
+<h3><a href="/user/awwaiid/">awwaiid</a> on 2010-05-09T21:13:24</h3>
+<p>Thanks, this is a nicely commented way of doing mass-wrapping of stuff. I'll have to keep it in mind for other Evil Things to do...</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ajt: Finding Duplicate Files #1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Finding Duplicate Files #1</h1>
+<h2><a href="/user/ajt/">ajt</a> on 2006-07-31T12:45:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Here is try number 1 (warts and all):</p>
+
+<pre>
+#!/usr/bin/perl
+
+#
+# $Id: fdf.pl,v 1.1.1.1 2006-07-29 14:26:57 adam Exp $
+#
+
+use strict;
+use warnings;
+use File::Find;
+use File::Glob;
+use Digest::SHA;
+use Getopt::Std;
+
+my %options;
+my $VERSION = 0.1;
+
+getopts( 'dvg:l:u:ho:', \%options );
+
+if ( $options{'h'} ) {
+    show_usage();
+    exit;
+}
+
+my @start_dirs = @ARGV;
+
+if ( scalar @start_dirs < 1 ) {
+    show_usage();
+    die "\nERROR: No start directory provided.\n\n";
+}
+
+foreach my $start_dir (@start_dirs) {
+    die "Unable to locate start Directory: $start_dir\n" unless -d $start_dir;
+}
+
+die
+    "Upper Limit ($options{'u'}) is less than the Lower Limit ($options{'l'}).\n"
+    if ( ( $options{'u'} && $options{'l'} )
+    && ( $options{'u'} < $options{'l'} ) );
+
+if ( $options{'d'} ) {
+    $options{'v'} = 1;
+}
+
+if ( $options{'v'} ) {
+    print {*STDERR} "Find Duplicate Files v$VERSION (verbose mode)\n";
+    print {*STDERR} "         Search GLOB: $options{'g'}\n" if $options{'g'};
+    print {*STDERR} "   Minimum file size: $options{'l'}\n" if $options{'l'};
+    print {*STDERR} "   Maximum file size: $options{'u'}\n" if $options{'u'};
+    print {*STDERR} "     Output Log File: $options{'o'}\n" if $options{'o'};
+
+    foreach my $start_dir (@start_dirs) {
+        print {*STDERR} "Finding all files in: $start_dir\n";
+    }
+    print {*STDERR} "\nThis may take a while...\n\n";
+}
+
+our %size_by_files;
+our $sub_total = 0;
+
+$File::Find::dont_use_nlink = 1;
+find( \&pass_one, @start_dirs );
+
+if ( $options{'v'} ) {
+    print {*STDERR}
+        "Pass 1 complete. Possibility of $sub_total bytes of duplication.\n",
+        "Now calculating checksums. This may take a little while longer...\n\n";
+}
+
+my $dupes_by_size = pass_two( \%size_by_files );
+my $output;
+
+if ( $options{'o'} ) {
+    open $output, '>', $options{'o'}
+        or die "Unable to write to log file $options{'v'}\n";
+    select $output;
+}
+
+foreach my $key ( sort keys %{$dupes_by_size} ) {
+    if ( scalar @{ $dupes_by_size->{$key} } > 1 ) {
+
+        my @files = @{ $dupes_by_size->{$key} };
+
+        foreach my $file (@files) {
+            print "$key\t$file\n";
+        }
+        print "\n";
+    }
+}
+
+if ( $output ) {
+    close $output;
+}
+
+exit;
+
+sub pass_one {
+    my $filename = $File::Find::name;
+    if ( -f $filename && -r _ ) {
+        my $size = -s _;
+        if ( $size > 0 ) {
+            my $use = 1;
+            my @files;
+
+            if ( $options{'l'} && $size < $options{'l'} ) {
+                undef $use;
+            }
+            if ( $options{'u'} && $size > $options{'u'} ) {
+                undef $use;
+            }
+            if ($use) {
+
+                if ( $size_by_files{$size} ) {
+                    @files     = @{ $size_by_files{$size} };
+                    $sub_total = $sub_total + $size;
+                }
+                push @files, $filename;
+                $size_by_files{$size} = \@files;
+            }
+        }
+    }
+    return;
+}
+
+sub pass_two {
+    my $file_list  = shift;
+    my $dupe_total = 0;
+    my %dupe_files;
+
+    foreach my $size ( sort keys %{$file_list} ) {
+        if ( scalar @{ $file_list->{$size} } > 1 ) {
+            my @files = @{ $file_list->{$size} };
+
+            foreach my $file (@files) {
+                my $digest;
+               eval {
+                    $digest = Digest::SHA->new()->addfile($file, "b")->hexdigest;
+               };
+
+                if ($digest) {
+                    my @pos_files;
+                    if ( $dupe_files{$digest} ) {
+                        @pos_files  = @{ $dupe_files{$digest} };
+                        $dupe_total = $dupe_total + $size;
+                    }
+                    push @pos_files, $file;
+                    $dupe_files{$digest} = \@pos_files;
+                }
+                if ( $options{'d'} ) {
+                    print {*STDERR} "$digest\t$file\t$size\n";
+                }
+            }
+        }
+    }
+    if ( $options{'v'} ) {
+        print {*STDERR}
+            "Pass 2 complete. $dupe_total bytes of duplicates found.\n";
+        if ( $options{'o'} ) {
+            print {*STDERR} "Results logged to $options{'o'}\n\n";
+        }
+        else {
+            print {*STDERR} "Results are show below:\n\n";
+        }
+    }
+    return \%dupe_files;
+}
+
+sub show_usage {
+
+    print <<"USAGE";
+
+This is Find Duplicate Files version $VERSION
+
+Usage:
+    fdf [ -l <bytes> ] [ -u <bytes> ] [ -v ] [ -o <output_log> ] <path_to_scan>
+
+Options:
+    -l  Lower limit of files size to scan, in bytes
+    -u  Upper limit of files size to scan, in bytes
+    -v  Verbose mode (sent to *STDERR)
+    -o  Output log
+    -h  This usage note
+
+Copyright:
+    Copyright Adam John Trickett / iredale consulting 2006
+
+Licence:
+    OSI Certified Open Source Software.
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public Licence as published
+by the Free Software Foundation; either version 2 of the Licence,
+or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public Licence for more details.
+
+You should have received a copy of the GNU General Public Licence
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place - Suite 330, Boston,
+MA 02111, USA.
+
+USAGE
+
+    return;
+}
+</pre></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: aol service assistant, slightly better than nothing</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>aol service assistant, slightly better than nothing</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2007-11-20T03:04:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><html><p>For a long time, my parents have been held hostage by AOL.  AOL, for ages, made
+it nearly impossible to use any tool other than their mega-integrated awful
+front end to The Internet.  Even once they set up IMAP, you were stuck with
+their Favorites and Address Book.  This was a big deal for my dad, who has a
+gigantic contact list.  I&#39;ve been heckling him to use Apple&#39;s Address Book for
+ages, but he couldn&#39;t get out.</p><p>Recently, AOL published the <a href="http://www.apple.com/downloads/macosx/internet_utilities/aolserviceassistant.html">AOL Service
+Assistant</a>,
+which lets you set up your Mac to work with your AOL settings.  Most of this is
+trivial, but it exports your AOL Favorites (read: bookmarks) and your Address
+Book.  This was great news, and I put it to use when setting up a new Mac for
+my mom a few weeks ago.</p><p>The big snag was that it exports contacts in a completely asinine way.  As far
+as I can tell, AOL&#39;s contact list has no concept of &#34;person&#34; or &#34;group.&#34;  It
+just associates a name with a list of one or more email addresses.  When you
+export your contact list to Address Book, each entry becomes a group, and each
+address in it becomes a person.  That means that if you had
+&#34;grandma@example.com&#34; as the address for your &#34;Nanny Smith&#34; entry, you will now
+have a group called &#34;Nanny Smith&#34; with one person.  That person will have no
+name, just an email address.</p><p>This is totally insane.</p><p>Mac::Glue made fixing this a whole lot less hateful than it might have
+otherwise been.  Here&#39;s the script I used:</p><pre>#!/usr/bin/perl
+use strict;
+use warnings;
+
+use Mac::Glue ':glue';
+
+my $addr = Mac::Glue->new('Address Book');
+
+my @groups = $addr->prop('groups')->get;
+
+my %emails_for;
+my %groups_for;
+
+for my $group (@groups) {
+  my $name = $group->prop('name')->get;
+  my @people = $group->prop('people')->get;
+
+  if (@people == 1) {
+    # a one-address group is probably a person
+    my $person = $people[0];
+    my ($email) = map { $_->prop('value')->get } $person->prop('email')->get;
+    push @{ $emails_for{ $name } ||= [] }, $email;
+  } else {
+    # ...but a multipe-address group is probably a group for real real
+    my @emails =
+      map { $_->prop('value')->get }
+      map { $_->prop('email')->get }
+      @people;
+
+    for my $email (@emails) {
+      push @{ $groups_for{ $email } ||= [] }, $name;
+    }
+  }
+}
+
+my %local_part;
+for my $email (keys %groups_for) {
+  print "$email\n";
+  my ($local_part) = split /\@/, $email;
+
+  unless (grep { $_ eq $email } map { @$_ } values %emails_for) {
+    my $i = ++ $local_part{ $local_part };
+    $emails_for{"$local_part $i"} = [ $email ];
+  }
+}
+
+# Okay, we've learned all we can, let's obliterate all the bogus cards.
+$_->delete for $addr->prop('people')->get;
+
+for my $name (keys %emails_for) {
+  my @emails = @{ $emails_for{ $name } };
+
+  my ($first, $last);
+  ($first, $last) = split / /, $name, 2;
+
+  # Set up the address book card
+  my $person = $addr->make(
+    new => 'person',
+    with_properties => {
+      'first name' => $first,
+      'last name'  => $last,
+    },
+  );
+
+  # Add the person's email addresses
+  for my $email (@emails) {
+    $addr->make(
+      new => 'email',
+      at  => location(end => $person->prop('emails')),
+      with_properties => {
+        label => 'Home',
+        value => $email,
+      }
+    );
+  }
+
+  # Put each individual back into the groups in which they originally appeared.
+  my %group;
+  $seen{ $_ }++ for map { @{ $groups_for{ $_ } || [] } } @emails;
+
+  for (keys %group) {
+    next unless my $group = $addr->obj(group => whose(name => equals => $_));
+
+    $person->add(to => $group);
+  }
+}
+</pre><p>Basically, it converts any group with only one address into a person.  For any
+group that had more than one address, if it can find a &#34;person&#34; for that
+address (in other words, that address appeared in another group with no other
+addresses) then the group remains a group, now with that person (and probably
+others) in it.  It&#39;s not perfect, but it got my mom&#39;s 200+ member contact list
+into a state where hand-correcting it was not a huge problem.</p><p>I&#39;d like to think that AOL will fix this in a future release, but I doubt it.
+I think that it&#39;s not just awful programming, it&#39;s a mismatch between the data
+structures of AOL&#39;s and Apple&#39;s address books.</p></html>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Flying Dutchman</h2>
+<h3><a href="/user/sungo/">sungo</a> on 2007-11-20T03:27:58</h3>
+Not only is it a data mismatch, I don't think there are any programmers left to fix the problem if even someone wanted to. This last layoff caught a lot of people in product development. Tools like this will go unmaintained while the remaining programmers try and keep the core properties and code online.
+
+
+
+<h2>beware of idiots</h2>
+<h3><a href="/user/link/">link</a> on 2007-11-20T19:28:28</h3>
+Granted I only worked on the edge of the address book (integrating the ab into a wap email client) but I find it had to imagine that is the best they can do. 7 years ago they had a http protocol that would allow you to export the ab using a couple of dozen lines of perl.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: Stupid DynaLoader Tricks</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Stupid DynaLoader Tricks</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2002-11-12T14:54:36</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>In MacPerl, there's a neat little hack to make certain functions always available.  Essentially, bootstrap is called for the MacPerl, OSA, and XL packages explicitly in runperl.c:<br/><br/><ECODE>
+av_push(PL_preambleav, newSVpv("BEGIN { bootstrap MacPerl; bootstrap OSA; bootstrap XL;  }",0));
+</ECODE><br/><br/>All three packages are statically linked, and are a "part of" the MacPerl package (that is, they get compiled into the same static library file).  When porting this to Mac OS X, it causes problems: in MacPerl.pm, no bootstrap is done because it is not necessary, having already been done.<br/><br/>Normally, one could just do a conditional bootstrap, but this is complicated by the fact that a <TT>bootsrap OSA</TT> (we skip XL for Mac OS X) will look for a dynamic library named "OSA.$dl_dlext".  But we don't have that.  So instead, we first bootstrap MacPerl, and then find the file that was used for MacPerl -- don't load the file, it's already been loaded -- and use that to install our OSA::boostrap, before finally calling it.<br/><br/>It's possible I am overcomplicating things or doing something wrong, but hey, it works ...<br/><br/><ECODE>
+# bootstrap MacPerl is already implicitly done by your MacPerl binary
+unless ($^O eq 'MacOS') {
+	# use Config;
+	# my $dl_dlext = $Config::Config{'dlext'};
+	my $dl_dlext = 'bundle';<br/><br/>	require DynaLoader;
+	push @ISA, 'DynaLoader';
+	bootstrap MacPerl;<br/><br/>	# because OSA is in MacPerl.bundle, not OSA.bundle
+	my $file = "auto/MacPerl/MacPerl.$dl_dlext";
+	foreach (@INC) {
+		$dir = "$_/auto/MacPerl";
+		next unless -d $dir;
+		my $try = "$dir/MacPerl.$dl_dlext";
+		last if $file = -f $try && $try;
+	}<br/><br/>	for my $mod (qw(OSA)) {
+		my($xs, $symref);
+		for (@DynaLoader::dl_librefs) {
+			last if $symref = DynaLoader::dl_find_symbol($_, "boot_$mod");
+		}
+		next unless $symref;
+		$xs = DynaLoader::dl_install_xsub("${mod}::bootstrap", $symref, $file);
+		&$xs($mod);
+	}
+}
+</ECODE>
+<P CLASS="center"> <EM>Now Playing:</EM> <STRONG><A HREF="http://user@mp3.pudge.net:8000/mp3/Artists/Stevie%20Wonder/Original%20Musiquarium%20I,%20Vol%20I/08.%20Ribbon%20In%20The%20Sky.m3u?play=1">Ribbon In The Sky - Stevie Wonder (Original Musiquarium I, Vol I)</A></STRONG>  </P> </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

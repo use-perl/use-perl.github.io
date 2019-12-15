@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of dpisoni: &quot;Scoping token&quot; for class constructor mocking</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>&quot;Scoping token&quot; for class constructor mocking</h1>
+<h2><a href="/user/dpisoni/">dpisoni</a> on 2006-10-26T23:52:21</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I have no idea if this is silly, or if everyone-and-their-dog already does this, or if this is novel.  Basically, I wanted a way to have a "controlled scope" Ã¢â¬âÃÂ I wanted my mock to live only as long as I wanted it to, but I didn't want to have that be within a lexical constraint.  (Naturally, if all I cared about were a lexical scope, I would have used <code>local</code>)</p>
+
+<strong>Motivation:</strong>
+<ol>
+<li>Unit Testing</li>
+<li>I use Test::Class, which supports the notion of xUnit-style "fixtures", and runs all tests in one interpreter</li>
+<li>I am using Test::MockObject to mock objects of my boundary classes, and manually mocking the class constructors</li>
+<li>I want the freedom to set up my mocks in a particular "scope" under my complete control.  So I want to re-use the actual MockObjects (to better enable changing out the data emitted by the mock methods without having to set them up over and over) but dynamically set up and tear down the constructor mocking.</li>
+<li>I use extensively the features of Test::MockObject in my test code.  I have no need for any special features of Test::MockModule or Test::MockClass, all I need is to intercept a single constructor method and then restore it back to its original state when I'm done with it.
+</ol>
+
+<strong>My solution:</strong>
+
+<p>So what I did was create a "scoping token".  It's just an empty scalar that has a destructor "attached" to it to handles the cleanup.  I suppose this could have been done using overloading (a la Scalar::Defer) but this solution seemed like it would be faster and cleaner.</p>
+
+<p>Here's my method <code>mock_class_constructor()</code>.  It takes as its arguments the name of the constructor symbol you are mocking (that is, a fully qualified method name) and the object (assumably a Test::MockObject, but could be anything) that you want it to return.</p>
+
+<pre>
+sub mock_class_constructor {
+	my $proto = shift;
+	my($constructor_symbol, $return_object) = @_;
+
+	no strict 'refs';
+	no warnings 'redefine';
+	my $orig_constructor = \&{ "$constructor_symbol" };
+	*{ "$constructor_symbol" } = sub { $return_object };
+
+	# orderly cleanup
+	my $package = int(rand(time)) . int(rand($$));
+	no strict 'refs';
+	*{ $package . '::DESTROY' } = sub {
+			# Actual cleanup
+			no warnings 'redefine';
+			*{ "$constructor_symbol" } = $orig_constructor;
+			# Cleanup of this closure
+			undef *{ $package . '::DESTROY' };
+		};
+	
+	return bless \do { my $anon_scalar }, $package;
+}
+</pre>
+
+<p>So now in my test code, when I want to unit test with the boundary class mocked, I call this first.  If I want to switch to a longer integration test, I'll release the token and run this again on a different class (further down the stack.)  (Naturally, I don't need this at all for a full-stack integration test.)</p>
+
+<p><em>Yes, I know I could have had the method accept a closure instead of just an object to return.  At that point though I'd just be re-implementing Test::MockModule.</em></p>
+
+<p>My original design was to have the method return a callback closure that does the cleanup.  I dumped this for two reasons:</p>
+<ul>
+<li><b>dangerous</b>: no way to ensure that the cleanup would actually be called</li>
+<li><b>less useful</b>: couldn't opt to piggyback on an existing scope</li>
+</ul>
+<p>With this design, I could do any number of more "natural" scope controls:</p>
+<ul>
+<li>Confine the token to a lexical scope, cleanup happens when scope terminates. (no real benefit here, could have done this with <code>local()</code>)</li>
+<li>Stash the token in another object's instance data.  This essentially binds the scope to that object's, sort of a "piggyback scope".  Probably could do this with the MockObject, though I'd have to change the code above to <code>weaken()</code> the <code>$return_object</code> reference otherwise the closure will have a circular reference.</li>
+<li>Explicity release the token</li>
+</ul>
+
+<p>So I feel like I've got something that might have some useful application, but I also imagine that it's a dead end someone else has already found.  I'm interested in any feedback.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Excellent name!</h2>
+<h3><a href="/user/DAxelrod/">DAxelrod</a> on 2006-10-27T01:41:12</h3>
+I'd also considered using a similar technique for similar scoping reasons. Make sure you're handling reentrancy correctly (although this may not be a problem if this technique is for unit testing).<br><br>Would it be possible to show the code in which this is used? I'm having trouble thinking of a situation in which local woudn't cut it (although there obviously is if several different people have thought of this technique).<br><br>I really like the name "scripting token". My first thought was to call the scalar a "canary", because it exists only to trigger other behavior when it is destroyed, vaguely like a canary in a mineshaft; but your name is much more descriptive.
+
+
+
+<blockquote>
+
+<h2>Scoping token in action</h2>
+<h3><a href="/user/dpisoni/">dpisoni</a> on 2006-10-27T04:50:09</h3>
+<p>I can give a little, though I think in most cases I didn't use it in as novel ways as I conceived that I would.  (I'll have to redact a bit, but that's okay.)  But I have a mean over-engineering streak...</p>
+
+<p>The method in the journal entry exists in my project Testing superclass (which isa Test::Class.)  In addition, there is:</p> <blockquote> <div><tt>sub mock_network {<br>&nbsp; &nbsp; my $proto = shift;<br>&nbsp; &nbsp; $proto-&gt;mock_class_constructor( NETWORK_PKG() . '::new', @_ );<br>}<br>sub mock_implementation {<br>&nbsp; &nbsp; my $proto = shift;<br>&nbsp; &nbsp; $proto-&gt;mock_class_constructor( IMPLEMENTATION_PKG() . '::new', @_ );<br>}</tt></div> </blockquote> <p>These are for mocking the layers of the library I'm testing (it's a specialized web service API.)  In the class that tests the public API layer, I have:</p> <blockquote> <div><tt>sub startup : Test(startup =&gt; 1) {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; $self-&gt;SUPER::startup();<br>&nbsp; &nbsp; my $test_class = $self-&gt;{test_class} = $TEST_CLASS;<br>&nbsp; &nbsp; require_ok( $test_class) or $self-&gt;BAILOUT("Can't test class we can't require");<br>&nbsp; &nbsp; my $impl_mocker = $self-&gt;{impl_mocker} = Test::MockObject-&gt;new();<br>&nbsp; &nbsp; $impl_mocker-&gt;mock(<nobr> <wbr></nobr>... );<br>&nbsp; &nbsp; # etc etc<br>}</tt></div> </blockquote> <p>And later...</p> <blockquote> <div><tt>sub test_03a_list_things : Tests {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; my $cleanup_token = $self-&gt;mock_implementation( $self-&gt;{impl_mocker} );<br>&nbsp; &nbsp; $self-&gt;_list_things(@_);<br>}<br>sub test_03b_list_things_integration : Tests {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; my $net_mocker = $self-&gt;gen_net_mocker();<br>&nbsp; &nbsp; my $cleanup_token = $self-&gt;mock_network( $net_mocker );<br>&nbsp; &nbsp; $self-&gt;_list_things( $net_mocker, @_ );<br>}</tt></div> </blockquote> <p>The actual test code is in the _list_things() method. I'm just using lexical scoping here, but I get to move all the code that does the mocking to one place, and yet still have a lexical scope. (If I had used local, I would have had to repeat the actual mocking code every time I want to do this.  Bad <i>DRY</i>!)</p>
+
+<p>Most of what I've done looks like this, it appears.  But hey!  Think of what I <em>could</em> do! I think I'm remembering now my initial motivation: it was <i>DRY</i>, per the example above.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Object::Destroyer seems similar</h2>
+<h3><a href="/user/dpisoni/">dpisoni</a> on 2006-10-29T04:51:45</h3>
+... not quite the same, but similar motivation.  Rather than just "entangling" the scoping token with the thing they want to control scope of however, it wraps it.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: use_ok is not ok.</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>use_ok is not ok.</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-11-03T17:28:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>You probably see a lot of tests with <tt>use_ok</tt> in them.  In general, this should be avoided.  It gets needlessly duplicated in plenty of test code.  Instead, try something like this in your 00-load.t file:</p>
+
+<pre>#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use File::Find;
+use File::Spec;
+
+use lib 'lib';
+use Test::More;
+
+BEGIN {
+    my $DIR => 'lib/';
+
+    sub to_module($) {
+        my $file = shift;
+        $file =~ s{\.pm$}{};
+        $file =~ s{\\}{/}g;    # to make win32 happy
+        $file =~ s/^$DIR//;
+        return join '::' => grep _ => File::Spec->splitdir($file);
+    }
+
+    my @modules;
+
+    find({
+            no_chdir => 1,
+            wanted   => sub {
+                push @modules => map { to_module $_ } $File::Find::name
+                        if /\.pm$/;
+            },
+        },
+        $DIR
+    );
+
+    plan tests => scalar @modules;
+
+    for my $module (@modules) {
+        use_ok $module or BAIL_OUT("Could not use $module");
+    }
+}</pre>
+
+<p>That's not perfect and I'm sure there's a module somewhere which does this, but it's a good start.  Basically, it asserts that you can use all of the modules you've defined.  You could easily update it to have exceptions, but if you can't use one, you get a bail-out (this stops tons of annoying test failures from a simple typo).  Then, you can remove all of those annoyingly duplicated <tt>use_ok</tt> lines in your tests and just use the damned modules you need.</p></p>
+
+
+<hr/>
+
+
+
+<h2>what's really wrong with use_ok?</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2008-11-03T17:40:40</h3>
+<p>I see the value of having a test script which reality-checks that everything compiles, especially if there are big gaps in a test suite.</p><p>But I don't see what's wrong with "use_ok()" for a module that you neede to "use" anyway. It's hardly any more syntax. What's the harm?</p>
+
+
+
+<blockquote>
+
+<h2>Re:what's really wrong with use_ok?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-11-03T17:57:15</h3>
+<p>First, here's the general 'correct' incantation:</p><blockquote><div><p> <tt>BEGIN {<br>&nbsp; &nbsp; use_ok 'Some::Module' or die "Cannot use Some::Module";<br>}</tt></p></div> </blockquote><p>If the module is not used in a "BEGIN" block, compile-time behavior is ignored (e.g., exported functions may alter how your code parses).</p><p>If you don't have the 'or die' (or BAIL_OUT), things can get even worse.  If the module fails to load, but <em>most</em> of it compiled, you can get partially compiled code loaded.  Your 'use_ok' failure may scroll off the screen but failures show up much later in the test program run (this is a very subtle bug and one which once caused and fellow programmers hours of debugging grief).</p><p>Finally, where's the canonical spot for that <tt>use_ok</tt> statement?  I often see test suites where I open up four of five different test modules, each of which has identical <tt>use_ok</tt> statements at the top.  Testing something more than once doesn't make it more true.  However, if you think you <em>need</em> to test  'use'ing a module more than once -- perhaps it won't load if another module loads -- the you probably have some bad coupling in your code and your "use Some::Module" statement in the test will catch the error anyway.  It's annoying to have to write that entire BEGIN block every time I want to use a module.  Just putting it into one "load" test means I don't have to worry about that any more.</p>
+
+
+
+<blockquote>
+
+<h2>Re:what's really wrong with use_ok? summary</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2008-11-06T16:34:55</h3>
+<p>So I would say it summarizes like this:</p><p>If "use" a module it fails, the test grinds to a halt, which is nearly always a reasonable result.</p><p>With "use_ok", the test may<nobr> <wbr></nobr>/continue/ causing unexpected results later on, because the module is not loaded, or worse, partially loaded.</p><p>Thanks for your clarification, Ovid.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>I generally use...</h2>
+<h3><a href="/user/mauzo/">mauzo</a> on 2008-11-03T18:23:24</h3>
+something like<blockquote><div><p> <tt>#!/usr/bin/perl<br> <br>use strict;<br>use warnings;<br> <br>use Test::More;<br> <br>my $tests;<br> <br>BEGIN { $tests += 3 }<br>use_ok 'Clone::Closure';<br>can_ok 'Clone::Closure', 'clone';<br>ok !main-&gt;can('clone'), 'clone not exported by default';<br> <br>BEGIN { $tests += 2 }<br>use_ok 'Clone::Closure', 'clone';<br>can_ok 'main', 'clone';<br> <br>BEGIN { plan tests =&gt; $tests }<br> <br>BAIL_OUT('module will not load')<br>&nbsp; &nbsp; if grep !$_, Test::More-&gt;builder-&gt;summary;</tt></p></div> </blockquote><p>as <tt>t/00use.t</tt> and then just <tt>use</tt> the modules after that. I'm deliberately ignoring the fact the <tt>use_ok</tt> ought to called at <tt>BEGIN</tt> time, as I'm not actually using any of the module's functionality in this test program.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I generally use...</h2>
+<h3><a href="/user/rjray/">rjray</a> on 2008-11-03T20:03:25</h3>
+<p>This is similar to my approach, though I don't usually test for specific functions or methods. Once I've established that the modules can load, I leave it to individual suites to test specific modules.</p><p>(But then, I also arrange my suites so that no suite is dependent on a module that hasn't already been vetted by a previous suite. I'm just anal-retentive that way...)</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Load the modules in dependency order, too!</h2>
+<h3><a href="/user/mugwumpjism/">mugwumpjism</a> on 2008-11-04T09:03:02</h3>
+<p>Problem with this approach is that you don't know when errors are raised which module raised them; it might have been a dependency of the ones which you loaded.  Here's one I wrote recently;</p><blockquote><div><p> <tt>use Test::More qw(no_plan);<br> <br>use FindBin qw($Bin);<br>use File::Find;<br> <br>my @modules;<br>my %uses;<br> <br>finddepth(sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; m{^\w.*\.pm$} &amp;&amp; do {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $module = $File::Find::name;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $module =~ s{.*/lib.}{};<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $module =~ s{[/\\]}{::}g;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $module =~ s{.pm$}{};<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; push @modules, $module;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; open MODULE, "&lt;", $_ or die "Failed to open ($_): $!";<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; while(&lt;MODULE&gt;) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (m{^use (\S+)}) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $uses{$module}{$1}++;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (m{^(?:extends|with) (["'])?(\S+)\1}) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $uses{$module}{$2}++;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; close MODULE;<br>&nbsp; &nbsp; &nbsp; &nbsp; };<br>}, "$Bin/../lib");<br> <br>my %done;<br>while (@modules) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my (@winners) = grep {!$uses{$_} or !keys %{$uses{$_}}} @modules;<br>&nbsp; &nbsp; &nbsp; &nbsp; if (!@winners) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; @winners = shift @modules;<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; for my $module (sort @winners) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my @fail;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; local($SIG{__WARN__}) = sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; push @fail, join " ", @_;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; warn "# oh look a warning: @_";<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; };<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; use_ok($module);<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; is (@fail, 0, "no warnings issued");<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $done{$module}++;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; delete $uses{$module};<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; delete $_-&gt;{$module} for values %uses;<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; @modules = grep { !$done{$_} } @modules;<br>}</tt></p></div> </blockquote>
+
+
+
+<h2>Test::Compile</h2>
+<h3><a href="/user/gabor/">gabor</a> on 2008-11-05T18:52:06</h3>
+In Padre I have the following code:<blockquote><div><p> <tt>use strict;<br>use warnings;<br> <br>use Test::More;<br>plan skip_all =&gt; 'Needs Test::Compile 0.08' if not eval "use Test::Compile 0.08; 1";<br>diag "Test::Compile $Test::Compile::VERSION";<br>all_pl_files_ok(all_pm_files());</tt></p></div> </blockquote><p>
+The funny call at the end is because currently Test::Compile has all_pm_files_ok() that "use"-es all the pm files while all_pl_files_ok() runs
+"perl -cw path/to/module" on all modules.
+</p><p>
+The above combination provides the strongest way to check if every module can be compiled on its own.
+</p><p>
+Maybe what I'd really need though is to run</p><blockquote><div><p> <tt>perl -cw -Mblib -MModule::Name -e1</tt></p></div> </blockquote><p>one every module.</p>
+
+
+
+<blockquote>
+
+<h2>there's also Test::UseAllModules</h2>
+<h3><a href="/user/ishigaki/">ishigaki</a> on 2008-11-09T03:50:00</h3>
+<p>I've been using Test::UseAllModules (since 2006) which reads MANIFEST and tries to load every<nobr> <wbr></nobr>.pm module under "lib" directory, and if anything should fail, the test would bail out.</p><p>A sample code is like this:</p><p>
+&nbsp; &nbsp; use strict;<br>
+&nbsp; &nbsp; use warnings;<br>
+&nbsp; &nbsp; use Test::UseAllModules;</p><p>
+&nbsp; &nbsp; BEGIN {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; all_uses_ok();<br>
+&nbsp; &nbsp; }</p><p>The point is you don't need to find modules as it should be done by ExtUtils::Manifest when you ship the package.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>bug:  my $DIR = 'lib/';</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2009-04-01T18:39:41</h3>
+<p>There's a bug here that I didn't spot until I tried to run it:</p><p>
+&nbsp; my $DIR =&gt; 'lib/';</p><p>I think you mean "=" there, not =&gt;</p>
+
+
+
+<blockquote>
+
+<h2>Re:bug: my $DIR = 'lib/';</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-04-01T19:57:13</h3>
+<p>Agreed.  Thanks for spotting that!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

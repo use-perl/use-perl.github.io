@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of petdance: Brute force Hanoi, with inline testing</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Brute force Hanoi, with inline testing</h1>
+<h2><a href="/user/petdance/">petdance</a> on 2003-04-29T15:18:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Last night in my business class, we had the class divvy up into two teams (creative vs. analytical) and solve the Tower Of Hanoi puzzle, using plastic stacking rings for babies.  I recused myself from the team, since I knew the trick, although I did try to give hints here and there.
+<P>
+I had about half an hour between the first class and the second, so I cranked out a quick &amp; dirty solver.  The very first thing I did, before I implemented any code, was to write verify_spikes() to make sure that I hadn't made any illegal moves.  This was a big help with my debugging, as I had a bug that always tried to use the same spike as the empty spike.  verify_spikes() caught it for me.
+<ECODE>#!/usr/bin/perl -w<br/><br/>use strict;
+use Data::Dumper;<br/><br/>my %spike;<br/><br/>my $ndiscs = shift || 3;
+my $nmoves = 0;<br/><br/>$spike{a} = [];
+$spike{b} = [];
+$spike{c} = [ reverse (1..$ndiscs) ];<br/><br/>#draw_spikes();
+verify_spikes();
+move( $ndiscs, "c" => "a" );<br/><br/>sub move {
+    my $height = shift;
+    my $from = shift;
+    my $to = shift;<br/><br/>    if ( $height > 1 ) {
+        my $open = open_spike( $from, $to );
+        #print "Prep: $height from $from to $to via $open\n";
+        move( $height-1, $from => $open );
+        move( 1, $from => $to );
+        move( $height-1, $open => $to );
+    } else {
+        my $top = pop @{$spike{$from}};
+        push( @{$spike{$to}}, $top );
+        ++$nmoves;
+        print "Move $nmoves: $top from $from to $to\n";
+        #draw_spikes();
+        verify_spikes();
+    }
+}<br/><br/>sub draw_spikes {
+    for my $spike ( 'a'..'c' ) {
+        my @discs = @{$spike{$spike}};
+        print "$spike: @discs\n";
+    }
+    print "\n";
+}<br/><br/>sub open_spike {
+    my $from = shift or die;
+    my $to = shift or die;<br/><br/>    my %maybe;
+    @maybe{'a'..'c'} = (1,1,1);
+    delete $maybe{$from} or die;
+    delete $maybe{$to} or die;
+    my @left = keys %maybe;
+    die "bad left: @left\n" if @left != 1;
+    return $left[0];
+}<br/><br/>sub verify_spikes {
+    for my $spike ( 'a'..'c' ) {
+        my $prev = 999;
+        for my $disc ( @{$spike{$spike}} ) {
+            if ( $disc > $prev ) {
+                die "Spike $spike has $disc under $prev\n";
+            }
+            $prev = $disc;
+        } # for discs
+    } # for spikes
+}
+</ECODE></p>
+
+
+<hr/>
+
+
+
+<h2>two changes</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2003-04-29T18:15:26</h3>
+The validation routine should probably keep a hash containing the elements it has seen, and ensure that when a ring is moved from one spike to another that a copy of the ring doesn't get left behind.
+<p>
+I'd tend to use an extra argument specifying the "spare" spike, and a separate function move_top to move a single ring that is on the top of its spike.
+</p><p>
+This is written into the message, and not tested (sorry about the indenting, even with CODE wrapping it gets thrown away, I've at least forced back the line breaks):
+</p><p>
+<code>
+sub move {<br>
+  my( $c, $from, $to, $spare ) = @_;<br>
+  if( $c == 1 ) {<br>
+    move_one( $from, $to );<br>
+  } else {<br>
+    move( $c-1, $from, $spare, $to );<br>
+    move_one( $from, $to );<br>
+  }<br>
+}<br>
+<br>
+sub move_one {<br>
+  my( $from, $to ) = @_;<br>
+  my $ring = pop( $spike{$from} )<br>
+    or die "trying to move from empty ring";<br>
+  die "trying to move onto a smaller ring"<br>
+    if $spike{$to}[-1] &lt; $ring;<br>
+  push $spike{$to}, $ring;<br>
+}<br> </code></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

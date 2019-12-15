@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Managing Database Upgrades (advice wanted)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Managing Database Upgrades (advice wanted)</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-06-27T08:53:08</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've been asked to write a system which will manage database upgrades for some of our servers.  Basically, if a developer needs to apply a change to the database, this change must be pushed out to 2000 servers and must not conflict with any other changes.</p>
+
+<p>Since we use RPC, my thought was, whenever the code is pushed out to the server, the server then makes an RPC call back to a central server (already set up and handling RPC requests), providing its database version and, if the database version is old, the RPC call responds with YAML of successive version numbers and the UPDATE/ALTER SQL to bring the database to the current version required for the code and then tests will run to verify the new schema.  This portion of the process can be completely automated.</p>
+
+<p>From the development side, when a developer needs to make a change, he or she will first need to run:</p>
+
+<pre>db_upgrade start</pre>
+
+<p>That will reserver a row in the db_upgrade table and write out a <tt>.db_version</tt> file in their home directory.  Then when they're finished with their changes, they would run:</p>
+
+<pre>db_upgrade end < some.sql</pre>
+
+<p>The SQL file would resemble something like:</p>
+
+<pre>ALTER TABLE customer 
+DROP COLUMN current;
+
+UPDATE config 
+SET    value=<% version %>
+WHERE  variable='db_version';</pre> 
+
+<p>The version number would be pulled from the <tt>.db_version</tt> file.  There are multiple issues with this approach and some of the more pressing are:</p>
+
+<ul>
+  <li>Two developers changing the database at the same time could change the same table, but this is always a problem.</li>
+  <li>Developers need to always remember to check their changes into the database along with source control.</li>
+  <li>Remote servers with Mysql running MyISAM means no transactions.</li>
+  <li>The SQL must not be active until such time that code is both committed to source control and updated on the server.  This makes synchronization difficult.</p>
+</ul>
+
+<p>This updates a huge number of servers in data centers which means that this process must not fail, but it requires enough human intervention that I can see plenty of room for failure.  Any advice on how to make this more robust would be appreciated.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Some Suggestions</h2>
+<h3><a href="/user/davorg/">davorg</a> on 2006-06-27T14:17:31</h3>
+<ul> <li> <i>Two developers changing the database at the same time could change the same table, but this is always a problem.</i> </li> </ul>
+
+<p>You need some centralised locking mechanism. One developer writes a file somewhere saying "I'm altering the database" (or "I'm altering this table" if you need finer control) and then no-one else can start an update until that file is removed.</p>
+
+<ul> <li> <i>Developers need to always remember to check their changes into the database along with source control.</i> </li> </ul>
+
+<p>Can't you drive the changes from your source code control system? If it's not in source code control then it can't be released.</p>
+
+<ul> <li> <i>Remote servers with Mysql running MyISAM means no transactions.</i> </li> </ul>
+
+<p>Bleah. Get a real database<nobr> <wbr></nobr>:-)</p>
+
+<ul> <li> <i>The SQL must not be active until such time that code is both committed to source control and updated on the server. This makes synchronization difficult.</i> </li> </ul>
+
+<p>This is a harder problem. But perhaps it's easier if everything is in the source code control and all the releases (both code and database schemas) are all done automatically as part of the same update.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Some Suggestions</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-06-27T15:55:16</h3>
+<p>They've agreed to the centralized locking mechanism.  As for using source control to manage the SQL, I'm not clear as to the best way to do that. I've checked out <a href="http://search.cpan.org/dist/Cvs/" title="cpan.org">Cvs</a cpan.org> on the CPAN and I can't get the tests to pass, regardless of whether I run them through CPAN.pm or do it by hand.  I admit that having CVS contain <em>all</em> of the changes makes for a better solution, but trying to figure out the best way to cobble all of that together with the automated database upgrades sounds problematic.  Would all of the update/alter statements be in separate files or not?  If a server is going from version 4 to version 7, then successive version 5, 6 and 7 update/alters would be applied.  I don't know the best way to manage that in CVS or extract it automatically on the remote server.</p>
+
+<p>As for switching to a real database (don't I wish!), if you're volunteering to rewrite the apps and all of their Mysql specific SQL and switch over 2000 servers from Mysql to Postgres<nobr> <wbr></nobr>...</p>
+
+<p>We can't even use InnoDB because of table space issues.  When using InnoDB, we apparently have to allocate a fixed amount of space on the hard disk and if it's not used, it's wasted space.  These drives are not large and that limits our options.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Some Suggestions</h2>
+<h3><a href="/user/ajtaylor/">ajtaylor</a> on 2006-06-27T17:28:20</h3>
+<blockquote>
+<div>We can't even use InnoDB because of table space issues. When using InnoDB, we apparently have to allocate a fixed amount of space on the hard disk and if it's not used, it's wasted space.</div>
+</blockquote>
+
+<p>
+Did you know that by default InnoDB will automatically increase the size of the data file as needed? That means you can specify some relatively small size to start, and the DB will automatically change it as needed. See the documentation for <a href="http://dev.mysql.com/doc/refman/4.1/en/innodb-configuration.html" title="mysql.com">autoextend</a mysql.com>.
+</p>
+
+<p>
+This probably a moot point anyway, but I wanted to point this feature out.
+</p>
+
+
+
+<h2>Re:Some Suggestions</h2>
+<h3><a href="/user/bart/">bart</a> on 2006-06-28T11:38:22</h3>
+As you're on mysql, you can use <code>lock table</code> for some central table. I'm thinking about your <tt>config</tt> table that holds the version number, for example.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Suggestions</h2>
+<h3><a href="/user/ggoebel/">ggoebel</a> on 2006-06-27T16:22:03</h3>
+I worked for many years in an environment where we faced the same issue. However, we had the benefit of a real RDBMS with transactions. I apologize for the emphasis. I don't see how you can solve your problem without a bulletproof locking mechanism.<nobr> <wbr></nobr>...Or serializing your schema modifications through one.<br><br>Suggestion #1<br>To prevent simultaneous attempts to modify a schema, setup a RDBMS that can pass the ACID test (MySQL w/ InnoDB or BDB types). Stage updates on it and serialize the schema updates through it.<br><br>Suggestion #2<br>Don't rely on developers remembering to update source control. Someone will forget or decide they have a special case... or something. Then you'll be left in a situation where you'll be unable to reproduce what happened to the schema between two given points in time. Force all schema modifications through source control. Control access to the ACID compliant RDBMS where you stage updates.<br><br>I'm not saying there won't be special cases. But special cases should probably require special approval. At one point, I was tasked with figuring out how to update schemas outside the approved update approval process in order to fix the update mechanism. And on another occassion to fix the reporting mechanism built into our update mechanism.<br><br>Suggestion #3<br>Your "databases" won't be able to rollback a failed update that has been partially applied. Consider breaking updates into 2 stages. In the first stage, make non-destructive changes. I.e., instead of dropping the customer.current column, rename it. In the second stage, verify your initial changes were successful, make your destructive updates and then update the config.version or roll them back. Use your RDBMS that passes the ACID test in tracking the state/stage of updates.<br><br>On failure of stage one, there's no garrauntee that your rollback will succeed. Likewise, on success of stage one, there's no garrauntee that the destructive update will succeed. But in either case, someone should be able to go in and clean things up manually.<br><br>Note, it'd be nice if a failed updates triggered alerts of some kind (email) to the people who'll be responsible for fixing them.<br><br>Suggestion #4<br>Occassionally, something will go wrong. It could be something simple and obvious that affects all updated servers immediately. Or it could be something subtle like encountering constraint based issues on a subset of the servers upgraded a week later.<br><br>It would be best if you could roll updates out in stages of successively larger groups of affected machines over an extended period of time.  This would require an approval mechanism of some sort. Where I worked we had both versioned and time delayed approvals.  Application and database schema updates were rolled out based on version approvals, os and av updates and patches were rolled out based on time delays. Database data updates should have been time delayed... but in practice were immediate on the next pull for updates.<br><br>We used a pull model where servers would phone home to update themselves on a staggered schedule which gave us some garrauntee that the update servers wouldn't get hammered too hard. Whether you use a push or pull, you'll want to give some consideration to the load on whatever machines push or pull updates.<br><br>If you go with using an ACID compliant RDBMS to centrally manage updates, consider building in a reporting mechanism too. We would send back info on things like drive utilization, service failures, etc. Later, I was able to add an event monitor and alert notification service on a database that aggregated reporting data from our update servers. It would send out email to the people responsible for responding to or servicing the specified events. It was also used by other departments to determine what build versions machines in the field were using.<br><br>Suggestion #5<br>Consider keeping the schema modifications in a single file and wrapping each versioned update with a check that the $target_version &gt;= $current version.<br><br>While you're at it, consider wrapping individual schema changes with instrospective code. For the example you mentioned, I'd check that the customer.current column exists before you attempt to drop it... failing verbosely if it doesn't. You would be surprised at how useful such checks are when performing a series version updates or a single version update with numerous schema updates.<br><br>This approach has the advantage of keeping all schema related code in one place. Where it is easy to find and hopefully grok. You don't have to figure out which updates to send for a particular version update. And you should be able to reapply updates without error. In the example you gave, a successive attempt to run your update to drop the customer.current column would result in an error.<br><br>That's all I can think of at the moment... Good luck!
+
+
+
+<h2>Re: Managing Database Upgrades</h2>
+<h3><a href="/user/iburrell/">iburrell</a> on 2006-06-27T17:22:13</h3>
+What database are you using?  PostgreSQL does almost all DDL inside transactions.  This makes it possible to apply a change as a single unit and rollback on failure.  Oracle autocommits most DDL which makes cleaning up after problems a bigger issue.
+
+<p>
+I would make creating an update atomic.  State between commands makes thing more complicated.  Locking is easier when it is inside a single program.
+
+<code>
+db_update insert.sql update.sql delete.sql
+</code>
+
+</p><p>
+How do you deploy code changes?  Database schema changes are usually tied to code changes.  I would separate the database updates between backwards compatible changes that can work with old code, changes which break old code, and changes which require simultaneous updates.  The ideal process is apply backwards compatible changes, update code, apply break-old-code changes.  Avoid simultaneous updates is possible.
+
+</p><p>
+The code is hopefully in a version control system; putting the update scripts in version control would make a lot of sense.  One question is how to synchronize the numbering of updates between different developers.  One possibility is to have a control file which lists updates and versions.  The version control system would prevent conflicts.</p>
+
+
+
+<h2>Why are developers touching production systems?</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2006-06-28T01:50:41</h3>
+I think you have an impossible problem.  You can make it halfway work, but then it will all the way break.  And when it does, you'll have a thousand messed up machines.  Good luck fixing it.<br><br>The <i>right</i> place to start your question is asking how the release cycle works.  Hopefully you have a development/QA/production cycle already.  In that case I'd use the QA step as your useful bottleneck to make this problem tractable.<br><br>Developers in development can do whatever they like.  That includes messing up their development machines.  But when they check code in, they must include unit tests for new database features, and they need to document database changes.  Part of preparing a QA release is preparing the upgrade procedure that merges all of the database changes that were documented.  It <b>must</b> be able to take an old installation and upgrade it to a machine that can pass all unit tests (and also passes QA).<br><br>After that, then your job is to write a procedure that can take a machine down, apply the upgrade, then put it back into production.<br><br>The nice thing about this is that now you don't need to worry about the locking issues (that's now a procedure problem), and you also can limit your worries about developers directly breaking production (they shouldn't touch it).
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

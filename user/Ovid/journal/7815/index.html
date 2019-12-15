@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Testing acolyte</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Testing acolyte</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2002-09-18T19:42:37</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Yup.  <tt>chromatic</tt> has forced me to drink the testing kool-aid.  I have a large Web site that I maintain and frankly, the code's a pig.  It's embarrassing.  And it has no tests.  We've been asked to make some major changes (of course, they always ask us to make major changes) and it's forced me to renormalize the database.  In my estimate, I included a large chunk of time for writing tests for system.</p>
+
+<p>To ensure that my test environment would work, I took what is far and away the most stable module and started writing tests for it.  I'm now up to 28 tests, but I discovered something very interesting.  My first few tests failed immediately.  After a bit of research, I discovered a long standing bug in the code that was causing intermittant failures.  I was never able to track the bug, but my fourth test uncovered it immediately!</p>
+
+<p>With supreme confidence garnered through having tests started, I went through and made some sweeping changes in the code and now this "stable" module is even more stable.  I love tests :)</p>
+
+<p>Of course, I will never be able to properly forgive <tt>chromatic</tt> for destroying my carefree idealism.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Hooray for testing!</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2002-09-18T19:56:19</h3>
+And the best thing is that if you ever reintroduce that bug, you will recatch it as well.
+<p>
+Test everything.  Test your most basic assumptions.  Once you write it, it's done, and will be in your employ forever.
+</p><p>
+Here's some stuff I wrote yesterday that reads a tree structure of nodes from the DB and makes sure that there are no stray, unlinked nodes:</p><blockquote><div> <tt>#!/usr/bin/perl -w<br> <br>use strict;<br>use Test::More tests=&gt;5;<br>use FLR::DB qw(<nobr> <wbr></nobr>:sqldo );<br> <br>my %nodes;<br>my %children;<br>my @tops;<br> <br>=pod<br> <br>This little baby looks at all the nodes in the tree and makes sure that<br>all the parent and children relationships make sense.<br> <br>First, we build up two data stores: C&lt;%nodes&gt; is a hash of the parents<br>for each node, and C&lt;%children&gt; is a hash of the children for each node,<br>where each element is a list reference of all the children.<br> <br>=cut<br> <br>my $set = sqldo_set( 'select nodeid, parent_nodeid from nodes' );<br> <br>for my $row ( @$set ) {<br>&nbsp; &nbsp; my $parent = $row-&gt;{PARENT_NODEID};<br>&nbsp; &nbsp; my $nodeid = $row-&gt;{NODEID};<br> <br>&nbsp; &nbsp; $nodes{$nodeid} = $parent;<br>&nbsp; &nbsp; if ( $parent ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; push( @{$children{$parent}}, $nodeid );<br>&nbsp; &nbsp; } else {<br>&nbsp; &nbsp; &nbsp; &nbsp; push( @tops, $nodeid );<br>&nbsp; &nbsp; }<br>}<br> <br>=pod<br> <br>Make sure that there are exactly two top nodes.&nbsp; If the number of top<br>nodes changes, then we'll have to adjust this.<br> <br>=cut<br> <br>is( scalar @tops, 2, "Correct number of top nodes" );<br>my $nnodes = scalar keys %nodes;<br>ok( $nnodes &gt; 10_000, "Have a reasonably big number of nodes" );<br>diag( "$nnodes total nodes" );<br> <br>=pod<br> <br>Now, we want to confirm that all the nodes in the database are in fact<br>members of the two top level trees.&nbsp; We do this by deleting the trees<br>and making sure no nodes are left.<br> <br>Tree deletion is done by recursively deleting each node's children.<br>The C&lt;delete_children()&gt; function keeps track of which nodes it's<br>currently deleting, so that if it sees them again it can flag them and<br>not continue circling.<br> <br>=cut<br> <br>my %seen_while_digging;<br>my $circles = 0;<br>delete_children( @tops );<br> <br>=pod<br> <br>Once we've deleted the two trees, there should be no nodes left in the<br>hash, and there should be no circular references having been noted.<br> <br>=cut<br> <br>is( $circles, 0, 'Any circular references?' );<br>is( scalar keys %nodes, 0, 'Any nodes left over?' );<br>is( scalar keys %seen_while_digging, $nnodes, 'Do deleted nodes match total nodes?' );<br> <br>sub delete_children {<br>&nbsp; &nbsp; my @deleters = @_;<br> <br>&nbsp; &nbsp; for my $node ( @deleters ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; if ( $seen_while_digging{$node}++ ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ++$circles;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; next;<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; my $kidlist = $children{$node};<br>&nbsp; &nbsp; &nbsp; &nbsp; if ( $kidlist ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; delete_children( @$kidlist );<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; &nbsp; &nbsp; if ( exists $nodes{$node} ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; delete $nodes{$node};<br>&nbsp; &nbsp; &nbsp; &nbsp; } else {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; die "Tried to delete node $node, but it wasn't there";<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; } # for @deleters<br>}</tt> </div></blockquote>Note that I'm testing some really obvious stuff, like that the number of nodes I checked is the same as the number of nodes total, but the next time you goof up and exit from a loop early or forget to include the starting nodes, you'll be glad you did.
+<p>
+Some of the stuff might not be strictly necessary, but it doesn't hurt to have it in there...</p>
+
+
+
+<blockquote>
+
+<h2>Re:Hooray for testing!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2002-09-18T20:25:48</h3>
+<p>
+How useful are you finding embedded POD in your tests?  I've been of the opinion that good test names go a long way, but does a little documentation go even further?
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Hooray for testing!</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2002-09-18T20:53:25</h3>
+This example is pretty uncommon, since usually the code behind the tests is pretty obvious.  In this case, since I was building up trees and then deleting them recursively, I thought it warranted comments.
+<p>
+I do always make sure that every test has a name, though.  I hate seeing:</p><blockquote><div> <tt>ok 1<br>ok 2<br>ok 3<br>not ok 4<br>ok 5<br>ok 6</tt> </div></blockquote>and then having to count down to test 4 in the code to see what it is
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

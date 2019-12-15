@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ChrisDolan: Perl syntax for numbers</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl syntax for numbers</h1>
+<h2><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-10-03T07:16:27</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've been working on implementing $token->literal() support for PPI::Token::Number subclasses.  This method takes a string representing a number and tries to parse it like Perl does.  Thus:<br/><br/><pre>  '-.00_1' -> -0.001</pre><br/><br/>Egads, Perl has a lot of numeric formats with a lot of special parsing!  Tonight figuring out where Perl allows underscores in numbers is driving me a little batty.  I've got PPI's tests working with valid underscore placement, but I need to write some tests for invalid underscore placement.  For example:<br/><br/><pre>
+  1_000          # valid
+  1__000         # valid, but warns
+  100_           # valid, but warns
+  1_000.000_001  # valid
+  1_.000         # valid, but warns
+  1._000         # valid, but warns
+  0xdead_beef    # valid
+  0_xdeadbeef    # syntax error
+  0_755          # syntax error
+  0b1010_1010    # valid
+  0b_10          # valid, but warns
+  0_b10          # syntax error
+  1e1_0          # valid
+  1e_10          # valid, but warns
+  1e_-10         # valid, but warns
+  6_0.6_0.6_0    # valid
+</pre>
+</p>
+
+
+<hr/>
+
+
+
+<h2>looks_like_number()</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2006-10-03T09:37:36</h3>
+You might want to look at the perl API function looks_like_number(), accessible from XS. (see perldoc perlapi.)
+
+
+
+<blockquote>
+
+<h2>Re:looks_like_number()</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-10-03T11:25:41</h3>
+<p> <a href="http://perldoc.perl.org/Scalar/Util.html#looks_like_number-EXPR" title="perl.org">Or from Scalar::Util</a perl.org>.</p>
+
+
+
+<blockquote>
+
+<h2>Re:looks_like_number()</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-10-03T13:24:18</h3>
+Aristotle, Rafael,<br><br>Much appreciated!  I was not aware of that function.  In this particular case, PPI is designed to be more lenient than Perl (it must be round-trip-safe even on invalid syntax) so we'll stick to our custom tokenizing.  That said, I'll probably look deeply at looks_like_number to see if I can find inconsistencies in our tokenizer.<br>
+
+
+
+<h2>Re:looks_like_number()</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-10-03T13:52:01</h3>
+Hmm, I just looked at looks_like_number() in Scalar::Util and it's a different beast entirely.  That's used for numification, not tokenization.  looks_like_number() does not support '_', '[eE]', binary/octal/hex numbers nor version strings.  The internal grok_number() in numeric.c is similarly limited.<br><br>Instead, I've discovered scan_num() in toke.c.  That's what I want to emulate (leniently).<br>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>5.6</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-10-03T19:22:18</h3>
+Prior to 5.6 the placement of _ was restricted something like every third character. Now it's completely open. Isn't it? I think so. Probably.
+
+
+
+<h2>Underscore</h2>
+<h3><a href="/user/bart/">bart</a> on 2006-10-03T22:04:43</h3>
+As a summary, am I right in interpreting that an underscore is only accepted, without warning, if there is a digit (in the current base) on either side? And no, the "0" prefix in "0x" or "0b" doesn't count. Ditto for the leading "0" for octal.
+
+
+
+<blockquote>
+
+<h2>Re:Underscore</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-10-03T22:11:24</h3>
+Yes, that is my conclusion as well.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

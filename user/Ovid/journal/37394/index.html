@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Where Did Those Leaks Come From?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Where Did Those Leaks Come From?</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-09-09T08:35:19</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Tracking down memory leaks is no fun and frankly, our application is leaking like a stuck pig.  In the process of trying to track all of this down, I wrote and submitted a little change for <a href="http://search.cpan.org/dist/Devel-Object-Leak/">Devel::Object::Leak</a>.  This change lets you add callbacks to a global <tt>bless</tt>.  So right now I want to know where my schema objects are being created:</p>
+
+<pre>package leaks;
+
+use Data::Dumper::Simple;
+$Data::Dumper::Indent   = 1;
+$Data::Dumper::Sortkeys = 1;
+
+use Devel::Leak::Object GLOBAL_bless => sub {
+    my ($reference, $class) = @_;
+    return unless $class && $class->isa('Pips3::Schema');
+    my ($package, $file, $line) = caller(2);
+
+    warn Dumper($package, $file, $line, $class);
+    warn $/;
+};
+
+1;</pre>
+
+<p>And then I run a test:</p>
+
+<pre>perl -Mleaks t/acceptance.t t/acceptance/import/import_id.yml</pre>
+
+<p>Then I get a handy list of where all of those things are getting instantiated (trimmed for clarity):</p>
+
+<pre>$package = 'DBIx::Class::Schema';
+$file = '...deps/lib/perl5//DBIx/Class/Schema.pm';
+$line = 707;
+$class = 'Pips3::Schema';
+
+$package = 'DBIx::Class::Schema';
+$file = '...deps/lib/perl5//DBIx/Class/Schema.pm';
+$line = 589;
+$class = 'Pips3::Schema';
+
+$package = 'Catalyst::Model::DBIC::Schema';
+$file = '...deps/lib/perl5//Catalyst/Model/DBIC/Schema.pm';
+$line = 288;
+$class = 'Pips3::Schema';</pre>
+
+<p>Well, that told me some of what I needed to know, but not enough.  However now that I can add callbacks to bless, I can dump stack traces and really figure out what's going on.</p>
+
+<p>(What's really interesting is the discovery that there are three schema objects being created here, when I thought there should only be only or two).</p></p>
+
+
+<hr/>
+
+
+
+<h2>Test::Weaken</h2>
+<h3><a href="/user/jeffreykegler/">jeffreykegler</a> on 2008-09-09T17:55:21</h3>
+Perhaps you'll find Test::Weaken helpful.  There's one routine, poof().  You give it a subroutine that creates your object, it runs the subroutine and frees the return values, then examines them to see which haven't actually been freed.
+
+<p>This sounds contradictory, but the trick Test::Weaken uses is weak references -- that way you try to free something, but still have a reference to anything that didn't get freed.  Most useful for you might be that poof() returns a list of the objects which didn't get freed and you can actually examine them.  If that's enough to tell you where they were created, you're done.  Otherwise, you can trying adding tags that let you know where the object came from.
+
+</p><p>Ignore the warning that it's alpha software.  I've used Test::Weaken a lot.  It's part of the Parse::Marpa regression test and has caught a lot of leaks for me.  Some day soon I'll change the documentation to describe Test::Weaken as released.
+
+</p><p>hope this helps,
+
+</p><p>jeffrey kegler</p>
+
+
+
+<h2>Why do it via global bless?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-09-10T01:56:39</h3>
+<p>One thing that strikes me as curious is that you want to hook the global, instead of just Hook::LexWrap'ing the specific new method. It does seem a bit like overkill.</p><p>Adam K</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

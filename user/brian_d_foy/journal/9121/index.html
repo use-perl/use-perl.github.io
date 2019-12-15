@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: Which cookies do you want to eat today?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Which cookies do you want to eat today?</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2002-11-24T19:43:01</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>The use.perl system lets people designate other people as their "friends".  I wanted to see my friend list, but I also wanted to avoid using a web browser.  As I have in previous entries, I created a script to do this.  Unlike previous scripts that interact with use.perl, I need to tell use.perl who I am.  Everything I need to know is stored in my browser's cookie file, which I load with HTTP::Cookies.<br/><br/><pre>
+#!/usr/bin/perl -w
+use strict;<br/><br/>use File::Spec::Functions;
+use HTTP::Cookies;<br/><br/># set up the transaction
+use LWP::Simple qw($ua get);
+my $cookie_file = $ENV{COOKIE_FILE};
+my $cookie_jar  = HTTP::Cookies::Netscape->new( file => $cookie_file );
+$ua->cookie_jar( $cookie_jar );<br/><br/>my $url = 'http://use.perl.org/my/fans';
+my $data = get( $url );<br/><br/>my $Counter     = $ENV{USE_PERL_JOURNAL_FRIENDS}  ||
+    catfile( $ENV{HOME}, ".use_perl_friends" );
+ 
+dbmopen my %hash, $Counter, 0640 or die $!;<br/><br/># scrub the HTML
+$data =~ s|.*!-- start template: ID 249.*?<tr>\s*||si;
+$data =~ s|\s*</tr>\s*</table>.*||si;
+$data =~ s|\s*<td VALIGN="TOP">\s*||gis;
+$data =~ s=\s*</?(?:a|em|img|b).*?>==gis;
+$data =~ s|\s*</tr>\s+<tr>\s*|\f|gis;<br/><br/># extract the names and user-ids from what's left
+my @b = 
+map { [ reverse m|(\S+)\s+\((\d+)\)|g ];  }
+map { [ split m|\s*</td>\s*|i ]->[0] }
+split /\f/, $data;<br/><br/># output the results
+my $count = 1;
+foreach my $array ( @b )
+	{
+	$hash{ $array->[1] }++;
+	printf "%3d: %5d %-15s", $count++, @$array;
+	print "\t<--- NEW" if $hash{ $array->[1] } == 1;
+	print "\n";
+	}
+</pre>	<br/><br/>A lot of people do not realize that LWP::Simple will expose its user agent object so I can change it.  I do not need to use LWP::UserAgent or HTTP::Request directly---I just import $ua and add a cookie jar to it.  LWP::Simple still handles all of the thinking for me.  I usually do this if I only need to affect the user agent and not the request.<br/><br/>The cookie jar is a problem though.  HTTP::Cookies recognizes two formats---an internal one and the Netscape format.  I; however, use Mozilla, the open source descendent of Netscape Communications Corporation's Navigator.  Netscape tagged their cookie files on the first line:<br/><br/><pre>
+# Netscape HTTP Cookie File
+</pre><br/><br/>Mozilla is not assoicated with Netscape Communication Corporation (since it went way a long time ago).  It uses the same cookie file format, but its first line omits "Netscape":<br/><br/><pre>
+# HTTP Cookie File
+</pre><br/><br/>The HTTP::Cookies::Netscape subclass tries to recognize the cookie format by reading the first line, but it does too much work in its load method. I have <a href="http://rt.cpan.org/NoAuth/Bug.html?id=1816">patch for this</a>.<br/><br/><pre>
+# HTTP/Cookies.pm version 1.25, in HTTP::Cookies::Netscape::load
+746     unless ($magic =~ /^\# Netscape HTTP Cookie File/) {
+747 	warn "$file does not look like a netscape cookies file" if $^W;
+748 	close(FILE);
+749 	return;
+750     }
+</pre><br/><br/>The HTTP::Cookies::new method calls load too soon.  It uses the value of $class to determine the file format, which means that the programmer has to choose the right format by choosing the right class name.  This tightly couples the code to a particular use.  If I change the cookies file format, the code changes.<br/><br/><pre>
+78 sub new
+79 {
+80     my $class = shift;
+81     my $self = bless {
+82 	COOKIES => {},
+83     }, $class;
+84     my %cnf = @_;
+85     for (keys %cnf) {
+86 	$self->{lc($_)} = $cnf{$_};
+87     }
+88     $self->load;
+89     $self;
+90 }
+</pre><br/><br/>The solution to this a Facade, like I wrote about in <a href="http://www.theperlreview.com/Issues/v0i4.shtml">The Facade Design Pattern</a>.<br/><br/>The programmer should not have to think about the cookie file format.  If one user wants to use his Netscape Navigator cookies, another wants to use Mozilla, another Opera, and so on, they should be able to do that without code surgery.<br/><br/>The trick is to recognize the file format before new() creates the object.  One way to do this is create a hash of file first lines and class names to instantiate. I have truncated some of the lines in %Classes.<br/><br/><pre>
+my %Classes = (
+	'# Netscape HTTP Cookie File' => 'HTTP::Cookies::Netscape',
+	'# HTTP Cookie File'          => 'HTTP::Cookies::Netscape',
+	'#LWP-Cookies-...'            => 'HTTP::Cookies',
+	'<?xml version="1.0"...'      => 'HTTP::Cookies::XML',
+	);
+</pre><br/><br/>Once new() determines the type of file format, it creates the object in the appropriate class.  The load method no longer has to know how to recognize the file format, although it can still return an error if the file format is not right.<br/><br/><pre>
+sub new
+	{
+	my $class = shift;
+	my %args  = @_;
+	...;
+	
+	my $self = ...;
+	
+	my $first_line = do {
+		if( exists $args{File} )
+			{
+			open my $fh, $args{File};
+			<$fh>;
+			}
+		};	
+		
+	my $real_class = $Classes{ $first_line };
+		
+	bless $self, $real_class;
+	}
+</pre><br/><br/>Once the object is in the right class, every method calls go through that class.  Each file format can override HTTP::Cookies's save() and load() method to write the correct file format and the user is now the wiser.  As long as you have the sub-class installed, everything is peachy.<br/><br/>This works much better with automatic cookie file discovery, which I am still am thinking about.  Mozilla has a really wierd way to do this---my personal cookie file is <tt>/Users/brian/Library/Mozilla/Profiles/default/4o04imb5.slt/cookies.txt</tt>, which is mostly easy to guess save for the profile name and next subdirectory.  OmniWeb stores it differently (and in XML), and other platforms are different yet again.  Some browsers do not even use a single file.  Even after all of that, I still have to figure out which browser I want to use from the six I have installed.<br/><br/>Yes, web standards are fun.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Find the Bug! (Because I can't)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Find the Bug! (Because I can't)</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-04-22T10:42:43</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I really get tired of needing compile time assignments for mutable values.  I can't use a constant, so I'm forced to do stuff like this:</p>
+
+<pre>my @exception_types;
+BEGIN {
+    @exception_types = qw(unused no_title tickles);
+}</pre>
+
+<p>That gets tedious, so I was trying for a syntax like this:</p>
+
+<pre>use var \my @exception_types = qw(unused no_title tickles);
+foreach my $type (@exception_types) { ... }</pre>
+
+<p>With this code to drive it:</p>
+
+<pre>package var;
+
+use strict;
+use warnings;
+use Scalar::Util 'reftype';
+use Carp 'croak';
+
+sub import {
+    my $class = shift;
+    my $num_vals = @_ - 1;
+    my $reftype = reftype $_[0] || '';
+    if (!$reftype) {
+        ${ $_[0] } = $_[1];
+    }
+    elsif ( 'ARRAY' eq $reftype ) {
+        @{ $_[0] }= @_[ 1..$#_ ];
+    }
+    elsif ( 'HASH' eq $reftype ) {
+        %{ $_[0] }= @_[ 1..$#_ ];
+    }
+    else {
+        croak "var cannot handle ($reftype)";
+    }
+}
+
+1;</pre>
+
+<p>But I keep getting this error if I try to use that variable:</p>
+
+<pre>Global symbol "@foo" requires explicit package name at ...</pre>
+
+<p><tt>B::Deparse</tt> is no help:</p>
+
+<pre>Global symbol "@foo" requires explicit package name at foo.pl line 9.
+foo.pl had compilation errors.
+While deparsing foo.pl near line 9,
+Can't locate object method "ARRAY" via package "B::PV" at /opt/csw/lib/perl/5.8.8/B/Deparse.pm line 2815.
+CHECK failed--call queue aborted at foo.pl line 9.</pre>
+
+<p>Is this just not possible?  Maybe some PadWalker magic ...</p></p>
+
+
+<hr/>
+
+
+
+<h2>my guess</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2008-04-22T11:24:06</h3>
+First off: I think you mean s/@foo/@exception_types/ in your error messages and a fat arrow rather than an = in your use statement.<br><br>I ran into this problem when developing Sub::Exporter.  It lets you say:<p><blockquote> <div><tt>my $sub;<br>use Thing::ThatExports exported_routing =&gt; \$sub;</tt></div> </blockquote> ...and the coderef goes into the scalar instead of your symbol table.  This never worked:<p><blockquote> <div><tt>exporting_routine =&gt; \my $sub;</tt></div> </blockquote> My assumption is that it's because of this equivalency:<p><blockquote> <div><tt>use Foo bar =&gt; $baz;<br>
+&nbsp; <br>BEGIN {<br>&nbsp; require Foo;<br>&nbsp; Foo-&gt;import(bar =&gt; $baz);<br>}</tt></div> </blockquote> The Secret Begin Block (tm) seems to have an invisible scope.  Just like the Phil Collins song.
+
+
+
+<blockquote>
+
+<h2>Re:my guess</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-04-22T12:25:37</h3>
+<p>Yeah, I was getting a bit sloppy in the post. Thanks for pointing those out.</p>
+
+<p>I've tried using PadWalker to get around some of these issues, but no love.  Damn.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>&quot;via some slightly insane perlguts magic&quot;</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-04-23T05:07:52</h3>
+<p><blockquote> <div><tt>use Devel::BeginLift qw( init_var );<br> <br>sub init_var(\[$%@];@) {<br>&nbsp; &nbsp; my $var = shift;<br>&nbsp; &nbsp; if&nbsp; &nbsp; ( 'ARRAY' eq ref $var ) { @$var = @_ }<br>&nbsp; &nbsp; elsif ( 'HASH'&nbsp; eq ref $var ) { %$var = @_ }<br>&nbsp; &nbsp; else&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; { $$var = $_[0] }<br>&nbsp; &nbsp; return;<br>}<br> <br>init_var my @foo =&gt; qw/ bar baz<nobr> <wbr></nobr>/;<br> <br>BEGIN { print "@foo\n" }<br> <br>=begin output<br> <br>bar baz</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:&quot;via some slightly insane perlguts magic&quot;</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-04-23T07:36:04</h3>
+<p>Beautiful!  Mind if I clean this up and post it to the CPAN?  (Or you can since you posted the code.  Seems unfair to steal it from you<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:&quot;via some slightly insane perlguts magic&quot;</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-05-22T06:53:30</h3>
+<p>I was going to, but it&#8217;s obviously not going to happen, so if you want to go ahead, then do.</p>
+
+
+
+<blockquote>
+
+<h2>Re:&quot;via some slightly insane perlguts magic&quot;</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-05-22T07:55:17</h3>
+<p>Heh.  I'm heading on holiday for over a week.  I doubt I'm going to get around to it, either<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

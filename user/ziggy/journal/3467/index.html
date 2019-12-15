@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: Perl Antipattern #3.14159</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl Antipattern #3.14159</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2002-03-12T20:45:48</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Here's a common antipattern in Perl code.
+<p>
+In lower level languages, aggregate data types are not first class citizens.  For example, C programmers pass arrays around by passing pointers -- meaning that the "copy" is actually a reference to the same block of data, and is therefore mutable.  Frequently, the intent is to copy the entire array, not a pointer to the array.  To do this, it's necessary to rigorously construct a copy of that array and pass a reference to that copy.
+<p>
+In Perl, it's possible to create copies of aggregate datatypes, as well as create references.  If you really and truly want to work with references to the same exact block of data, that's possible.  However, the more common context is to create a copy.  Thankfully, because aggregates are first class datatypes in Perl, this isn't the same tedious chore it would be in C or C++.
+<p>
+An example: given a set of values in a hash, initialize another hash by copying those values over.  Here is a classic way to begin:
+<blockquote><tt>
+my %defaults = @_;<br>
+## ... stuff happens ...<br>
+my %hash;<br>
+<br>
+## Seed the values in %hash with values from %defaults<br>
+foreach (keys %defaults) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;$hash{$_} = $defaults {$_};<br>
+}<br>
+</tt></blockquote>
+Of course there are ways to reduce a line or two out of that if you're playing golf.  :-)  Realistically, this is as simple as this antipattern can get in the wild; occasionally, lots of other extraneous and useless statements (and comments!) are shoved in this overused construct.
+<p>
+Now, suppose you had a restricted set of values you wanted to copy from <tt>%defaults</tt>.  One way to do it would be to change the list of keys to iterate over in the <tt>foreach</tt>.  Or, perhaps do something a little more advanced, like this:
+
+<blockquote><tt>
+my %defaults = @_;<br>
+## ... stuff happens ...<br>
+my %hash;<br>
+<br>
+## Seed the values in %hash with values from %defaults<br>
+%hash = map {$_ =&gt; $defaults{$_}} qw(a b c d);<br>
+</tt></blockquote>
+Still gets the job done, but still too much work.
+<p>
+Remember, <b>aggregates are first class values in Perl</b>.  A hash can be assigned all of it's values at once in list context.  Here again is the simple case, when we want to copy all of the values into a new hash:
+<blockquote><tt>
+my %defaults = @_;<br>
+## ... stuff happens ...<br>
+my %hash = %defaults;<br>
+</tt></blockquote>
+That's it.  We're done.  Except for the case when we want to assign a specific set of values from <tt>%defaults</tt> to our hash:
+<blockquote><tt>
+my %defaults = @_;<br>
+## ... stuff happens ...<br>
+my %hash;<br>
+my @keys = qw(a b c d);<br>
+@hash{@keys} = @defaults{@keys};<br>
+</tt></blockquote>
+<p>
+And now we're really done.  Aren't hash slices handy?  :-)  Of course, if we needed to do a more compliated assignment, such as redefining the key names in <tt>%hash</tt> when we copy them from <tt>%defaults</tt>, then we probably want to use a hash slice assignment to perform the mapping.  Otherwise the code just gets too nasty.</p>
+
+
+<hr/>
+
+
+
+<h2>I do something similar</h2>
+<h3><a href="/user/ajtaylor/">ajtaylor</a> on 2002-03-13T02:40:03</h3>
+My constructors are a combination of your last two examples. The advantage is that you know what your expected keys are, your defaults are set w/o an extra hash, and the whole thing is quite simple.<nobr> <wbr></nobr>:-)
+<p>
+<code>
+my %args = (default1=&gt;'1', default2=&gt;'2', @_);
+</code></p>
+
+
+
+<blockquote>
+
+<h2>Re:I do something similar</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2002-03-13T03:12:05</h3>
+That's certainly a valid way to proceed.  The code I was reacting to was a constructor that looked something like this:
+<blockquote><div> <tt>
+sub new {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my $class = shift;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my %params = @_;<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my $self = {};<br>
+&nbsp;&nbsp;&nbsp;&nbsp;bless $self, $class;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;foreach (keys %params) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$self-&gt;{$_} = $params{$_};<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;return $self;<br>
+}
+</tt> </div></blockquote>
+It's obviously a very common idiom, but taking 10 lines to say it obscures the intent.
+
+
+
+<blockquote>
+
+<h2>Re:I do something similar</h2>
+<h3><a href="/user/ajtaylor/">ajtaylor</a> on 2002-03-14T05:22:49</h3>
+I split up the construction and initialization. new() usually just creates the object, and then calls init() to do the initialization. And I use the nifty map construct "map {$self-&gt;{$_} = $_} keys %args" instead of the foreach.
+
+
+
+<blockquote>
+
+<h2>Re:I do something similar</h2>
+<h3><a href="/user/koschei/">koschei</a> on 2002-03-14T12:30:20</h3>
+Maybe I'm being obtuse, but why not:<br> <br>@{$self}{keys %args} = values %args;<br> <br>I'm mostly thinking of getting rid of obvious iterators.<br> <br>Personally, I'd validate that %args has appropriate arguments in it. Otherwise you could be stuffing anything in there.
+
+
+
+<blockquote>
+
+<h2>Re:I do something similar</h2>
+<h3><a href="/user/ajtaylor/">ajtaylor</a> on 2002-03-14T16:58:49</h3>
+Your way works fine, but mine is easier to read. That might not be an issue if your coworkers are experienced with perl. But based on some of the code I've seen at my new job, cool constructs like yours would be line noise.
+<p>
+And yes, validation is good. But I'm only using this for internal use, so I trust my other code is OK.<nobr> <wbr></nobr>:-)</p>
+
+
+
+<blockquote>
+
+<h2>Re:I do something similar</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-03-14T17:09:54</h3>
+I have coworkers who don't grok such constructs.  I tell them if they don't understand it to come talk to me.  Hash slices is one example of things they sometimes don't understand.  If it is especially odd I will comment it a bit.  But I am always willing to explain constructs to them that they are unfamiliar with.
+
+
+
+<blockquote>
+
+<h2>Re:I do something similar</h2>
+<h3><a href="/user/koschei/">koschei</a> on 2002-03-14T17:25:30</h3>
+This is more my philosophy. I'd rather any co-workers learn more (better?) Perl than dumb down my coding.<br> <br>I'm all for ease of reading, but to the trained eye, which is actually more understandable? It took me less time to grok my version than to fathom the various alternatives.<br> <br>You can also sometimes see a flip side - write something too simply without using language features and experienced people will have trouble with what was written - either thinking that there must be some catch or that it could have been expressed far simpler =)<br> <br>So, yes, I agree to everyone =)
+
+
+
+<h2>Re:I do something similar</h2>
+<h3><a href="/user/ajtaylor/">ajtaylor</a> on 2002-03-14T18:18:56</h3>
+Excellent point! I've always been keen for teaching/learning. It's not so much an issue at my employer as I am the second programmer and I suspect I might have a more in-depth knowledge of perl than my superior. But I've only been here 4 days, so what do I know!<nobr> <wbr></nobr>;-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: Perl is now Y2038 safe</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl is now Y2038 safe</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2008-02-07T13:14:45</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>They said it couldn't be done.  They said it SHOULDN'T be done!  But I have here a working 64 bit localtime_r() on a machine with just 32 bits of time_t.  Time zones, daylight savings time... it all works.<br/><br/><pre>
+$ ./miniperl -wle 'print scalar localtime(2**35)'
+Mon Oct 25 20:46:08 3058
+</pre><br/><br/>Perl will be Y2038 safe.  And yes, I'm going to get it backported to 5.10.<br/><br/>The underlying C functions are solid, but I just sort of rammed them down perl's throat because it's 5am.  Here's <a href="http://www.pobox.com/user/schwern/src/perl_Y2038.patch">the patch</a> for the intrepid.<br/><br/>The underlying <a href="http://svn.schwern.org/svn/y2038">C implementation</a> is a heavily modified version of the code from <a href="http://www.2038bug.com">2038bug.com</a> written by Paul Sheer.  He came up with the same basic algorithm I did:<br/><br/>1)  Write a 64 bit clean gmtime(), that's a SMOP and Paul did that.
+2)  Run your time through this new gmtime_64().
+3)  Change the year to a year between 2012 and 2037.
+4)  Run it through the 32 bit system localtime() to get time zone stuff.
+5)  Move the year back to the original.<br/><br/>The trick is using a 32 bit safe year that has the same properties as the real year.  This means same leap year status and same calendar layout.  Had to do some tricky Gregorian calendar math aided by Graham, Nick and Abigail who realized there's a 28 year cycle within the larger 400 year Gregorian cycle and Mark Mielke who provided a big table of 64 bit localtime() results to test against.  There's also some edge cases around New Year's, but they're all taken care of.<br/><br/>This approach will break when daylight savings time changes, but I'd rather be off by an hour than 137 years.  The full Perl patch will always prefer the system's 64 bit localtime() if one is available.  As more machines upgrade time_t this hack will be used less.<br/><br/>The nice part is this code isn't specific to Perl and can be used to fix up any other C-based Unix program.</p>
+
+
+<hr/>
+
+
+
+<h2>Y2038 safe</h2>
+<h3><a href="/user/pne/">pne</a> on 2008-02-07T16:25:47</h3>
+<i>He came up with the same basic algorithm I did: [snip]</i><br><br>Ah, clever. Especially step 4.<br><br>As for your patch, I think you can completely delete "if (!&amp;tmbuf) RETPUSHUNDEF", and replace "else if (&amp;tmbuf)" with "else", since now your tmbuf struct will always be there -- it's not a pointer returned from a function which can be NULL on error. In fact, those functions don't seem to have an error check (except for the asserts in _check_tm).
+
+
+
+<blockquote>
+
+<h2>Re:Y2038 safe</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2008-02-07T23:56:17</h3>
+Yes, step four solved a large number of problems and made it much more efficient and accurate.  The original 2038bug code wrote it's own 64 bit clean mktime() and was running it through that several times to get offsets and the dst information was wrong, all sorts of minor inaccuracies.  But #3, picking the right safe year, was what consumed the most time.<br><br>Don't look to hard at the perl patch, it was done in 5 minutes so that I'd have a working miniperl to point at.  There's all sorts of configure and system probing and cross-platform work left to do.  The _r() functions are not always available.  timegm() isn't in the C standard.  Even my assumptions about the fields of the tm struct are too broad.<br><br>Nothing to derail the whole thing, just niggling details.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

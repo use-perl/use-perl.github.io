@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of IlyaM: UTF-8 fun in Perl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>UTF-8 fun in Perl</h1>
+<h2><a href="/user/IlyaM/">IlyaM</a> on 2003-06-12T21:41:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>List of minor and not very minor annoynances I've meet in last ~3 days while doing conversion to UTF-8 of the project I'm working on:
+<ol>
+<li>Perl 5.6.x is just broken when it comes to Unicode support what means if you need Unicode support in Perl you <i>must</i> upgrade. And I though I'd wait for 5.8.1 before upgrading. Naive me :( - had to upgrade my and other developers computers and a production server.
+<li>Seems XS modules in 5.8.0 don't play well with UTF-8 strings. Examples: if you give an UTF-8 string to <a href="http://search.cpan.org/search?query=Text::CSV_XS&mode=module">Text::CSV_XS </a> it returns you a non-UTF-8 string, if <a href="http://template-toolkit.org/">Template Toolkit</a> configured to use <a href="http://search.cpan.org/search?query=Template::Stash::XS&mode=module">Template::Stash::XS</a> then UTF-8 strings may not work in templates.
+<li>None of Perl modules/templating systems/etc I know do the right thing when URL-escaping UTF-8 strings.
+<li>If you expect UTF-8 strings in query parameters and URLs you have to wrap <a href="http://search.cpan.org/search?query=Apache::Request&mode=module">Apache::Request</a> to convert query parameters and URLs transparently in Perl UTF-8 strings. If would be nice if it such feature were built-in in this module (I wonder if <a href="http://search.cpan.org/search?query=CGI&mode=module">CGI</a>, <a href="http://search.cpan.org/search?query=CGI::Simple&mode=module">CGI::Simple</a>, etc have same problem).
+<li><i>$hash{bareword}</i> doesn't work if the bareword is a non-ASCII bareword (which should work as I understand when you have <i>use utf8</i> in your Perl code). What is also interesting that it doesn't produce any warnings or errors - it just silently returns undef.
+<li><a href="http://search.cpan.org/search?query=GraphViz&mode=module">GraphViz</a> doesn't work correctly with UTF-8 strings - it seems to generate correct string in .dot format but when the module calls <a href="http://search.cpan.org/search?query=IPC::Run&mode=module">IPC::Run</a> the string corrupts while being passed to the 'dot' program.
+</ol>
+.. I expect to meet even more problems, annoyances ang just glitches.</p>
+
+
+<hr/>
+
+
+
+<h2>That's a good list but it's just the start...</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2003-06-13T07:30:54</h3>
+Unfortunately, Unicode and perl still isn't as good as it should be.  I've had lots of problems too.
+
+<p>My current favourite is POSTing XML to a server using lwp.  You send the XML, it looks fine from the client, but when the server reads it in, it's got the final few characters chopped off.  Why?  Because when LWP is calculating the Content-Length header, it's getting the length in characters not bytes.  So you have to make sure that you convert to bytes before you use LWP to send information across a network.  Bah!
+
+</p><p>What's even more annoying about talking with LWP is the fact that the fix is different for 5.6 to 5.8.  In 5.6.1, you use pack/unpack.  In 5.8, I use encode_utf8.
+
+</p><p>The other real nuisance we've had is DBD::Pg.  When it returns strings from the database, they don't have the UTF-8 bit turned on.  So you end up with doubly encoded errors when you try to output them.  I've put a patch into DBD::Pg that lets you fix this for now, but it's not a particularly pretty solution (it should detect the database encoding and use that).
+
+</p><p>I have no idea what state the other DBD:: modules are in.  When I was trying to get DBD::Pg working, I took a look at a couple and didn't see any calls to SvUTF8_on() or similiar, so I suspect that it's not handled.
+
+</p><p>More generally, perl 5.6.1 tended to hide unicode problems from you because it didn't have the IO layers that 5.8 does.  Because you can tell 5.8 you're going to be sending out UTF-8, you end up with all sorts of double-encoding bugs if you're not careful, most of which would not have happened under 5.6.1.  This leads people to needlessly think that 5.8 is broken, when in fact it's the 3rd party software that is bust.
+
+</p><p>You mention getting UTF8 into URIs not working.  That's because there's no defined standard for doing so.  Trying to get that working is a lost cause, I feel, until people agree on how it's going to work.  At present, there's no way to indicate what character set is in use in a URI.
+
+</p><p>The next area I want to look at is getting UTF-8 correctly from a POST request (GET's are unlikely to work, given the above para).  I have no idea how to force a client to give us stuff in the correct character encoding.  And then I have no idea how to make Apache::Request or CGI do the right thing.  <i>sigh</i>.  More hard work, which thankfully I've been able to avoid until now.
+
+</p><p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:That's a good list but it's just the start...</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2003-06-13T12:27:45</h3>
+<i>You mention getting UTF8 into URIs not working. That's because there's no defined standard for doing so.</i>
+<p>
+HTML 4.01 spec <a href="http://www.w3.org/TR/html401/appendix/notes.html#non-ascii-chars" title="w3.org">says</a w3.org>:
+</p><p><blockquote><div>
+We recommend that user agents adopt the following convention for handling non-ASCII characters in such cases: 1. Represent each character in UTF-8 (see [RFC2279]) as one or more bytes.    2. Escape these bytes with the URI escaping mechanism (i.e., by converting each byte to %HH, where HH is the hexadecimal notation of the byte value).
+</div></blockquote>
+If you enter non-ASCII chars both latest versions of IE and Opera encode it correctly (i.e. by converting them in UTF-8 first and converting each byte to %HH). Mozilla 1.0 doesn't do it (I have not tried latest releases yet).
+<p>
+<i>And then I have no idea how to make Apache::Request or CGI do the right thing.</i>
+</p><p>
+I use my own wrapper of Apache::Request:</p><blockquote><div> <tt>package Datamodel::Request;<br> <br>use strict;<br>use warnings;<br> <br>use base qw(Apache::Request);<br> <br>use Datamodel::Tools qw(utf8_upgrade);<br> <br>sub new {<br>&nbsp; &nbsp; my $class = shift;<br>&nbsp; &nbsp; my $self = bless $class-&gt;SUPER::new(@_), $class;<br>&nbsp; &nbsp; return $self;<br>}<br> <br>sub uri {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; return utf8_upgrade($self-&gt;SUPER::uri(@_));<br>}<br> <br>sub param {<br>&nbsp; &nbsp; my $self = shift;<br> <br>&nbsp; &nbsp; my @ret = utf8_upgrade($self-&gt;SUPER::param(@_));<br>&nbsp; &nbsp; if(wantarray) {<br>&nbsp; &nbsp; &nbsp; &nbsp; return @ret;<br>&nbsp; &nbsp; } else {<br>&nbsp; &nbsp; &nbsp; &nbsp; return @ret &gt; 1 ? [ @ret ] : $ret[0];<br>&nbsp; &nbsp; }<br>}</tt> </div></blockquote>Datamodel::Tools::utf8_upgrade is a sub that converts byte string which contains UTF-8 text into native UTF-8 Perl string. I think it can be replaced with one of subroutines from utf8 module but I have not tried it (part of this code was written before I decided it is a waste of time trying to workaround unicode problems in 5.6.1 and utf8 subroutines are only available in 5.8.0)
+
+
+
+<blockquote>
+
+<h2>Re:That's a good list but it's just the start...</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2003-06-13T14:46:53</h3>
+Mmmm, thank you!  That's most helpful.  Damned annoying about mozilla not doing the right thing though...
+
+<p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:That's a good list but it's just the start...</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2003-06-13T16:01:13</h3>
+Mozilla is only half broken. If (X)HTML document has UTF-8 encoding (what is indicated by Content-Type headers) than Mozilla encodes URLs in (X)HTML page correctly. What it doesn't (and what is most annyoing IMHO) is encoding correctly URLs manually entered in location bar. At least is it so in 1.0 which I still use.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

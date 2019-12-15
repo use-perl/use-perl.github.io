@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autrijus: Day 142: Hackathon day #3</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Day 142: Hackathon day #3</h1>
+<h2><a href="/user/autrijus/">autrijus</a> on 2005-06-26T07:58:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Subversion repository is finally back, and I'm committing things we've been
+hacking on in the past two days.  luqui and nothingmuch hacked on reifying the
+PIL AST as Perl 6 objects (so we get true macro support for free), and a codegen
+written in Perl 6 that takes PIL and emits Perl 5.  Stevan worked on a Perl 5
+metamodel that runs Perl 6 roles and classes from Perl 5 space, so we can use
+Perl 5 as our host VM (in addition to Parrot and Haskell); nothingmuch further
+joked about a PIL codegen that targets Forth (but turns out he was entirely not serious); Patrick implemented
+builtin rules for PGE, and put qualified and inheritable+lexical
+grammar/subrules support in place.  Ingy worked on his new Perldoc framework
+that provides unified, comment-driven, haddock/javadoc-like metadata and
+macro-friendly way to generate Kwid and POD and translate between them.  lwall
+continued to hack through mad segfaults on PDD/MAD_SKILLS, refactoring Perl 5's
+toke.c to be more informative.
+
+<p>
+Allison arrived today and we debated for nearly an hour on the implementation
+strategy.  This Pugs Hackathon work was focused on having the Perl 6 compiler
+written in Perl 6, that translates the parse tree into PIL, then from PIL to
+either a Parrot syntax tree that emits PIR, or to Perl 5, Mono or even
+Javascript.  However, that means to compile a newer version of Perl 6 compiler,
+we need to have an older version of Perl 6 around, first via the non-Parrot
+side of Pugs, and then in the form of a Perl6.pbc runtime.  This is just like
+how the Mono C# compiler is written in C#, or GCC itself written in C, or how
+PyPy is written in Python.
+
+<p>
+Allison prefers instead to see the production Perl 6 compiler and related tools to be written
+entirely in PIR or other non-Perl6 Parrot languages, so that we can compile any version of
+Perl 6 without having access to previous versions of Perl 6, and she suspects
+that a parser/compiler/emitter written in PIR would be easier to write and
+maintain than the same toolchain written in Perl 6.  The parser and emitter
+tools will then be reusable by other languages (eg. PHP) that want to target
+Parrot, because PHP folks would prefer to use the compiler suite written in PIR
+than one written in either Perl 6 or PHP.  That ties Perl 6 to PIR, but one can
+persumably link in libparrot in Mono or JVM to run the PIR code via their
+foreign call interface.  This is similar to how the Perl 5 runtime is written
+in XS/C, and just like a (hypothetical) Mono-targetting compiler written in the
+.NET/IL high-level assembly language.
+
+<p>
+Thus, we have two possible implementation strategies that will evolve
+separately.  People will, well, use whichever one that actually works. :-)
+
+<p>
+Now... revelation time!
+
+<ul>
+<li>
+To use a perl 5 module, put a <code>perl5:</code> in the front of the module name:
+<pre>
+  use perl5:DBI;
+</pre>
+<p>Extending this metaphor, to use a python module:</p>
+<pre>
+  use python:Zope;
+</pre>
+
+<li>
+When calling a function, the unary splat <code>*</code> takes an aggregate, or reference
+to an aggregate, and flatten them out on the invocation list.  Unary splat on
+hash arguments flattens it out as pairs for named bindings; splat on scalars
+deref it to find an array/hash reference; for code and
+non-reference-to-aggreate scalars it's a no-op.
+
+<li>
+<code>&prefix:&lt;int&gt;</code> now always mean the same thing as <code>&int</code>.  In the symbol table 
+it's all stored in the ``prefix'' category; &int is just a short name way for
+looking it up -- it's just sugar, so you can't rebind it differently.
+
+<li>
+Here is a more clarified role hierarchy:
+<pre>
+  Any | Object  | Item | ...pretty much everything else goes here...
+                | Pair
+                | Junction
+      | int
+      | str
+      | num
+</pre>
+
+<li>
+Constrained types in MMD position, as well as value-based MMDs, are <em>not</em>
+resolved in the type-distance phase, but compile into a huge given/when
+loop that accepts the first alternative.  So this:
+<pre>
+  multi sub foo (3) { ... }
+  multi sub foo (2..10) { ... }
+</pre>
+<p>really means:</p>
+<pre>
+  multi sub foo ($x where { $_ ~~ 3 }) { ... }
+  multi sub foo ($x where { $_ ~~ 2..10 }) { ... }
+</pre>
+<p>which compiles two different long names:</p>
+<pre>
+  # use introspection to get the constraints
+  &foo<ANONTYPE_1>
+  &foo<ANONTYPE_2>
+</pre>
+<p>which really means this, which occurs after the type-based MMD tiebreaking
+phase:</p>
+<pre>
+  given $x {
+      when 3 { &foo<ANONTYPE_1>.goto }
+      when 2..10 { &foo<ANONTYPE_2>.goto }
+  }
+</pre>
+<p>in the type-based phase, any duplicates in MMD is rejected as ambiguous; but
+in the value-based phase, the first conforming one wins.</p>
+
+<li>
+Closure composers like anonymous <code>sub</code>, <code>class</code> and <code>module</code> always trumps hash dereferences:
+<pre>
+    sub{...}
+    module{...}
+    class{...}
+</pre>
+
+<li>
+The <code>do</code> form is now taking a single statement (that may still be a block); what
+it does is turning the statement into an expression form, immediately
+evaluating it when the left hand side demands a value.
+<pre>
+  my $val = do use CGI;   # same as
+  my $val = BEGIN { use CGI };
+
+  # This assigns 4 to $foo
+  my $foo = do given 3 {
+      when 3 { 4 }
+  };
+</pre>
+
+<li>
+A closure form of <code>but</code> is desugared into a <code>do given</code> block that
+eliminates the need of returning <code>$_</code> explicitly.  So those two forms
+are equivalent:
+<pre>
+  my $foo = Cls.new but {
+      .attr = 1;
+  };
+
+  my $foo = do given Cls.new {
+      .attr = 1;
+      $_;
+  };
+</pre>
+
+<li>
+The anonymous class is allowed to both <code>is</code> and <code>does</code> any class/roles;
+it will be composed in compile time into an anonymous (but unique) class,
+same way as an anonymous closures remembers its original place of definition:
+<pre>
+  role Foo {...}
+  class Boo is Baz {...}
+
+  (class{ does Foo; is Boo }).new(1);
+</pre>
+
+<li>
+The <code>is Foo</code> and <code>does Bar</code> declarations inside class body is always
+lifted up as class traits and executed at class composition time.
+
+<li>
+There's another pseudopackage, <code>OUR::</code> and symbol table form <code>%OUR::</code>
+that contains the symbols in your current package namespace.
+
+<li>
+<code>trust</code> is lexical: It controls accessor generation for all <code>my</code>, <code>our</code>
+and <code>has</code> forms in its scope.  Inside a class body, the <code>my $.x</code> and
+<code>our $.x</code> always generates public accessors on the spot:
+<pre>
+  class Foo {
+      trusts Bar; # sees the accessor methods in the scope
+      { # some inner scope
+          my $.x; # This creates accessors by inserting these two lines
+          # die "Duplicate accessor" if %OUR::<&x>;
+          # our &x := method () is rw { $.x };
+
+          my $:y; # This create accessors by  inserting these two lines
+          # my &:y := method () is rw { $:y };
+          # $?SELF.trust_access.push(&:y); # adds to Bar -- $?SELF is class object
+      }
+      trusts Baz; # this is always an no-op because there's nothing below
+  }
+
+  class Pie is Foo { }
+
+  Pie.x = 5;      # lvalue method - writes back to lexical $.x
+  say Bar.x;      # 5 - shared by Bar and Pie
+</pre>
+<p>The twigil <code>.</code> and <code>:</code> controls the generated accessor's scope (<code>our</code>
+and <code>my</code> respectively).  The scope of the variable itself is orthogonal
+to the accessor.</p>
+
+<li>
+In order to pass by read-only reference, we need a way to bind a container into
+a new name, but say that it is read-only while the original is read-write.
+This is a contradiction, since binding by definition binds a container to two
+names.  Still, we have to do it.
+<p>In parameter lists, the <code>is constant</code> default trait on parameter variables is
+not really acting on their containers; it creates a transparent container on
+top of an existing container.  It is ``transparent'' because it autoderef for
+everything except for write-type STORE/PUSH/SPLICE methods; all read methods
+like FETCH are passed to the underlying container.  Even <code>.ref</code> and <code>.does</code>
+calls are passed through to the underlying container, but the <code>.tied</code> call
+does get you the wrapped implementation object.</p>
+<p>The upshot is that these are now errors:</p>
+<pre>
+  sub foo ($x) is rw { $x }
+  my $a;
+  foo($a) = 4;    # runtime error - assign to constant
+
+  sub constref ($x) { \$x }
+  my $a;
+  my $r = constref($a);
+  $$r = 4;        # runtime error - assign to constant
+</pre>
+<p>To get a normal reference, use the <code>is rw</code> trait on the parameters.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Refactoring the unfactorable?</h2>
+<h3><a href="/user/brentdax/">brentdax</a> on 2005-06-26T08:46:15</h3>
+<blockquote> <div> <em>lwall continued to hack through mad segfaults on PDD/MAD_SKILLS, refactoring Perl 5's toke.c to be more informative.</em> </div> </blockquote>Larry is probably the only man on earth who can even <em>think</em> about changing toke.c without breaking half the test suite.
+
+
+
+<h2>I say...</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2005-06-26T14:27:14</h3>
+Working macros? Symbol table introspection?<br> <br>I think this is the week I start working on the debugger.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

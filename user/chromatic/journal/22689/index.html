@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of chromatic: Dark, Dark Corners of Perl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Dark, Dark Corners of Perl</h1>
+<h2><a href="/user/chromatic/">chromatic</a> on 2005-01-13T07:40:39</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>After tonight's <a href="http://pdx.pm.org/">PDX.pm</a> meeting, in the bar, I bet <a href="http://use.perl.org/user/Ovid">Ovid</a> that I could reimplement his <a href="http://search.cpan.org/perldoc?Sub::Signatures">Sub::Signatures</a> by replacing the source filter with subroutine attributes.  (Wisely, he believed me.)</p>
+
+<p>A few minutes later, he asked idly if I knew of any reason why Perl couldn't call methods with spaces in their names.  Offhand, I couldn't think of anything besides the tokenizer that prevents it, believing that <em>gv.c</em> cares more about null-byte termination than the <code>\w+</code>ness of identifiers.  If you can bypass that for symbol installation and method invocation (and that's trivial), you've done it.</p>
+
+<p>I hate to give away the punchline before both frightening people who didn't know such things were possible and stumping a few of the people who know it's possible but don't see the answer right away, so here are my tests.  They all pass on my machine and I expect them to run just fine on at least Perl 5.8.0 and newer.  (Perl 5.6 <em>probably</em> works, but I expect it to fail on more complicated things.)  You don't need any non-core modules besides <a href="http://search.cpan.org/perldoc?Attribute::Handlers">Attribute::Handlers</a>, and I believe that's in the core in the 5.8.x family.</p>
+
+<pre>#!/usr/bin/perl -w
+
+BEGIN
+{
+	chdir 't' if -d 't';
+	use lib '../lib', '../blib/lib';
+}
+
+use strict;
+use Test::More tests => 4;
+
+my $module = 'Attribute::Scary';
+use_ok( $module ) or exit;
+
+package Hello;
+
+use strict;
+use warnings;
+
+use Attribute::Scary;
+
+sub new
+{
+	my ($class, $name) = @_;
+	bless \$name, $class;
+}
+
+sub name :Method
+{
+	return $$self;
+}
+
+sub greet :Method
+{
+	return sprintf( "Hello, %s!\n", $self->name() );
+}
+
+package main;
+
+my $hi = Hello->new( 'Bob' );
+is( $hi->greet(), "Hello, Bob!\n",
+	':Method attribute should autoadd invocant shift' );
+
+my $spacey_name  = 'spacey 0';
+my $spacey_greet = 'spacey 1';
+
+is( $hi->$spacey_name(), 'Bob',
+	'... also installing first method as "spacey 0"' );
+is( $hi->$spacey_greet(), "Hello, Bob!\n",
+	'... and second as "spacey 1"' );</pre>
+
+<p>There are two tricks in the implementation, one of which is an "eww, evil--and CLEVER!" trick and the other is something either you know about or you don't.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-01-13T13:31:54</h3>
+<p>I'm not sure I don't understand the purpose of the excercise, or exactly what the code in Attribute::Scary is supposed to do that the spacey method tests look for, and what's supposed to be unusual about what I see in the tests.</p>
+
+<p>So I don't know if the teste code is more clever than I am thinking or not.</p>
+
+<p>Are you referring to the fact that one can install things in the package table that aren't valid identifiers and then get at them using symbolic lookup?</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-01-13T13:32:59</h3>
+Err, &#8220;not sure I understand&#8221; is, of course, what I meant to say.
+
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-01-13T15:15:44</h3>
+<p>Well, sometimes exploring the limits of a language is fun, so not everything has to be "practical."  And frankly, I think this is fascinating:</p> <blockquote><div> <tt>sub greet<nobr> <wbr></nobr>:Method<br>{<br>&nbsp; &nbsp; return sprintf( "Hello, %s!\n", $self-&gt;name() );<br>}</tt> </div></blockquote> <p>Let's see, where did that invocant come from?  I know he's not using a source filter.</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-01-13T15:25:37</h3>
+<p>I'm not looking for practicality, I'm just wondering exactly which point he's proving.</p>
+
+<p>As far as the invocant is concerned: PadWalker?</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>I give</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2005-01-14T04:47:32</h3>
+<p>I couldn't wrap my head around how to get $self into the subroutine using Attribute::Handlers (I'm assuming that Attribute::Scary uses it).  All that I could come up with was this.</p> <blockquote><div> <tt>#!/usr/bin/perl<br>use strict;<br>use warnings;<br>use Test::More tests =&gt; 3;<br> <br>package Hello;<br>use strict;<br>use warnings;<br> <br>sub new {<br>&nbsp; &nbsp; my ($class, $name) = @_;<br>&nbsp; &nbsp; bless \$name, $class;<br>}<br> <br>sub name {<br>&nbsp; my $self = shift;<br>&nbsp; return $$self;<br>}<br> <br>sub greet {<br>&nbsp; my $self = shift;<br>&nbsp; return sprintf( "Hello, %s!\n", $self-&gt;name() );<br>}<br> <br># let the games begin<br>my %spacey = (<br>&nbsp; 'spacey 0' =&gt; 'name',<br>&nbsp; 'spacey 1' =&gt; 'greet',<br>);<br> <br>sub AUTOLOAD {<br>&nbsp; my $name = our $AUTOLOAD;<br>&nbsp; return if $name =~<nobr> <wbr></nobr>/::DESTROY$/;<br>&nbsp; $name =~ s/.*:://;<br>&nbsp; my $self = shift;<br>&nbsp; my $method = $spacey{$name};<br>&nbsp; $self-&gt;$method;<br>}<br> <br>package main;<br> <br>my $hi = Hello-&gt;new( 'Bob' );<br> <br>is( $hi-&gt;greet(), "Hello, Bob!\n",<br>&nbsp; &nbsp; ':Method attribute should autoadd invocant shift' );<br> <br>my $spacey_name&nbsp; = 'spacey 0';<br>my $spacey_greet = 'spacey 1';<br> <br>is( $hi-&gt;$spacey_name(), 'Bob',<br>&nbsp; &nbsp; '... also installing first method as "spacey 0"' );<br>is( $hi-&gt;$spacey_greet(), "Hello, Bob!\n",<br>&nbsp; &nbsp; '... and second as "spacey 1"' );<br>__END__<br>1..3<br>ok 1 -<nobr> <wbr></nobr>:Method attribute should autoadd invocant shift<br>ok 2 -<nobr> <wbr></nobr>... also installing first method as "spacey 0"<br>ok 3 -<nobr> <wbr></nobr>... and second as "spacey 1"</tt> </div></blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:I give</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2005-01-14T04:49:20</h3>
+And now that I hit submit I see that I didn't fix the text of the tests.
+
+
+
+<h2>Re:I give</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2005-01-14T07:21:36</h3>
+<p>Nice work on the <code>AUTOLOAD</code>; I didn't think of that.  You're right about <code>Attribute::Scary</code> using <code>Attribute::Handlers</code>, though.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Expose them to the light of day</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2005-01-18T19:55:28</h3>
+When do we get to see Attribute::Scary?
+
+
+
+<blockquote>
+
+<h2>Re:Expose them to the light of day</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2005-01-18T22:39:00</h3>
+<p>I've had three bright ideas that have caused me to rethink parts of the approach, so it could be a couple of days.  I do plan on revealing the trick soon though.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

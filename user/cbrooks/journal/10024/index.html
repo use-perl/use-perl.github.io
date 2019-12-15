@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of cbrooks: Build and Release System, version 0.2.0</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Build and Release System, version 0.2.0</h1>
+<h2><a href="/user/cbrooks/">cbrooks</a> on 2003-01-16T22:09:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>As mentioned in my <a href='http://use.perl.org/user/cbrooks/journal/9848'>previous</a> journal entry, I am developing a build and release system for use at work.  I had two goals for the first stage: (1) to develop and document a version numbering system; and (2) to publish the current stable version in the script that we use to report tech stats.  This journal entry relates some of the issues that I ran into while implementing this first step.<br><br><br/><br/><strong>Motivation</strong><br>
+Before diving into the details, you might well ask why developing a version numbering system is an interesting enough (or difficult enough) task to justify more than 10 minutes of thought (let alone a journal entry).  Why not simply place the site under CVS, and track versions using CVS version numbers?  In fact what does it mean to have a single number that represents a website's "version" at all?<br><br><br/><br/>The most useful analogy is probably the concept of a Linux distribution.  If you think about RedHat Linux version 7.3, for example, it contains thousands of files.  Although each of those files maintains an internal version, the end user (the sysadmin) one rarely cares about the version of the individual files.  (They certainly care if their OS has a journaling filesystem, and they care if it incorporates a version of ssh that has the latest patches applied, but who wants to be bothered with tracking the individual versions of the thousands of files that live underneath /?).  RedHat can talk about "Sunsetting version 7.0", managers can talk about upgrading to version 8 when it stabilizes: the distribution number is an important shorthand to summarize the versions of thousands of individual files.  Aside from a means to summarize the state of many files, a version number can provide hints or clues to its users.  Many programmers, for example, discourage production use of their code until it achieves a 1.0 release.  (For example, they may not guarantee that an API will be stable before 1.0.)  Furthermore, Perl (and many other open source projects), declares that odd-numbered minor releases are development versions, while even-numbered minor releases are production-worthy.  Finally, a number that summarizes the overall state of a website's code can link to a CVS tag so that you can automate the checkout of a particular version of each of your CVS projects.  All in all, applying a thoughtful and consistent version numbering system allows you to summarize a great deal of information  in a very concise manner.<br><br><br/><br/><strong>Design</strong><br>
+So, enough introduction, what issues did I run into during design? The first issue was simply to choose a set of rules for how and when a version could increment.  The version is the concatenation of three integers: one representing the major version, one the minor version, and one the release.  The version string is generated by concatenating major.minor.release.  The initial version, for example, is 0.0.0.  The major version number is incremented to indicate the release of major new features and enhancements.  The minor version number is incremented to indicate minor features and enhancements, and the release is incremented to indicate bug fixes.  Major and
+release version numbers begin at 0 and increment by 1.  The minor version level begins at 0, but an even minor version indicates a stable production release, while an odd minor version indicates a development release.  So, it is perfectly reasonable to say "I am developing a feature for 2.3", and anyone hearing that statement would
+understand that the feature is intended for the
+production version 2.4.  Each version number can increment past 9 (for example, 2.6.22 is a valid version).<br><br><br/><br/>The second issue was whether to incorporate the concept of a build.  Builds are typically used with compiled languages since compiling the source code into a binary can take a non-trivial amount of time.  Since we do not distribute our perl code in binary form, the build process is not strictly necessary.  However, there are a number of other concepts associated with a "build" that make its inclusion quite handy.  For example, smoke tests ensure that the codebase as a whole continues to compile as developers check in new code.  This integrates nicely with the goal of running all of the unit and regression tests on a nightly basis.  Another goal for this system is to package the entire codebase into a single file on a nightly basis, for ease of compression, distribution and release.  So some of the original meaning of the "build" is retained.  All in all, recording the status of the nightly build seems like a good idea.<br><br>  <br/><br/>So, if the build is recorded in addition to the version, how are the two numbers related?  Although I am not entirely settled on this issue, I have decided that the build number will be closely tied to the release version.  That is, every time the release version increments (say from 1.4.5 to 1.4.6), the build will re-set to 0.  Along with recording the build number, the nightly build will also record whether or not the smoke tests were run, and whether or not they all passed.<br><br><br/><br/><strong>Implementation</strong><br>
+The final issue was simply defining the interface to set and retrieve the version.  I decided on a simple OO class with a few straight-forward methods:<br><br>
+my $ver = new Company::Version;<br><br>
+$ver->set_version( '2.0.4' ); #returns old version<br>
+$ver->increment_build #returns old build<br><br>
+print $ver->get_version;         #prints 2.0.4<br><br/><br/>print $ver->get_major;           #prints 2<br>
+print $ver->get_minor;           #prints 0<br>
+print $ver->get_release;         #prints 4<br>
+print $ver->get_build;           #prints, for example, 43.<br>
+print $ver->get_qa_tested; #prints 'Y' || 'N'<br>
+print $ver->get_qa_passed; #prints 'Y' || 'N'<br>
+print $ver->get_increment_date( '1.2.0' ); #prints 10/15/2001, for example<br><br><br/><br/>The class is simply a wrapper around a database table.  Each build (and its associated version numbers) is a row in that table.  The get_version() method simply returns the most recent row that has an even minor release version.  This means that rollbacks will require deleting the latest row, but it makes for a straightforward implementation, and doesn't introduce any awkward corner cases.  There are other methods that will need to be implemented at some point, for example, to connect a particular version to a CVS tag, to delete versions, to increment the major, minor and release versions, to rollback to a previous version, etc.  However, this was enough functionality to consider the first iteration of the Version class complete.<br><br><br/><br/>Anyway, if you made it this far, thanks for reading.  Version 0.4.0 integrates nightly smoke testing.  I would appreciate any feedback.<br/><br/></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjohn: A wonderful OO Gotcha</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>A wonderful OO Gotcha</h1>
+<h2><a href="/user/jjohn/">jjohn</a> on 2002-11-07T20:54:43</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I like object-oriented programming. It can really simplify develpment when used judiciously. OOP class hierarchy are best kept simple and 
+linear. Here's some fictionalized code that captures the essence of a
+bug the caused the Linux server it was running on to lock up so tightly, 
+it needed to be <b>cold booted</b>.
+
+<p><pre>
+###################
+# File: Parent.pm #
+###################
+package Parent;
+
+sub new {
+  my $proto = shift;
+  my $class = (ref $proto || $proto);
+
+  if (my $r = Apache->request) {
+     require Child;
+     $b = Child->new;
+  } 
+
+  return bless {}, $class;
+}
+__END__
+
+##################
+# File: Child.pm #
+##################
+package Child;
+@ISA = qw(Parent);
+
+sub new {
+   # some class inits go here
+   return shift->SUPER::new;
+}
+__END__
+
+###################
+# File: caller.pl #
+###################
+use Parent;
+$b = Parent->new;
+
+</pre>
+
+<p>The caller.pl script is called under mod_perl, but that's not 
+particularly important (although the server crash was due to runaway
+Apache processes caused by my coding gaff above). Can you see why 
+this code is likely to take a long, long, long time to run?
+
+<p>It's almost a while(1) loop.
+
+<p>The Parent defines a constructor called new(). The child 
+overrides that that constructor, but still calls the parent 
+constructor for some initialization. Today, I added a hack 
+to the Parent class that required an object of the Child class
+to be constructed in the Parent's constructor. When caller.pl
+tried make a new Parent object, the Parent needed a new Child
+object, which calls the Parent's constructor, who in turn calls
+the Child's constructor, who in turn calls the Parent's 
+constructor, who in turn...
+
+<p>Well, you get the picture.
+
+<p>The unsatisfactory (but effective) hack I came up with to 
+break this cycle is in the Parent's new:
+
+<pre>
+###################
+# File: Parent.pm #
+###################
+package Parent;
+
+sub new {
+  my $proto = shift;
+  my $class = (ref $proto || $proto);
+
+  if (my $r = Apache->request
+      && $class eq 'Parent') {
+     require Child;
+     $b = Child->new;
+  } 
+
+  return bless {}, $class;
+}
+__END__
+</pre>
+
+<p>If anyone (like say Damian Conway) would like to suggest a more 
+polite way of doing this, I'm all ears. No, I can't move the Child 
+code I need into Parent because that would be like grafting a second 
+evil head onto my shoulders. 
+
+<p>I share my errors so that you may avoid them in your lives. 
+<code>;-)</code>
+</p>
+
+
+<hr/>
+
+
+
+<h2>confused</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2002-11-08T02:04:47</h3>
+I don't know why you have the $b in there.  Does every parent object wrap a child object?
+<p>
+If you need <i>a</i> child object to create a parent, and can use a singleton, just lazily initialize it.  The first pass will loop around a bit, but every pass after that, you're already done.</p>
+
+
+
+<blockquote>
+
+<h2>Re:confused</h2>
+<h3><a href="/user/jjohn/">jjohn</a> on 2002-11-08T05:57:38</h3>
+<p> <i>I don't know why you have the $b in there. Does every parent object wrap a child object? </i>
+
+</p><p>The parent merely needs to use (and then discard) the child object. To make things a little more concrete, the Parent class (not it's real name) is there to provide both a reasonable object constructor for children and AUTOLOAD object properties accessor methods. For public methods, this class has a series of methods that return DBI handles, so that DB credentials are centralized in one place.
+
+</p><p>Child classes provide convenient objects for complex data. For instance there is a child class called User that saves and stores data about a user to a mysql database. Because this is a web app, the User class is able to read an HTTP cookie (created with Apache::AuthCookie) that has the current user's credentials (ok, the cookie has a session ID which can be used to get at this info [Thanks Apache::Session!]).
+
+</p><p>Now why would I want an instance of User in this generic Parent class? Because sometimes I need to return different DBI handles based on the kind of User. The Parent has a method called companies_dbh() which returns a DBI handle to main database (whatever that means). Certain users will be looking at completely distinct data kept on a separate machine. Of course the data has the same structure as the "regular" data.
+
+</p><p>By using the User class, the Parent can smartly and magically deliver the correct DBI handle to existing scripts.
+
+</p><p>If this rambling explanation made any sense, you'll see that this is a fairly unique situation. I thought I'd post the code (strip of all it's complex context) because the essence of the bug is fairly simple. And yet it took me several minutes to locate the problem.</p>
+
+
+
+<blockquote>
+
+<h2>Re:confused</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2002-11-08T12:17:28</h3>
+Ahh... I get it.  You've got the wrong model.  If <blockquote><div> <tt>Child-&gt;new</tt> </div></blockquote> might not return an object of type Child, then you're asking the wrong class.  You just need a <blockquote><div> <tt>Parent-&gt;object_for_situation(@this)</tt> </div></blockquote> method, which has a lazy initialization for creating a specific Parent handle to help decide which Child_nnn class to create.
+<p>
+There.  That sorts it out.  I'd be very confused if calling </p><blockquote><div> <tt>Child-&gt;new</tt> </div></blockquote> returned a Child2 instead of a Child.  It doesn't make sense from an OO perspective.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

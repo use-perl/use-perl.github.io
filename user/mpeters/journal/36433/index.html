@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of mpeters: LD_LIBRARY_PATH trick</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>LD_LIBRARY_PATH trick</h1>
+<h2><a href="/user/mpeters/">mpeters</a> on 2008-05-15T23:05:53</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I have this problem a lot. I need to link some Perl module against some C library that is not in the standard system libs. Usually this is because it's a locally installed C thingy (like Swish-e or some payment processor API) that I don't want to pollute the system install. Plus it's nice and easy if the whole application is all bundled together.
+<br><br>
+The easy way to do this is to set the <code>$ENV{LD_LIBRARY_PATH}</code> from your shell to point to the right place. But this is a bother, and not to mention really hard to do if you need some dynamic bits to figure out what the right path is.
+<br><br>
+And for security reasons, programs can't set their own local version of <code>LD_LIBRARY_PATH</code> and have it be respected by the system's loader. It has to be done by the calling process (in most cases the shell).
+<br><br>
+This little trick let's a script set it's own <code>LD_LIBRARY_PATH</code> by relaunching the same program with the same arguments as a new sub-process. Simply put a <code>BEGIN</code> block like this in your script:
+<br><br/><br/><pre>
+BEGIN {
+    if(! $ENV{LD_LIBRARY_PATH} ) {
+        $ENV{LD_LIBRARY_PATH} = join(':', @some_paths_I_need);
+        my $self_cmd = "$^X $0 " . join(' ', @ARGV);
+        system($self_cmd);
+        exit;
+    }
+}<br/><br/></pre>
+</p>
+
+
+<hr/>
+
+
+
+<h2>system(LIST)</h2>
+<h3><a href="/user/hdp/">hdp</a> on 2008-05-16T03:10:46</h3>
+otherwise the shell might hose you.
+
+
+
+<blockquote>
+
+<h2>Re:system(LIST)</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-05-16T10:25:29</h3>
+<p>Might? With that broken <code>join</code> I&#8217;d say it&#8217;s a certainty that at some point the shell <em>will</em> hose him. Plus it&#8217;s less and simpler code:</p> <p><blockquote> <div><tt>BEGIN {<br>&nbsp; &nbsp; if(! $ENV{LD_LIBRARY_PATH} ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; $ENV{LD_LIBRARY_PATH} = join(':', @some_paths_I_need);<br>&nbsp; &nbsp; &nbsp; &nbsp; system($^X, $0, @ARGV);<br>&nbsp; &nbsp; &nbsp; &nbsp; exit;<br>&nbsp; &nbsp; }<br>}</tt></div> </blockquote>  <p>Also: why <code>system(...); exit</code> and not <code>exec</code>?</p>
+
+
+
+<blockquote>
+
+<h2>Re:system(LIST)</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2008-05-16T13:43:27</h3>
+Just out of curiousity, why is that join broken?<br><br>Also, I didn't use exec because I didn't know how the security restrictions around LD_LIBRARY_PATH were enforced. Using exec means the process continues to have the same pid, system gives me an entirely new process. I wasn't sure if having the same pid would allow me to do what I wanted to do.<br><br>But thanks for the clarification. It works correctly (at least on the Linux machine I tried it on).
+
+
+
+<blockquote>
+
+<h2>Re:system(LIST)</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-05-16T14:22:45</h3>
+<p><blockquote> <div><p>why is that join broken?</p></div> </blockquote>
+
+<p>Because you&#8217;re not shell-quoting anything. If there happens to be any space in there, the new copy of the script will have different <code>@ARGV</code> contents. That&#8217;s before we even get to other shell meta-characters.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:system(LIST)</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2008-05-16T13:39:05</h3>
+You're right about using the list. I was actually debugging it to make sure the command was what I wanted it to be so I was combining it into a string so I could print it to the screen before executing. I just forgot to change it after the fact.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

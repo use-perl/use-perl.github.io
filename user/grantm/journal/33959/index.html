@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of grantm: Infinite Loop?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Infinite Loop?</h1>
+<h2><a href="/user/grantm/">grantm</a> on 2007-08-02T09:19:27</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Here's some behaviour that surprised me.  I would expect this program to loop forever:</p>
+
+<pre>
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+my $file1 = './test_file_1';
+my $file2 = './test_file_2';
+
+my $count = 1;
+while(1) {
+    unlink($file1);                      # create first file
+    open(FILE, ">$file1");
+    close(FILE);
+
+    my $t0 = (stat($file1))[9];          # wait
+    while(time() <= $t0) {
+        sleep 1;
+    }
+    my $t1 = time();
+
+    unlink($file2);                      # create second file
+    open(FILE, ">$file2");
+    close(FILE);
+
+    if((stat($file2))[9] <= (stat($file1))[9]) {
+        die sprintf(
+            "Timestamps: %u %u  t0: %u t1: %u\n", 
+            (stat($file2))[9], (stat($file1))[9], $t0, $t1
+        );
+    }
+    printf("Loop count = %u\n", $count++);
+}
+</pre>
+
+<p>Given that test_file_2 is not created until the system clock is greater than the modification time on test_file_1, I would expect that the die statement would never be reached.  In fact, it fails for me on multiple systems after running for a small number of minutes.</p>
+
+<p>My test systems are all running Linux, and using local filesystems.  I have seen this sort of funky effect when using network filesystems, presumably due to clock drift between client and fileserver.  I've also run into problems where updating a file on a local NTFS partition under Windows would either not update the time or would update it to have an earlier value.</p>
+
+<p>This came up because Andreas Koenig did some extensive testing to highlight <a href="http://rt.cpan.org/Ticket/Display.html?id=28603">random failures</a> in XML::Simple's text suite.  Now that I know it's the test itself that's at fault I just need to make it a bit more robust.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Time != time</h2>
+<h3><a href="/user/srezic/">srezic</a> on 2007-08-07T07:46:46</h3>
+I can reproduce the behaviour also on FreeBSD. In a <a href="http://unix.derkeiler.com/Mailing-Lists/FreeBSD/current/2004-05/0455.html" title="derkeiler.com">FreeBSD mailing list</a derkeiler.com> I found an explanation on the precision of time handling. The interesing part is:<p><div class="quote">Another problem with file times is that they can be older than the
+time at which they are made, due to shortcuts in time_second and
+getnanotime(). E.g., if the current time is N.009999 seconds so that
+time(3) returns N, then time_second may be (N-1) seconds, so file times
+may be 1 second older than the time at which they were made if
+vfs.timestamp_precision is the default.</div> This seems to be exactly the problem you had. In FreeBSD, there's the possibility to set the precision of filesystem timestamps to microseconds or nanoseconds (instead of just seconds). If I do so and re-run the script, then the problem does not occur, at least for 10000 iterations (formerly ~400 iterations were enough).
+
+
+
+<blockquote>
+
+<h2>Re:Time != time</h2>
+<h3><a href="/user/grantm/">grantm</a> on 2007-08-07T21:27:44</h3>
+Interesting.  It sounds like something I just need to learn to live with<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

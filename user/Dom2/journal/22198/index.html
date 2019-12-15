@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Dom2: Reference Counts</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Reference Counts</h1>
+<h2><a href="/user/Dom2/">Dom2</a> on 2004-12-08T00:57:01</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've been looking at writing stuff using <a href="http://search.cpan.org/dist/XML-Genx/">XML::Genx</a>.  Unfortunately, I soon came across a rather nasty little bug.  There's an API which lets you pass in a filehandle and it gets all output sent to it.  XS has a typemap to help you along with this: <a href="http://search.cpan.org/user/nwclark/perl-5.8.6/ext/XS/Typemap/Typemap.xs#T_STDIO">T_STDIO</a>.  That takes a perl filehandle and gives you a FILE* which you can pass into all the usual C functions.</p>
+
+<p>The trouble is that the typemap doesn't increase the refcount on the perl filehandle.  I don't think that it <em>should</em>, because it doesn't know when or where you are likely to need to decrement the refcount.</p>
+
+<p>The net effect is that the filehandle is only valid as long as it's open in Perl.  Otherwise it'll get GC'd (and consequently closed) when it goes out of scope.  So you have to keep the original filehandle lying around.  Surprisingly, I'd managed to do this in all the tests that I had written...  Adding a test for this situation provoked a segfault (under Linux, but not FreeBSD for some reason).</p>
+
+<p>Anyway, I'm now faced with two choices.</p>
+
+<ol>
+<li>Rewrite the typemap so that it increments the refcount of the filehandle.  The trouble with that is that I then have to decrement that refcount when I get to <code>EndDocument()</code>.  And I have nowhere to store the information that I need to do that because my object is a blessed scalar reference.</li>
+<li>Alternatively, I deprecate <code>StartDocFile()</code> and make everything use <code>StartDocSender()</code> which makes it easier to wrap things up in.</li>
+</ol>
+
+<p>I don't want to deprecate the interface; it's a useful thing to have.  But it seems that the alternative is to create a static HV (not visible to Perl) with a key of "$self" and a value of the filehandle SV (or is that really GV?).  Then I can check for that in <code>EndDocument()</code> and decrement it appropriately there.  I assume that will work, I have no idea what point Perl runs its GC at.</p>
+
+<p>Four years of pure Perl have really softened me up when it comes to C.  :-)</p></p>
+
+
+<hr/>
+
+
+
+<h2>dup?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2004-12-08T13:16:33</h3>
+How about duping the filehandle?
+
+
+
+<blockquote>
+
+<h2>Re:dup?</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2004-12-08T13:23:26</h3>
+That's not a bad idea.  Although there's still too many layers going on here.  The filehandle goes from a PerlIO* to a FILE* to an fd.  And then I'd have to dup, and fdopen().  A touch complicated, but it should work well.
+
+<p>Thanks,<br>
+-Dom</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2004-12-16T09:20:17</h3>
+<p>I think it's worthwhile to think about what should happen if someone passes you a Perl filehandle, then closes it before <code>EndDocument()</code>.</p>
+
+<p>What <em>would</em> happen with a duped filehandle? Would the duped one stay open if the original one gets closed?</p>
+
+<p>I <em>think</em> that it should behave the way a pure-Perl module mostly like would: closing the filehandle closes it out from under the module, too. The duping behaviour seems safer, but I worry that this &ldquo;safety&rdquo; net could veil bugs in client code, in which case I'd prefer dumb behaviour that blows up in a user's face as soon as they do something stupid.</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2004-12-16T12:01:58</h3>
+Unfortunately, that behaviour caused a segfault in some cases, which is why I was so keen to avoid it.  I've worked around it by storing the file handle in a hash in the latest version, and releasing it when <code>EndDocument()</code> is called.
+
+<p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2004-12-17T00:04:42</h3>
+Which means closing the Perl filehandle while GenX has a copy of it will blow in my face if I try it? That would be good, if so, and is all I was arguing for.
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2004-12-17T11:35:10</h3>
+It might do, it might not.  The behaviour was extremely variable and core dumped on some boxes but not others.  Given the unpredicatbility, I felt that it was the right thing to do to store a reference to the filehandle until we're done with it.
+
+<p>-Dom</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

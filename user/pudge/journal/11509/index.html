@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: What's Going On</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>What's Going On</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2003-04-08T03:52:11</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I just read through a backlog of dozens of journal entries.  I'd been gone a week in Washington, on vacation.  More on that later in the week.<br/><br/>As noted in previous entries, I spent much of last week on Mac:: modules.  I wanted to fix some outstanding bugs, make a few improvements, and prepare for Mac::Glue, which is really the whole point of my work on Mac::Carbon to begin with.<br/><br/><B>GUSI and file specifications</B><br/><br/>One of the big bugs in Mac::Carbon was in my reimplmentation of a portion of the GUSI API.  GUSI (the POSIX library for MacPerl) deals with Mac/HFS file specifications (stuff like <TT>Macintosh HD:System Folder:Fonts:Geneva</TT>).  Mac OS X, on the other hand, wants POSIX file specifications (<TT>/System/Library/Fonts/Geneva.dfont</TT>).<br/><br/>These routines from GUSI deal with something called an FSSpec.  In Ye Olde Days, the Mac API took paths.  But paths have various problems, including the fact that they are not unique on Mac OS (you can have multiple volumes with the same name).  FSSpecs have a unique volume ID, a unique directory ID, and a filename.  The volume and directory ID must refer to existing volumes and directories, to be able to get the right numbers.  Because of this, FSSpecs can only point to existing files or directories, or nonexistent files or directories that are in existing directories.<br/><br/>FSSpecs are widely used by Mac::Carbon.  Any time you see a function with FSp in it, that's an FSSpec.  FSpOpenResFile opens a resource file by its FSSpec.  You can make an FSSpec with FSMakeFSSpec (or a special text-encoded FSSpec with MacPerl::MakeFSSpec), but through the magic of XS and typemap, by telling the function we want an FSSpec in the XS, paths are automatically converted to FSSpecs for us.  That's where routines like GUSIPath2FSp come in.<br/><br/>GUSIPath2FSp, in GUSI, accepts either a Mac/HFS path or the text-encoded FSSpec and returns an FSSpec.  Neat, but how to get a POSIX path into an FSSpec?  I decided the best way was via a new file specification type, FSRef.<br/><br/>The FSRef was created to work around limitations in FSSpecs (including, but not limited to, the filename length limits).  So in Mac OS X you can see functions like FSOpenResFile, the same thing only different.  A simple routine called FSPathMakeRef converts a POSIX path to an FSRef, and FSGetCatalogInfo can fill out an FSSpec for us.<br/><br/>Like an FSSpec, it should refer to an existing file, but unlike an FSSpec, it cannot refer to a nonexistent file in an existing directory.  So how can I use FSRefs to create FSSpecs for functions like FSpCreateResFile?  The file does not yet exist, so we can't get an FSRef.<br/><br/>After punting on a solution for months, it finally came to me.  If creating the FSRef fails with a file not found error, chop off the basename and try to create an FSRef for the directory.  If that works, get the FSSpec for that, and then use that, plus the basename, to create the required FSSpec (GUSIFSpDown(&spec, name) handles this nicely).<br/><br/>So that problem was thus solved.  I then came to another problem: opening resource files.<br/><br/><B>Resource forks</B><br/><br/>In Mac OS X, resource forks are often not used, because of their many problems on non-Mac OS systems.  FSpCreateResFile and FSpOpenResFile only work on resource forks.  But FSCreateResourceFile and FSOpenResourceFile can open the specified named fork (data by default).  So I added a few lines to the typemap for input and output of FSRefs, added the functions to Resources.xs, and now it works.<br/><br/>Adding those functions took some effort ... I had to deal with stilly UnicodeMapping junk.  It's quite annoying, really.  The fork name is type UniChar, and to get a pascal string into UniChar I need to populate a UnicodeMappingPtr with the encoding from (kTextEncodingISOLatin1) and to (kTextEncodingUnicodeDefault), and then call CreateTextUnicodeInfo to get the mapping, and then ConvertFromPStringToUnicode.  It's really really annoying.  You don't even want to know what it takes to do it with a C string.<br/><br/>I still don't know if the values for Unicode there are reasonable.  This is only going to become more of a problem with other APIs.  What about Japanese programmers?  Ugh.  Me hate-um Unicode.<br/><br/>In the long run, I might add a lot of FS equivalents to the FSp routines, just because they are less limited.  But for now, I am just adding the functions that have the additional funcitonality needed, such as for opening resource files from data forks.  Another question is whether to have these functions work on Mac OS X too (difficult without breaking compatibility with some older Mac OSes), or to have another function sitting on top of the other two, picking the right one for the platform (MPOpenResFile?).<br/><br/><B>Application paths</B><br/><br/>Another needed functionality was to get the path to an application, at least by creator ID.  In Mac OS, FSpGetAPPL (from MoreFiles) did the trick.  It did a lookup for the app in the Desktop database, and if that failed, searched the disk for the correct app.  Well, that method is really slow on Mac OS X, with no Desktop database, and often returns incorrect results, as it knows only about files of type APPL, and knows nothing of bundles.<br/><br/>LaunchServices has a function LSFindApplicationForInfo which can return the path given either its creator ID ("R*ch"), bundle ID ("com.barebones.bbedit"), or name ("BBEdit"), or any combination of the three.  So this is now added to Mac::Carbon too, in Mac::Processes, and the tied hash %Application (in Mac::MoreFiles) now uses it for Mac OS X (so <TT>$Application{"R*ch"}</TT> properly returns (for me) <TT>/Users/pudge/Applications/BBEdit 7.0/BBEdit.app</TT>).<br/><br/>And more on types: LSFindApplicationForInfo returns an FSRef, and XS handles it transparently, just as it handles FSRefs on input for FSCreateResourceFile.<br/><br/><B>Internet Config</B><br/><br/>One of the more useful modules in the Mac:: arsenal was always Mac::InternetConfig.  <TT>$InternetConfig{kICEmail()}</TT> will get your email address (as specified in your System Preferences on Mac OS X).  <TT>GetURL($url)</TT> will open the given URL in the appropriate program.  <TT>$InternetConfigMap{".pdf"}</TT> will return an object with accessors describing the extension: it's Mac OS file type, creator type, app name, MIME type, etc.<br/><br/>There's a ton of information stored in Internet Config, and now it's available from Mac::Carbon.  You can even set your IC prefs with it (something Mac OS X doesn't come with a GUI for).<br/><br/>Porting it posed a problem, one reminscent of the porting of Mac::AppleEvents.  In both cases, a significant portion of the API was taken from a third-party library (AEGizmos in the case of AppleEvents), and was sucked into the official Carbon API, where Apple promptly changed the names.<br/><br/>In Mac::AppleEvents it mostly meant changing AEStream_Close to AEStreamClose.  But also, they now took AEStreamRef instead of AEStream, so I have a bunch of things looking like this:<br/><br/><ECODE>
+#define AEStream AEStreamRef
+#define AEStream_Close(stream, desc) \
+	AEStreamClose(*stream, desc)
+#define AEStream_CloseDesc(stream) \
+	AEStreamCloseDesc(*stream)
+</ECODE><br/><br/>Now it works on both Mac OS and Carbon.<br/><br/>Mac::InternetConfig was similar, except that the things that changed were fields in ICMapEntry, file_type to fileType, etc.  But these are accessed by the Perl programmer, and I don't want to just change them, else it will break older code.  So I can't just use <TT>#define file_type fileType</TT> ... or can I?<br/><br/>The way Matthias Neeracher (MacPerl's author, and author of most of the Mac:: modules) designed the XS code was that to access objects like ICMapEntry, a function would be called, which would return the proper field, based on an index number.  So $entry->file_type calls ICMapEntry::file_type which calls XS_Mac__InternetConfig_ICMapEntry, with ix set to 1 (via dXSI32).  The function returns the value corresponding to 1, which is the file type.<br/><br/>All of that is set up during xsubpp, before the #define is handled.  So even with the define, I still get this:<br/><br/><ECODE>
+cv = newXS("ICMapEntry::file_type", XS_Mac__InternetConfig_ICMapEntry, file);
+XSANY.any_i32 = 1 ; 
+</ECODE><br/><br/>This would be a problem if I really DID want fileType in Perl-space.  But I don't.  So those few little defines do exactly what I want.<br/><br/><B>Pascal</B><br/><br/>Pascal strings, as noted, are used in various places in Mac::Carbon, including FSSpecs.  In two new places (Mac::InternetConfig, and in a bugfix for Mac::Files), there is a call for using the escape sequence "\p", which creates a Pascal string.  A relatively recent addition to the Mac OS X gcc is <TT>-fpascal-strings</TT>.  It is much appreciated.<br/><br/><B>What's Next</B><br/><br/>I'll fix bugs as they crop up in Mac::Carbon, and work to get the porting of Mac::Apps::Launch and Mac::AppleEvents::Simple finished up.  I've still got more tests to do for Mac::Carbon (volunteers welcome).  And Mac::Glue is coming along nicely (though I am having some issues with POSIX paths ... more on that another time).
+</p>
+
+
+<hr/>
+
+
+
+<h2>Unicode isn't bad...</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2003-04-08T08:11:42</h3>
+Don't shoot the idea because the implementation is bad.  You might like to look at Tim Bray's <a href="http://www.tbray.org/ongoing/When/200x/2003/04/06/Unicode" title="tbray.org">On the Goodness of Unicode</a tbray.org>.
+
+<p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Unicode isn't bad...</h2>
+<h3><a href="/user/rfaramir/">rfaramir</a> on 2003-04-08T15:45:00</h3>
+When Pudge wrote:
+&gt; I had to deal with stilly UnicodeMapping junk. It's quite annoying,
+&gt; really. The fork name is type UniChar, and to get a pascal string into
+&gt; UniChar I need to populate a UnicodeMappingPtr with the encoding
+&gt; from (kTextEncodingISOLatin1) and to
+&gt; (kTextEncodingUnicodeDefault), and then call CreateTextUnicodeInfo
+&gt; to get the mapping, and then ConvertFromPStringToUnicode. It's
+&gt; really really annoying.<br/><br/>he's really annoyed, not at the implementation of Unicode, but at the current state of things without it.  First off, he has no idea where he is starting (his incorrect guess is kTextEncodingISOLatin1), then he has the long path home (to Unicode text) which is long precisely because the system to get him to Unicode can get him there from just about anywhere, including Japanese text (in any of several encodings), Arabic text, and English text in DOS, Windows, or classic Mac OS format.<br/><br/>In this case he wants kTextEncodingMacRoman, which is for filenames stored in the MacOS filesystem in US English and most western European languages.  But this value ought to be read from somewhere, in general, or his solution will fail in Japan and elsewhere.<br/><br/>Hmm.  I'll try to be clearer in email on the MacPerl list...<br/><br/> -Randy
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

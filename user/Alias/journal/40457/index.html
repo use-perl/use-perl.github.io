@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Profiling your website while live on a production cluster</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Profiling your website while live on a production cluster</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2010-07-22T02:27:33</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>As I mentioned in my last post, by day I wrangle a large web application that occasionally verges on being too complex to for mere humans to understand.<br/><br/>Curiously, because it is private and the income rate is high (we probably average something like $5 in gross turnover per page view) we don't have to deal with a lot of servers to deliver it, by internet standards anyway.<br/><br/>But the application is still way too big to profile easily by normal methods, and certainly on production it's way too heavy, even if we applied targeted profiling using something like <a href="http://search.cpan.org/perldoc?Aspect::Library::NYTProf">Aspect::Library::NYTProf</a>.<br/><br/>Between the web servers, transaction server, database, search engine and cache server, we are probably only dealing with 12 servers and 30 CPUs. Of course, these servers are all horribly expensive, because they are all server-virtualised, network-virtualised, doubly redundant (high-availability + disaster-recovery) and heavily monitored with high end support contracts.<br/><br/>One of our most sensitive issues is database load.<br/><br/>We have a ton of database tables (about 200) and lots of medium sized queries running across them. One of our main failure modes is that some deep change to code boosts the quantity of some significant query, which stresses the database enough to cause contention and lock-storms, leading to site failure.<br/><br/>Complicating things, big parts of some pages are embedded in other pages. So attributing load and lag to one part of the website, or to Oracle, is tricky and hard to benchmark in advance (although we do load test the main load paths to catch the worst cases).<br/><br/>For a long time, we've had a mechanism for zoned profiling the production site, so we can allocate wallclock costs to different general areas of the site.<br/><br/>But it is fragile and unreliable, requiring perfect maintenance and every developer to remember to write this kind of thing everywhere.
+<pre>
+# Embed a foo widget in the current page
+$perf->push_timing('foo');
+foo($bar);
+$perf->pop_timing;
+</pre>
+Since you don't know this profiling system exists unless you've seen it somewhere else in the code before, and it's hard to care about something that is orthogonal to the problem you are actuall solving, this mechanism has degraded over time. While we still get some pretty cacti graphs showing load breakdown, they are highly unreliable and you can never be entirely sure if the load attribution is correct.<br/><br/>This kind of performance monitoring as a "cross-cutting concern" is a textbook use case for Aspect-Oriented Programming, and so in our Christmas 2009 code freeze window I set about trying to rewrite the push/pop_timing profiler using <a href="http://search.cpan.org/perldoc?Aspect">Aspect.pm</a>.<br/><br/>Unfortunately, Aspect.pm turned out to be a bit too slow and naive for my needs. But after a 6 month delay to do a 90% rewrite of Aspect.pm, I now finally have something sophisticated enough (and fast enough) to meet my needs.<br/><br/>So today I'm releasing the shiny new <a href="http://search.cpan.org/perldoc?Aspect::Library::ZoneTimer">Aspect::Library::ZoneTimer</a>, which will serve as the main plank of our new production profiling system.<br/><br/>The idea behind ZoneTimer is to define each performance zone as a pointcut. The aspect will track the movement of your code across each zone boundaries and build a running total of the exclusive time spent in each performance zone.<br/><br/>When your program exits the top-most performance zone, the totals will be sent to a handler function.<br/><br/>A typical use of the ZoneTimer aspect looks something like this
+<pre>
+use Aspect;<br/><br/>aspect ZoneTimer => (
+    zones => {
+        main      => call 'MyProgram::main' & highest,
+        search    => call 'MyProgram::search',
+        widgets   => call qr/^MyProgram::widget_.*/,
+        templates => call 'MyProgram::render',
+        dbi       => call qr/^DB[DI]::.*?\b(?:prepare|execute|fetch.*)$/,
+        system    => (
+            call qr/^IPC::System::Simple::(?:run|runx|capture)/
+            |
+            call 'IPC::Run3::run3'
+            |
+            call qr/^Capture::Tiny::(?:capture|tee).*/
+        )
+    },
+    handler => sub {
+        my $top       = shift; # "main"
+        my $start     = shift; # [ 1279763446, 796875 ]
+        my $stop      = shift; # [ 1279763473, 163153 ]
+        my $exclusive = shift; # { main => 23123412, dbi => 3231231 }
+        
+        print "Profiling from zone $top\n";
+        print "Started recording at " . scalar(localtime $start) . "\n";
+        print "Stopped recording at " . scalar(localtime $stop)  . "\n";
+        foreach my $zone ( sort keys %$exclusive ) {
+            print "Spent $exclusive->{$zone} microseconds in zone $zone\n";
+        }
+    },
+);
+</pre>
+This example breaks out the cost of a typical small web application into a general zone, a special zone for the search page, and then splits the costs of generating widgets, rendering the HTML template, waiting for the database, and making calls to the underlying system.<br/><br/>Start and stop times are returned as a two element array exactly as returned by C<Time::HiRes::gettimeofday()>, and the exclusive zone totals are returned as integer microseconds (all math is done in these integer microseconds to prevent floating point corruption).<br/><br/>The use of Aspect allows us to easily mix special cases via the pointcuts, such as the use of "highest" which makes sure that "main" only matches the first time it is seen, and any widget which that does a re-entry into main still has that cost attributed to the widget. We've also hooked into multiple system call modules to measure system call cost, because we know different modules our program consumes will use different methods for interacting with the system.<br/><br/>While the handler I've shown here will just print out a summary of the call, in our environment at work the profile report handler will format the exclusive times into a special log message and then send it via the super-quick and non-blocking <a href="http://search.cpan.org/perldoc?Log::Syslog::Fast">Log::Syslog::Fast</a> module to the UDP localhost syslog service, where it is mirrored to disk for debugging use, and then forwarded on to our main company-wide syslog server.<br/><br/>On our setup, we can then use an excellent commercial log analysis product called <a href="http://www.splunk.com/">Splunk</a> (limited free version also available if you want to try it out) to do our tracking and trending of the performance for the entire application across the entire cluster.<br/><br/>The nicest thing about the Aspect system is that it scales the performance cost and complexity risk directly to the complexity of the use case you are using it for.<br/><br/>If it turns out that the Aspect hooks are too intrusive and causing a performance drain, or accidentally causing some weird edge case behaviour, you can simply turn off that the Aspect and restart the servers and the performance penalty just vanishes.<br/><br/>Maintenance of the profiler zones is really easy, because they are all listed clearly in one place.<br/><br/>Depending on your use case, you could even define the performance zones in your website configuration, and then adjust the profiler zone boundaries directly on production (although I'm not sure I'd want to do that in our specific case, since we're fairly paranoid about untested code going into production).<br/><br/>This ZoneTimer is just the first of several Aspect-based tools I plan to release over the next few months. If you get a chance to try out any of these new toys, I'd love to hear feedback on how well they work for you.<br/><br/>In addition to the value of the ZoneTimer aspect itself, one other thing that some people might find of interest is just how little code it took to get this all working.<br/><br/>The entire Aspect::Library::ZoneTimer was implemented in about 80 lines of code, which you can see at <a href="http://cpansearch.perl.org/src/ADAMK/Aspect-Library-Timer-0.04/lib/Aspect/Library/ZoneTimer.pm">http://cpansearch.perl.org/src/ADAMK/Aspect-Library-Timer-0.04/lib/Aspect/Library/ZoneTimer.pm</a><br/><br/>This is small enough that you could just clone the module and tweak it for your own use case, if you wanted to creat a new and tricky customised profiler.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Re: Profiling your website while live on ...</h2>
+<h3><a href="/user/cosimo/">cosimo</a> on 2010-07-22T07:54:27</h3>
+<p>Thanks Adam,</p><p>this is great work. I'm eager to try it on our systems. One of the most difficult things for me is to predict system behaviour when rolling out changes to the entire cluster instead of just, say, one box.</p><p>On one of our largest systems, when there's a potentially critical change, we roll it out on one box first, then 2/3, and if we don't sense any dramatic changes, we deploy to the full cluster. As I said, though, sometimes this is not enough.</p><p>The only strategies I can think of are:</p><p>1) randomly enabling the new feature/change for a sample of the users (either A/B testing or rand(x)&gt;y)</p><p>2) setup an independent parallel staging cluster, and replicate a near-production load. Not easy, and requires lots of resources.</p><p>Do you have any war story about that?</p>
+
+
+
+<h2>Integrate with DashProfiler?</h2>
+<h3><a href="/user/Tim Bunce/">Tim Bunce</a> on 2010-07-25T11:06:14</h3>
+Hi Adam.<br/><br/>This seems to be addressing a similar domain to DashProfiler
+<a href="http://www.slideshare.net/Tim.Bunce/dashprofiler-200807" title="slideshare.net">http://www.slideshare.net/Tim.Bunce/dashprofiler-200807</a slideshare.net><br/><br/>I'd love to see someone integrate Aspects and DashProfiler.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

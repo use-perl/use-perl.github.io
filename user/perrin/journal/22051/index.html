@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of perrin: missing the boat on performance</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>missing the boat on performance</h1>
+<h2><a href="/user/perrin/">perrin</a> on 2004-11-29T18:25:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'm frequently surprised by the way best practices for good performance do not get picked up by people.  A couple of weeks back at ApacheCon 2004, I listened to one of the SpamAssassin developers say that their SQL RDBMS storage was faster than their Berkeley DB storage.  How could that be?  My tests have always shown Berkeley DB to be significantly faster than the fastest query on MySQL (which, incidentally, is much faster than the same query on SQLite).  I checked their code and there's the answer: it uses the slowest possible interface to Berkeley DB, the DB_File module with an external locking system.  Using the BerkeleyDB module with direct method calls and letting BerkeleyDB manage locking would be many times faster.<p>
+In a similar vein, people are still recommending Cache::Cache or things based on IPC::ShareLite, when BerkeleyDB or Cache::FastMmap would be about ten times as fast.  Hopefully my upcoming article based on my talk at ApacheCon will help point people in the right direction on that.<p>
+The most recent and most surprising was a big performance bug in Maypole that I discovered while helping Jesse Sheidlower with some performance tuning.  People who have used Template Toolkit with mod_perl in a high-performance environment should know that you have to keep the TT object around between requests so that you don't blow the cache and recompile the templates on every hit.  Maypole was throwing away the TT object.  I gave Jesse a very small patch to fix this and he reported speedups of 250-500% on his application.<p>
+What's the lesson in all of this?  Probably that being engaged on mailing lists like mod_perl and TT and sites like perlmonks.org has a tangible payoff in terms of knowing what the best practices are.  Maybe also that we need to repeat them more often.</p>
+
+
+<hr/>
+
+
+
+<h2>SQLite</h2>
+<h3><a href="/user/Theory/">Theory</a> on 2004-11-29T22:40:48</h3>
+Did you use transactions when you tested SQLite for query speed? It's a lot faster if you do. By orders of magnitude.<br> <br>David
+
+
+
+<blockquote>
+
+<h2>Re:SQLite</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2004-11-29T22:59:26</h3>
+That would only speed things up for situations where multiple statements can be batched, right?  My tests are for use as cache storage, so it's just a single read or write.  I can't even keep a transaction open for reads, becasue that would block other people's writes.  I did use "PRAGMA synchronous = OFF" and I see in the optimization FAQ that there are a couple of new things that have shown up since the last time I looked at it.  I'll try another test soon.
+
+
+
+
+
+</blockquote>
+
+
+<h2>DB Benchmarks</h2>
+<h3><a href="/user/trachtenberga/">trachtenberga</a> on 2004-11-30T07:15:22</h3>
+<p>George Schlossnagle posted some <a href="http://www.schlossnagle.org/user/george/blog/archives/297_Some_Interesting_Embedded_DB_Numbers.html" title="schlossnagle.org">interesting performance benchmarks</a schlossnagle.org> on reading from embedded databases.</p>
+
+<p>I was surprised to see how crappy SQLite was, especially in the wake of all the earlier raves I'd read about it compared to MySQL for SELECTs.</p>
+
+<p>-adam</p>
+
+
+
+<blockquote>
+
+<h2>Re:DB Benchmarks</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2004-11-30T10:34:47</h3>
+SQLite's a full database though. I suspect it would be fairly nippy if you could go straight to its btree API.<br> <br>It also makes a difference how you execute the query. i.e. do you cache the statement handle, do you use bound variables for the output, etc.
+
+
+
+<blockquote>
+
+<h2>Re:DB Benchmarks</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2004-11-30T15:27:41</h3>
+In my tests I did use all the DBI speed tricks.  There seem to be a couple of new SQLite-specific things I should try, but I suspect this (simple primary key lookups) is just a hard thing to compete with MySQL on.
+
+
+
+<blockquote>
+
+<h2>Re:DB Benchmarks</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2004-11-30T19:55:03</h3>
+Probably so. If you want to send me the code I'll take a look and see if there's any obvious problems.
+
+
+
+<blockquote>
+
+<h2>Re:DB Benchmarks</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2004-11-30T19:55:35</h3>
+I should clarify - I meant if there are any obvious problems in DBD::SQLite<nobr> <wbr></nobr>:-)
+
+
+
+<blockquote>
+
+<h2>Re:DB Benchmarks</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2004-11-30T20:10:45</h3>
+What I'm doing is releasing a cache abstraction module to CPAN (tentatively named Cache::Wrapper) which will include a DBD::SQLite version.  Then I'll put out my benchmark code that uses it, and people can use it for their own tuning and comparisons.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:DB Benchmarks</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2004-11-30T15:40:14</h3>
+I'm not quite sure I trust these, since GDBM is definitely not faster than BerkeleyDB when you use the right API.
+
+
+
+<blockquote>
+
+<h2>Re:DB Benchmarks</h2>
+<h3><a href="/user/trachtenberga/">trachtenberga</a> on 2004-11-30T16:36:50</h3>
+Interesting. In my experience, George's stuff is usually pretty good. Since I didn't run the tests, I don't know which API he used.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>SpamAssassin</h2>
+<h3><a href="/user/quinlan/">quinlan</a> on 2004-11-30T08:05:22</h3>
+The one thing you're missing is the history.
+<p>
+SpamAssassin originally used Any_DBM (huge mistake, but that one predates me).  Of the modules that Any_DBM uses, DB_File was the best choice for stability, portability, and performance reasons and it had the same interface as Any_DBM so we've stuck with it for a few versions.  We're likely to eventually deprecate (or discourage) DB_File in favor of SDBM_File which is now a better option since other changes have made its deficiencies a non-issue.  SDBM_File is faster than DB_File and has the advantage of shipping with Perl which is a huge win in installation ease for our users.  BerkeleyDB is also a good option, but would be more work than SDBM_File and we haven't even had time to finish that work.
+</p><p>
+Patches welcome.
+</p><p>
+Regarding your comments about best practices, they are nice, but unless they are well-documented and shared, best practices aren't worth all that much.
+</p><p>
+Daniel</p>
+
+
+
+<blockquote>
+
+<h2>Re:SpamAssassin</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2004-11-30T15:48:40</h3>
+Okay, so compatibility is ultimately more important than speed here. That makes perfect sense to me.<p>
+I would like to try a BerkeleyDB version. It would be much faster than SDBM_File. If I get something working, I'll send in the patch.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Repetition. Repetition. Repetition. Repetition.</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2004-11-30T19:40:26</h3>
+<p>That is definitely the key. Word needs to get out. People need to be told. Over and over, until they start to repeat it to others themselves.</p>
+
+<p>Good performance at macroscopic scale is all about understanding the interactions between layers of abstraction. Unfortunately that is the hardest to come by kind of knowledge, for a number of reasons. Good practices are therefore not going to be establish themselves; they need insistent advocates.</p>
+
+
+
+<h2>A minor detail that could prevent BerkeleyDB</h2>
+<h3><a href="/user/htoug/">htoug</a> on 2005-01-06T06:41:51</h3>
+...from being an option, is that is fails when used on an NFS filesystem. The errors are quite wierd, and do not disclose that this is the problem, so that could indicate that you have to be carefull when advocating ose of BerkeleyDB in unknown environments.
+
+
+
+<blockquote>
+
+<h2>Re:A minor detail that could prevent BerkeleyDB</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2005-01-06T16:34:38</h3>
+BerkeleyDB uses shared memory for caching and communication, so it can't be used with any sort of network filesystem.  It has to be used on a single machine.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

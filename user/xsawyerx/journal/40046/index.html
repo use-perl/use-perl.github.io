@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of xsawyerx: Catalyst, MySQL, SQLite, H::FH, UTF-8 and more</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Catalyst, MySQL, SQLite, H::FH, UTF-8 and more</h1>
+<h2><a href="/user/xsawyerx/">xsawyerx</a> on 2009-12-22T14:28:58</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><address>this was originally posted on my new <a href="http://blogs.perl.org">blogs.perl.org</a> journal, which can be found <a href="http://blogs.perl.org/users/sawyer_x/">here</a> which is also the <a href="http://blogs.perl.org/users/sawyer_x/">RSS feed</a> for it.</address></p>
+
+<p>I tried to update an online website with some changes. Generally, I run a production and a testing environment. Recently, however, I moved the code from using SQLite to MySQL and did not create a testing DB, so changes that require changing the text on the site are done in production. Not good? I know!</p>
+
+<p>So the website is built in <a href="http://search.cpan.org/perldoc?Catalyst">Catalyst</a>. Originally used SQLite and then migrated to MySQL (which had to be done manually). It uses <a href="http://search.cpan.org/perldoc?HTML::FormHandler">HTML::FormHandler</a> to display the forms, with a generic CRUD layer I added.</p>
+
+<p>When trying to load the form, I get weird characters for some of the page. From what I gathered, the data in the MySQL isn't kept in UTF8 but in latin1 but we declare the page as UTF8 encoding. The form isn't displayed in utf8 (which was changed using "use utf8;" in the form .pm file, or using <a href="http://search.cpan.org/perldoc?Encode::Guess">Encode::Guess</a> which yielded a better result). David Wheeler has a really interesting article on UTF8 in Perl <a href="http://justatheory.com/computers/programming/perl/utf8_trials.html">here</a>.</p>
+
+<p>When that didn't work, I decided to convert the entire database to UTF-8. I read it using pure DBI, and using <a href="http://search.cpan.org/perldoc?DBIx::Class">DBIC</a> and explicit utf8 column declaration I inserted each table to a newly create database where the tables are charset UTF-8 with utf-8 collation. That didn't change anything. Apparently the latin1 was fine.</p>
+
+<p>More investigation revealed that the <a href="http://search.cpan.org/perldoc?HTML::FormHandler::Render::Simple">HTML::FormHandler::Render::Simple</a> was decoding some stuff which was screwing up a lot. Once that was fixed (AKA patching it up), more stuff remained unclear. It was as if H::FH wasn't able to read the correct record from the database. Trying to do it using <code> $c->model('DB::Table')->search( { id => $id } ) </code> worked just fine. Apparently the API in HTML::FormHandler changed or it has a critical bug.</p>
+
+<p>I should read the manual. There is the manual, tutorial and an intro for it. They are all very very long and complex. They give me a headache. Honestly, I'm more comfortable reading the Perl XS tutorial rather than the current synopsis or ANY documentation of HTML::FormHandler.</p>
+
+<p>Alas, I'll have to get rid of HTML::FormHandler. It's become so cumbersome I can't be bothered patching it any more even. I don't want to reinvent the form wheel again (because I probably won't put a lot into it). Maybe I'll add a layer on top of FormFu.</p>
+
+<p>I remember asking <em>mst</em> about forms in <em>#catalyst</em> a long while ago. He said that <em>"forms suck.. some people find FormFu helps make them suck less."</em> I think I understand it better now.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Starting points</h2>
+<h3><a href="/user/ddick/">ddick</a> on 2009-12-22T22:19:09</h3>
+<p>It's difficult for me to tell what's happening, but suggestions follow:</p><ul>
+<li>decide that UTF-8 is going to be your encoding</li><li>read up on the my $decoded = Encode::decode('UTF-8', $encoded) and my $encoded = Encode::encode('UTF-8', $decoded) functions</li><li>encode strings just before they leave your application (just before print, DBI, whatever)</li><li>decode strings as soon as possible (just after read, my $encoded = $cgi-&gt;param($name), $sth-&gt;fetchrow, whatever)</li><li>make sure your MySQL databases are created with "CREATE DATABASE `$database_name` CHARACTER SET utf8";</li><li>make sure all of your  elements contain 'accept-charset="UTF-8"'</li><li>write a test script to prove it all works</li></ul>
+
+
+
+<blockquote>
+
+<h2>Re:Starting points</h2>
+<h3><a href="/user/ddick/">ddick</a> on 2009-12-22T22:21:21</h3>
+<p>Dammit, i meant to say</p><ul>
+<li>make sure all of your &lt;form&gt; elements contain 'accept-charset="UTF-8"'</li></ul>
+
+
+
+<h2>That's not what bugs me...</h2>
+<h3><a href="/user/xsawyerx/">xsawyerx</a> on 2009-12-23T17:04:17</h3>
+<p>Apparently that didn't cause all the havoc. The havoc was caused by a breakage in the API.</p><p>What bugs me isn't even that, it's that it's so incredibly complex that it would take me a month to read the manual alone. That I have no way of writing really fast CRUDs, which is the core of my web apps.</p><p>I still appreciate the comments, and I'll definitely take them under advisement. Thanks!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

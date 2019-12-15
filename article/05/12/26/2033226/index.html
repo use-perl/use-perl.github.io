@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org story by grinder: This Fortnight on perl5-porters - 12-25 December 2005</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>This Fortnight on perl5-porters - 12-25 December 2005</h1>
+<h2><a href="/user/grinder/">grinder</a> on 2005-12-26T20:30:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Perl 5 turns 18 and is given some lovely birthday presents, such as
+Perl 6's switch, smart match and say. Constants get smaller, faster
+and cheaper. So with all that and more, it's probably time for 5.9.3
+to escape from the lab.</p>
+<p><h2> <a name="patching_sprintf__all_the_time__everywhere">Patching <code>sprintf</code>, all the time, everywhere</a> </h2>
+<p>The <code>sprintf</code> patch effort proceeded smoothly this week. Andy Dougherty
+phoned in to give the patching of Solaris 8 a clean bill of health. But
+Nicholas Clark wanted to get the other segmentation violations nailed
+down as well, and suggested a new set of patches. Which didn't work on
+Windows, and so the set was refined.</p>
+<p>Dominic Dunlop reported perls 5.8.0 through 5.8.7 on Mac OS/X was
+looking good, albeit with minor unrelated warnings. Steve Hay reported
+success on Windows for 5.8.0, .2, .3 and .7. Nicholas published the patches
+on CPAN.</p>
+<pre>
+  <a href="http://xrl.us/jbwc">http://xrl.us/jbwc</a> </pre>
+<p>Gisle Aas modified the way <code>sprintf</code> obtains indexes and widths from the
+format string to check for overflows. As a result numbers larger than
+<code>IV_MAX+1</code> (already ridiculously large on 32 bit hardware) can no longer
+be used directly to specify a width, but as a) such values are probably
+not used in practice and b) there are still indirect means of specifying
+Very Large Widths (such as <code>%*d</code>), it's not much of a loss.</p>
+<pre>
+  <a href="http://xrl.us/jbwd">http://xrl.us/jbwd</a> </pre>
+<p>
+<h2> <a name="more_on_funny_file_names">More on funny file names</a> </h2>
+</p> <p>Last week, Craig Berry pointed out an annoyance with <code>Pod::Simple</code>: its
+test suite contains directories with names such as <em>lib/Pod/Simple/t/test^lib</em>.
+This is a hassle on VMS, because circumflex is not a legal character for a
+filename, and he hoped that the directories could be renamed by changing the
+circumflex to an underscore.</p>
+<p>This week, John E. Malmberg pointed out other problems of filename
+portability. Nicholas Clark reported that the directories had been renamed
+to something sensible, but was now struggling with trying to get Perforce
+to delete the now-empty <code>troublesomely^named^directories</code>. Rafael came to
+the rescue with the correct incantation.</p>
+<pre>
+  <a href="http://xrl.us/jbwe">http://xrl.us/jbwe</a> </pre>
+<p>
+<h2> <a name="strict__refs__doesn_t_apply_inside_defined"> <code>strict 'refs'</code> doesn't apply inside <code>defined</code> </a> </h2>
+</p> <p>Nicholas Clark noticed that the following snippet produced no
+error:</p>
+<pre>
+  use strict;
+  $a = &quot;Not documented&quot;; print defined @$a;
+  # prints nothing, no error message
+  $a = &quot;Not documented&quot;; print defined %$a;
+  # prints nothing, no error message</pre>
+<p>... which is certainly a bug, and was worried that production code
+might be relying on this misbehaviour. Since applying <code>defined</code>
+to arrays or hashes is vaguely deprecated, Rafael Garcia-Suarez
+thought that it wasn't very important, and probably some odd side-effect
+of the optimiser. Robin Houston came to the heart of the problem by
+showing that that <code>defined()</code> doesn't autovivify stash entries when
+used via a symbolic reference:</p>
+<pre>
+   % perl -le '$n=&quot;z&quot;; %$n; print(exists $::{$n} ?  &quot;yes&quot; : &quot;no&quot;)'
+   yes</pre>
+<pre>
+   % perl -le '$n=&quot;z&quot;; defined%$n; print(exists $::{$n} ? &quot;yes&quot; : &quot;no&quot;)'
+   no</pre>
+<p>... and also showed where in the source this was happening.</p>
+<pre>
+  <a href="http://xrl.us/jbwf">http://xrl.us/jbwf</a> </pre>
+<p>Rafael Garcia-Suarez noticed that all the internal datatypes exhibit
+similar behaviour, but when he patched the necessary functions to
+fix it up an odd assortment of tests began to fail. One of the more
+icky cases was <code>DBM_Filter</code>, with the snippet:</p>
+<pre>
+  C&lt;if (!defined %{&quot;${class}::&quot;})&gt;</pre>
+<p>Rafael want to at least fix up <code>defined($$foo)</code>, but Robin was doubtful,
+thinking that there's probably code Out There that relies on this
+behaviour. And we got back to the comment in <code>Perl_ck_defined()</code> that
+has a warning comment about not breaking <code>Tk</code> (This issue has been
+hovering in the fringes of a number of threads in the past few months).</p>
+<p>Nicholas then posted a particularly brilliant analysis of the problem.
+It's well worth reading if you want to get a feel for what goes on in
+perl's guts</p>
+<pre>
+  <a href="http://xrl.us/jbwg">http://xrl.us/jbwg</a> </pre>
+<p>It comes down to the fact that people are not so much trying to see
+whether hashes (or. more precisely, stashes -- symbol tables hashes)
+are defined <em>per se</em>, but rather they are trying to determine what
+packages have been loaded below the current package (that is, <code>A::B</code>
+wants to know if <code>A::B::C</code> or <code>A::B::D</code> are loaded. In the current
+state of affairs, just <em>thinking</em> about <code>A::B::C</code> makes it spring
+into life. So Rafael applied change #26370 to tweak the lexer to make
+it all work again.</p>
+<pre>
+  <a href="http://xrl.us/jbwh">http://xrl.us/jbwh</a> </pre>
+<p>
+<h2> <a name="sprintf_of_version_objects"> <code>sprintf</code> of version objects</a> </h2>
+</p> <p>Gisle Aas filed bug #37897 regarding how <code>sprintf</code> deals with version
+objects, as part of the fallout from the <code>webmin</code>/<code>syslog</code> debacle.
+John Peacock was at a bit of a loss as to where to start looking, and
+said that <code>sv_vcatpvfn()</code> was an example of overloaded operation gone
+wrong. After mulling over the problem for a while, John came up with
+a simpler approach that Gisle liked. So John went ahead an implemented
+it. Gisle came back with a couple of suggestions to tighten it up.</p>
+<p>H.Merijn Brand came up with a good test case:</p>
+<pre>
+  # all on one line
+  ($_=sprintf&quot;%vx\n&quot;,$^V)=~s^\d\d.3\d.2^Just \
+  Anoth^;s$.3..2$r P$;s;.3.;rl Hacker,;;print</pre>
+<p>At the end of the thread, John reminded us about far more than we ever
+wanted to know about version objects.</p>
+<pre>
+  <a href="http://xrl.us/jbwi">http://xrl.us/jbwi</a> </pre>
+<p>
+<h2> <a name="pod__man_creates_empty_man_pages"> <code>Pod::Man</code> creates empty man pages</a> </h2>
+</p> <p>Randal L. Schwartz wrote in to say that <code>podlators-2.0</code> broke an interface
+assumption (a parser object could not be reused) which caused a number of
+things (heavy lifters like <code>pod2man</code>, <code>ExtUtils::MakeMaker:MM</code> and
+<code>Module::Build</code>) to fail. Russ Allbery said that <code>pod2man</code> was fixed in
+the <code>podlators</code> distribution, but the main reason is <code>Pod::Simple</code> objects
+are single use once only. The new maintainer is interested in resolving the
+issue, but the solution is not simple.</p>
+<p>Ken Williams was ready to patch <code>Module::Build</code>, but pointed out that if
+someone was using <code>M::B</code> or <code>EU::MM</code> and after upgrading <code>Pod::Man</code>
+noticed that their man pages stopped working, then their first reflex
+would be to see about seeing what was wrong with <code>Pod::Man</code>. It might
+not be obvious that the correct fix would be to upgrade <code>M::B</code> or
+<code>EU::MM</code>. So at some point in time <code>Pod::Man</code> does need to do The
+Right Thing.</p>
+<pre>
+  <a href="http://xrl.us/jbwj">http://xrl.us/jbwj</a> </pre>
+<p>
+<h2> <a name="calling_perl_s_guts_simultaneously_from_many_threads">Calling perl's guts simultaneously from many threads</a> </h2>
+</p> <p>Every once in a while, someone pops into p5p with a very (on the surface)
+simple question that turns out to be fiendishly complex. Mark Glines
+won this week's award for the best question.</p>
+<p>It turns out that Mark has written a Perl XS wrapper for the Fuse project.</p>
+<pre>
+  <a href="http://fuse.sf.net/">http://fuse.sf.net/</a> </pre>
+<p>Fuse, as I understand it from Perl's perspective, is that you just
+<code>use Fuse</code> and you create a filesystem whose entries can be mapped
+to Perl routines.  The Perl interface, until now, has been a
+single-threaded implementation (mainly because it's been around
+since 5.6.1). Mark recently looked at 5.8's thread support and
+decided it looked much better, and set about investigating how to
+make a multiple-threaded version of Fuse. He had a number of
+questions.</p>
+<p>Nick Ing-Simmons dived in with a number of detailed responses to
+Mark's questions, explaining how perl's threads behave. In fact,
+with a bit of help from Nick and Yitzchak Scott-Thoennes, Mark was
+well on his way to getting it all work quite well.</p>
+<pre>
+  <a href="http://xrl.us/jbwk">http://xrl.us/jbwk</a> </pre>
+<p>
+<h2> <a name="the_ponie_pump__king_queen__chair_is_up_for_grabs">The Ponie <code>Pump(?:king|queen)</code> chair is up for grabs</a> </h2>
+</p> <p>Two and a half years ago, Fotango began sponsoring the Perl 6
+development effort, in the shape of Ponie, or an implementation of
+Perl 5 on Parrot.  Nicholas worked on the project during his stay
+at Fotango, but he's now moved on, and Ponie is looking for a new
+manager. If you're interested, drop Nick and/or Jesse a line at
+<code>ponie-pumpking@perl.org</code>.</p>
+<pre>
+  <a href="http://xrl.us/jbwm">http://xrl.us/jbwm</a> </pre>
+<p>
+<h2> <a name="eliminating_null_macros_">Eliminating null macros.</a> </h2>
+</p> <p>Nicholas wondered whether it would be worth reducing the use of macros
+by changing things like <code>Nullsv</code> to <code>(SV*)0</code>, the reason being that
+it's three things that people have to remember, and three things that
+newcomers have to learn.</p>
+<p>Andy Lester thought it might be better to replace the <code>Null[a-z]+</code>
+variants with <code>NULL</code>. Jan Dubois remembered a case where it does
+matter: when using <code>vararg</code>-style functions, H.Merijn pointed out
+that the explicit casts gives the compiler something bare <code>NULL</code>s
+don't: hints about alignment. Specifically, on some architectures
+(ok, HP) the following is safe:</p>
+<pre>
+  long l; *((char *)&amp;l) = 'a';</pre>
+<p>but</p>
+<pre>
+  char a[160]; *((long *)a) = 100L;</pre>
+<p>may result in phase-of-the-moon errors. Nicholas applied a couple of
+experimental patches to see what it would look like.</p>
+<pre>
+  <a href="http://xrl.us/jbwn">http://xrl.us/jbwn</a> </pre>
+<p>
+<h2> <a name="peekmessage___call_in_win32_win32_c_win32_async_check_fixed"> <code>PeekMessage()</code> call in win32\win32.c win32_async_check fixed</a> </h2>
+</p> <p>Following on from last week's thread about <code>alarm()</code> on Win32,
+Jan checked in some code to address the problems. Rafael had a bit
+of trouble with the associated test suite, and it was all sorted out
+in the end</p>
+<pre>
+  <a href="http://xrl.us/jbwo">http://xrl.us/jbwo</a> </pre>
+<p>
+<h2> <a name="change_26165_broke_ext_threads_t_stress_re_t_test_on_win32">Change 26165 broke <em>ext/threads/t/stress_re.t</em> test on Win32</a> </h2>
+</p> <p>Steve Hay observed that somewhere between changes 26150 and 26185,
+changes to <em>sv.c</em> caused the above test file to fail. After doing
+a binary search among those change, he pinned the problem on change
+26165, but couldn't see what in the patch was causing the problem.</p>
+<p>Nicholas and Steve went over the parts of 26165 and began to apply
+them individually, looking for mistakes. It turned out to be a
+trailing comma at the end of a very heavily-casted subtraction.</p>
+<p>After a lot of patient untangling of the initial patch, Nicholas
+got it all sorted out. A fascinating case of debugging by mail. All
+fixed up in 26378.</p>
+<pre>
+  <a href="http://xrl.us/jbwp">http://xrl.us/jbwp</a> </pre>
+<p>
+<h2> <a name="reducing_ithreads_overhead">Reducing ithreads overhead</a> </h2>
+</p> <p>Brendan O'Dea told of how Debian now builds a threaded perl by
+default, and one of the biggest complaints is the slowdown that
+that induces, and worse, segfaults. A couple of ideas where
+discussed, but no firm conclusions were made.</p>
+<pre>
+  <a href="http://xrl.us/jbwq">http://xrl.us/jbwq</a> </pre>
+<p>
+<h2> <a name="smart_match_is_done">Smart match is done</a> </h2>
+</p> <p>Robin Houston wrapped up his work on the new smart match operator,
+the <code>~~</code> operator from Perl 6. The patch was over 100 kilobytes.
+Nicholas carefully applied two parts of it, that corrected a
+couple of spelling errors in comments. which tickled Robin no end.</p>
+<p>After having looked more carefully at the patch, Nicholas
+decomposed into six discrete components. Rafael
+was a bit dubious about the <code>use feature</code> approach to implementing
+smart match (and switch, and say)... all of which are provided
+by this patch. He thought it a pity that a pragma was required
+to get at recent coolness added to the language, but backwards
+compatibility being what it was, that it was the best way forward.</p>
+<p>Yves Orton ironed a few kinks out the patch to get it running
+cleanly under threads and Windows.</p>
+<pre>
+  <a href="http://xrl.us/jbwr">http://xrl.us/jbwr</a> </pre>
+<p>Robin later followed up with another version of the patch
+incorporating Yves's changes and a tweaked version of smart
+match semantics (subject to more possible semantic changes when
+Larry and/or Damian touch base). Applied by Rafael as change 26400
+and a tweak in 26416.</p>
+<pre>
+  <a href="http://xrl.us/jbws">http://xrl.us/jbws</a> </pre>
+<p>
+<h2> <a name="slimming_down_constants">Slimming down <code>constant</code>s</a> </h2>
+</p> <p>Nicholas Clark noted that, despite optimisations and inlining,
+constants take up a lot of memory:</p>
+<pre>
+  $ perl -MDevel::Size=size -le 'sub c () {3}; print size(\&amp;c)'
+  434</pre>
+<p>... and wondered whether there was a viable way of reducing their
+size. One approach would be to store the scalar value directly,
+but that would require some collusion between the optimiser and
+the <code>pp_entersub</code> opcode. Over seven years ago, Ilya Zakharevich
+produced a patch to bring the cost of a subroutine declaration
+from 500 bytes down to 100 (change 965), one possibly non-documented
+side effect of which is:</p>
+<pre>
+  $ perl -lwe 'sub foo {}; sub bar; sub baz ($); \
+    print &quot;($_)&quot; foreach $::{foo}, $::{bar}, $::{baz}'
+  (*main::foo)
+  (-1)
+  ($)</pre>
+<p>Nicholas wondered whether it would be worth replacing this mechanism
+by another whereby something else than a typeglob could appear in
+symbol tables and could be used for storing constants. For modules
+sych as <code>Socket</code> and <code>Fcntl</code> that implement constants internally,
+it would become possible to generate true inlineable constants at
+require time, rather than at run time.</p>
+<p>The main stumbling block is that as a constant is secretly prototyped
+as <code>()</code> behind the scenes, the trick is figure out how to distinguish
+between a true prototyped routine and a constant value.</p>
+<p>After some more legwork, Nicholas discovered that <code>pp_entersub</code>
+can be fed just about any old thing, which would therefore require
+a non-trivial amount of cooperation from higher-level ops. And the
+worst of it is that as a general rule, most constant subs are never
+actually called in any particular program.</p>
+<p>The new scheme that Nicholas came up with is quite clever. Now, when
+a reference to a constant value is stored in the symbol table, like</p>
+<pre>
+  $foo::{bar} = \3;</pre>
+<p>It stays that way (occupying only as much space as a reference) until
+it gets called upon. At that point, it springs into <code>sub foo::bar () {3}</code>
+and can be inlined as needed. What is more, any constant-building
+mechanism that looks like this get the optimisation for free. But
+wait! there's more!  The first time Nicholas took the new code for
+a test drive, he picked up an error (a missing semi-colon in
+<code>Tie::File</code>).</p>
+<p>Benchmarking the new technique revealed that 1% less memory is
+consumed when Fcntl is <code>require</code>d and a massive 12% less when
+<code>use</code>d. And all its constants are now inlined. The <code>POSIX</code> shows
+even better improvements (which will put to rest the meme about
+writing <code>use POSIX ()</code> to avoid importing the universe). Bonus!</p>
+<p>Even better still, the memory saved is that much less memory
+needed to be cloned when threads are created. A truly momentous
+change.</p>
+<pre>
+  <a href="http://xrl.us/jbwt">http://xrl.us/jbwt</a> </pre>
+<p>Later on, Nicholas figured that it should be possible to teach
+<code>Devel::Peek</code> how to dump out the value of constant subroutines,
+and committed a patch (26404) to do just that. Dave Mitchell
+liked the output.</p>
+<pre>
+  <a href="http://xrl.us/jbwu">http://xrl.us/jbwu</a> </pre>
+<p>
+<h2> <a name="__g_loops_infinitely_on_tainted_data"> <code>//g</code> loops infinitely on tainted data</a> </h2>
+</p> <p>Steve Peters revived an old bug (#8262) where Kirrelly "Skud"
+Roberts noticed that the follow snippet went into an infinite
+loop when tainting is active</p>
+<pre>
+  while($ENV{LANG} =~ m/(.)/g ) {
+    print &quot;saw '$1'\n&quot;;
+  }</pre>
+<p>Sadahiro Tomoyuki noticed that it occurs with certain, but not
+all, tainted values. For instance <code>$ARGV[0]</code> loops, but its
+copy <code>$copy = shift</code> does not. Mike Guy reasoned that bad magic
+was causing the trouble, no doubt some interaction between
+magic and taint causing <code>pos()</code> to be reset.</p>
+<p>This last clue was sufficient for the light-bulb to go off over
+Dave Mitchell's head, and create a patch that fixes the problem.</p>
+<pre>
+  <a href="http://xrl.us/jbwv">http://xrl.us/jbwv</a> </pre>
+<p>
+<h2> <a name="perl_is_18_years_old">Perl is 18 years old</a> </h2>
+</p> <p>Dave Mitchell noted that Perl is now old enough to drink hard liquor,
+vote and join the army. Randal Schwartz remarked that that's a long time to
+be printing "Hello, world". Joshua Juran recommended that Randal purchase
+a book called, um, "Learning Perl", currently in its third edition.
+<code>brian d foy</code> suggested that Joshua buy a new copy, since it's now
+in its fourth edition.</p>
+<pre>
+  <a href="http://xrl.us/jbww">http://xrl.us/jbww</a> </pre>
+<p>
+<h2> <a name="plugins_for_lint">Plugins for Lint</a> </h2>
+</p> <p>Joshua ben Jore sent in a patch against blead to teach <code>B::Lint</code>
+to accept plugins. The particular scratch he wanted to itch was the
+ability to check for unchecked system calls and non-constant sprintf
+formats.  Rafael wondered whether Joshua planned to backport the
+current <code>B::Lint</code> checks as plugins in the new regime.  Joshua
+wasn't convinced of the value in doing so, to which Hugo van der
+Sanden pointed out that it would provide a good set of examples to
+show how future plugin authors could write their own. But as the
+plugin mechanism has a certain overhead, the cost would be too great
+to convert everything over.</p>
+<pre>
+  <a href="http://xrl.us/jbwx">http://xrl.us/jbwx</a> </pre>
+<p>
+<h2> <a name="making_the_sort_pragma_lexically_scoped">Making the <code>sort</code> pragma lexically scoped</a> </h2>
+</p> <p>Robin Houston thought that the <code>use sort</code> pragma (as in
+<code>use sort '_quicksort'</code>, <code>use sort _'mergesort'</code>) should be
+lexically scoped. And having a couple of moments to spare after
+having written <code>switch</code> and other goodies, whipped up a patch
+to do just that. As a result he had to rewrite part of the test
+suite which was relying on the previous behaviour, but that no-one
+minded that.</p>
+<p>Nicholas did raise a concern about pragmata namespaces, which
+Robin addressed in a followup patch. All applied by Rafael.</p>
+<pre>
+  <a href="http://xrl.us/jbwy">http://xrl.us/jbwy</a> </pre>
+<p>Robin also supplied a patch to test for <code>%^H</code> (the hints hash)
+being propagated into <code>eval</code>.</p>
+<pre>
+  <a href="http://xrl.us/jbwz">http://xrl.us/jbwz</a> </pre>
+<p>
+<h2> <a name="is_perlivp_too_fussy">Is <code>perlivp</code> too fussy?</a> </h2>
+</p> <p>Gisle Aas doesn't like the way <code>perlivp</code> (Perl Installation
+Verification Procedure) moans about incorrectly installed <code>*.ph</code>
+files, which isn't really a problem under ActiveState Perl,
+and supplied a patch to silence these warnings.</p>
+<p>Rafael noted that <code>perlivp</code> doesn't play nicely in this day and
+age of package-managed operating systems, and that Mandriva doesn't
+bother distributing it. Gisle thought that another solution would
+be to get rid of it altogether. Michael Cummings (who does Perl
+on Gentoo) voted for either removing it, or at least updating it
+so that it at least prints out a description of each test as it
+runs.</p>
+<pre>
+  <a href="http://xrl.us/jbw2">http://xrl.us/jbw2</a> </pre>
+<p>
+<h2> <a name="should_err_be_a_feature">Should <code>err</code> be a feature?</a> </h2>
+</p> <p>Up until now, <code>err</code> has been implemented as a weak keyword, which
+in a nutshell means that it operates as a keyword only if a subroutine
+of the same name has not been declared previously. Now that Robin
+has introduced the <code>feature</code> pragma, he wondered whether it would
+not make more sense to recast <code>err</code> as a feature.</p>
+<p>In case you haven't been following Perl 6 too closely, <code>err</code> is to
+<code>//</code> (defined or) as <code>and</code> is to <code>&amp;&amp;</code>. Rafael quite rightly pointed
+out that since <code>//</code> isn't a feature, (because it doesn't clash with
+anything apart from an obscure regexp construct) it seems odd to
+require <code>err</code> to be featured. The crux of the matter is the trade-off
+between backwards compatibility and using new, ah, features.</p>
+<p>Also proposed was the idea of <code>use feature ':5.9.3'</code>, <code>use feature ':5.10'</code>
+and <code>use feature ':all'</code> as ways of getting everything new that the
+interpreter has to offer, with possibly various degrees of pain inflicted
+on getting your code to compile.</p>
+<p>S&#233;bastien Asperghis-Tramoni fired up his own private gonzui search
+tool, and discovered that 69 distributions on CPAN currently define
+<code>sub err</code>.</p>
+<p>Hot on the heels was the need for
+a command line switch that would have the same effect, in order to
+<code>err</code>, <code>say</code> or smart match in a one-liner. Since the best candidate
+(<code>-f</code>) has recently been used for another purpose, Robin posted the
+list of unused command-line switches</p>
+<pre>
+  b E g G H j J k K L N o O q Q r R y Y z Z</pre>
+<p>... and wondered which one would be the best for this purpose. Abigail
+suggested <code>-6</code> only not really. More interesting was Abigail's idea
+to just enable the whole lot when <code>-e</code> is used, since in a one-liner it
+would be highly doubtful that <code>err</code> ever needs to be diambiguated, or
+else <code>-e</code> uses all features, and <code>-E</code> uses none.</p>
+<p>Then it started to get really silly, with Tels suggesting to use &#230;
+(ae ligature).</p>
+<pre>
+  <a href="http://xrl.us/jbw3">http://xrl.us/jbw3</a> </pre>
+<p>In a followup post, Robin produced a patch that does the reverse of
+Abigail's sensible idea: that is, <code>-E</code> is like <code>-e</code> with the
+addition of all features.</p>
+<p>
+<h2> <a name="time_to_release_5_9_3">Time to release 5.9.3?</a> </h2>
+</p> <p>After the discussion featuring <code>err</code>, Rafael thought that with the
+addition of all these new shiny, erm, features, it must be time to
+roll out a new version of bleadperl to give it some wider exposure.
+Some things that need to be done are: get feedback from Larry and
+Damian on smart match, better (read: more) tests for modules like
+<code>DBI</code> and <code>Tk</code> and implementing <code>feature 'err'</code>.</p>
+<p>Robin promised to wrap up the documentation for the work he's done
+so far, on the understanding that semantics may change from here to
+5.10, and Rafael said that it might be nice to try for 1/1/2006 as
+a release date. Robin checked in some documentation for switch
+and smart match a few days later.</p>
+<pre>
+  <a href="http://xrl.us/jbw4">http://xrl.us/jbw4</a> </pre>
+<p>A long discussion followed revolving around <code>err</code>, and whether it
+could be possible to promote it to a full keyword. Rafael disliked
+the idea, because it would introduce source-level incompatibilities,</p>
+<p>Gisle proposed cutting the Gordian knot by just simply removing
+the <code>err</code> keyword altogether. H.Merijn said that this would
+remove a certain amount of orthogonality from <code>||</code>/<code>or</code> and
+<code>&amp;&amp;</code>/<code>and</code>. Yves thought that <code>err</code> was a pretty dumb name, and
+put forward <code>dor</code> as an alternative. Randy W. Sims concurred,
+and thought that <code>default</code> would be better than <code>err</code>. But as
+it comes from Perl 6, it appears we don't have that luxury.</p>
+<p>Yves's objection is that <code>err</code> sounds too much like error, as in
+Danger! Danger!, when it really means "I half expect this to not
+work, but that's ok. Another valid argument was that the <code>err</code>
+object in Visual Basic is the way you throw errors, so VB refugees
+are going to have a hard time unlearning it in Perl.</p>
+<p>To summarise: just about everyone thinks that <code>err</code> sucks, but
+no-one can think of anything better.</p>
+<p>The summariser thinks that since the purpose of the operator is
+to let you try out something, and if that doesn't work, get something
+else, then it should be called the Jagger-Richards operator, because
+you can't always get what you want, but you might find you get what
+you need.</p>
+<p>Rafael wondered whether, with Robin's implementation of switch in
+the interpreter, whether it would be possible to fast-track the
+deprecation of <code>Switch.pm</code>. Robin pointed out that the semantics
+of his switch are not quite the same as Damians source filter
+switch. In the end, though, since 21 CPAN modules (again thanks
+to a search from S&#233;bastien's) already use Switch, it'll stay.</p>
+<pre>
+  <a href="http://xrl.us/jbw5">http://xrl.us/jbw5</a> </pre>
+<p>
+<h2> <a name="adding_feature_bundles_and_featuring_err">Adding feature bundles and featuring <code>err</code> </a> </h2>
+</p> <p>After having done six Impossible Things before breakfast, Robin
+finished up with a patch to implement feature bundles, as discussed
+above.</p>
+<pre>
+  <a href="http://xrl.us/jbw6">http://xrl.us/jbw6</a> </pre>
+<p>
+<h2> <a name="should_occurences_of_i32_be_replaced_with_iv_or_strlen">Should occurences of <code>I32</code> be replaced with <code>IV</code> or <code>STRLEN</code>?</a> </h2>
+</p> <p>After having started to look at the array index issue, Jan Dubois
+noted that there are many other cases where signed/unsigned types
+are used inconsistently.</p>
+<p>Worse, in the case of 64-bit builds, some temporary copies of things
+get shoved into hard-coded 32-bit variables, which admits the possibility
+of nasty wrap-around errors.</p>
+<p>Rafael wondered what impact the proposed change would have on the
+recompilation of XS modules, and other checks that might cause
+slowdowns.</p>
+<pre>
+  <a href="http://xrl.us/jbw7">http://xrl.us/jbw7</a> </pre>
+<p>
+<h2> <a name="new_modules">New Modules</a> </h2>
+</p> <p>Ken Williams uploaded a beta <code>PathTools</code> (3.14_02). This incorporates
+the "stop at first directory in PATH" fix that was giving Nick
+Ing-Simmons grief a few weeks ago. If all goes well, a 3.15 will be out
+shortly.</p>
+<p>
+<h2> <a name="perl5_bug_summary">Perl5 Bug Summary</a> </h2>
+</p> <p>Steve Peters closed out at least two bugs that I was paying attention to,
+7567 and 23907. And 23357 and 27319 as well.</p>
+<p>Robert Spier noted that in the past seven weeks, all bugs have been replied
+to. 1511 open tickets as of December 19.</p>
+<pre>
+  <a href="http://xrl.us/jbw8">http://xrl.us/jbw8</a> </pre>
+<pre>
+  The list
+  <a href="http://rt.perl.org/rt3/NoAuth/perl5/Overview.html">http://rt.perl.org/rt3/NoAuth/perl5/Overview.html</a> </pre>
+<p>
+<h2> <a name="in_brief">In Brief</a> </h2>
+</p> <p> <strong>Sorting within a sort does not set <code>$a</code>, <code>$b</code> </strong> was filed as bug #36430
+back in June 2005. Robin (Houston, I suppose, the RT interface isn't clear
+on the matter) poked at it in late October. Steve Peters applied a change
+to fix it, only to realise that it had already been fixed by change #25953.</p>
+<pre>
+  <a href="http://xrl.us/jbw9">http://xrl.us/jbw9</a> </pre>
+<p>Jarkko Hietaniemi followed up on his <strong> <code>valgrind</code> findings from last
+month</strong> and October with a short snippet that demonstrates ampersandy
+leakage:</p>
+<pre>
+  s/a//e;
+  print eval '$&amp;';</pre>
+<pre>
+  <a href="http://xrl.us/jbxa">http://xrl.us/jbxa</a> </pre>
+<p>A <strong>problem using <code>local</code> with <code>threads::shared</code> </strong> (bug 37671) inched
+forward a bit closer to resolution when Steve Peters realised that a
+more restrictive approach was needed when dealing with magic and
+Yitzchak agreed with the idea.</p>
+<pre>
+  <a href="http://xrl.us/jbxb">http://xrl.us/jbxb</a> </pre>
+<p>Jim Cromie refined his <strong>work on <code>arenaroot</code>s</strong>.</p>
+<pre>
+  <a href="http://xrl.us/jbxc">http://xrl.us/jbxc</a> </pre>
+<p>Thanks to last week's summary, Andy Lester realised that he had let
+a message from Jim slip, and answered Jim's questions.</p>
+<pre>
+  <a href="http://xrl.us/jbxd">http://xrl.us/jbxd</a> </pre>
+<p>Vadim Konovalov noted that <strong> <code>s{}{goto uncool;uncool:;}e</code> produces
+the error <code>Can't find label uncool at -e line 1</code> </strong>, but that
+<code>s{}{do{goto uncool if 1;uncool:;}}e</code> (wrapping the inner
+statement in a <code>do</code> block) works. After a moment of astonished
+silence, Chip Salzenberg said that this was perhaps the most
+evil thing he'd ever seen.</p>
+<pre>
+  <a href="http://xrl.us/jbxe">http://xrl.us/jbxe</a> </pre>
+<p>Rafael discovered that the <code>INSTALLSCRIPT</code> doesn't follow
+changes to INSTALLDIR and that it's probably a bug. No-one
+complained about possible backwards compatibility breakage,
+but for the time being things are staying as they are.</p>
+<pre>
+  <a href="http://xrl.us/jbxf">http://xrl.us/jbxf</a> </pre>
+<p>Andy Lester announced <strong>the <code>Sys::Syslog</code> and <code>sprintf</code> fixes</strong>
+on the Perl foundation blog:</p>
+<pre>
+  <a href="http://xrl.us/jbxg">http://xrl.us/jbxg</a>
+  <a href="http://news.perlfoundation.org/2005/12/updated_perl_modules_alleviate.html">http://news.perlfoundation.org/2005/12/updated_perl_modules_alleviate.html</a> </pre>
+<p>Jerry D. Hedden posted bug #37946 concerning <strong> <code>refaddr</code>s of <code>threads::shared</code>
+variables</strong>. Rather than staying constant, it flip-flops between two addresses.
+Nicholas Clark explained why it was so. Dave Mitchell scuffed his toe, looking
+for tuits.</p>
+<pre>
+  <a href="http://xrl.us/jbxh">http://xrl.us/jbxh</a> </pre>
+<p>See also his other bug, #37919</p>
+<pre>
+  <a href="http://xrl.us/jbxi">http://xrl.us/jbxi</a> </pre>
+<p>Yves Orton supplied a patch to <strong>fix the script embedded in patchlevel.h</strong>
+in order to make it  work on Windows.</p>
+<pre>
+  <a href="http://xrl.us/jbxj">http://xrl.us/jbxj</a> </pre>
+<p>Andrew Savige started <strong>tracking down perl memory leaks with <code>valgrind</code> </strong>
+and noticed a leak with constant subs with prototypes and asked
+for some tips on how to proceed. Andrew, meet Jarkko. Jarkko, meet Andrew.</p>
+<pre>
+  <a href="http://xrl.us/jbxk">http://xrl.us/jbxk</a> </pre>
+<p>Nicholas looked at how <strong> <code>Perl_yylex</code> tokenises version strings</strong>
+and couldn't see how a certain piece of code should be reached.
+Robin Houston supplied a one-liner to show how it could, and Nicholas
+thanked him for the insight, noting that there now remained only
+3000-odd lines of similarly incomprehensible code.</p>
+<pre>
+  <a href="http://xrl.us/jbxm">http://xrl.us/jbxm</a> </pre>
+<p>
+<h2> <a name="about_this_summary">About this summary</a> </h2>
+</p> <p>This summary was written by David Landgren. Sorry about the delay, Santa ate
+all my tuits. No doubt Adriano will do a much better job next week. This
+summary took me far too long to write, and in the interest of matrimonial
+harmony, hasn't had the care it deserves applied, so the quotient of
+typos, wordos and other oddities will probably be higher than usual.</p>
+<p>Information concerning bugs referenced in this summary (as #nnnnn)
+may be viewed at <code>http://rt.perl.org/rt3/Ticket/Display.html?id=nnnnn</code> </p>
+<p>Information concerning patches to maint or blead referenced in
+this summary (as #nnnnn) may be viewed at
+<code>http://public.activestate.com/cgi-bin/perlbrowse?patch=nnnnn</code> </p>
+<p>If you want a bookmarklet approach to viewing bugs and change reports,
+there are a couple of bookmarklets that you might find useful on
+my page of Perl stuff:</p>
+<pre>
+  <a href="http://www.landgren.net/perl/">http://www.landgren.net/perl/</a> </pre>
+<p>Weekly summaries are published on <em> <a href="http://use.perl.org/">http://use.perl.org/</a> </em> and posted
+on a mailing list, (subscription: <em> <a href="mailto:perl5-summary-subscribe@perl.org">perl5-summary-subscribe@perl.org</a> </em>).
+The archive is at <em> <a href="http://dev.perl.org/perl5/list-summaries/">http://dev.perl.org/perl5/list-summaries/</a> </em>.
+Corrections and comments are welcome.</p>
+<p>If you found this summary useful or enjoyable, please consider
+contributing to the Perl Foundation to help support the development
+of Perl.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

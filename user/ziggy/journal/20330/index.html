@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: The myths and facts of many eyeballs</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>The myths and facts of many eyeballs</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2004-08-10T02:17:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>For the last ~8 years, the open source community has been laboring under the <a href="http://www.catb.org/user/esr/writings/cathedral-bazaar/">myth</a> that open source is "better" because we have many eyeballs and therefore all bugs are shallow.  That is a shallow myth that presumes the users of a piece of software will have the necessary skills to fix bugs when they appear, and the altruism to spend the time to fixing bugs <b>and</b> share their patches with the rest of the user community.  Access to the source <i>enables</i> this activity, but does not <i>cause</i> it.  Users can still be selfish, and not patch bugs as they find them (or at least not share their patches), and still gain from having source level access to the software they use.
+
+<p>
+
+What follows is a story about some problems I had with Subversion today.  I had access to the source, which allowed me to trace down the root cause of the problem, and come up with a workaround for a bug.  Access to the source was sufficient for me to trace down the nature of the problem.  At work, I can be selfish and stop short once I solve my own issues with subversion, and not write up a patch and send it back to the subversion team.  At home, I can be a good network citizen and write up my experiences, patch the offending code, and improve subversion in the process.  But even if I don't act like a good network citizen (because I lack time, skills, or permission from my employer), simply having access to the source is enough to make subversion a much better choice for me at work when obscure bugs crop up.
+
+<p>
+&nbsp;
+<p>
+
+Here's what happened: Today I was trying to migrate my personal subversion repository at work off of a machine that has had some serious downtime issues recently and onto a more robust server (that is also hosting the CVS repo for the project).  Getting subversion built was a slight chore, but nothing too onerous.  The problem I saw is that the <tt>svn+ssh://</tt> URL scheme wasn't working because I installed subversion (and therefore <tt>svnserve</tt>) in a bizarre, nonstandard location (<tt>~/bin</tt>), and my subversion client couldn't invoke <tt>svnserve</tt> on the remote side of the connection.
+
+<p>
+
+The problem was with the openssh configuration.  This box is locked down pretty well by a kickass sysadmin.  Googling around and reading some fine manpages, I found that ssh can load a set of environment overrides in <tt>~/.ssh/environment</tt> to reset things like <tt>$PATH</tt>.  Except that by default, this capability is turned off (or at least our sysadmin is awake and locked down sshd on this box).
+
+<p>
+
+Eventually, I found a way to tweak <tt>svn</tt> on the client side, by using tunnels.  But this is primarily a way to point to a different <tt>ssh</tt> executable, or provide specific options to start the client side of an ssh connection (like specify a tunnel port or some such nonsense).  There was nothing to specify how to invoke <tt>svnserve</tt> on the server end.
+
+<p>
+
+I had come across a similar problem recently with CVS.  There is a <tt>CVS_SERVER</tt> environment variable tells the client the full path to invoke a CVS server on the remote side of a connection (<tt>:ext:me@myserver:...</tt> scheme).  But there was no such override for subversion.
+
+<p>
+
+At this point, I had done my homework.  I read pretty much every bit of spotty documentation on the issue only to grudgingly accept that there was no way to override my problem properly within subversion[*].  Had I been using some proprietary SCM system, this is where I'd issue a trouble ticket and complain to my vendor.  But with subversion, I've got the source.
+
+<p>
+
+With enough poking around, I found the cause of my problem, lurking around line 456 of subversion/libsvn_ra_svn/client.c:
+<pre>
+445   /* Tokenize the command into a list of arguments. */
+446   status = apr_tokenize_to_argv(cmd, &cmd_argv, pool);
+447   if (status != APR_SUCCESS)
+448     return svn_error_wrap_apr(status, "Can't tokenize command '%s'", cmd);
+449 
+450   /* Append the fixed arguments to the result. */
+451   for (n = 0; cmd_argv[n] != NULL; n++)
+452     ;
+453   *argv = apr_palloc(pool, (n + 4) * sizeof(char *));
+454   memcpy(*argv, cmd_argv, n * sizeof(char *));
+455   (*argv)[n++] = (user) ? apr_psprintf(pool, "%s@%s", user, host) : host;
+456   (*argv)[n++] = "svnserve";
+457   (*argv)[n++] = "-t";
+458   (*argv)[n] = NULL;
+</pre>
+
+Yep.  <tt>svnserve</tt> is being invoked on the remote side of the connection, without any provision to override the path in any way whatsoever.  That is the ultimate cause of my problem.
+
+<p>
+
+With that tidbit of knowledge, I <b>know</b> beyond a shadow of a doubt that (1) there is a bug in subversion, (2) there is a way to fix it, and (3) I need to look elsewhere for my workaround.  At this point, my work self looks for that workaround, but the good citizen in me blogs about it when I get home (so some other user can hopefully find a description of this bizarre error), and prepares a patch to the subversion team to scratch this itch.  
+
+<p>
+
+But even if I act selfishly and stop short of being a good citizen, my employer and I are still ahead.  And not having to wait makes all the difference.  I don't have to bitch and moan at a vendor and prove that this is a bug, nor do I have to wait for a patch, an update, or (typical case) an unsatisfactory resolution that this behavior is by design.  And my problem is resolved within hours instead of days or weeks.
+
+<p>
+
+This story is not new.  Far too often, we cite benefit of source access in hypothetical and abstract terms.  This story is real; it's just as it happened to me at work today.
+
+<p>
+
+<small>*: The workaround I use is to create a <a href="http://svnbook.red-bean.com/svnbook/ch06s03.html#svn-ch-6-sect-3.3">special tunnel</a> in my ~/.subversion/config file that overrides the traditional ssh invocation, and comment out the rest of the command that subversion generates:
+<blockquote><tt>
+[tunnels]<br>
+myserver = $MYSERVER ssh myhost /home/ziggy/bin/svnserve -t ;#
+</tt></blockquote>
+
+To access the repo, use a <tt>svn+myserver://...</tt> URL.
+</small></p>
+
+
+<hr/>
+
+
+
+<h2>The Revised Myth</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-08-10T02:40:49</h3>
+<p>I am quite convinced that open source does not mean better programs.  I am equally convinced that open source can mean better programmers.  Those who wish to learn will learn regardless.  Those like myself who are willing and able to learn but happily acknowledge that we take the path of least resistance are blessed with the abundance of freely available knowledge that open source provides.</p>
+
+<p>Admittedly, most will not avail themselves of this knowledge.  Many, perhaps most, programmers are happy to show up to work, do their job and go home.  For those who find a passion for this sort of thing, however, we find so much more available to us.  Of course much of this is because of the Internet.  In the early seventies, coming up with a new idea generally meant sharing it with a relatively small circle of friends (or a small academic community if you were really lucky) and getting a bit of feedback now and then.  Today, we can post a new idea and get blasted to smithereens in just a few minutes.  This ability to rapidly acquire information benefits all programmers, but for those who wish investigate the practical applications of their new found knowledge, closed source is useless.  You can't research it as well, nor can you share it if you write it.</p>
+
+<p>Curiously, I think many misunderstood this point <a href="/user/Ovid/journal/20305" title="perl.org">in my recent post on this topic</a perl.org> but that's probably because I was not as clear as I could be.  Next time, I'll spell out in big, bold letters <strong>I did not mean "X"</strong> and then go on to my main point.</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Revised Myth</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2004-08-10T03:54:17</h3>
+<p>Does better feedback received and applied mean better programs?</p>
+
+<p>Consider Jarkko's non-(x86, gcc, Linux) patches for Parrot this weekend, for example.</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Revised Myth</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-08-10T04:13:46</h3>
+<p>If you're referring to Jarkko's comments about <tt>(int*)&amp;something_not_int</tt>, I can see that Parrot is better for it, but I do suspect that issues like this are the exception rather than the rule.  Here we're talking about a great programmer giving advice to a great programmer and that's hardly the common case.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

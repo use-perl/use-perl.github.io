@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Class::Sniff Now Detects &quot;Unreachable&quot; Methods</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Class::Sniff Now Detects &quot;Unreachable&quot; Methods</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-02-01T15:21:13</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Not on the CPAN yet because it's not finished and I don't have documentation, but <a href="http://github.com/Ovid/class--sniff/tree/master">I'm hosting it on github</a>.   Here's a passing test program:</p>
+
+<pre>#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use Test::Most qw/no_plan die/;
+use Class::Sniff;
+
+{
+
+    package Abstract;
+
+    sub new { bless {} => shift }
+    sub foo { }
+    sub bar { }
+    sub baz { }
+
+    package Child1;
+    our @ISA = 'Abstract';
+    sub foo { }
+
+    package Child2;
+    our @ISA = 'Abstract';
+    sub foo { }
+    sub bar { }
+
+    package Grandchild;
+    our @ISA = qw<Child1 Child2>;
+    sub foo  { }    # diamond inheritance
+    sub bar  { }    # Not a problem because it's inherited through 1 path
+    sub quux { }    # no inheritance
+}
+
+can_ok 'Class::Sniff', 'new';
+my $sniff = Class::Sniff->new( { class => 'Grandchild' } );
+
+can_ok $sniff, 'paths';
+my $expected_paths = [
+    [ 'Grandchild', 'Child1', 'Abstract' ],
+    [ 'Grandchild', 'Child2', 'Abstract' ]
+];
+eq_or_diff [$sniff->paths], $expected_paths,
+    '... and it should report inheritance paths';
+
+{
+    package One;
+    our @ISA = qw/Two Three/;
+    package Two;
+    package Three;
+    our @ISA = qw/Four Six/;
+    package Four;
+    our @ISA = 'Five';
+    package Five;
+    package Six;
+}
+#    5
+#    |
+#    4  6
+#    | /
+# 2  3
+#  \ |
+#    1
+# 1 -> 2
+# 1 -> 3 -> 4 -> 5
+# 1 -> 3 -> 6
+my $complex_sniff = Class::Sniff->new({class => 'One'});
+$expected_paths = [
+    [ 'One', 'Two' ],
+    [ 'One', 'Three', 'Four', 'Five' ],
+    [ 'One', 'Three', 'Six' ]
+];
+eq_or_diff [$complex_sniff->paths], $expected_paths,
+    '... even for convoluted hierarchies';
+
+can_ok $sniff, 'overridden';
+my $expected_overridden = {
+    'bar' => [ 'Grandchild', 'Abstract', 'Child2' ],
+    'foo' => [ 'Grandchild', 'Child1',   'Abstract', 'Child2' ]
+};
+eq_or_diff $sniff->overridden, $expected_overridden,
+  '... and it should return an HoA with overridden methods and the classes';
+
+can_ok $sniff, 'unreachable';
+my $expected_unreachable = {
+    'bar' => [ 'Child2' ],
+    'foo' => [ 'Child2' ]
+};
+eq_or_diff $sniff->unreachable, $expected_unreachable,
+  '... and it should return an HoA with unreachable methods and the classes';</pre>
+
+<p>"Unreachable" methods are those which are unreachable by Perl's left-most, depth-first inheritance search order.  I don't have support for C3.  Also, it's possible to call "unreachable" methods by explicit name and I can't check for that (even PPI would have limitations here), but so far, I'm pretty pleased with this.</p>
+
+<p><strong>Update:</strong> OK, I lied. I just added docs and it's on its way to the CPAN.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autrijus: Day 88: A shiny new monad.</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Day 88: A shiny new monad.</h1>
+<h2><a href="/user/autrijus/">autrijus</a> on 2005-04-29T18:40:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>After much help from TheHunter and skew in #haskell, I have finished the
+new definition of Pugs's main <code>Eval</code> monad.  Curiously, it uses all
+four structure declaration statements in Haskell:
+
+<pre>
+type Eval x = EvalT (ContT Val (ReaderT Env SIO)) x
+newtype EvalT m a = EvalT { runEvalT :: m a }
+data SIO a = MkSTM (STM a) | MkIO (IO a) | MkSIO a
+class (MonadReader Env m, MonadCont m, MonadIO m, MonadSTM m) => MonadEval m
+</pre>
+
+<p>
+As yesterday's journal indicated, the key idea behind this restructuring is that
+we can safely use both <code>liftSTM</code> (for in-memory variable access) and
+<code>liftIO</code> (for input/output with the external world) primitives, and
+mix them freely in a normal <code>runIO</code> evaluator:
+
+<pre>
+runIO :: SIO a -> IO a
+runIO (MkIO io)     = io
+runIO (MkSTM stm)   = atomically stm
+runIO (MkSIO x)     = return x
+</pre>
+
+However, inside a <code>atomic {}</code> block, <code>runSTM</code> is used
+instead, so <code>atomic { say "Hello" }</code> will trigger an exception:
+
+<pre>
+runSTM :: SIO a -> STM a
+runSTM (MkSTM stm)  = stm
+runSTM (MkIO _ )    = fail "Unsafe IO caught in STM"
+runSTM (MkSIO x)    = return x
+</pre>
+
+Although I had not got around to expose the <code>atomic</code> primitive,
+the restructured <code>SIO</code> structure has already improved performance
+dramatically (again):
+
+<pre>
+<obra> autrijus?
+<obra> What the hell changed in the last 12 hours with pugs?
+<autrijus> hi. schwern made all our :todo fail.
+<autrijus> or rather, all the force_todo fail
+<autrijus> so you should see red.
+<autrijus> don't panic :)
+<autrijus> "env PUGS_RELEASE=1 make smoke"
+<autrijus> will give the original green one.
+<obra> no. I mean it smoked 30% faster
+<autrijus> obra: oh. yeah. I rewrote the monad
+</pre>
+
+<p>
+Another big news today is I have largely rewritten the <code>Statements</codE>
+structure and associated <code>Exp</code> types; each token in the parse stream
+is now assigned <em>ranges</em>, for a much better diagnostics output:
+
+<pre>
+$ ./pugs -e 'die "Hello, World!"'
+*** Error: Hello, World! at -e line 1, column 1-20
+</pre>
+
+Note the column range above; multi-line constructs are also handled correctly.
+Much thanks to gaal for keep prodding me with his <code>#line</code> patch,
+and for reporting various breakage in the old, statement-level position handling
+scheme.
+
+<p>
+In other news, Larry invoked a <a href="http://www.nntp.perl.org/group/perl.perl6.language/20705">Rule 2</a> today on S02: during array/hash slicing, outside context is now no longer propagated to index expressions.  This resolves the problem encountered by Juerd and me a few days ago; Pugs has been fixed to adopt the new semantic.
+
+<p>
+As the IRC log above indicated, Schwern fixed our <code>Test.pm</code> so force_todo failures are still reported as failures during normal development.  To inhibit them, one must set the <code>PUGS_RELEASE</code> environment variable to a true value.  Stevan is still working toward a better way to replace force_todo, perhaps based on a multi-level todo notation like <code>:todo&lt;bug&gt;</code> and <code>:todo&lt;feature&gt;</code>...
+
+<p>
+theorbtwo valiantly hacked forward on adding <em>Haddock</em> support to Pugs, but kept running into Haddock limitations against newer GHC features (e.g. GADTs).  The current plan is to write a simple translator to convert our <code>.hs</code> files to Haddock-complaint <code>.hpp</code> files, while minimizing the information loss.
+
+<p>
+Aside from hacking on <code>#line</code> support, gaal ported Pugs to Cygwin, although the .msi version of GHC is still needed. 
+
+<p>
+Corion and iblech unTODOed and cleaned up various tests as usual; bsb reported that the current CVS version of GHC 6.5 already contained the same copy of <code>Unicode.hs</code> as our own, causing conflicting symbols.  This is now fixed.
+
+<p>
+That's it for today. See you tomorrow!
+</p>
+
+
+<hr/>
+
+
+
+<h2>hehe</h2>
+<h3><a href="/user/Qiang/">Qiang</a> on 2005-04-29T21:05:10</h3>
+<code>"Sorry for the short answers, but I'm in Russia behind a flakey network connection, which is probably going away entirely at any moment (the
+network connection, not Russia.)"</code> <p>
+
+I had a chuckle on that one. hehe</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

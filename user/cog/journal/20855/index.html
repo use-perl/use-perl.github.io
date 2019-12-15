@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of cog: Lock</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Lock</h1>
+<h2><a href="/user/cog/">cog</a> on 2004-09-13T16:28:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>In order to lock a variable, this is what I did (kind of):<br/><br/><blockquote><tt>sub lock {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;if ( $_[0] ) {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return 0
+<br>&nbsp;&nbsp;&nbsp;&nbsp;}
+<br>&nbsp;&nbsp;&nbsp;&nbsp;else {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$_[0] += $$;
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;if ( $_[0] == $$ ) {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return $$;
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;else {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$_[0] -= $$;
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return 0;
+<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}
+<br>&nbsp;&nbsp;&nbsp;&nbsp;}
+<br>}
+<br>
+<br>sub unlock { $_[0] = 0 }</tt></blockquote><br/><br/>And you can use it with something such as<br/><br/><blockquote><tt>if ( lock( $dbfile-&gt;{lock} ) ) {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;# I locked the database and now it's mine
+<br>}
+<br>else {
+<br>&nbsp;&nbsp;&nbsp;&nbsp;# somebody got there first...
+<br>}</tt></blockquote><br/><br/>Now... should I put this into a module? :-| And, considering I would (if not
+for anyone else, at least I'd be using it...), what should I call it? :-|<br/><br/><blockquote><tt>Lock::Mechanism ?</tt></blockquote>
+<blockquote><tt>Lock::Variable ?</tt></blockquote><br/><br/>:-| 
+</p>
+
+
+<hr/>
+
+
+
+<h2>is += atomic</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2004-09-13T16:41:20</h3>
+I'm not clear that += is atomic.  Have you verified that?
+
+
+
+<blockquote>
+
+<h2>Re:is += atomic</h2>
+<h3><a href="/user/cog/">cog</a> on 2004-09-13T16:50:30</h3>
+By atomic, you mean the operation concludes in one single step, right?<br> <br>I haven't verified it, no, but... does it matter?<nobr> <wbr></nobr>:-| After all, if the result isn't the expected one, changes are undone...<br> <br>OK, I just looked under perlop... and I couldn't find anything stating that += is not atomic...<nobr> <wbr></nobr>:-|
+
+
+
+<blockquote>
+
+<h2>Re:is += atomic</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2004-09-13T21:29:59</h3>
+Very few things are atomic.  By that, I mean there's no way that someone else can get "in the middle" of the operation.  But normally, += is implement by "fetching the value, adding the number, then storing the value".  That's three steps.  You lose, if you lose the CPU between two of those steps.
+<p>
+So, it looks good on paper, but will definitely fail in real life.  You really need something like flock(), which is atomic (or uses atomic steps at the bottom on which to build).</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>It can fail</h2>
+<h3><a href="/user/melo/">melo</a> on 2004-09-13T17:33:12</h3>
+<p>the sub unlock must be $_[0] -= $$</p>
+
+<p>If not, you could have $_[0] as a negative value, if a different thread unlocks a var while the else part of lock() is running (atfer the +=, before the if)</p>
+
+<p>You must of course ensure that += is atomic, as randal pointed out.</p>
+
+<p>What's your problem with IPC::Semaphore or Thread::Semaphore?</p>
+
+
+
+<blockquote>
+
+<h2>Re:It can fail</h2>
+<h3><a href="/user/cog/">cog</a> on 2004-09-13T17:41:36</h3>
+Actually, the unlock sub is kind of a "force unlock". Hence, the direct attribution to zero<nobr> <wbr></nobr>:-)<br> <br>My problem with IPC::Semaphore and Thread::Semaphore is that I didn't think of searching for Semaphore, only for Lock O:-)<br> <br>But anyway, I don't think the complexity of IPC::Semaphore (not that there's many of it) is needed for such a simple case as the one I've got. I only need to lock one variable in a file, to ensure that the same process doesn't run twice (or more) at the same time. (hum... maybe Semaphore::Simple, or Lock::Simple would have been better choices...)
+
+
+
+<blockquote>
+
+<h2>Re:It can fail</h2>
+<h3><a href="/user/melo/">melo</a> on 2004-09-13T17:56:50</h3>
+<p>I really can't recommend that code<nobr> <wbr></nobr>:).</p>
+
+<p>There are so many dependencies to make it work right: does += flushes the dbfile after the update? is it atomic (locks, read old value, sums with $$, writes new value, unlocks)?</p>
+
+<p>I think you are better off with Fcntl lock stuff...</p>
+
+
+
+<blockquote>
+
+<h2>Re:It can fail</h2>
+<h3><a href="/user/cog/">cog</a> on 2004-09-13T18:16:27</h3>
+does += flushes the dbfile after the update?<br> <br>At least in my case, it does.<br> <br>is it atomic?<br> <br>it doesn't lock and read old value and sums... it simply sums $$ and checks if the resulting value is indeed $$ or not; if not, then something else changed that variable meanwhile... which means we should decrement the variable with $$ again and leave it as it was... It's not an atomic thing... it tries to do it, and then it checks out whether it succeeded or not... and it really doesn't matter if it didn't, because that means some other process is taking care of the job already<nobr> <wbr></nobr>:-|
+
+
+
+<blockquote>
+
+<h2>Re:It can fail</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2004-09-13T21:52:02</h3>
+Nope, you can easily have no process take care of the job and leave the value at a non-zero negative number.  Two processes can both find a zero start, and both increment. Since += is not atomic, that can leave the lock set to PID1, PID2, or (PID1+PID2).  (The first two happen if the processes both start the increment by reading the current value before the other process has written it back - the one that writes it back second "wins".)  In the first two cases, as long as the wrong process decides it has failed and decrements the value before the other process gets the check whether it failed they will both decide they have failed and the value will end up at -PIDn (the PID of the "successful" process). In the 3rd case, as long as they both for failure before the other get a chance to decrement, they'll both fail; and depending upon how the decrements overlap the value will be reduced either to 0, PID1, or PID2.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Let there be light!</h2>
+<h3><a href="/user/cog/">cog</a> on 2004-09-13T22:44:08</h3>
+OK, I now understand what you were all talking about<nobr> <wbr></nobr>:-)<br> <br>Thanks for your patience, as I really wasn't getting it<nobr> <wbr></nobr>:-) Now it makes sense<nobr> <wbr></nobr>:-)<br> <br>It's going to be a very particular case, the one that fails, but I'm still going to implement a way to prevent it somehow<nobr> <wbr></nobr>:-)<br> <br>Thanks<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

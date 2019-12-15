@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of sartak: Devel::REPL: now with multiline support</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Devel::REPL: now with multiline support</h1>
+<h2><a href="/user/sartak/">sartak</a> on 2007-09-22T01:20:29</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've been using <a href="http://search.cpan.org/perldoc?Devel%3A%3AREPL">Devel::REPL</a> for a while now. Like all good modules
+(<a href="http://perlcritic.tigris.org/">Perl::Critic</a>, <a href="http://poe.perl.org/">POE</a>, <a href="http://plagger.org/">Plagger</a>, etc), it's very extensible. <a href="http://chainsawblues.vox.com/library/post/a-perl-read-excute-print-loop-repl.html">Devel::REPL's design</a> is worth
+studying: keep a simple core and ship all the fancy behavior as plugins.
+<a href="http://www.iinteractive.com/moose/">Moose</a> amplifies the power and convenience of this design with roles,
+method modifiers, and general awesomeness.</p>
+
+<p>There are plugins to dump output with Data::Dump::Streamer, enable tab
+completion of the current lexical environment and loaded modules, save
+input history across sessions, and more. However, if you dabble in other P-languages such as Python and Ruby (know thy enemy.. honest!) you'll find
+yourself wanting more out of Devel::REPL. Let's take the example of writing
+a factorial function in python:</p>
+
+<pre>
+% python
+Python 2.3.5 (#1, Dec  7 2006, 14:50:51) 
+[GCC 4.0.1 (Apple Computer, Inc. build 5363) (+4864187)] on darwin
+Type "help", "copyright", "credits" or "license" for more information.
+>>> def fact(n):
+...     if n < 2: 
+...         return 1
+...     return n * fact(n - 1)
+... 
+>>> fact(10)
+3628800
+</pre>
+
+<p>in irb:</p>
+
+<pre>
+% irb
+irb(main):001:0> def fact(n)
+irb(main):002:1> if n < 2
+irb(main):003:2> 1
+irb(main):004:2> else
+irb(main):005:2* n * fact(n-1)
+irb(main):006:2> end
+irb(main):007:1> end
+=> nil
+irb(main):008:0> fact 10
+=> 3628800
+</pre>
+
+<p>in lua:</p>
+
+<pre>
+% lua
+Lua 5.1.2  Copyright (C) 1994-2007 Lua.org, PUC-Rio
+> function fact(n)
+>> if n < 2 then
+>> return 1
+>> else
+>> return n * fact(n-1)
+>> end
+>> end
+> =fact(10)
+3628800
+</pre>
+
+<p>and in Devel::REPL:</p>
+
+<pre>
+% re.pl
+$ sub fact {
+Compile error: Missing right curly or square bracket at (eval 60) line
+8, at end of line
+syntax error at (eval 60) line 8, at EOF
+</pre>
+
+D'oh. OK, let's try again..
+
+<pre>
+% re.pl
+$ sub fact { my $n = shift; return 1 if $n < 2; $n * fact($n - 1) }
+
+$ fact 10
+3628800
+</pre>
+
+<p>Well, that works in this case, but one big line of code quickly becomes
+unmanageable.</p>
+
+<p>Recently I had the idea to use PPI to figure out if the current line of
+code is complete. PPI::Dumper quickly confirmed that I can detect the most
+important case: a PPI::Structure that doesn't have both a -&gt;start and -&gt;finish.
+Structures encompass { {nested { blocks } } }, (parentheses), [array indexing], {hash
+indexing}, and so on. Hopefully future versions of PPI will be able to
+figure out that, say, an s/// or quoted string is incomplete.</p>
+
+<p>Here's what the factorial example looks like with the MultiLine::PPI
+plugin.</p>
+
+<pre>
+% re.pl
+$ load_plugin 'MultiLine::PPI'
+1
+$ sub fact {
+> my $n = shift;
+> return 1 if $n < 2;
+> $n * fact($n - 1);
+> }
+
+$ fact 10
+3628800
+</pre>
+
+<p>I believe Devel::REPL is the only Perl REPL that can do this. Hooray!
+:)</p>
+
+<p>You can change the default prompts with my FancyPrompt plugin. Here's how I actually have my prompt (code is slightly different to show off nesting). It may look like "ugh", but it's actually really nice when you're in the driver's seat.</p>
+
+<pre>
+% re.pl
+> sub fact {
+>> my $n = shift;
+>> if ($n < 2) {
+>>> return 1;
+>>> }
+>> else {
+>>> return $n * fact($n-1);
+>>> }
+>> }
+
+> fact 10
+3628800
+</pre>
+
+<p>MultiLine::PPI hasn't been CPANed yet, but you can get it (and other new
+plugins) from <a href="http://dev.catalyst.perl.org/repos/bast/trunk/Devel-REPL">the Devel::REPL Subversion repository</a>.</p>
+
+<p>I'll continue stealing good features from other REPLs. :)</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

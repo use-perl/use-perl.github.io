@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Painful, painful bug</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Painful, painful bug</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-06-24T16:58:24</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>jplindstrom asked me if I had run the tests since they were failing.  Of course I ran them!  I had no idea how they were failing now when they passed a few minutes earlier.  However, with lots to do that day, I forgot about it.  Then today it happened again.  There were some tests which failed when run individually, but were passing when run via <tt>Test::Aggregate</tt>.  I was worried that there was a bug in my module, but it turns out to be a real bug which was spotted:</p>
+
+<p>Here was my test case:</p>
+
+<pre>  use PIPTest::Setup;
+  eval {
+      my $setup  = PIPTest::Setup->new;
+      my $schema = $setup->init_db;
+      die "ha!";
+  };
+  print "\$\@ is $@\n";</pre>
+
+<p>That printed "$@ is".  Something about the <tt>&amp;init_db</tt> call was screwing up <tt>$@</tt>.  After a binary search through the code, I got it down to this:</p>
+
+<pre>    my $schema = $self->connect_to_db();
+
+    # die "We see this in $@";
+    $self->static_table_count($count);
+    die "We don't see this in $@";</pre>
+
+<p>So what was in that mysterious <tt>&amp;static_data_count</tt> method?  It's from <tt>Class::Accessor::Fast</tt>:</p>
+
+<pre>sub static_table_count {
+    return $_[0]->{static_table_count} if @_ == 1;
+    return $_[0]->{static_table_count} = $_[1] if @_ == 2;
+}</pre>
+
+<p>I copied that directly into my code and yup, if that got called, it appeared to break eval somehow.  I was completely stumped.  Three of us wound up pouring over that code until the obvious question was asked:  "do we have a DESTROY method?"</p>
+
+<p>Well, duh.  In the DESTROY, we have dbic code.  Naturally, that uses evals internally and when our code dies, the DESTROY is triggered, wiping out my $@.  Adding <tt>local $@</tt> at the top of the DESTROY fixed that.</p>
+
+<p>So please, please, please:  if you use any of Perl's internal variable, localize it first.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Perl::Critic</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-06-25T03:46:35</h3>
+<p><a href="http://search.cpan.org/perldoc?Perl::Critic::Policy::Variables::RequireLocalizedPunctuationVars" title="cpan.org">Perl::Critic::Policy::Variables::RequireLocalizedPunctuationVars</a cpan.org> to the rescue!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Perl::Critic</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2008-06-25T13:09:15</h3>
+<p>That's not quite what this is about. The problem is that $@ gets set to undef whenever an eval runs successfully, eradicating the current exception object before it can get handled by reaching the <i>intended</i> eval.</p><p>The critic rule would be to always require</p><p><blockquote> <div><tt>DESTROY {<br>&nbsp; &nbsp; local $@;<br>&nbsp; &nbsp;<nobr> <wbr></nobr>...<br>}</tt></div> </blockquote> where<nobr> <wbr></nobr>... either contains an eval BLOCK, or a sub call which could potentially involve an eval BLOCK. A bit pedantic perhaps, but probably worth it since the alternative is to <b>risk silencing exceptions</b>!.<p>Of course other global vars could be problematic in the same way, but $@ is in an especially weak position since it's involved in flow control.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

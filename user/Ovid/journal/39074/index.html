@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: When Good Ideas Go Bad: use_ok</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>When Good Ideas Go Bad: use_ok</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-06-04T12:49:35</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Sometimes reasonable ideas evolve into good ideas and then evolve into great ideas and paradoxically become a bad idea.  Consider the following:</p>
+
+<pre>use Test::More tests => 1;
+use_ok 'My::Module';</pre>
+
+<p>Most who are familiar with testing know that <tt>use_ok</tt> is a valuable test, but the above code is bad because some behaviors must happen at compile time (function exports and prototypes are the examples cited in the docs).  So you really want this:</p>
+
+<pre>use Test::More tests => 1;
+BEGIN { use_ok 'My::Module'; }</pre>
+
+<p>But as it turns out, that doesn't quite do it either.  You see, if <tt>use_ok</tt> fails, <tt>My::Module</tt> may be partially compiled, causing your tests to run, but maybe throwing strange errors later.  This can be extremely confusing.  The strategy recommended by some is to fix the first test failures first, but a more reasonable strategy is to die immidiately:</p>
+
+<pre>use Test::More tests => 1;
+BEGIN { use_ok 'My::Module' or die; }</pre>
+
+<p>Or if you prefer <tt>Test::Most</tt> to do that for you:</p>
+
+<pre>use Test::Most 'die', tests => 1;
+BEGIN { use_ok 'My::Module'; }</pre>
+
+<p>It probably would have been better if <tt>use_ok</tt> simply died or skipped the rest of the tests for you, but backwards-compatability is being maintained.</p>
+
+<p>This test is so useful, unfortunately, that we now have the following anti-pattern:</p>
+
+<pre>$ ack -l 'BEGIN.*use_ok' t |wc -l
+23</pre>
+
+<p>Why is this bad?  Consider the following:</p>
+
+<pre>is $foo, $bar, 'foo and bar are the same';
+is $foo, $bar, 'foo and bar are the same';
+is $foo, $bar, 'foo and bar are the same';
+is $foo, $bar, 'foo and bar are the same';</pre>
+
+<p>You'd probably look at that a bit suspiciously.  It <em>might</em> be valid (but the test names should make it clear why), but it's probably just useless, duplicated tests.  When I started on this BBC team, I found the many <tt>use_ok</tt> statements scattered through the code and many were testing the same module over and over again.  There's no need to do that.  Just create <em>one</em> <tt>t/use.t</tt> file and put everything there.</p>
+
+<p>Aside from the obvious duplication of behavior, why would I care about this?  Well, a few days ago, <a href="http://groups.google.com/group/test-more-users/browse_thread/thread/6bead247a29f0b7d">Schwern announced he was pulling in my nested TAP fork</a> (Adrian worked on that fork, too).   Adrian Howard plans on updating <tt>Test::Class</tt> with this and he already has much of the code written for it.  I plan to update <tt>Test::Aggregate</tt> with this and I already have much of the code written for this.  Others have already discussed all sorts of interesting ideas with nested TAP.  That's where the BEGIN idea breaks down.</p>
+
+<p>Tests in BEGIN/CHECK/INIT/END won't run in the normal sequence of other tests.  This means that subtests will likely break very badly if any subtests are run in those blocks.  The latest dev release of <tt>Test::Aggregate</tt> already heavily deprecates tests run in those blocks (it deprecates them more strongly than I wish, but encouraging nested TAP is more important than <tt>Test::Aggregate</tt>.  Nested TAP is very exciting (sad, ain't I?) and it's time we get this out there for people.</p></p>
+
+
+<hr/>
+
+
+
+<h2>useless complexity</h2>
+<h3><a href="/user/jdv/">jdv</a> on 2009-06-04T17:33:00</h3>
+I never really understood the point of use_ok().  If a use fails it'll throw an exception.  The use_ok() function doesn't seem to add any value to that.  Someone please tell me if I'm missing something.
+
+
+
+<h2>Write your own use_ok() but leave mine alone</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2009-06-04T18:09:54</h3>
+<p>I like to have use_ok() give me its answer then let me decide what to do with it. It always sucks to have side effects forced on you. You want to die (although you probably really want to bail_out), but maybe I want to do something else, like tell a pre-commit hook something, try to log an error message, or whatever. If you want to attach extra behaviour, make a use_ok_or_die().</p><p>I have use_ok() duplicated in several test files. That allows me to run just a single test file with those sanity checks. If you're talking about duplicating tests in the same file, that's probably a different story.</p>
+
+
+
+<h2>You don't want it to be use.t</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-06-05T03:09:00</h3>
+<p>Every module I own (and all my work projects) have this, but explicitly as the first test.</p><p>01_compile.t is responsible for compiling and loading absolutely everything in the distribution (including test support libraries), for running perl -c tests on all included scripts, and for things which loads module trees automatically, also for making sure that the $VERSION's of the modules all match.</p><p>And if any of this fails, it should do a BAIL_OUT.</p><p>All of this runs FIRST, so that all of the rest of the tests can trust implicitly that anything it loads will be ok. The other of the rest of the test scripts doesn't really matter THAT much.</p><p>But in my opinion it's critical that this 01_compile.t (often named as 01-load.t) script is the very first test that is run.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

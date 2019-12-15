@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of scrottie: Closure objects -- alternatives to inside out objects</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Closure objects -- alternatives to inside out objects</h1>
+<h2><a href="/user/scrottie/">scrottie</a> on 2007-08-01T06:51:19</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>In a post a bit ago, I had this example:
+<pre>
+sub AUTOLOAD {
+    # that object's data.
+    our $AUTOLOAD; my $method = $AUTOLOAD; $method =~ s/.*:://;
+    return if $method eq 'DESTROY';
+    our $self = shift;
+    if(! exists $self->{$method}) {
+      my $super = "SUPER::$method";
+      return $self->$super(@_);
+    }
+    $self->{$method}->(@_);
+}
+</pre>
+This takes method calls and re-dispatches them to the methods actually stored inside of the object.  The constructor would look something like:
+<pre>
+sub new {
+    my $package = shift;
+    our $self = bless \my %self, $package;
+    my $foo; # instance var
+    $self{get_foo} = sub { $foo };
+    $self{set_foo} = sub { $foo = shift; }    
+    return $self;
+}
+</pre>
+<code>%self</code> and <code>$self</code> don't hold any instance data; they just hold coderefs that are closures that close over the instance data.  This takes a lot more RAM than ordinary Perl classes.  But that doesn't work with <code>$ob->can()</code>.
+<pre>
+sub new {
+    my $type = shift;
+    my $package = $type . sprintf '::X%09d', our $counter++;
+    push @{$package.'::ISA'}, $type;
+    my $self = bless \%{$package.'::'}, $package;
+    sub method ($&);
+    *method = sub ($&) { my $name = shift; *{"$package\::$name"} = shift; };
+    my $foo; # instance variable
+    method get_foo => sub { $foo; };
+    method set_foo => sub { my $self = shift; $foo = shift; }
+    return $self;
+}
+</pre>
+This is the basis of my Object::Lexical module but here I've inlined the code.  O::L also does some bizarre evil stuff with local'izing variables in a loop constructed with goto so that the localizations don't go out of scope at the end of the loop... anyway.  That code puts each object instance into its very own package that subclasses the package that it's supposed to be in.  Each method is a coderef (probably a closure) stuck right into the symbol table there.  Then <code>$ob->can()</code> works, and so does <code>foo()</code> for calling another method as a function.  And a lot of other things work too.
+I wanted <code>can()</code> because I'm doing <code>$ob->can($method) ? $ob->can($method)->($ob, @args) : error</code> for some late binding garbage and that's a lot neater than looking to see if some <code>AUTOLOAD</code> method raised an error.  And it doesn't have the CPU overhead of <code>AUTOLOAD</code>.  
+<br><br>
+Moving forward, I need to create accessors for the variables, so the object can be passed in-tact to functions in the logger class which can pick out the values they want.  Aristotle suggested value objects pattern and I'm thinking maybe moving towards a visitor pattern arrangement.  Also (as mentioned) the main program needs to be turned into an object (representing the server process, as it so happens).
+<br><br>
+Yes, things are a bit of a mess now.  It's really easy to go into code that has cut-and-paste-itus and try to clean it up and just utterly fail because you start fixing one thing, get distracted and start fixing another thing, and so on and so forth.  I started a job not long ago where I was warned to "be careful of the rabbit holes".  I like that expression.  In this case, not going down rabbit holes means fixing one while leaving everything else bad, disorganized, in need of refactor, silly, etc, but *working*.  Besides debating whether I should be doing this evil to accomplish that, I've also been pondering ways to accomplish this one refactor without having to start others half way through.  A refactor is supposed to be a single, atomic change that doesn't change the logic and therefore couldn't break anything (but you should have tests anyway because people make mistakes).  Aliasing variables (a lot of variables got passed to the constructor but several others had to be aliased between modules, using references passed to the constructor and Data::Alias) was important to this effort.  Having variables aliased between modules is obviously bad news, but doing it allowed me to accomplish this refactor, and changing logic so that they aren't aliased is a refactor for the future.  I think it's still a win because numerous variables were used only in what's now the main program and numerous other variables are only used in this code that was broken off, so number of variables in scope in each place has been drastically reduced.  I feel like I've successfully decoupled logic and data to a large degree.  Does the end justify the means? ;)
+<br><br>
+-scott<br/><br/></p>
+
+
+<hr/>
+
+
+
+<h2>On closure-based objects</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-03T04:48:38</h3>
+<p>What I don&#8217;t see is why you picked closure-based objects?</p>
+
+<p>As for the package-per-instance approach, that works, but the packages never get garbage-collected unless you do that manually, which is tricky to get right in the best of cases, and I think deleting packages has some gotchas anyway.</p>
+
+<p>As for <code>can</code>, you know that it&#8217;s just a method, right? Assuming you use the first approach that relays through a dispatch table rather than the one where you create packages:</p> <p><blockquote> <div><tt>sub can {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; my ( $method ) = @_;<br>&nbsp; &nbsp; return exists $self-&gt;{ $method }<br>&nbsp; &nbsp; &nbsp; &nbsp; ? $self-&gt;{ $method }<br>&nbsp; &nbsp; &nbsp; &nbsp; : $self-&gt;SUPER::can( $method );<br>}</tt></div> </blockquote>  <p>(Employ <a href="http://search.cpan.org/dist/SUPER/" title="cpan.org">SUPER</a cpan.org> or <a href="http://search.cpan.org/dist/Class-C3/" title="cpan.org">Class::C3</a cpan.org> as appropriate.)</p>
+
+<p>That&#8217;s much neater than screwing around in the symbol tables.</p>
+
+
+
+<blockquote>
+
+<h2>Re:On closure-based objects</h2>
+<h3><a href="/user/scrottie/">scrottie</a> on 2007-08-03T08:11:34</h3>
+<br>As for why closure based objects, so that I didn't have to go through and change all of the thousands of variables to be $self{var} or $self-&gt;{var} or the like instead of $var.<br><br>As for AUTOLOAD, that's a good point (redefining can).  I'm not sure what I was thinking in just not doing that.  But it's about the same amount of code either (mucking with the symbol table to redispatching with AUTOLOAD), and I like the idea of not having to go through AUTOLOAD for each hit.<br><br>I'm probably going to be moving a lot of variables from being instance data to local to the method and it'll be nice not to have to go back and change them back to ordinary scalars but instead just change the scope.<br><br>-scott
+
+
+
+<blockquote>
+
+<h2>Re:On closure-based objects</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-03T14:27:07</h3>
+<p>Does the expense of going through AUTOLOAD really matter? Because it&#8217;s most definitely not the same amount of code, qualitatively speaking. The package-based code is a lot more conceptually complex, and has much more tangible problems than the overloaded <code>can</code> method (defies garbage collection <i>vs.</i> slows method calls down a tad).</p>
+
+<p>As for just changing the scope: what do you mean? I don&#8217;t quite understand that statement.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>On cleaning up awful code</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-03T04:55:46</h3>
+<p><blockquote> <div><p>It&#8217;s really easy to go into code that has cut-and-paste-itus and try to clean it up and just utterly fail because you start fixing one thing, get distracted and start fixing another thing, and so on and so forth.</p></div> </blockquote>
+
+<p>Yeah. Unraveling a ball of mud is an art. A painful, slow and proportionally unrewarding art, but an art nonetheless.</p> <p><blockquote> <div><p>I feel like I&#8217;ve successfully decoupled logic and data to a large degree. Does the end justify the means?<nobr> <wbr></nobr>;)</p></div> </blockquote>
+
+<p>As I opined before, yes it does, as long as the end is a straightforward codebase with no tricks. It&#8217;s fine to get there using evil tricks to keep the code working between steps, as long as you wipe away the magick once it has served its purpose.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: How Test::Aggregate does 'skip_all'</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>How Test::Aggregate does 'skip_all'</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-09-16T08:03:16</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><P><em>Before I start, I just want to say how incredibly thankful I am that I did not take that job at Lehman Brothers.  It was <em>soooo</em> tempting.</em></p>
+
+<p><a href="http://search.cpan.org/dist/Test-Aggregate/">Test::Aggregate</a> used to not allow 'skip_all' in plans.  This was because you would "skip_all" 12,000 tests instead of just the 20 or so in the test program.  Very disappointing.  It even warned you if it thought you might be using skip_all.  I mentioned I might fix it one day, but now I <em>had</em> to fix it (0.34_03 and above), but it turned out to not be easy.</p>
+
+<p><tt>Test::Aggregate</tt> uses an <tt>Apache::Registry</tt> trick to make defer loading some code.  We take a small test program like this:</p>
+
+<pre>use strict;
+use warnings;
+
+use Test::More 'no_plan';
+
+is 2+2, 4, 'We can add!';</pre>
+
+<p>And turn it into something similar to this (trimming some bits):</p>
+
+<pre>  1 {
+  2 #################### beginning of aggtests/test.t ####################
+  3     package aggteststestt;
+  4
+  5     sub run_the_tests {
+  6         local $0 = 'aggtests/test.t';
+  7
+  8 # line 1 "aggtests/test.t"
+  9
+ 10         use strict;
+ 11         use warnings;
+ 12
+ 13         use Test::More 'no_plan';
+ 14
+ 15         is 2 + 2, 4, 'We can add!';
+ 16     }
+ 17 #################### end of aggtests/test.t ####################
+ 18 }</pre>
+
+<p>Line 3 guarantees that we're in an encapsulated namespace.  Line 6 solves a problem where many tests make assumptions about the contents of <tt>$0</tt> and line 8 is a line directive which ensures that errors are reported with the original line number and filename.  There's actually a lot more, but this is the core of what we're doing.</p>
+
+<p>The problem was that a "skip_all" in <tt>Test::Builder</tt> figured out an easy way to halt the tests.  It just calls exit and that doesn't work for me.  Since these tests are now wrapped in subs, if I wanted to simulate "skip_all" I had to call "return", but as a stand-alone test program, that looks very strange.  Nonetheless, I had this at the top of a number of test programs:</P>
+
+<pre>if ( $ENV{FAST_TESTS} ) {
+    if ( $ENV{TEST_AGGREGATE} ) {
+        Test::Builder->new->skip("Skipping $0 under aggregated fast tests");
+        return;
+    }
+    else {
+        plan skip_all => 'FAST_TESTS environment variable set';
+    }
+}
+else {
+    plan tests => $num_tests;
+}</pre>
+
+<p>I couldn't factor that out into a subroutine as that "return" would have to return from an extra stack level.  Ugh!  (more than once I have failed to refactor code because I need to return or eval code at a different stack level from the current one).  However, even using this would throw my "skip_all" warnings in <tt>Test::Aggregate</tt>.</p>
+
+<p>I was washing dishes on Sunday and thinking "damn it.  I wish I had a reliable source filter or Perl 6 grammars.  That would make this problem trivial because I ... I ... I..."</p>
+
+<P>Oh.  I'm a dumbass.</p>
+
+<p>I'm not using source filters, but I'm <em>already rewriting the damned code</em>!  Now the above test script looks a bit like this when rewritten:</p>
+
+<pre>  1 {
+  2 #################### beginning of aggtests/test.t ####################
+  3     package aggteststestt;
+  4
+  5     sub run_the_tests {
+  6         local $0 = 'aggtests/test.t';
+  7
+  8         AGGTESTBLOCK: {
+  9             if ( my $reason
+ 10                 = $Test::Aggregate::Builder::SKIP_REASON_FOR{aggteststestt} )
+ 11             {
+ 12                 Test::Builder->new->skip($reason);
+ 13                 last AGGTESTBLOCK;
+ 14             }
+ 15 # line 1 "aggtests/test.t"
+ 16
+ 17             use strict;
+ 18             use warnings;
+ 19
+ 20             use Test::More 'no_plan';
+ 21
+ 22             is 2 + 2, 4, 'We can add!';
+ 23         }
+ 24     }
+ 25 #################### end of aggtests/test.t ####################
+ 26 }</pre>
+
+<p>Ugly, but you should never see this code anyway.  Problem solved.  (I wanted to put the "last AGGTESTBLOCK" in the <tt>Test::Builder::plan</tt> subroutine, but because it's called at compile-time, the AGGTESTBLOCK hasn't finished parsing, so <tt>&plan</tt> cannot "last" out of a block it can't see).</p>
+
+<P>And that ugly if/else "FAST_TESTS" block above?  Now it looks like this:</p>
+
+<pre># If it's not in a BEGIN block, it will run too late for
+# the &run_the_tests call to see it.
+BEGIN {
+    plan $ENV{FAST_TESTS}
+        ? (skip_all => 'FAST_TESTS environment variable set')
+        : (tests => $num_tests);
+}</pre>
+
+<p>All things considered, I think this has been a good day's work.</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

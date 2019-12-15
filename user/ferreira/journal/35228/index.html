@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ferreira: The need for SUPER</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>The need for SUPER</h1>
+<h2><a href="/user/ferreira/">ferreira</a> on 2007-12-28T17:01:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><blockquote><em>
+Also known as "The trap of SUPER::method"
+</em></blockquote>
+
+<p>
+I never have grokked <a href="http://search.cpan.org/perldoc?SUPER">SUPER</a> and what exactly it could do for me. Until I wrote <a href="http://search.cpan.org/perldoc?Class::Constructor::Factory">Class::Constructor::Factory</a>.
+</p>
+
+<p>
+<code>Class::Constructor::Factory</code> is a helper module to prevent me to spend time writing constructors after using a module like <code>Class::Accessor</code> (and siblings) that gave me for free handy accessors/mutators for object fields. Those modules also gave me a constructor for free. But I am never happy with constructors without a way to specify defaults when initial field values are not given.</p>
+
+<p>
+So <code>C::C::F</code> is a step towards a more automated way to get better constructors for free and, in a near future, to write classes with less effort. Actually, using the 0.001 version of the module looks like this:
+</p>
+
+<pre>
+package Foo;
+
+use Class::Constructor::Factory; 
+use base qw( Class::Accessor Class::Constructor::Factory );
+
+__PACKAGE__->mk_constructor0({
+  foo => 42,
+  bar => 'fourty-two',
+});
+__PACKAGE__->mk_accessors(qw( foo bar ));
+</pre>
+
+<p>
+The thing is that <code>C::C::F</code> augments the actual constructor provided by the IS-A chain of the new package with handling of defaults. So a closure is built and then installed into <code>&Foo::new</code> to work out the wanted magic.
+</p>
+
+<pre>
+my $foo = Foo->new();
+is( $foo->foo, 42 );
+is( $foo->bar, 'fourty-two' );
+</pre>
+
+<p>
+That is rather straightforward and involved code which looked like this:
+</p>
+
+<pre>
+package Class::Constructor::Factory;
+
+...
+
+sub make_constructor0 {
+  my $self = shift;
+  ...
+
+  # return a closure
+  return sub {
+    my $self = shift;
+    ...
+    return $self->SUPER::new->( $self, \%f ); # XXX the offender
+  };
+}
+</pre>
+
+<p>
+I must say that this code is deceptively simple and wrong. Because <code>-&gt;SUPER::new</code> tried to invoke the <code>&new</code> of <code>Class::Constructor::Factory</code> superclasses (which does not exist). I understood why by reading the docs of <code>SUPER</code> and <a href="http://perldoc.perl.org/perlobj.html">perlobj</a>. The relevant quote is:
+
+<blockquote><em>
+"It is important to note that SUPER  refers to the superclass(es) of the current package and not to the superclass(es) of the object."
+</em></blockquote>
+
+<p>
+So even after the closure was installed into the <code>Foo</code> namespace, <code>->SUPER::new</code> yet referred to the superclass of the package where the code was compiled, not doing what I wanted.
+</p>
+
+<p>
+The solution is to use <code>SUPER</code> and then rewrite the offender code line as:
+</p>
+<pre>
+    return $self->super('new')->( $self, \%f );
+</pre>
+
+<p>
+After this, the <code>&new</code> is searched correctly among the superclasses of the object and everything is just fine.
+</p>
+
+<p>
+This entry is just to remind me that <code>-&gt;SUPER::method</code> and dynamic code generation (or equivalently dealing with closures in namespaces other than where they were compiled) is at least misleading. I don't claim to have understood all the issues <code>SUPER</code> may address, but I learned something. <em>Thanks, chromatic!</em> And maybe this trap may be turned off in the future by toogling a feature in a future Perl 5 version. 
+</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>thanks</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2007-12-28T17:37:51</h3>
+This post was a helpful reminder about the pitfalls and features of SUPER.<br><br>Thanks!<br><br>
+&nbsp; &nbsp; Mark
+
+
+
+<h2>Thanks Simon Cozens!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2007-12-28T19:59:44</h3>
+<p>Simon Cozens is the original author of the module; I took it over from him a couple of years ago.  He deserves the credit.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

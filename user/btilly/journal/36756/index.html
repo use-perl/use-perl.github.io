@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of btilly: I hate context</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>I hate context</h1>
+<h2><a href="/user/btilly/">btilly</a> on 2008-06-23T20:26:56</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've hated Perl's notion of context for a long time.  So this weekend was just confirmation.<br/><br/>The problem is simple.  Perl's notion of context requires that we think about what we want to do in array and scalar contexts, and potentially do different interesting things.  This automatically doubles all APIs.  Now it is true that sometimes there is something useful you can hang on this hook.  But in my experience it is more often true that nothing really is obvious.  And in that case with depressing frequency you get design decisions that age poorly.<br/><br/>For example at one point I read an article suggesting that it was a good idea to return a reference to an array in scalar context.  I was briefly convinced and did this in Text::xSV.  And now I curse myself every time I write:
+<code>
+  my $name = $csv->extract("name");
+</code>
+and it does what I don't want.<br/><br/>Now it is easy to say that this is a poorly thought through design decision.  And it was.  But I've noticed that attempts to be clever with context frequently lead to bad design decisions.  And result in making APIs more complex than they need to be.  Sure, context is occasionally handy.  But when I compare Perl to Ruby or JavaScript, I find that on balance context doesn't seem worthwhile to me.<br/><br/>This is old hat.  What prompted this is something specific.  On the Rose::DB::Object list we had a discussion about a bug between Rose::DB::Object and Template Toolkit.  Here is the bug in simplest possible form:
+<code>
+#!perl -w<br/><br/>package MainObject;
+sub new { bless {}, shift }
+sub subobjects {
+    my @data = SubObject->new("world");
+    # no problem when there are more than 1 subobjects
+    # push @data, SubObject->new("Hello");
+    return wantarray ? @data : \@data;;
+}<br/><br/>package SubObject;
+sub new { bless {somevalue => $_[-1]}, shift}
+sub somevalue {
+    return shift->{somevalue};
+}<br/><br/>package main;
+use strict;
+use Template;<br/><br/>my $template = Template->new();
+$template->process(\*DATA, {mainobject => MainObject->new()}) or die $template->error;
+__END__<br/><br/>[% FOREACH subobject IN mainobject.subobjects.reverse %]
+    still not printed: [% subobject.somevalue %]
+[% END %]
+</code>
+This prints some blank lines.  If there are multiple subobjects it does what it is supposed to.<br/><br/>Well, OK.  Obviously a weird context problem of some sort.  Template::Stash::Context is supposed to help resolve those.  So we try it:
+<code>
+#!perl -w<br/><br/>package MainObject;
+sub new { bless {}, shift }
+sub subobjects {
+    my @data = SubObject->new("hello");
+    # no problem when there are more than 1 subobjects
+    return wantarray ? @data : \@data;;
+}<br/><br/>package SubObject;
+sub new { bless {somevalue => $_[-1]}, shift}
+sub somevalue {
+    return shift->{somevalue};
+}<br/><br/>package main;
+use strict;
+use Template;
+use Template::Stash::Context;<br/><br/>my $stash = Template::Stash::Context->new();
+my $template = Template->new({STASH=>$stash});
+$template->process(\*DATA, {mainobject => MainObject->new()}) or die $template->error;<br/><br/>__END__<br/><br/>[% FOREACH subobject IN mainobject.subobjects.reverse %]
+    still not printed: [% subobject.somevalue %]
+[% END %]
+</code>
+This time it dies a horrible flaming death because it can't locate object method "reverse" via package "SubObject".  WTF?<br/><br/>After some hacking around I came up with the following patch that makes Template::Stash::Context work properly:
+<code>
+--- /Library/Perl/5.8.8/darwin-thread-multi-2level/Template/Stash/Context.pm    2007-04-27
+10:56:05.000000000 -0700
++++ Context.pm  2008-06-23 00:32:17.000000000 -0700
+@@ -508,9 +508,8 @@
+                                                    $returnRef,
+$scalarContext);
+                return $retVal if ( $ret );                     ## RETURN
+           }
+-           elsif (UNIVERSAL::isa($root, 'ARRAY')
+-                  && ($value = $LIST_OPS->{ $item })) {
+-               @result = &$value($root, @$args);
++           elsif ( defined($value = $LIST_OPS->{ $item })) {
++               @result = &$value([$root], @$args);             ## @result
+           }
+           else {
+               @result = (undef, $@);
+</code>
+It turns out that Template::Stash::Context added the ability to do list operations only to native scalar types, and not to scalar objects.  This fixes that.<br/><br/>Of course there is the real underlying problem, which is why returning 1 thing is so different from returning many things.  Digging further the cause of that problem is that TT does not internally maintain a notion of context.  Because of that, it winds up with the same internal data structure for the return out of scalar context and the return of one thing in list context.  Then when it has to thaw it out, it has no choice but to treat them as being the same thing.  I found at least one place that assumption was encoded, but there are more, and it doesn't look easy to fix.<br/><br/>Now it is easy to say "poor design decision within TT".  It is.  However there is an old design principle.  Which is that when people make repeated mistakes involving one part of the interface, at some point you have to ask whether the real mistake is in the design of the interface itself.  (This is not, incidentally, a software principle.  Read <i>The Design of Everyday Things</i> for more on it.  I also saw it repeatedly emphasized in a book about industrial disasters.)<br/><br/>It seems to me that there are repeated mistakes made by good people involving the notion of context.  Which I take as evidence that the problem is with the idea of context itself.  And then I conduct a sanity check.  There are a lot of languages out there that deliberately borrowed a lot of ideas from Perl.  How many have chosen to borrow the idea of context?  Why not? :-)</p>
+
+
+<hr/>
+
+
+
+<h2>Identifiers!</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2008-06-24T02:23:07</h3>
+<p>Seriously, I think the greater problem  about identifiers rather than context. To stay with your example of "extract", that's a verb. When a method has a verb as a name, I expect it to do whatever the verb says. As the return value, I wouldn't (ever) expect a list, but instead some true value if the action has succeeded, and a false value if it hasn't.</p><p>A method that returns something, should have a noun as its name, that describes what it returns. Even if it's something as simple and perhaps ambiguous as "field", it's very useful and good autodocumentation. And best of all: you can make a plural out of most nouns. A method named "fields" clearly says that it's going to return a list. And for a method that so clearly returns a list, the case for returning an arrayref in scalar context is made almost intuitively.</p><p>Given a line like:</p><p>my $field = $something-&gt;fields;</p><p>I'd immediately notice the asymmetry, which can be solved in numerous ways, list assignment being the obvious one if there's no singular field method:</p><p>my ($field) = $something-&gt;fields;</p><p>If you're reminded of Joel Spolsky's article about making wrong code look wrong, that's great. If not, you should probably go (re)read it<nobr> <wbr></nobr>:)</p><p>With functions (rather than methods called on objects) data doesn't go anywhere else than the return value - after all, variable sharing is bad. However with methods the data generated by the method might stay in the method. You really need a good system of identifiers to consistently indicate what happens.</p><p>Good identifiers turn context into a really useful concept, while bad identifiers make it a messy thing that involves lots of guesses and/at design decisions. But instead of identifiers, your post revolves around Template Toolkit's handling of list context. That's caused by their awkward combination of Perl and a language that doesn't have context and lists. TT may be written in Perl, but it isn't Perl - or even Perlish. In fact, its language appears to be designed with a strong anti-Perl bias. Yet at the same time, using Perl code with it is encouraged: look how easy it is to use your existing Perl objects in TT!</p><p>Indeed you have to ask if this TT design mistake is in the interface itself. The root of the problem is that Perl does something that most (all?) other programming languages don't do. And that makes it incompatible. Bad Perl? No, I really love context and lists. They make perfect sense within Perl, and fit my thought patterns well. Just not in PHP, Ruby, Python, and indeed... Template Toolkit.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Identifiers!</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-06-24T03:27:03</h3>
+<p>You're right that good design starts with good naming.  Unfortunately the idea of systemically basing your method and class names on grammatical notions is one that I was not exposed to until I read <i>Perl Best Practices</i>.  Which did not immediately sink in because it was formulated in a very abstract manner and it took a while for the advice to sink in.</p><p>Needless to say I wrote that module before this point.</p><p>Still when you're facing a design mistake, it is worth thinking about all of the potential contributing factors.  So you're right that a better naming strategy could have lead me to naturally name the method "values", which would have avoided the problem.  And that is a good lesson.  However it does not change the fact that there are other contributing factors to the example.</p><p>In fact context provided another contributing factor.  Given that pluralization is linguistically provided by context in Perl, there is a slight design pressure to pick names that don't change when you pluralize them.  I've felt that pressure, and it is nothing more than the fact that it feels slightly wrong to be saying "many" and "one" at the same time in your code.  However if you succumb to that pressure you'll almost always wind up making worse overall design decisions.</p><p>With experience I no longer feel that, but I certainly did at one point, I expect that others do, and it is yet another way in which context can help trip people up.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Identifiers!</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-06-24T09:35:44</h3>
+<p>Larry seems to both agree and not agree&#8230; based on how context works in Perl&#160;6 anyway.<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

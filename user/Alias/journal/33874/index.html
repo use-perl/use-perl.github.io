@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Perl image recognition via regular expressions</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl image recognition via regular expressions</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2007-07-24T19:56:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>If you are lucky (and probably Australian), you will have had the opportunity to see a hilarious lightning talk by <a href="http://pjf.id.au/perl/">Paul Fenwick</a> (pjf) where demonstrates how he managed to use <a href="http://search.cpan.org/perldoc?Win32::GuiTest">Win32::GuiTest</a> to write a bot that plays minesweeper for him (and might I add, uses an undocumented easter egg to cheat at minesweeper, avoiding the np solver problem) :)<br/><br/>But I gather that some of the implementation is a little laborious, and does a few different evil things to get the job done.<br/><br/>The thing is, it jars me a little that a Win32-specific API is needed in order to make it work. I much prefer my solutions cross-platform.<br/><br/>So I've been pondering the idea of how to write a CROSS-PLATFORM bot that will play minesweeper for me.<br/><br/>Clearly, there's two main ingredients needed here.<br/><br/>1. A way to look at a computer screen and recognize what you are seeing.<br/><br/>2. A way to move the mouse around, click things and maybe type.<br/><br/>It shouldn't REALLY be necessary to inject events into the Windows GUI widgets. <br/><br/>So firstly, we need a cross platform way to look at a computer screen and recognize things. And as we all know, image recognition algorithms are one of these non-trivial things we keep reminding ourselves never to write.<br/><br/>But as I sometimes also need to keep reminding myself, Perl's regular expression engine is really really really fast and really really really GOOD at finding complex patterns in data (strings).<br/><br/>So why not teach the regular expression engine how to do image recognition! :)<br/><br/>First, we need a few things.<br/><br/>Thanks to the ongoing indefatigable work of Tony Cook, we have a great cross-platform image library, in the form of <a href="http://search.cpan.org/perldoc?Imager">Imager</a>.<br/><br/>And after a little bit of badgering from me, he was helpful enough to extend a branch of the Imager empire in the specific direction of <a href="http://search.cpan.org/perldoc?Imager::Screenshot">Imager::Screenshot</a>, which will let you take a screenshot on any platform as well.<br/><br/>With our picture of the desktop captured, we then just need a search image. Lets assume we can load these from a file.<br/><br/>So now all that's necessary is to express the screenshot as a single long string. I've taken the simple (but a little bloaty) approach for this first implementation of just converting each pixel to a HTML colour tag, like #003399.<br/><br/>I won't print out what this looks like, but you get the idea. One great big boring repetitive string.<br/><br/>Then we just need to convert our search image to a pattern that will be able to be found within this target image.<br/><br/>Something like this...<br/><br/>(?:#FFFFFF){13}.{259}(?:#FFFFFF){13}.{259}(?:#FFFFFF){9}#0026FF(?:#FFFFFF){3}.{259}(?:#FFFFFF){3}(?:#0026FF){7}(?:#FFFFFF){3}.{259}(?:#FFFFFF){3}#0026FF(?:#FF0000){2}(?:#FFFFFF){2}(?:#FFD800){2}(?:#FFFFFF){3}.{259}(?:#FFFFFF){3}#0026FF(?:#FF0000){3}(?:#FFD800){3}(?:#FFFFFF){3}.{259}(?:#FFFFFF){3}#0026FF(?:#FF0000){2}(?:#FFD800){2}#FFFFFF#FFD800(?:#FFFFFF){3}.{259}(?:#FFFFFF){3}#0026FF#FF0000#FFD800(?:#FF0000){2}#FFFFFF#FFD800(?:#FFFFFF){3}.{259}(?:#FFFFFF){3}#0026FF(?:#FF0000){3}(?:#FFFFFF){2}#FFD800(?:#FFFFFF){3}.{259}(?:#FFFFFF){3}#0026FF(?:#FFFFFF){5}#FFD800(?:#FFFFFF){3}.{259}(?:#FFFFFF){13}.{259}(?:#FFFFFF){13}.{259}(?:#FFFFFF){13}<br/><br/>Each row consists of 13 pixels in this case, and between each row we have a gap of 259 characters (37 pixels x 7 characters for my test images) which skips forward to the position that matches the first pixel of the next row.<br/><br/>And so now all we need to do is match the pattern to the target image string, collecting the match position, converting them BACK to x,y co-ordinates, and making sure the resulting match doesn't span across the end of the row (just in case).<br/><br/>Regex run-time for the search on my cheap-ass oldish laptop? 0.0377 seconds.<br/><br/>And there you have it.<br/><br/>Given an arbitrary search image in a few dozen lines of Perl (which will be available on CPAN as Imager::Search as soon as I write up the POD and some more tests) the regex engine can be used to take a simple search file and find the location on a the screen, regardless of operating system!<br/><br/>Want to write a mahjong bot? Just capture little search images of each tile, and Perl should easily be able to look at the mahjong board, see which tiles are exposed, match them up, and then click on them! :)<br/><br/>Now I just need to find a way to get an abstract API for pointing and clicking.</p>
+
+
+<hr/>
+
+
+
+<h2>fun</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2007-07-25T01:36:38</h3>
+Fun!
+
+
+
+<h2>VNC?</h2>
+<h3><a href="/user/DAxelrod/">DAxelrod</a> on 2007-07-26T00:23:33</h3>
+<p><div class="quote">CROSS-PLATFORM</div>  <p><div class="quote">1. A way to look at a computer screen and recognize what you are seeing.<br> <br>
+2. A way to move the mouse around, click things and maybe type.</div> Sounds like VNC to me. Admittedly I don't know much about it at the protocol level.
+
+
+
+<blockquote>
+
+<h2>Re:VNC?</h2>
+<h3><a href="/user/DAxelrod/">DAxelrod</a> on 2007-07-26T00:35:11</h3>
+<p>Hm.</p>
+<p> <a href="http://search.cpan.org/perldoc?Net::VNC" title="cpan.org">Net::VNC</a cpan.org> exists but looks like it does display only; it doesn't look like there's a way to send input back to the server.</p>
+<p>There's also something called <a href="http://libvncserver.sourceforge.net/" title="sourceforge.net">LibVNCClient</a sourceforge.net> that includes a perl-based macro recorder called VisualNaCro, which might be worth poking around with.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>resolution</h2>
+<h3><a href="/user/slanning/">slanning</a> on 2007-07-26T08:55:32</h3>
+What happens when you change screen resolution?
+
+
+
+<blockquote>
+
+<h2>Re:resolution</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-07-27T01:40:23</h3>
+You generate a new search regex...<br><br>I'm doing it every time anyway, since I haven't added caching.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

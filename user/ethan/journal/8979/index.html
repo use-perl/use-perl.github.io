@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: IO::Select so cool</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>IO::Select so cool</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2002-11-16T17:04:28</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I am using a hand-rolled MP3 player for the console to circumvent the limitations that <code>mpg123</code> has. It's using the brilliant <code>MPEG::MP3Play</code> as backend which even has such goodies as a nice equalizer etc. With the help of <code>Term::ReadKey</code> my players response to single key-strokes: 'e' for editing the tag, '&gt;' for next song, '&lt;' for previous song, '+' turning volume up and so on.<br/><br/>My playlist however has too many songs I prefer to skip. Since I always have my player on a virtual console I have to switch to it when skipping a song and being under X. I am a little concerned with the lifetime of my monitor if I do that a few hundred times a day (you probably know this 'click' of the relais inside a monitor).<br/><br/>So I thought it'd be cool if I had a sort of remote control that I could associate with a WindowMaker application icon: one click and the song is skipped or so. I thought: Hey, that's easy, I just need to integrate a socket server into my player so I went for <code>IO::Socket::INET</code> and <code>IO::Select</code>.<br/><br/>The event loop of the player is actually simple: two nested while loops:<br/><br/><code><br/><br/>    while () {<br/><br/>        my $k;
+        while (not defined ($k = ReadKey(-1))) {
+            # process the updating of the display with MPEG::MP3Play
+            # methods: yes, my player even has a counter for the playing time
+            ...
+        }
+        # process key-strokes here<br/><br/>    }
+</code><br/><br/>Making my player networkish just required a few lines of code and no change of the overal control-flow. The above now looks as follows:<br/><br/><code>
+    while () {<br/><br/>        my $k;
+        while (not defined $k and not defined ($k = ReadKey(-1))) {
+            
+            my @s = $select-&gt;can_read(0.1/10);
+            for my $fh (@s) {
+                if ($fh == $socket) {
+                    $select-&gt;add($socket-&gt;accept);
+                } else {
+                    $fh-&gt;sysread($k, 1);
+                }
+            }    
+            # display update
+        }
+        # key-stroke processing
+    }
+</code><br/><br/>Along with two lines for the creation of the <code>IO::Socket::INET</code> and <code>IO::Select</code> object this is a total addition of just <b>10</b> lines of code!<br/><br/>A simple text mode client adds another couple of key-strokes. Same pattern really:<br/><br/><code>
+    while () { 
+        my $key;
+        while (not defined ($key = ReadKey(-1))) { }
+        exit if $key eq '#';
+        syswrite $sock, $key, 1;
+        if ($key eq 'q') {
+            $sock-&gt;close;
+            exit;
+        }
+    }
+</code><br/><br/><i>I am pretty pleased!</i><br/><br/></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

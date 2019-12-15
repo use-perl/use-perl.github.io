@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Programmatic Discovery of Package Variables in Perl?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Programmatic Discovery of Package Variables in Perl?</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-04-14T09:38:22</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>With <a href="http://search.cpan.org/dist/Test-Most/">Test::Most</a>, you can do something like this:</p>
+
+<pre>ok $response = some_func($foo), 'some_func() should return something'
+    or show $response;</pre>
+
+<p>And if the test fails, the <tt>show()</tt> function should display something like:</p>
+
+<pre># $response = 0;</pre>
+
+<p>However, if <tt>$response</tt> is actually a package variable, you would get:</p>
+
+<pre># $VAR1 = 0;</pre>
+
+<p>This is because <tt>show</tt> relies on <a href="http://search.cpan.org/dist/Data-Dumper-Names/">Data::Dumper::Names</a> and that, in turn, relies on <a href="http://search.cpan.org/dist/PadWalker/">PadWalker</a>.  So basically, I'm wondering how I know something is a package variable and how to (easily) find its name.  The only thing which occurs to me offhand is to either programmatically fetch the names of Perl's special variables[1] and see if <tt>$VAR1</tt> is really one of those.  That might catch many package variables (and other "strange" variables like <tt>@_</tt>?), but is that enough? When people declare their own package variables, is there any easy way for me to find and identify them short of walking symbol tables looking for them?</p>
+
+<small>1.  I've seen this done, but I can't recall how to do it.</small></p>
+
+
+<hr/>
+
+
+
+<h2>use peek_our as well</h2>
+<h3><a href="/user/cowens/">cowens</a> on 2009-04-14T11:59:19</h3>
+PadWalker can see both lexical and package variables, just fill %pad_vars with peek_our first and let peek_my override it (since lexical variables hide package variables).
+
+
+
+<blockquote>
+
+<h2>Re:use peek_our as well</h2>
+<h3><a href="/user/cowens/">cowens</a> on 2009-04-14T12:18:12</h3>
+<p>#!/usr/bin/perl</p><p>use strict;<br>use warnings;</p><p>use PadWalker qw/peek_our peek_my/;<br>use Scalar::Util 'refaddr';<br>use Data::Dumper;</p><p>our $foo = 1;<br>our $bar = 2;<br>{<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $foo = 3;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; print "my masks our\n", dumper(\$foo, \$bar);<br>}<br>print "now both are our\n", dumper(\$foo, \$bar);</p><p>sub dumper {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $package = peek_our(1);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $lexical = peek_my(1);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my %pad_vars;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; while ( my ( $var, $ref ) = each %$package ) {</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # we no longer remove the '$' sigil because we don't want<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # "$foo = \@array" reported as "@foo".<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $var =~ s/^[\@\%]/*/;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $pad_vars{ refaddr $ref } = $var;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; while ( my ( $var, $ref ) = each %$lexical ) {</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # we no longer remove the '$' sigil because we don't want<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # "$foo = \@array" reported as "@foo".<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $var =~ s/^[\@\%]/*/;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $pad_vars{ refaddr $ref } = $var;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my @names;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $varcount = 1;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; foreach (@_) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $name;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; INNER: foreach ( \$_, $_ ) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; no warnings 'uninitialized';<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $name = $pad_vars{ refaddr $_} and last INNER;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; push @names, $name;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; return Data::Dumper-&gt;Dump( \@_, \@names );<br>}</p>
+
+
+
+<blockquote>
+
+<h2>Re:use peek_our as well</h2>
+<h3><a href="/user/cowens/">cowens</a> on 2009-04-14T17:17:26</h3>
+<p>This seems to handle $" and the like:</p><p>#!/usr/bin/perl</p><p>use strict;<br>use warnings;</p><p>use PadWalker qw/peek_our peek_my/;<br>use Scalar::Util 'refaddr';<br>use Data::Dumper;</p><p>our $foo = 1;<br>our $bar = 2;<br>{<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $foo = 3;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; print "my masks our\n", dumper(\$foo, \$bar, \$");<br>}<br>print "now both are our\n", dumper(\$foo, \$bar, \$");</p><p>sub dumper {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $package = peek_our(1);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $lexical = peek_my(1);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my %pad_vars;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; while ( my ( $var, $ref ) = each %$package ) {</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # we no longer remove the '$' sigil because we don't want<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # "$foo = \@array" reported as "@foo".<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $var =~ s/^[\@\%]/*/;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $pad_vars{ refaddr $ref } = $var;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; foreach my $var (keys %main::) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $glob = $main::{$var};</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (defined ${$glob}) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $pad_vars{ refaddr \${$glob} } = "\$$var";<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (defined @{$glob}) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $pad_vars{ refaddr \@{$glob} } = $var;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (defined %{$glob}) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $pad_vars{ refaddr \%{$glob} } = $var;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; while ( my ( $var, $ref ) = each %$lexical ) {</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # we no longer remove the '$' sigil because we don't want<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # "$foo = \@array" reported as "@foo".<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $var =~ s/^[\@\%]/*/;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $pad_vars{ refaddr $ref } = $var;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my @names;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $varcount = 1;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; foreach (@_) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $name;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; INNER: foreach ( \$_, $_ ) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; no warnings 'uninitialized';<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $name = $pad_vars{ refaddr $_} and last INNER;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; push @names, $name;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; return Data::Dumper-&gt;Dump( \@_, \@names );<br>}</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:use peek_our as well</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2009-04-14T15:49:02</h3>
+<p>This works for vars.pm and $Fully::Qualified::Variables too?</p>
+
+
+
+<blockquote>
+
+<h2>Re:use peek_our as well</h2>
+<h3><a href="/user/cowens/">cowens</a> on 2009-04-14T17:20:45</h3>
+<p>Yes, but only if they have had a value assigned to them.  Otherwise they aren't really variables yet (just compiler directives to not throw errors if it sees them).</p>
+
+
+
+<blockquote>
+
+<h2>Re:use peek_our as well</h2>
+<h3><a href="/user/cowens/">cowens</a> on 2009-04-14T17:31:22</h3>
+<p>Well, it handles $main::foo, but not $other::package::foo.  You would need to look in %other::package for it.  Hmm, there should be some way of finding out what namespaces exist.</p>
+
+
+
+<blockquote>
+
+<h2>Re:use peek_our as well</h2>
+<h3><a href="/user/cowens/">cowens</a> on 2009-04-14T18:40:02</h3>
+<p>Alright, it is ugly, but it gets the job done.  This handles everything but var pragma variables that have never been assigned to (they don't really exist yet).  This version also has the benefit of displaying package and lexical variables differently, so you can easily spot the masking effect.  Hmm, but I think there might be a bug in the case where you have</p><p>{<br>
+&nbsp; &nbsp; &nbsp; &nbsp; our $foo;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $foo;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; our $foo;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print dumper(\$foo);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>}</p><p>But I am not sure anything can be done about that.</p><p>#!/usr/bin/perl</p><p>use strict;<br>use warnings;</p><p>use PadWalker qw/peek_our peek_my/;<br>use Scalar::Util 'refaddr';<br>use Data::Dumper;</p><p>use vars qw/$baz $quux/;</p><p>$other::package::fork = 0;<br>our $foo = 1;<br>our $bar = 2;<br>$baz = 3;</p><p>print "now all are package\n", dumper(<br>
+&nbsp; &nbsp; &nbsp; &nbsp; \$foo,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; \$bar,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; \$baz,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; \$quux,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; \$",<br>);</p><p>{<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $foo = 4;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; print "\nnow \$foo is masked by a lexical\n", dumper(<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; \$foo,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; \$bar,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; \$baz,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; \$quux,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; \$",<br>
+&nbsp; &nbsp; &nbsp; &nbsp; );<br>}</p><p>sub find_package_vars {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my ($package, $pad_vars) = @_;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; no strict 'refs';<br>
+&nbsp; &nbsp; &nbsp; &nbsp; no warnings;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; foreach my $name (%{$package}) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $pkgname = "${package}$name";<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if ($name =~<nobr> <wbr></nobr>/::/) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; next if $name =~<nobr> <wbr></nobr>/^\*?main::$/;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; find_package_vars($pkgname, $pad_vars);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; next;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $glob = ${$package}{$name};</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (defined ${$glob}) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $pad_vars-&gt;{ refaddr \${$glob} } = "\$$pkgname";<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; #FIXME: there is probably a better way, but I am lazy at the moment<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; eval {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (defined @{$glob}) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $pad_vars-&gt;{ refaddr \@{$glob} } = $pkgname;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; };</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; eval {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if (defined %{$glob}) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $pad_vars-&gt;{ refaddr \%{$glob} } = $pkgname;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; };<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>}</p><p>sub dumper {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my %pad_vars;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; find_package_vars("main::", \%pad_vars);</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; my $lexical = peek_my(1);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; while ( my ( $var, $ref ) = each %$lexical ) {</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # we no longer remove the '$' sigil because we don't want<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # "$foo = \@array" reported as "@foo".<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $var =~ s/^[\@\%]/*/;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $pad_vars{ refaddr $ref } = $var;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my @names;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $varcount = 1;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; foreach (@_) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $name;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; INNER: foreach ( \$_, $_ ) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; no warnings 'uninitialized';<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $name = $pad_vars{ refaddr $_} and last INNER;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; push @names, $name;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; return Data::Dumper-&gt;Dump( \@_, \@names );<br>}</p>
+
+
+
+<blockquote>
+
+<h2>Re:use peek_our as well</h2>
+<h3><a href="/user/cowens/">cowens</a> on 2009-04-14T18:51:19</h3>
+<p>I take it back, since he is using the address of the variable as the key it works fine, and there is the order doesn't matter when you build the hash.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

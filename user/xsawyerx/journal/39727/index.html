@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of xsawyerx: Extensive POE Testing PT. 1 - The Rules</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Extensive POE Testing PT. 1 - The Rules</h1>
+<h2><a href="/user/xsawyerx/">xsawyerx</a> on 2009-10-07T10:46:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><address>
+If you only use <a href="http://search.cpan.org/perldoc?POE::Session">POE::Session</a> for your <a href="http://search.cpan.org/perldoc?POE">POE</a> code and find no need for more elaborate tests, feel free to skip these posts. I won't be offended, I promise. :)
+</address></p>
+
+<p>
+After a lot of frustration of trying to set up proper tests for <a href="http://search.cpan.org/perldoc?POE">POE</a> (using mainly <a href="http://search.cpan.org/perldoc?MooseX::POE">MooseX::POE</a> while at it), I've decided to write a proper testing framework. However, instead I wrote something simple, yet relatively extensive that helps write fingergrained tests for <a href="http://search.cpan.org/perldoc?POE">POE</a> using <a href="http://search.cpan.org/perldoc?Moose">Moose</a>, specifically aimed towards <a href="http://search.cpan.org/perldoc?MooseX::POE">MooseX::POE</a>.
+<p>
+
+<p>
+I've decided to write it in <a href="http://search.cpan.org/perldoc?Moose">Moose</a> (using <a href="http://search.cpan.org/perldoc?Moose::Role">Moose::Role</a>) because it makes it much easier for me to do it than other frameworks/modules. I don't intend (at least at this time) to write it in bare bones Perl and I personally don't care about complete optimizations for my testing code, I don't think a lot of people would mind either.
+</p>
+
+<p>
+This article will only discuss the general need, the idea and the general rules I've layed out for myself to help me test <a href="http://search.cpan.org/perldoc?POE">POE</a> code. It might help you too. The following articles in this series (and I assure you, there will be!) discuss the types of tests that I feel are required and examples of code that does it. I'll also present my new (unnamed) testing framework that's already being used at $work.
+</p>
+<p>
+<b>Preliminary:</b><br/>
+In <a href="http://search.cpan.org/perldoc?POE">POE</a>, you have a layer of "events" which are actually just mappings of names of events that can be run to the actual subroutines that they will trigger when run. This seems pretty simple to test. You can check each subroutine separately and that's just fine. However, there are some things it doesn't cover:</p>
+<ul>
+<li> <a href="http://search.cpan.org/perldoc?MooseX::POE">MooseX::POE</a>: if you're using <a href="http://search.cpan.org/perldoc?MooseX::POE">MooseX::POE</a> your events are mapped for you to anonymous subroutines. Instead of writing a named subroutine and then mapping it through <code>inline_states</code> (or whatever), you simply do <code>event 'something' => sub {};</code> Problem is, you cannot test it that easily.</li>
+<li>Sometimes you want to run stuff and see how it works: It is important to test every small component separately, but it's always nice (especially when it comes to complete environments) to check a bigger chunk. It's also easier to comprehend. Sure, I know that check_stuff() was run, but when the program was started, did it get run 3 or 4 times?</li>
+<li>Some things are harder [and/or take longer] to test. For example, suppose a subroutine can be called several times (loop, events, alarm) with varying inputs. Perhaps there's an alarm that checks each time and only then runs another event. To test every subroutine's possible iteration is possible, but not as much fun.</li>
+</ul>
+
+<p>
+<b>Theory of tests in POE:</b><br/>
+I found that the cleanest and easiest way to test is always accompanied by these following guidelines:<br/>
+<ul>
+<li>Always test a single <a href="http://search.cpan.org/perldoc?POE::Session">POE Session</a> at a time. Sometimes the sessions interact. You can mock sessions in order to work through that. Testing POE is difficult enough as it is without testing 10, 20 or 300 Sessions at a time. So do yourself a favor. Each time work on only one session. I separate my tests to folders according to the sessions I have. I have a folder for a Master Session, a Slave Session, a Worker session and so on.</li>
+<li>Override the session you intend to test. This will allow you to change the session environment, its subroutines, events, alarms, and so on. It will keep the Kernel session-specific and make everything self-contained and a hell of a lot easier.</li>
+<li>Preferably test events separately. This isn't always desired or necessary but I find it much more comfortable. I keep every event as a separate test file. The reason for this is the same as why I work on only one session at a time. I helps me test it without going insane with the multitude.</li>
+<li>When testing an event, override and mock everything in its surrounding in order to test it. This is something the True Test Lords have known for a long while now. Creating a controlled environment is the best way to check something. Same goes here. You should mock and override every subroutine, attribute, event or anything else that comes in contact with the event you're testing. Think... Ebola!</li>
+<li>Separate event tests with subroutine tests. All subroutines should be tested regardless of the POE Running test, in the regular way you test subroutines (or methods). Events will be tested separately in a different manner that requires running POE and seeing what happens.</li>
+</ul>
+<p>
+<b>Next post starts with types of tests!</b>
+</p></p>
+
+
+<hr/>
+
+
+
+<h2>A slight clarification ...</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2009-10-08T04:54:26</h3>
+MooseX::POE's events are eventually named. They become first class methods in the class as well as events in the ObjectState Session that MooseX::POE creates for the instance. For example the following will "just work" (and print out a warning about POE::Kernel not being run).<blockquote><div><p> <tt>package Foo;<br>use 5.10.0;<br>use MooseX::POE;<br>event bar =&gt; sub { say 'BAR!' };<br> <br>package main;<br>Foo-&gt;new-&gt;bar(); # prints "BAR!\n"</tt></p></div> </blockquote><p>Also any tests that you happen to want to push back into MooseX::POE will be *greatly* appreciated. The code is available on <a href="http://github.com/perigrin/moosex-poe/" title="github.com">github</a github.com>.</p>
+
+
+
+<blockquote>
+
+<h2>Re:A slight clarification ...</h2>
+<h3><a href="/user/xsawyerx/">xsawyerx</a> on 2009-10-08T09:23:48</h3>
+<p>Thanks for the clarification. I reckon that going through MX::POE code, I could also probably make my framework even better. Right now each event requires adding a line in order for the framework to track it. If I could get a list of the events, I could put in the added line myself perhaps.</p><p>I'm also checking into Sub::Caller or stack modules to try and remove the need for parameters to the added line.</p><p>Once I decide how to name my framework, I'll put it on Github and CPAN and people will (hopefully) be able to [help me] improve it much more.</p>
+
+
+
+<blockquote>
+
+<h2>Re:A slight clarification ...</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2009-10-08T16:38:11</h3>
+<p>The event are stored in the metaclass.</p><blockquote><div><p> <tt>my @events = $self-&gt;meta-&gt;get_events;</tt></p></div> </blockquote><p>I've been going through the code myself recent, cleaning up an edge case bug that someone discovered, and modernizing the codebase a bit (the next version will depend on Moose 0.90+ but drops the MooseX::AttributeHelpers dependency).</p>
+
+
+
+<blockquote>
+
+<h2>Re:A slight clarification ...</h2>
+<h3><a href="/user/xsawyerx/">xsawyerx</a> on 2009-10-08T17:03:45</h3>
+<p>That's awesome!</p><p>Do you know if there's any way to get the arguments a method you've hooking to is getting? For example:</p><blockquote><div><p> <tt>package A;<br>use Moose;<br>sub hello {<br>&nbsp; &nbsp; my ( $self, $msg ) = @_;<br>&nbsp; &nbsp; say $msg;<br>}<br> <br>package B;<br>use Moose;<br>extends 'A';<br>before 'hello' =&gt; sub {<br>&nbsp; &nbsp; # i want to get the $msg parameter hello() got<br>};</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:A slight clarification ...</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2009-10-09T05:57:47</h3>
+<p>Is this what you are asking for?</p><blockquote><div><p> <tt>#!/usr/bin/env perl<br>use strict;<br>use Test::More tests =&gt; 6;<br> <br>{<br> <br>&nbsp; &nbsp; package Base;<br>&nbsp; &nbsp; use MooseX::POE;<br> <br>&nbsp; &nbsp; sub START {<br>&nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>::pass('Base Start');<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; event hello =&gt; sub {<br>&nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>::pass('hello');<br>&nbsp; &nbsp; &nbsp; &nbsp; $_[KERNEL]-&gt;yield('goodbye');<br>&nbsp; &nbsp; };<br>}<br>{<br> <br>&nbsp; &nbsp; package Extended;<br>&nbsp; &nbsp; use MooseX::POE;<br> <br>&nbsp; &nbsp; extends 'Base';<br> <br>&nbsp; &nbsp; sub START {<br>&nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>::pass('Extended after Start');<br>&nbsp; &nbsp; &nbsp; &nbsp; $_[KERNEL]-&gt;yield( 'hello' =&gt; 'world' );<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; before 'hello' =&gt; sub {<br>&nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>::is( $_[ARG0], 'world', 'before saw world' );<br>&nbsp; &nbsp; };<br> <br>&nbsp; &nbsp; after 'hello' =&gt; sub {<br>&nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>::is( $_[ARG0], 'world', 'after saw world' );<br>&nbsp; &nbsp; };<br> <br>&nbsp; &nbsp; event goodbye =&gt; sub {<br>&nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>::pass('goodbye');<br>&nbsp; &nbsp; };<br> <br>}<br> <br>my $foo = Extended-&gt;new();<br>POE::Kernel-&gt;run();</tt></p></div> </blockquote><p>I've just added this to the test suite.</p>
+
+
+
+<blockquote>
+
+<h2>Re:A slight clarification ...</h2>
+<h3><a href="/user/xsawyerx/">xsawyerx</a> on 2009-10-09T15:32:31</h3>
+<p>Actually it is!</p><p>This would really help me with the framework. I could automatically hook up to all events. Putting it in will make my code able to work automatically by adding only a single line of "with".</p><p>Thanks!</p>
+
+
+
+<blockquote>
+
+<h2>Re:A slight clarification ...</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2009-10-11T18:01:02</h3>
+<p>Sorry, I wasn't clear. That code works *now*. It should work in the CPAN version. Go forth and test away!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

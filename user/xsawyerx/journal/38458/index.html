@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of xsawyerx: Progress on the CRUD front</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Progress on the CRUD front</h1>
+<h2><a href="/user/xsawyerx/">xsawyerx</a> on 2009-02-11T14:28:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I spent all day yesterday trying to get some decent CRUD running. I tried some projects again (HTML::FormFu) which again failed (HTML::FormFu) and as much as I'm sure it can work generally, it isn't flexible enough for the situation I needed it to.</p>
+<p>I started working on a module, MyApp::CRUD, for my Catalyst application. Basically It's a Moose module that has the definitions of the main id and the table. The module has 5 methods:</p>
+<ul>
+  <li>$crud->start($c):<br/>Gets a Catalyst object and creates the table result set and result source. I'm wondering how to fetch the Catalyst object automatically.<br/><br/></li>
+  <li>$crud->create():<br/>Currently in the making. I'm trying to work on the form using HTML::FormHandler. I just want the parameters parsed and checked, and perhaps the form rendered. This is the basic attitude of HTML::FormHandler but for some reason it refuses to do that. It wants me to process it (which will result in an add_or_update procedure) and only then perhaps fail because it's missing parameters or something. I need to control that better and prompt the user with the edit form with the input filled in and the error on top, not the Catalyst debug screen saying the program had an error.<br/></li>
+  <li>$crud->read($id):<br/>Simply tries to locate the object in the resultset. If it can, returns it to Catalyst stash under 'entries'. If it doesn't get an ID, it returns all the records. Should add to put an error in the stash if it fails, and make that configurable<br/></li>
+  <li>$crud->update:<br/>Can't write it yet since I haven't finish writing $crud->create(). Still waiting for some note from the author of HTML::FormHandler to know if I could use it or will have to roll my own with this<br/></li>
+  <li>$crud->delete($id):<br/>Searches for the ID and deletes it. Sets errors in the stash for error on delete, ID not found or Missing ID (input error)</li>
+</ul>
+<br/>
+<p>Now I'm able to use the API as such:<br/>
+<pre>
+BEGIN {
+    use Moose;
+    extends 'Catalyst::Controller';
+}
+has 'crud' => (
+    is      => 'rw',
+    isa     => 'MyApp::CRUD',
+    lazy    => 1,
+    default => sub {
+        MyApp::CRUD->new(
+            id    => 'data_id',
+            table => 'Sections',
+        )
+    },
+);
+
+sub add : Local {
+    my ( $self, $c ) = @_;
+    my $id = $self->crud
+                  ->start($c)
+                  ->create('sections/add');
+    if ( defined $id ) {
+        $c->res->redirect("/sections/view/$id");
+        $c->detach();
+    }
+    $c->stash->{'template'} = 'sections/add.tt2';
+}
+
+sub delete : Local {
+    my ( $self, $c, $id ) = @_;
+    $self->crud
+         ->start($c)
+         ->delete($id);
+    $c->res->redirect('/sections/view');
+    $c->detach;
+}
+
+sub view : Local {
+    my ( $self, $c, $id ) = @_;
+    $self->crud
+         ->start($c)
+         ->read($id);
+    $c->stash->{'template'} = 'sections/view.tt2';
+}
+
+# ... and so on
+</pre>
+</p>
+<p>All in all, it didn't take too much to write and I spent most of the time trying to make modules do what I want them to do, and what they are suppose to do and not why they are doing.</p>
+<p>It's like I'm 14 years old again and I'm trying to fix my uncle's busted old computer. Shitty hardware but you have to make due, right? I use Perl because I DON'T LIKE TO MAKE DUE.</p>
+/rant<br/>
+<address>(... for a while)</address></p>
+
+
+<hr/>
+
+
+
+<h2>InstantCRUD</h2>
+<h3><a href="/user/zby/">zby</a> on 2009-02-16T14:15:13</h3>
+Hi,<br/><br/>I wonder what do you think about scaffolding CRUDs - like Catalyst::Example::InstantCRUD.  I've just finished writing a new version of it (if you are interested it is in svn: <a href="http://dev.catalystframework.org/repos/Catalyst/trunk/Catalyst-Example-InstantCRUD" title="catalystframework.org">http://dev.catalystframework.org/repos/Catalyst/trunk/Catalyst-Example-InstantC<nobr>R<wbr></nobr> UD</a catalystframework.org> , it also requires: <a href="http://dev.catalyst.perl.org/repos/bast/DBIx-Class-ResultSet-RecursiveUpdate/1.000/trunk" title="perl.org">http://dev.catalyst.perl.org/repos/bast/DBIx-Class-ResultSet-RecursiveUpdate/1.<nobr>0<wbr></nobr> 00/trunk</a perl.org> and git://github.com/zby/rose--htmlx--form--dbic.git - all of this will be released soon to CPAN).
+
+
+
+<blockquote>
+
+<h2>Re:InstantCRUD</h2>
+<h3><a href="/user/xsawyerx/">xsawyerx</a> on 2009-02-16T14:24:32</h3>
+Sounds interesting!<br>
+I'll check it out, thanks!
+
+
+
+<blockquote>
+
+<h2>Re:InstantCRUD</h2>
+<h3><a href="/user/zby/">zby</a> on 2009-02-16T14:53:55</h3>
+Some of my plans about it: <a href="http://dev.catalystframework.org/wiki/crud/instantcrud" title="catalystframework.org">http://dev.catalystframework.org/wiki/crud/instantcrud</a catalystframework.org><br/><br/>And some more musing on the subject: <a href="http://dev.catalystframework.org/wiki/crud/crud_and_rest" title="catalystframework.org">http://dev.catalystframework.org/wiki/crud/crud_and_rest</a catalystframework.org><br/><br/>I want it to have features - but the number one concern is API simplicity. You can notice that the first CPAN release was in January 2006 - I can say that it was a failed experiment - but I think I've learned from it.  Since then I've mostly worked on the underlying libraries and now it looks like a good time to reactivate the project.
+
+
+
+<blockquote>
+
+<h2>Re:InstantCRUD</h2>
+<h3><a href="/user/xsawyerx/">xsawyerx</a> on 2009-02-16T15:54:24</h3>
+<p>I've checked the links.</p><p>I think our biggest problem is that we're unable to define a clear cut API to CRUD. I think it would be very difficult to do this even if we decide to do it since some technologies take over that part altogether. For example, when using AJAX, you go over the rendering through the Javascript, so you have to convert portions of the rendering to Javascript (using Jemplate or ExtJS or whatnot).</p><p>Another such situation exists generally with templates, in the fact that they do the rendering instead of some generic module. That's good that it's possible, but it leaves a crack open for bypassing the API (or layers model) for a generic CRUD.</p><p>I'll try and sort my thoughts together and write a normal post on it.</p>
+
+
+
+<blockquote>
+
+<h2>Re:InstantCRUD</h2>
+<h3><a href="/user/zby/">zby</a> on 2009-02-16T16:23:53</h3>
+I have no much experience with Ajax - but I was thinking that hopefully REST will take care of converting the data into JASON and generally be a good base for AJAX.<br/><br/>I need to add that CatalystX::CRUD is very close to all of my requirements and I was thinking about maybe merging my project into it and exchanged many emails with Peter.  But in the end it just seem too heavy for me.
+
+
+
+<blockquote>
+
+<h2>Re:InstantCRUD</h2>
+<h3><a href="/user/xsawyerx/">xsawyerx</a> on 2009-02-16T16:46:19</h3>
+<p>AJAX is worthless if applied as a complete CRUD solution instead of a layer of Read in CRUD or fetching information back to the layer of form handling, such as JSON is worthless if applied as the onetime solution for CRUD instead of as a layer of data representation within a certain (or multiple) views.</p><p>Basically, you should be able to say "I want to use AJAX (ExtJS, Dojo, JQuery) as the front end for a CRUD system and represent the data in JSON. Oh wait, I actually want to not use AJAX for this specific table/database but I still prefer to use JSON so I could have inline AJAX". Right now, that type of work would be.. insane for one person to do on their own.</p><p>That's why I think we should design a layer model for CRUD, separating data representation (JSON, XML, etc.), data formatting (ExtJS, Jemplate, Template, Text::Template, JQuery, etc.) and data storing/fetching (DBIC, DBI, Class::DBI) and of course the information we're working on (have this table and not that one, etc.) and form handling itself which is analyzing data coming from parameters and working them into the database, and allow the user to manipulate them.</p>
+
+
+
+<blockquote>
+
+<h2>Re:InstantCRUD</h2>
+<h3><a href="/user/zby/">zby</a> on 2009-02-16T20:35:51</h3>
+OK - I think I have very similar views on what needs to be done.  Still I don't know how the reality of InstantCRUD will please you, but I uploaded the new version of it to CPAN. Much of it is still very ancient - but I did not want to keep it too long to myself<nobr> <wbr></nobr>:)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

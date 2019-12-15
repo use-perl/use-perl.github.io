@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of phillup: Testing and Environment Variables</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Testing and Environment Variables</h1>
+<h2><a href="/user/phillup/">phillup</a> on 2004-07-22T17:50:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Here is the "problem of the moment":<br/><br/>I'm writing tests for some web modules and I've broken the test down into separate files for testing separate things. Now, this is the backend code for a web app and the whole process is started by logging in. This sets up a session with a SID that is passed back to the user and is used in the future to re-establish the session. Pretty standard stuff.<br/><br/>So, what I want to do is create the session in one test file and run some tests... but, I want to store the SID into the %ENV for the next test to use and re-establish the session.<br/><br/>The kicker seems to be that I'm using Test::Harness to drive the testing and it seems to fork off each test, so changes to %ENV aren't propagated to the next script.<br/><br/>I've also tried setting (and exporting) the environment via the system command using every variant I can think of and I keep getting something along the lines of "export file not found". <br/><br/>Now, I know that export is specific to the bash shell so my first thought was that the test aren't even running in a bash shell, even tho I am. Is this true?<br/><br/>So, I changed my system command to:<br/><br/><pre>
+system ("/bin/bash export GB_TEST_SID=$sid");
+</pre><br/><br/>Which I thought would at least not cause the error... and... it still reports:<br/><br/><pre>
+export GB_TEST_SID=<long number>: No such file or directory
+</pre><br/><br/>So, how do I set the environment variable in one test script to be read in the next one when Test::Harness is running the test scripts?<br/><br/>Or, more generically... how do I set an environment variable in Perl and have it persist (in the shell environment) after the program exits?<br/><br/>(And... I don't wish to imply that this is the fault of Test::Harness. It seems to be an issue of running each script in a separate child process.)<br/><br/>---<br/><br/>UPDATE:<br/><br/>I wanted to take Perl out of the equation for a moment to confirm it was a child process issue... I did this at a bash prompt (comments inserted):<br/><br/><pre>
+#show the current env
+phillip@prometheus:~$ echo $MY_TEST<br/><br/># launch a child shell
+phillip@prometheus:~$ bash
+phillip@prometheus:~$ ps
+  PID TTY          TIME CMD
+28108 pts/12   00:00:00 bash
+28119 pts/12   00:00:00 bash
+28124 pts/12   00:00:00 ps<br/><br/># export and confirm
+phillip@prometheus:~$ export MY_TEST="hello world"
+phillip@prometheus:~$ echo $MY_TEST
+hello world<br/><br/># launch a child from the child
+phillip@prometheus:~$ bash
+phillip@prometheus:~$ ps
+  PID TTY          TIME CMD
+28108 pts/12   00:00:00 bash
+28119 pts/12   00:00:00 bash
+28125 pts/12   00:00:00 bash
+28130 pts/12   00:00:00 ps<br/><br/># check the environmnet... it works
+phillip@prometheus:~$ echo $MY_TEST
+hello world<br/><br/># exit the child of the child
+phillip@prometheus:~$ exit
+exit<br/><br/># reconfirm env still set
+phillip@prometheus:~$ echo $MY_TEST
+hello world<br/><br/># exit the child... now back in the parent
+phillip@prometheus:~$ exit
+exit<br/><br/># and test the env
+phillip@prometheus:~$ echo $MY_TEST<br/><br/>phillip@prometheus:~$
+</pre><br/><br/>It looks to me like there isn't a way to set the environment in a child and then have it present in the next sibling.<br/><br/>So... back to the drawing board.<br/><br/>BTW, I'd still like to know why my system command above returned an error... if anyone knows.<br/><br/>TIA</p>
+
+
+<hr/>
+
+
+
+<h2>children messing with their parents</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2004-07-22T19:33:16</h3>
+A child can't muck with a higher-level process's environment.  It's part of the joy of unix!<br> <br>Having sequential siblings mess with environment is usually something like:<br> <br>in script0:<br>
+&nbsp; eval `script1`<br>
+&nbsp; eval `script2`<br> <br>script1 prints out bash commands like "export FOO=bar" which the running then evaluates into its own environment, leaving it there for script2 to see.<br> <br>In brief: the environment is not a good way for children to perform IPC.
+
+
+
+<h2>Use Module::Build-notes</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2004-07-22T21:14:11</h3>
+Module::Build has a feature that helps with this, the notes() method.  You can get the Module::Build object inside your tests.  This is really handy.
+
+
+
+<blockquote>
+
+<h2>Re:Use Module::Build-notes</h2>
+<h3><a href="/user/phillup/">phillup</a> on 2004-07-22T21:56:16</h3>
+That does look handy... thanks!<br> <br>I just really wish I'd started with this (and the tests!!) two years ago when I started writing the modules!!<br> <br>The customer wants some pretty significant changes and I've convinced them that we need some tests to insure that the functionality doesn't degrade with all of the changes... so... I'm basically backporting tests into the system while trying to provide new features.<br> <br>And, the new features are needed soon (of course).<br> <br>Yuck.<br> <br>(OK... enough complaining. Back to work.)<br> <br>Again, thanks!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

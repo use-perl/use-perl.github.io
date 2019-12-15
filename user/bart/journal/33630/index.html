@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of bart: Functional approach for weighted random picks out of a list</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Functional approach for weighted random picks out of a list</h1>
+<h2><a href="/user/bart/">bart</a> on 2007-06-29T00:30:17</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I have been trying to find a good way to pick a random item from a list, where items do not have the same probability of being picked: using weighted probabilities.<br/><br/>A way to visualize the problem, which is also a way to tackle it, is by representing each item by books (or planks) of unequal thickness. You make a pile of all the books, measure the total height of the pile, randomly choose a height between zero and that total height, and see which book lies at that height.<br/><br/>But I feel this is a very clumsy way: you have to assign an order to the items, calculate a running total for the heights of the items that come in front of it to determine at what height each item lies, and all that just to pick one item. If an item is added or removed from the list, you have to start over with all the administrative work of ordering and summing. What a contrast with equally weighted probabilities, where you just have to pick an index number.<br/><br/>So I thought, surely there must a more straightforward, functional way? One that could possibly even work in plain SQL? Because there is such a way to randomly shuffle a list of items with equal probabilities: just add an extra column with a random value (<code>rnd</code>, or <code>rand</code> in Perl, <code>dbms_random.value</code> in Oracle), and sort the rows according to this column. In Oracle:<br/><br/><pre>
+select dbms_random.value, T.* from mytable T order by 1
+</pre><br/><br/>All items have an equal chance of winning, i.e. coming out first, or getting the lowest random value, irrespective of the distribution of the randomness, provided the subsequent random values are sufficiently uncorrelated (meaning you can't really predict the next random value based on the previous values, which actually is an illusion in pseudo-random generators) and the probabilities are the same for all, as there is nothing skewing the chance of winning in favor of any of the items. Hence: they must all have an equal chance of winning.<br/><br/>But is there such a way to do the same with weighted probabilities? There must be. So I decided to explore. I am planning on comparing the values of <code>$rand[$i]</code> which is a weighted random function: a random number where the probability distribution depends on the value of the index <code>$i</code>. So I'm dusting off my math skill. As my confidence in them is not too great (I know I'm bound to make plenty of mistakes), I'll use experimental results to verify the results so any blatant mistakes should stand out.<br/><br/>Eventually, by pure luck, I <em>did</em> find a formula that works, but not at first. Here's how I found it. <br/><br/>I'll start with just 2 items. What is the probability that item 2 will win? The way you calculate that is like this: you find out what values X you can possibly have for item 1's random value, determining the probability that the value is X (or, for continuous functions, in a small range around X &mdash; between X and X+dx, which for small enough values of dx becomes virtually proportional to dx). Next, you have to determine the probability that item 2 beats this. You multiply the two, to calculate the probability of both happening at the same time, and finally, you add all these results for all possible values of X (integrate, in case of continuous functions) to take care of all possible cases: and you end up with the probability of item 2 winning, period.<br/><br/>The common generic representation is a formula
+<pre>
+Sum(P(A)*P(B|A))
+</pre>
+(the probability of A happening, times the probability of B happening provided A did happen, summed over all possible cases for A) which is, applied here:
+<pre>
+Sum(P(x1 between X and X+dx)*P(x2 < X))
+</pre><br/><br/>To work. My first thought was to just multiply (or divide) <code>rand()</code> by its weight: <pre>$rand[$i] = $weight[$i]*rand;</pre> Surely the result would result in a weighted probability, only, I had no idea what the relation is to the weight factors. With just 2 items, the formula is equivalent to:<br/><br/>Item 1 wins if <code>$rand[1]<$rand[2]</code>, which is the same result I would get with 
+<pre>
+$k = $weight[2]/$weight[1];
+$rand[1] = rand;
+$rand[2] = $k*rand;   
+</pre>
+With <code>k >= 1</code> (if this isn't the case, just swap the two items), with <code>X=x1</code>, the chance that <code>x2&lt;X</code> is <code>X/k</code>. Eventually, this leads to a probability of item 2 winning of <code>X/(2*k)</code>. This doesn't feel right, with a factor <code>k=2</code> item 2 has a probability 1/4 of winning, and item 1 has 3/4.  That's a ratio of 1/3, not 1/2. Experiments confirm this result.<br/><br/>So let's try again for <code>k&lt;=1</code>. There's an asymmetry for the value of <code>k</code> above or below 1, and the reason for this asymmetry is clipping: with <code>k&lt;1</code>, there's a threshold for $rand[1] above which item 2 cannot possibly lose, and that threshold value is k. So the probability of item 2 winning for a value x for $rand[1] is broken into 2 pieces:
+<pre>
+x/k    for 0 <= x <= k
+1      for k <= x < 1
+</pre>
+Integration over the range 0 to 1 for x yields <code>k**2/(2*k)+(1-k) = 1-k/2</code>. (for <code>k=1/2</code>, this is 3/4)<br/><br/>Time to confirm the results:
+<pre>
+use Math::Random::MT qw(rand);
+my $k = 2;
+my @n = ( 0 , 0 );
+for my $i (1 .. 1E5) {
+    my @rand;
+    $rand[0] = rand;
+    $rand[1] = $k*rand;
+    $n[index_with_min_value(@rand)]++;
+}
+use Data::Dumper;
+print Dumper \@n;<br/><br/>sub index_with_min_value {
+    # what index has the lowest value in a list?
+    my $ix = 0;
+    my $min = $_[0];
+    for my $i (1 .. $#_) {
+        if($_[$i] < $min) {
+            $ix = $i;
+            $min = $_[$i];
+        }
+    }
+    return $ix;
+}
+</pre>
+The result of a test run is:
+<pre>
+$VAR1 = [
+          75088,
+          24912
+        ];
+</pre>
+I'm using a better random number generator than the one that comes with Perl. The standard random number generator in ActivePerl/Win32 has a meager 15 bits resolution, so you get at most 32000 something different values, and it has a repetition period in the same area. Thus for the above experiment, you'd go through the sequence of all the possible random values 3 times. The generator I chose, an implementation of <a href="http://en.wikipedia.org/wiki/Mersenne_Twister">Mersenne Twister</a>, has a period of 4.315425E6001 which is like forever, and it has (in this implementation) a resolution of 32 bits. By just importing the function <code>rand</code>, it can replace the built-in <code>rand</code>. So I'm hoping it is better. :)<br/><br/>The results are very skewed in favor of the values with the smaller factor: a sample run with 3 items with weight factors (1, 2, 3) produced the result:
+<pre>
+$VAR1 = [
+          63890,
+          22216,
+          13894
+        ];
+</pre>
+Thus item 3 with a weight factor that's 3 times larger, has about a 5 times smaller likeliness of winning.<br/><br/>So I was thinking, what if I picked a distribution that is free of clipping, one that has no upper limit? A nice candidate distribution is the exponentially damped function, a function that you can see a lot in nature:
+<pre>P[X > x] = exp(-x)</pre>
+with <code>X > 0</code> and <code>x > 0</code>, but with no upper bound.<br/><br/>This function's graph looks pretty much alike independent of the actual value of x: P just scales when x shifts.<br/><br/>So I wanted to compare results for probability distributions of <code>exp(-x)</code> for item 1, with <code>exp(-k*x)</code> for item 2. (This time, I decided to let the larger value for x win, because P[x &lt; X] doesn't look as nice as a function.)<br/><br/>The probability for x1 (value for item 1) to be between x and x+dx is <code>exp(-x)*dx</code>. The probability of item 2 beating that (having a bigger value) is <code>exp(-k*x)</code>. (A larger k results in a faster decaying probability function.)<br/><br/>Integration of <tt>&#8747; exp(-k*x)*exp(-x)*dx [0 &#8734;]</tt> yields the value <code>1/(1+k)</code>.<br/><br/>That is nice: with k=2 I get 1/3, and its counterpart, with k=0.5, gets 1/(1.5) = 2/3. Those are the numbers I'm after, as their ratio is 2! But do note that the larger factor yields a smaller probability, so you have to <em>divide</em> by the weight, not <em>multiply</em>.<br/><br/>So how can you get a distribution that's exponential, out of a plain uniform distribution? By using a transforming function: <code>x=fn(rand)</code>. With <c>$y=rand;</code> that is plainly following a uniform distribution between 0 and 1, and the required equivalence <code>$y==exp(-$x)</code>, we end up with the transforming function <code>$x=-log($y)</code>. Since the probability that <code>$y&lt;Y</code> (with Y between 0 and 1) is Y, the probability that <code>($x=-log($y)) > (X=-log(Y))</code> is <code>Y == exp(-X)</code>. (Note the swapping of the directions: a smaller $y yields a larger $x.) So this is exactly the result I am after, with just one nitpick: the border cases. <code>rand</code> can become zero, which is a value that <code>log()</code> chokes on; but it'll never be exactly 1, which is a value that <code>log()</code> doesn't mind. So I'm reversing the direction for y, and replace <code>-log(rand)</code> with <code>-log(1-rand)</code>. For the rest, nothing changes, as the probability for in between values remains unchanged.<br/><br/>That's enough theory, so let's confirm these results through experimenting. As item 2 has a weight of 2, and item 3 a weight of 3:
+<pre>
+use Math::Random::MT qw(rand);
+my @w = (1, 2, 3);
+my @n = (0, 0, 0);
+for my $i (1 .. 1E5) {
+    my @x;
+    $x[$_] = -log(1 - rand)/$w[$_] for 0 .. $#w;
+    $n[index_with_min_value(@x)]++;
+}
+use Data::Dumper;
+print Dumper \@n;<br/><br/>sub index_with_min_value {
+    # what index has the lowest value in a list?
+    my $ix = 0;
+    my $min = $_[0];
+    for my $i (1 .. $#_) {
+        if($_[$i] < $min) {
+            $ix = $i;
+            $min = $_[$i];
+        }
+    }
+    return $ix;
+}
+</pre>
+Results:
+<pre>
+$VAR1 = [
+          16621,
+          33235,
+          50144
+        ];
+</pre>
+Bingo. As you can see, the second item has twice the chance of winning than the first item, with a weighing factor of 2 vs. 1; and the third item has 3/2 times the chance of winning compared to the second one, with weighing factors 3 vs. 2. It's just perfect.<br/><br/>And I'm sure you can use this safely in (Oracle) SQL.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Seems too complicated</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2007-06-29T02:55:04</h3>
+Compared to the one <a href="http://www.stonehenge.com/merlyn/WebTechniques/col09.html" title="stonehenge.com">I posted in 1996</a stonehenge.com>. Maybe I'm just missing something.
+
+
+
+<h2>Triangular probabilities</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2007-06-29T11:49:57</h3>
+<p>Neat.  I've always been interested in weighted probabilities.</p>
+
+<p>I have a system I've used for lots of things where you select from a list where items near the top are more heavily weighted than items near the bottom.  After selection, the selected item goes to the bottom of the list for the next round, meaning items that have not been recently selected are more likely to be picked sooner.  Basically it's a way of randomly shuffling but giving precedence to trying not to repeat things too soon.</p>
+
+<p>This started out implementation as a stack of CD's I used to cycle through to listen to at work: pick a CD, then put it at the bottom and randomly pick another but weight it so I'd tend to hear something I hadn't heard in a while.  Today it's implemented as a private Perl module that works on an array, and in fact I had a program that implemented this through Tie::File so that I could run it on a text file containing all my choices and the file would keep track of the ordering from run to run.</p>
+
+<p>The mathematics is that the item at the bottom of the list has probability 1 out of T of being selected, the next item up has probability 2 out of T of being selected, next item has probability 3 out of T, etc., all the way to the top of the list, item N, which has probability N out of T of being selected.  T = SUM(1..N).  T is a <a href="http://en.wikipedia.org/wiki/Triangular_number" title="wikipedia.org">triangular number</a wikipedia.org>, hence the term "triangular probabilities."</p>
+
+
+
+<h2>Code cleanup</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-29T17:55:14</h3>
+<p>It would have been easier to follow what&#8217;s going on if you have edited the code prior to writing, so as to highlight what you are talking about. I might have written the first program like this:</p> <p><blockquote> <div><tt>use Data::Dumper;<br>use Math::Random::MT qw(rand);<br> <br>sub min_idx {<br>&nbsp; &nbsp; my $idx = 0;<br>&nbsp; &nbsp; for my $i ( 1<nobr> <wbr></nobr>.. $#_ ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; $idx = $_[$idx] &gt; $_[$i] ? $i : $idx;<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; return $idx;<br>}<br> <br>sub run {<br>&nbsp; &nbsp; my ( $arg ) = @_;<br>&nbsp; &nbsp; my @n;<br>&nbsp; &nbsp; for my $i (1<nobr> <wbr></nobr>.. $arg-&gt;{count} ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my @d = $arg-&gt;{distrib}-&gt;( @{ $arg-&gt;{weights} } );<br>&nbsp; &nbsp; &nbsp; &nbsp; $n[ min_idx @d ]++;<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; return @n;<br>}<br> <br>print Dumper [ run {<br>&nbsp; &nbsp; count&nbsp; &nbsp;=&gt; 1E5,<br>&nbsp; &nbsp; weights =&gt; [ 1, 2 ],<br>&nbsp; &nbsp; distrib =&gt; sub { map { $_ * rand } @_ },<br>) ];</tt></div> </blockquote>  <p>Then instead of repeating the program for the second formula (with slight variations in variable names that obscure your point) you could simply have written that this time, we will be using this:</p> <p><blockquote> <div><tt>&nbsp; &nbsp; count&nbsp; &nbsp;=&gt; 1E5,<br>&nbsp; &nbsp; weights =&gt; [ 1, 2, 3 ],<br>&nbsp; &nbsp; distrib =&gt; sub { map { -log( 1 - rand ) / $_ } @_ },</tt></div> </blockquote>  <p> <em>Much</em> easier to see what the difference is.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

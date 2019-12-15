@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Sub::Signatures 0.20</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Sub::Signatures 0.20</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-10-07T04:08:39</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've released the newest version of <a href="http://search.cpan.org/dist/Sub-Signatures/">Sub::Signatures</a>.  As the previous version was labeled an alpha and I warned that the interface could change, I didn't feel <em>too</em> bad about removing support for typed arguments (though with a loud warning in the docs).  My reasoning goes like this (cribbed from the docs):</p>
+
+<p>The first version of <tt>Sub::Signatures</tt> allowed optional strong typing by letting you specify the exact ref type each argument should be:</p>
+
+<pre>sub foo (ARRAY $bar, HASH $baz, CGI $query) {
+  ...
+}</pre>
+
+<p>Why did this go away? There were several problems. First, specifying the exact data type meant that <em>isa</em> relationships were ignored.   This would be unfortunate if we wanted to pass in a subclass of something.  That leads to the second problem.</p>
+
+<p>If we were to check <em>isa</em> relationships, this sometimes leads to problems with ambiguous method resolution.  Witness the debates on the Perl 6 language list about the merits of "Manhattan distance" in MMD resolution and you quickly get an idea of what I mean.  However, for me it boils down to this.  Imagine the following hierarchy:</p>
+
+<pre>   Mammal
+   /    \
+  /      \
+Dog      Cat</pre>
+
+<p>Now imagine the two following methods:</p>
+
+<pre>sub foo ($self, Dog $dog, Mammal $mammal) {...}
+sub foo ($self, Mammal $mammal, Cat $cat {...}</pre>
+
+<p>So we call one of those methods:</p>
+
+<pre>$objet->foo($dog, $cat);</pre>
+
+<p>Which method should get called?  Should it depend on the order the methods were declared?  Should we die with an "ambiguous method call" message despite the fact that one of those methods might be able to work?  Do we offer extra syntax (shudder) stating the method precedence?  Trying to properly resolve MMD issues, particularly in a Pure Perl module is merely going to slow things down.  This, however, leads to the third and final reason why I had to remove this.</p>
+
+<pre>sub foo (CGI $query) {
+  ...
+}</pre>
+
+<p>The real nail in the coffin was that <tt>CGI $query</tt> parameter above. What if we actually have a CGI::Simple object passed in instead? It almost completely conforms to the CGI interface. If it does what we want, the type checking guarantees that that this method will fail for no good reason.</p>
+
+<p>However, no argument checking is a bad thing. What we're really interested in is whether or not a given argument is capable of providing what we need, not whether or not it's a given type. This puts your author in a bind. Objects which are unrelated by inheritance but present the same behaviors are allomorphic (or perhaps, more properly, we can say they present allomorphic interfaces?).</p>
+
+<p>Allomorphism, despite the funny name, is something Perl programmers use all the time without being aware of what it's called. However, to add allomorphism support to this module would complicate it quite a bit.  I'd have to come up with even <em>more</em> syntax and my primary goal was to keep this module as simple as possible.  To achieve this we restrict ourselves to dispatching on the number of arguments. Thus, you, the programmer, will still need to validate the different types and/or capabilities of the arguments you pass in.</p>
+
+<p>I can only imagine how true language designers lie awake at night worrying over every little thing.  When I have something this simple being perplexing, I can't imagine building an entire language.</p>
+
+<p>On the plus side, the new <tt>Sub::Signatures</tt> allows optional "fallback" methods.  Before, if you overloaded a method, you had to absolutely handle every number of arguments.</p>
+
+<pre>use Sub::Signatures;
+  
+sub foo($bar) {
+    print "$bar\n";
+}
+
+sub foo($bar, $baz) {
+    print "$bar, $baz\n";
+}
+
+foo(1);     # prints 1
+foo(2,3);   # prints 2, 3
+foo(2,3,4); # fatal runtime error</pre>
+
+<p>That's handy, but what if you really want to be able to pass in a list?  For example:</p>
+
+<pre>use Sub::Signatures qw/methods/;
+
+sub name($self) {
+  return $self->{name};
+}
+
+sub name($self, $name) {
+  $self->{name} = shift;
+  return $self;
+}</pre>
+
+<p>But what if you want to allow this?</p>
+
+<pre>sub name {
+  my $self = shift;
+  return $self->{name} unless @_;
+  $self->{name} = join ' ', @_;
+  return $self;
+}</pre>
+
+<p>Previously, <tt>Sub::Signatures</tt> would not allow that because it could not handle an arbitrary number of arguments.  Now, however, you can do this:</p>
+
+<pre>sub name (fallback) {
+  my $self = shift;
+  $self->{name} = join ' ', @_;
+  return $self;
+}</pre>
+
+<p>First it will look to see if you have any sub/methods with the number of parameters you have passed.  If not, instead of just a runtime error, it will allow you to name a "fallback" method which behaves like a normal Perl subroutine.</p>
+
+<p>I could have coded it to simply allow you to leave off the <tt>(fallback)</tt> and have any such subroutine automatically serve as the fallback.  I decided not to for two reasons.  First, it was simpler this way and I want this code to be so simple that it's very hard to break.  Second, if a maintenance programmer sees the fallback declaration, he or she knows that this is probably an overridden subroutine and this will make debugging easier.  It never hurts to throw a bone to the maintenance programmers.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Shlomi Fish: Test::More Inheritance+Export Regression</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Test::More Inheritance+Export Regression</h1>
+<h2><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2006-11-21T14:30:08</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+For <a href="http://search.cpan.org/dist/WWW-Form/">WWW-Form</a>, it was
+decided that the test scripts should use Test::More, but if it isn't 
+available on the system (say because of an older Perl, then the test script
+will exit immediately with an empty plan. To do that I wrote the following
+code in a module called <tt>CondTestMore.pm</tt> (short for 
+"Conditional Test::More"):
+</p>
+
+<pre>
+# This is an assisting module. It makes sure Test::More is present, and if not
+# gracefully exists. Otherwise it behaves the same as Test::More.
+# 
+
+package CondTestMore;
+
+use vars qw(@ISA);
+
+@ISA=qw(Test::More);
+
+BEGIN
+{
+    eval {
+       require Test::More;
+    };
+    if ($@)
+    {
+        warn "You don't have Test::More. Terminating";
+        print "1..0\n";
+        exit 0;
+    }
+}
+
+1;
+</pre>
+
+<p>
+This worked fine at the time. However, recently someone on the IRC asked
+me why CondTestMore did not work anymore. I tested it with perl-5.8.8 and it
+indeed didn't work. It still worked with perl-5.8.7 and other versions 
+however. A closer inspection showed that the problem was caused by recent
+versions of Test::More.
+</p>
+
+<p>
+As it turned out Test::More converted to using Test::Builder::Module, from
+which in turn inherits from the "Exporter" module, and supplies its own
+<tt>import</tt> function, which looks like this:
+</p>
+
+<pre>
+sub import {
+    my($class) = shift;
+
+    my $test = $class->builder;
+
+    my $caller = caller;
+
+    $test->exported_to($caller);
+
+    $class->import_extra(\@_);
+    my(@imports) = $class->_strip_imports(\@_);
+
+    $test->plan(@_);
+
+    $class->$_export_to_level(1, $class, @imports);
+}
+</pre>
+
+<p>
+Pretty funky, no? Well, Since CondTestMore inherits from Test::More it broke
+the Exporter logic, and so the <tt>ok()</tt> <tt>is()</tt> etc. methods were
+not exported. After playing a bit with my Perl code, I eventually was able to
+implement CondTestMore like this, so it will work with the newer Test::More:
+</p>
+
+<pre>
+package CondTestMore;
+
+BEGIN
+{
+    eval {
+        require Test::More;
+    };
+    if ($@)
+    {
+        warn "You don't have Test::More. Terminating";
+        print "1..0\n";
+        exit 0;
+    }
+    Test::More->import();
+    @ISA = qw(Test::More);
+    *EXPORT = \@Test::More::EXPORT;
+}
+
+1;
+</pre>
+
+<p>
+Here, I import the Test::More symbols into the CondTestMore package, and 
+also make CondTestMore's <tt>@EXPORT</tt> point there, so
+Test::Builder::Module will like it this way. This seems to work for what
+I need to do.
+</p>
+
+<p>
+So it's a regression, but I'm not sure anyone was supposed to inherit from
+Test::More in this way.
+</p>
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>An Alternate Thought</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-11-21T18:49:08</h3>
+<p>As you'll likely have to bundle this module with the distribution, have you thought of bundling <code>Test::More</code> itself?  That seems like less work to me.</p>
+
+
+
+<blockquote>
+
+<h2>Re:An Alternate Thought</h2>
+<h3><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2006-11-21T20:56:47</h3>
+<p>
+Hi. I knew you were going to suggest that before I read your post here, because I thought about it too earlier. Well, this idea did not cross the minds of the WWW::Form originator and me when we first implemented "CondTestMore". However, now that I think of it, I believe it would be sub-optimal because bundling Test::More and all of its dependencies (like Test::Builder) will increase the size of the WWW::Form distribution considerably. So I guess we'll stick with CondTestMore for the time being.
+</p>
+
+<p>
+I should note that for my own modules, I'm making a heavy use of Test::More, and don't condition its usage like that. I only implemented the CondTestMore scheme in WWW::Form due to the original author feedback, since when manually installing the module using perl Makefile.PL, you only get a warning that Test::More is absent, and still get tests' failure.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:An Alternate Thought</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-11-21T22:07:35</h3>
+<p>Okay, so instead of adding one line to your <em>Makefile.PL</em> or a few kilobytes to the distribution size, you want to maintain your own code that doesn't do as much, takes more work to maintain, has no other users, and increases your testing burden by adding an entirely new test path, when there is one really good way to solve this problem (mark <code>Test::More</code> as a dependency in your build file) and one decent way to solve this problem (bundle <code>Test::More</code>).</p>
+
+<p>I have some weird hobbies too, but<nobr> <wbr></nobr>... wow.  Good luck with that.</p>
+
+
+
+<blockquote>
+
+<h2>Re:An Alternate Thought</h2>
+<h3><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2006-11-22T04:39:00</h3>
+<p>
+Actually, <a href="http://search.cpan.org/src/SHLOMIF/WWW-Form-1.17/Makefile.PL" title="cpan.org">the Makefile.PL</a cpan.org> does specify a dependency on Test::More. We just still want to have CondTestMore in case a user on an older perl installation that doesn't have Test::More, tries to build it from the source without using CPAN.pm/CPANPLUS.pm.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

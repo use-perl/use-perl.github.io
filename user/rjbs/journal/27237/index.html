@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: bugzilla and the crawling chaos</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>bugzilla and the crawling chaos</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2005-10-19T04:31:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Wow.  Bugzilla.<br/><br/>I recently complained that it was obnoxious that I had to upgrade Bugzilla just to be able to search for bugs that had no open blockers.  "Gosh," I thought, "Isn't that some of the most important data you could get from you work order system?"<br/><br/>Still, it was more important to get the feature than to complain about it, so I decided to do both.  I upgraded our Bugzilla to 2.20 today, only to realize that I had been misled.  Version 2.20 made it possible to query for bugs with no blockers, but not to ignore blockers that had been resolved.  The crew on the Bugzilla IRC channel seemed to consider this a very complicated feature to implement.<br/><br/>I was worried for my sanity, because I'd just spend half an hour or so looking through some of the uppermost Bugzilla internals, where insane things are done with typeglobs (seemingly because the programmers don't understand the difference between runtime and compile time), do-file, and other sharp and rarely-needed tools.  When your application's code (not, say, it's supporting library-building library's code) contains "@::varname" more than two dozen times, you need to stop what you are doing right now.<br/><br/>Anyway, I dove in to try to address this problem, and made several false starts.  I finally gave up when I found a hash being stored in an array (and then saw the elements shifted off two-by-two into $key and $value); its keys were eval-able into regex that would match comma-joined tuples of query part descriptions.  Its values were coderefs that would alter in-scope lexicals, used as registers, to return values.  I felt it would be best to admit defeat and move on, because I was really getting scared.<br/><br/>This evening, though, I put on a brave face and went back into Bugzilla::Search and found a way to do what I wanted.  See, Bugzilla searches, these days, are translated into those stringified tuples I mentioned above.  The key is to make a tuple that does what you want.  The tuples are, if I recall correctly: (name, operator, value).  There was no name that corresponded to the query I wanted, so I looked around until I found it.  It turned out that they're stored in the fielddefs table.  I was feeling good about this, until I realized that the "name" was not just the CGI query parameter used to build the chart, but was actually the column name that would be put into the SQL directly.  "bugid" really put "bugid" right there in the SQL.  Since there was a "display name" column used to produce the description of the query in the dropdown, all I had to do was create a field named this:<br/><br/> bugs.bug_status NOT IN ('VERIFIED','RESOLVED') AND bugs.bug_id IN (SELECT  blocked FROM dependencies WHERE dependson NOT IN (SELECT b2.bug_id FROM bugs  b2 WHERE b2.bug_status NOT IN ('VERIFIED','RESOLVED')))<br/><br/>Of course, I had to extend the maximum length of the name field (from 64 characters), but with that done, everything is fine.  I tack the above onto my query string, followed by "==0" or something like that, and it works.<br/><br/>Yes.  The SQL snippet goes in the query string.<br/><br/>I think I'll go to bed, now, and pray to dream of Cthulhu, and not Bugzilla. </p>
+
+
+<hr/>
+
+
+
+<h2>you might be interested in mayfly</h2>
+<h3><a href="/user/TeeJay/">TeeJay</a> on 2005-10-19T09:07:06</h3>
+I too spent more than a few hours hacking bugzilla into something more usuable, and have recently revisited it with the Mayfly project - essentially porting it to Class::DBI and Maypole.<br><br>I haven't had a chance to build the maypole side yet but I have some CDBI classes that work with an existing bugzilla database.<br><br>I am giving very serious thought to breaking backwards compatbility and providing a migration script rather than keeping the bugzilla database exactly as it is.<br><br>let me know what other bits you'd like to change or what else you would want from a project like that.
+
+
+
+<blockquote>
+
+<h2>Re:you might be interested in mayfly</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2005-10-19T11:47:32</h3>
+Well, if mayfly doesn't fix the serious usability issues with bugzilla's interface, not mentioning the unability to write plugins and so on, I don't think it's worth considering. Have higher goals! Even if your project approaches 10% of RT it will still be much better than the bugzilla abomination.
+
+
+
+<blockquote>
+
+<h2>Re:you might be interested in mayfly</h2>
+<h3><a href="/user/TeeJay/">TeeJay</a> on 2005-10-19T13:01:18</h3>
+Mayfly totally replaces the user interface, and will bring in elements of rt (which having used both has plenty of annoyances of its own) and trac, as well as ideas from timesheet and project management applications I have used.<br><br>This is why it will break backwards compatibility and require a migration script.<br><br>But you do know that bugzilla is trivial to hack on, right? The pages are all TT and the code was simple to modify last time I worked with it.<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:you might be interested in mayfly</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2005-10-19T13:17:43</h3>
+<blockquote><div>But you do know that bugzilla is trivial to hack on, right? The pages are all TT and the code was simple to modify last time I worked with it.</div></blockquote><br><br>I advise anyone considering believing that statement to download Bugzilla and read Bugzilla/Search.pm, checksetup.pl, and buglist.cgi;  then try to determine what you need to do to add a searchable and displayable parameter.<br><br>Extrapolate that thought, then, to 200 or so source files.
+
+
+
+<blockquote>
+
+<h2>Re:you might be interested in mayfly</h2>
+<h3><a href="/user/TeeJay/">TeeJay</a> on 2005-10-19T15:49:20</h3>
+I just replaced the search page with a bunch of more useful summary pages and simpler searches. Wasn't hard at all.<br><br>The big search page is scary and horrible and best ignored.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:you might be interested in mayfly</h2>
+<h3><a href="/user/stu42j/">stu42j</a> on 2005-10-20T19:16:16</h3>
+I have been thinking about setting up a bug tracker and a support ticket/tracker and have been mentally debating whether or not these two needs should be served by a single application.<br/><br/>I usually think of RT as being more in the support ticket category but obviously it can be used for both (rt.cpan.org).  How well, though, does it compare against other tools designed specifically for bug tracking?
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-10-19T10:26:44</h3>
+<p>Ouch. I knew the hearsay that Bugzilla was terrible, but not <em>that</em> terrible. Small wonder they have security holes to fix at every step and turn.</p>
+
+
+
+<h2>The Whole 9 Yards</h2>
+<h3><a href="/user/WebDragon/">WebDragon</a> on 2005-10-20T06:59:05</h3>
+Ozeranski said it best (when he was replying to Jimmy the Tulip, over Jimmy's comment about the tomato plants):<br><br>OH<br>MY<br>GOD.<br><br>(but you have to have seen the movie so you can picture the inflection, and his face.<nobr> <wbr></nobr>:)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

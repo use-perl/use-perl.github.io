@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Revelation: Method Chaining (Regarding A Recent Perlmonks Discussion)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Method Chaining (Regarding A Recent Perlmonks Discussion)</h1>
+<h2><a href="/user/Revelation/">Revelation</a> on 2003-06-16T05:10:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'd like to discuss why method chaining is bad <b>for widely distributed modules</b> in response to <a href="http://www.perlmonks.com/index.pl?node_id=265214">this</a> discussion.  I've decided to put it in its own node, because I believe that the topic of why NOT to use it could be very important.  I hope that if I share my rationale of the use of method chaining and how it hurts large packages, people will reconsider their belief in that technique.  To begin with, it'd be nice to define method chaining- my current definition is chaining a series of methods that work off of a single object.  It's used most often for attributes to an object, but I guess it could be used to actually call methods.  It's major advantage is that it allows for great brevity, and demonstrates the interconnectedness of the attributes, as well as puts them in a single place. 
+<br>
+<br>
+All of these are good things, and as <a href="http://www.perlmonks.com/index.pl?node_id=108447">demerphq</a> <a href="http://www.perlmonks.com/index.pl?node_id=266011">said</a>, it seems to make sense to write: 
+<br>
+<br>
+<CODE>
+print Data::Dumper->new([$foo],[qw(foo)])->Indent(2)->Purity(2)->Dump();
+</CODE>
+<br>
+<br>
+instead of:
+<br>
+<br>
+<CODE>
+print do{my $d=Data::Dumper->new([$foo],[qw(foo)]); $d->Indent(2); $d->Purity(2); $d->Dump()};
+</CODE>
+<br>
+<br>
+however, this is a rather short sighted consideration, when one looks at the cons of method chaining.  If our criteria is as said "easy things should be easy, and hard things possible," we must adopt some sort of standard to make maintanance programming (one of those easy things) and extending packages (another one of those easy things) easy.  Method chaining betrays the later, and even makes the former rather hard.
+<br>
+<br>
+Consider even the previous example.  A perl programmer, who is familiar with Data::Dumper, would automatically assume that you're modifying multiple attributes of the dumper object.  However, a maintanance programmer, or basically anybody not familiar with it, would infer that the programmer is changing the purity of the indent, not the greater object.  This is because programming standards (think of them as extended but unenforced grammer, the degree of scrictness after <CODE>use strict;</CODE>,) would dictate that as we go further from the left, we get more and more specific, that we are modifying the attribute.
+<br>
+<br>
+But who cares about standards?  <i>One shouldn't have to contort oneself to fit into some arbitrary coding scheme when there is no reason to.</i>  We're basically selecting a design that isn't common.  The problem with that is twofold, first that the majority of people would not consult a reference for such a small item of concern and they would further probably assume that the common standard is being used, and second that the very standard used is used for a reason...
+<br><br>
+It's the sad truth that method chaining leads to problems for people who don't read the documentation, but that it also leads to inflexibility and problems for maintanance programmers.  The inflexibility is that of being forced to have seperate accessors and mutators,
+because accessors have to return the data accessed, wheras mutators are now returning the object modified.  This can be delt with by just checking if $_[1] is defined and sending $self if it isn't, so I don't see much of a problem with it.  However, method chaining at that moment makes even less intuitive sense, because I'm using the same method with completely differant results, one of which is the parent object, and the other of which is an internal part of that object.
+<br><br>
+But I can cope with that.  No big deal.  The second problem, however, is something I can't deal with. Consider, from perldoc:
+<br>
+<br>
+<CODE>
+  $object->fullname('thadeus');
+  <br>
+  <br>
+  
+  # But my system's gotten more complicated.
+  <br>
+  # so now I'm going to make fullname into an
+  <br>
+  # object of its own.
+  <br><br>
+  $object->fullname('Thadeus Barton')->christian('Thadusky');
+  <br>
+  $object->fullname('Frankeus Muss')->hobbessian('fransko');
+</CODE>
+<br>
+<br>
+You've created the maintanance/extensibility nightmare of all nightmares!  Now it's necessary to document what is a chained method and what isn't.  You've also made it possible to do:
+<CODE>$object->size('large')->fullname('Frankeus Muss')->hobbessian('fransko');</CODE>
+<br><br>
+It's a sad day for whoever has to work with that code.  So we have to make a decision between the two?  If there's a good chance we won't need to extend our work, why do so?  Although being able to transparently extend objects (change how it's implemented) without changes usage is one of the major reasons people encapsulate data, it can be sacraficed for DWIM. To me, getting rid of that layer for a few silly strokes is futile.  Especially when there's a perfectly valid alternative- all of this, because you were to lazy as a programmer to just have a single set method, which would be the only thing needing documentation:
+<br>
+<br>
+<CODE>
+print my $d=Data::Dumper->new([$foo],[qw(foo)])->set(Indent => 2, Purity => 2)->dump(); # If brevity is all too necessary.
+<br>
+<br>
+my $d=Data::Dumper->new([$foo],[qw(foo)]);
+   $d->set(Indent => 2, Purity => 2);
+print $d->dump();
+</CODE>
+<br>
+<br>
+At least this way you're not tredding on OO dogma.
+<br>
+<small>
+<b>
+Gyan Kapur
+<br>
+gkapur@myrealbox.com
+</b>
+</small></p>
+
+
+<hr/>
+
+
+
+<h2>On method chaining</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2003-06-16T13:17:47</h3>
+Method chaining is fine as long as it's clearly documented and consistent within a module.  I would be hauled off to the looney bin if I were to make any kind of global recommendation, however.
+<p>
+In <a href="http://www.oreilly.com/catalog/lrnperlorm/" title="oreilly.com">my new Alpaca book</a oreilly.com>, I argue that for a getter/setter method, there are arguments in favor of any one of four return values from the setter method:
+</p><ul>
+<li>a simple true/false status (yes I was able to set this),</li>
+<li>the newly set value, turning the setter into an immediate getter as well,</li>
+<li>the <i>previous</i> value (ala <tt>umask</tt> and single-arg <tt>select</tt>), allowing flip-flop settings trivially, or</li>
+<li>the object itself, allowing for chained settings.</li>
+</ul>
+For anything but the first, a <tt>die</tt> has to be used to signal error.
+<p>
+As long as it's documented, it's fine.  Don't demand consistency.  Any one of these four returns is fine.</p>
+
+
+
+<h2>For crying out loud</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2003-06-16T13:41:37</h3>
+See Want.pm.  Anyone who wants to support method chaining as a regular feature of their module ought to be using this.  No more of this "do I return $self or a $value" nonsense.
+
+
+
+<blockquote>
+
+<h2>Re:For crying out loud</h2>
+<h3><a href="/user/Revelation/">Revelation</a> on 2003-06-16T20:37:58</h3>
+That doesn't really help too much. Want.pm can't distinguish between the different objects that could be wanted, getting a program to think metacognitively at that complexity is impossible.  (If you've invented AI *that* good, Terminator 3 will soon become a reality...)
+<br> <br>
+I could be wanting the object returned by $object-&gt;head, because you've made the head into its own greater object to allow for more methods, or I could want the object to be a chained method.  How can you tell the difference?  How can a maintanance programmer tell the difference?  The problem with method chaining is that an idiom manifests itself in the same form as the standard, and that they stand for two completely different things.  The contexts, for all intents and purposes, look _exactly_ the same.  For a reader to read the documentation and check each method to see whether its chained, or can actually be returning a real object outweighs the gains created by a little extra brevity, and having all your manipulations of an object done at one time.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Smalltalk</h2>
+<h3><a href="/user/malte/">malte</a> on 2003-06-16T13:52:21</h3>
+Smalltalk returns self by default if there is no explicit return value. I think that's part of the reason why well written Smalltalk programs look just beautiful.
+
+
+
+<h2>The real problem ...</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2003-06-24T05:11:19</h3>
+The real problem is that you're expecting your set methods to return the value that you just set (at least in your fullname) example.  So you now you have a combined get/set method, which is icky.<br> <br>If your set methods are are clearly distinct from your getters, then returning $self from setters makes perfect sense in _all_ cases.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

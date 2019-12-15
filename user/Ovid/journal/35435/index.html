@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Relax(i)NG and Staying DRY in Bermuda</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Relax(i)NG and Staying DRY in Bermuda</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-01-20T13:54:40</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I had an acceptance tester walk up to me and ask why there was no revision information attached to a particular element in our REST interface.  It was a bug.  To fix that bug required one line of code.  I added it.  The tests failed.</p>
+
+<p>Turns out that it requires two lines of code.  I added the other line.  The tests failed.</p>
+
+<p>I updated the requisite <a href="http://relaxng.org/compact-tutorial-20030326.html">RELAX NG</a> schema.  The tests failed.</p>
+
+<p>I've started updating the <em>hard-coded</em> XML files in some acceptance tests.  My brain failed.</p>
+
+<p>Wouldn't it be nice if all you had to do was update a schema?  Imagine reading a RELAX NG schema and generating the appropriate Perl code to create the data structures which then gets run through an XML generator to produce XML which automatically validates against the RELAX NG?  You could even autogenerate tests with this.  Then, you just update your RELAX NG and that's it!</p>
+
+<p>Doesn't quite work.  RELAX NG is all about the structure of a document, not its meaning.  If you see a <tt>last-modified</tt> attribute three years in the future, you know it's probably wrong, but RELAX NG doesn't.  So I experimented with adding annotations to RELAX NG, but it was making my parser more complicated.  RELAX NG doesn't do everything I need.</p>
+
+<p>A further problem is that RELAX NG does <em>more</em> than I need:</p>
+
+<pre>element addressBook {
+  element card {
+    attribute name { text },
+    attribute email { text }+
+  }*
+}</pre>
+
+<p>See that plus sign after the email attribute?  It means "one or more".  While duplicate attribute names are valid in XML, many XML parsers get confused and it can also be ambiguous since attributes are inherently unordered.  You can also write your RELAX NG with a grammar and specify the start element, but that doesn't fit my needs in this case.  As a result, a programmer can write valid RELAX NG but it wouldn't work in my system, so that's an expectation violation.  It also further complicated my parser and was making my hard work much harder.  RELAX NG simultaneously does too little and too much.  It's not a <em>bad</em> fit, but it's not a great one, either.  (A pure Perl RELAX NG parser would help tremendously, but that would delay this even further).</p>
+
+<p>I've started writing custom YAML files which do exactly what I need.  The system is named "Bermuda" and the YAML files, named "islands", have a <tt>.bmd</tt> extension (<a href="http://filext.com/file-extension/BMD">GameCube also uses a .bmd extension</a>).  Code which generates code is very difficult to write, but the payoffs are huge.  I seriously doubt this will ever see the light of day, but it's a fun project.  Here's a sample YAML file:</p>
+
+<pre>---
+package: My::Card
+island: card
+attributes:
+  href:
+    type: anyURI
+    method: url
+  revision?:
+    if: 'defined $card->revision'
+    type: positiveInteger
+elements:
+  - name
+  -
+    type: string
+  - email*
+  -
+    type: string
+  - phone+
+  -
+    method: phone_numbers
+    type: string</pre>
+
+<p>And here's the generated code (yes, I actually have this much working):</p>
+
+<pre>package My::Card::Bermuda;
+
+use strict;
+use warnings;
+use Carp 'croak';
+
+sub new {
+    my ( $class, $instance ) = @_;
+    return bless {
+        data => {
+            island     => 'card',
+            attributes => {},
+            element    => [],
+        },
+        instance => $instance,
+    } => $class;
+}
+
+sub instance { shift->{instance} }
+sub name     { 'card' }
+
+sub build {
+    my ( $self ) = @_;
+    $self->_add_attributes;
+    $self->_add_elements;
+    return $self;
+}
+
+sub _add_attributes {
+    my ($self) = @_;
+    my $card = $self->instance;
+    if (defined $card->revision) {
+        $self->{data}{attributes}{revision} = $card->revision;
+    }
+    $self->{data}{attributes}{href} = $card->url;
+    return $self;
+}
+
+sub _add_elements {
+    my ($self) = @_;
+    my $card = $self->instance;
+    my $count; 
+    push @{ $self->{data}{elements} } => {
+        name       => 'name',
+        attributes => {},
+        element    => [ $card->name ],
+    };
+    $count = 0;
+    foreach my $email ( $card->email ) {
+        $count++;
+        push @{ $self->{data}{elements} } => {
+            name       => 'email',
+            attributes => {},
+            element    => $email,
+        };
+    }
+    $count = 0;
+    foreach my $phone ( $card->phone_numbers ) {
+        $count++;
+        push @{ $self->{data}{elements} } => {
+            name       => 'phone',
+            attributes => {},
+            element    => $phone,
+        };
+    }
+    unless ($count) {
+        croak("Method 'phone_numbers' failed to return at least one element");
+    }
+    return $self;
+}
+
+1;</pre>
+
+<p>I'm not writing out the RELAX NG yet, but it would look like something like this:</p>
+
+<pre>element card {
+    attribute revision { xsd:positiveInteger }?,
+    attribute url      { xsd:anyURI },
+    element   name     { xsd:string },
+    element   email    { xsd:string },
+    element   phone    { xsd:string }*
+}</pre>
+
+<P>That's a nice syntax and I really wish I could use it, but it just doesn't quite fit :(</p></p>
+
+
+<hr/>
+
+
+
+<h2>Schematron?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-01-20T17:27:25</h3>
+<p>Have you tried to combine Schematron with RELAX NG? It&#8217;s quite easily possible, as RNG has extension points that allow for such an undertaking, and Schematron gives you rule- as opposed to grammar-based validation. In short, Schematron rules are arbitrary XPath expressions that must match/be true in the contexts you specify for them. Particularly with suitable XPath extension functions, that lets you validate pretty much any kind of constraint whatsoever.</p>
+
+<p>(You can also use Schematron standalone, but I find that defining full-blown grammars in terms of rules is much less readable. Declarative wins big in the areas where it can carry you. But Schematron is very nice not just for complementary purposes, but also because it&#8217;s descriptive rather than prescriptive, letting you validate aspects of a document as coarsely or finely grained as you need. Validity isn&#8217;t a binary concept.)</p>
+
+<p>Another way to supercharge RNG is to use a different data type library &#8211; you aren&#8217;t limited to XSD (which is a pretty misshapen type system).</p>
+
+<p>As for parsing the RELAX NG Compact syntax, why would you try? There is a corresponding XML vocabulary as well as tools such as Trang (yeah, Java, enh) which can translate one into the other. So you can turn an RNG grammar into a DOM that&#8217;s close enough to an AST for basically free.</p>
+
+<p>RELAX NG and Schematron are both pretty cool stuff.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Schematron?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-01-20T17:40:02</h3>
+<p>Actually, I have trang installed and used that to convert the compact grammar to XML.  I had stuff like this:</p> <p><blockquote> <div><tt>element card {<br> <br>&nbsp; &nbsp; ## if: defined $card-&gt;revision<br>&nbsp; &nbsp; attribute revision { xsd:positiveInteger }?,<br>&nbsp; &nbsp; element name&nbsp; &nbsp; { xsd:string },<br>&nbsp; &nbsp; element email&nbsp; &nbsp;{ xsd:string },<br> <br>&nbsp; &nbsp; ## method: phone_numbers<br>&nbsp; &nbsp; element phone&nbsp; &nbsp;{ xsd:string }*<br>}</tt></div> </blockquote>  <p>And it was getting converted to this:</p> <p><blockquote> <div><tt>&lt;?xml version="1.0" encoding="UTF-8"?&gt;<br>&lt;element name="card" xmlns:a="http://relaxng.org/ns/compatibility/annotations/1.0" xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes"&gt;<br>&nbsp; &lt;optional&gt;<br>&nbsp; &nbsp; &lt;attribute name="revision"&gt;<br>&nbsp; &nbsp; &nbsp; &lt;a:documentation&gt;if: defined $card-&amp;gt;revision&lt;/a:documentation&gt;<br>&nbsp; &nbsp; &nbsp; &lt;data type="positiveInteger"/&gt;<br>&nbsp; &nbsp; &lt;/attribute&gt;<br>&nbsp; &lt;/optional&gt;<br>&nbsp; &lt;element name="name"&gt;<br>&nbsp; &nbsp; &lt;data type="string"/&gt;<br>&nbsp; &lt;/element&gt;<br>&nbsp; &lt;element name="email"&gt;<br>&nbsp; &nbsp; &lt;data type="string"/&gt;<br>&nbsp; &lt;/element&gt;<br>&nbsp; &lt;zeroOrMore&gt;<br>&nbsp; &nbsp; &lt;element name="phone"&gt;<br>&nbsp; &nbsp; &nbsp; &lt;a:documentation&gt;method: phone_numbers&lt;/a:documentation&gt;<br>&nbsp; &nbsp; &nbsp; &lt;data type="string"/&gt;<br>&nbsp; &nbsp; &lt;/element&gt;<br>&nbsp; &lt;/zeroOrMore&gt;<br>&lt;/element&gt;</tt></div> </blockquote>  <p>And I was using <tt>XML::LibXML</tt> to break that down into a data structure, but it was getting rather ugly.  With YAML, I get the data structure for free.  I have to say, though, that I didn't look at Schematron.  I've never used it before.</p>
+
+<p>Currently I have almost all of the basics in place for what I'm doing, so I'm not likely to switch now.  However, I've clearly separated out my parser from everything else.  As a result, if I ever need to switch to another parsing system, it should be trivial once the other parser is written.  (Heh.  Famous last words.)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

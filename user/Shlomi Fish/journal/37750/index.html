@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Shlomi Fish: File-Find-Object Refactoring</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>File-Find-Object Refactoring</h1>
+<h2><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2008-10-27T18:34:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+I haven't updated this journal in a long time, and mostly been writing
+in my <a href="http://community.livejournal.com/shlomif_tech/">LiveJournal
+Technical blog</a>. I've emailed to <a href="http://perlsphere.net/">the
+Perlsphere</a> maintainer about including that blog there (once from
+my home address and once from gmail.com), but received no reply, and so far
+it is not included there.
+</p>
+
+<p>
+In any case, this post is about
+<a href="http://search.cpan.org/dist/File-Find-Object/">File-Find-Object,
+which is an object-oriented alternative to the core File::Find module</a>.
+Originally by <a href="http://search.cpan.org/user/nanardon/">Nanardon</a>,
+I've maintained it since version 0.0.3.
+</p>
+
+<p>
+Recently, I've been meaning to write a project, and contemplated whether
+to use File-Find-Object or roll-out my own directory traversal logic, but
+then decided that improving F-F-O so it will do what I want was a better idea,
+<a href="http://en.wikipedia.org/wiki/Eating_one%27s_own_dog_food">in an
+"Eating one's own dog food"</a> and not-re-inventing the wheel fashion.
+So I needed to extend F-F-O to do what I want.
+</p>
+
+<p>
+While I took a closer look at the code to inspect it, I found it had some
+"bad smells", and decided to fix it by refactoring, as a necessary 
+pre-requisite for extending it.
+</p>
+
+<p>
+The first thing I did was notice that many methods accepted a <tt>$current</tt>
+parameter that was passed from one method to another, and then used. As it
+turned out, most of these simply originate from 
+<tt>$self-&gt;_current()</tt>, which I now used to retrieve the value in
+each method, without passing a parameter.
+</p>
+
+<p>
+Another fact I noticed was that there were many 
+<tt>if ($self eq $current)</tt> checks in the code. Since <tt>$current</tt>
+is dynamic, I decided to create a predicate <tt>_is_top()</tt> which will 
+encapsulate it and to create the following method maker:
+</p>
+
+<pre>
+sub _top_it
+{
+    my ($pkg, $methods) = @_;
+
+    no strict 'refs';
+    foreach my $method (@$methods)
+    {
+        *{$pkg."::".$method} =
+            do {
+                my $m = $method;
+                my $top = "_top_$m";
+                my $non = "_non_top_$m";
+                sub {
+                    my $self = shift;
+                    return $self->_is_top()
+                        ? $self->$top(@_)
+                        : $self->$non(@_)
+                        ;
+                };
+            };
+    }
+
+    return;
+}
+</pre>
+
+<p>
+Thus, when _is_top evaluates to true I call <tt>_top_mymethod</tt>
+and otherwise <tt>_non_top_mymethod</tt>. This is a variation on
+the <a 
+href="http://sourcemaking.com/refactoring/replace-conditional-with-polymorphism">"replace
+conditional with polymorphism" refactoring</a>.
+</p>
+
+<p>
+Now <tt>-&gt;_current()</tt> returned the 
+<tt>-&gt;_current_idx()</tt>'th item from an internal stack
+representing the directories which the object is traversing. I wanted
+to see where "_current_idx" was set and discovered it was incremented when
+an item was pushed to the stack, and decremented when an item was popped.
+As a result, I eliminated "_current_idx" completely and replaced 
+<tt>_current()</tt> with <tt>$self-&gt;_dir_stack()-&gt;[-1]</tt>. That
+removed a lot of cruft from the code.
+</p>
+
+<p>
+I also was able to do what I wanted, and make sure the paths are maintained
+as the base path for the traversal followed by a list of extra components of
+each inner directory. 
+</p>
+
+<p>
+I noticed that I flat-copied the return of a method returning
+an array reference several times (E.g: 
+<tt>[ @{$self-&gt;_components()} ]</tt>) and so created another method 
+maker - this time for "_copy" methods.
+</p>
+
+<p>
+And naturally, I extracted many methods.
+</p>
+
+<p>
+All this enabled me to create <tt>-&gt;next_obj()</tt> and 
+<tt>-&gt;item_obj()</tt> API methods that return objects instead of plain
+strings. Naturally, this is not refactoring, but extending.
+</p>
+
+<p>
+While I was in the neighbourhood, I discovered that <a 
+href="http://www.securiteam.com/unixfocus/6S00L20MUE.html">the code
+had a format-string-issue</a>, which I fixed, and released
+File-Find-Object-0.1.1 immediately.
+</p>
+
+<p>
+After the release, I received three failure reports from CPAN Testers. Two
+of them were for a missing dependency, that wasn't installed due to a bug
+in the tests' smoking setup. One of them, however, was for Win32, where it
+was a real bug. I was able to reproduce it using Strawberry Perl on my WinXP
+computer, and released File-Find-Object-0.1.2 that corrected it. The problem
+was that on non-cygwin-Win32 all inodes are returned as 0 in the calls to
+stat().
+</p>
+
+<p>
+Today, I started writing the project that required all this work on 
+File-Find-Object. So far it doesn't do much, but it's a start.
+</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

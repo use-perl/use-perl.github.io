@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ajt: Maypole Segfaults</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Maypole Segfaults</h1>
+<h2><a href="/user/ajt/">ajt</a> on 2005-05-26T10:28:08</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I'm again trying to use Maypole. After battling with it for some time, I decided to give up and start from a clean slate. I created the first table, and that was okay, then I added a second, and linked them, and that was okay. Any additional tables cause a segfault in the Apache/mod_perl process when I try to view them. I'm sure it's something stupid, but I can't see it, and it is driving me mad!</p>
+
+<p>Here is how the SQLite tables are created:</p>
+
+<pre>
+create table asset (
+        id integer primary key,
+        name varchar(50),
+        department integer,
+        language integer,
+        qpnumber integer,
+        conumber integer,
+        country integer,
+        user integer,
+        projectid varchar(30),
+        category varchar(30),
+        datecreated varchar(30),
+        dateapproved varchar(30),
+        description text
+);
+
+
+INSERT INTO asset
+        (id, projectid, name,  department, language, qpnumber, conumber, category, description, user, datecreated, dateapproved, country) VALUES
+        (1,  1,         "Foo", 1,          2,        1,        1,       "drawing", "Foo",       1,    "today",     "tomorrow",   1);
+
+INSERT INTO asset
+        (id, projectid, name,  department, language, qpnumber, conumber, category, description, user, datecreated, dateapproved, country) VALUES
+        (2,  2,         "Bar", 1,          1,        2,        2,       "drawing", "Bar",       1,    "today",     "tomorrow",   1);
+
+#
+#       The Department table
+#
+
+create table department (
+    id integer primary key,
+    name varchar(30),
+    notes text
+);
+
+INSERT INTO department
+        (id, name, notes) VALUES
+        (1,  "Marketing", "The spenders of money");
+INSERT INTO department
+        (id, name, notes) VALUES
+        (2,  "SAP/IT", "The unsung heroes");
+
+#
+#       The Language table
+#
+
+create table language (
+        id primary key,
+        name varchar(30),
+        iso varchar(8),
+        notes text
+);
+
+INSERT INTO language
+        (id, name,      iso,  notes) VALUES
+        (1,  "English", "en", "English Language");
+INSERT INTO language
+        (id, name,                iso,  notes) VALUES
+        (2,  'English (British)', "en-GB", "British English");
+INSERT INTO language
+        (id, name,                 iso,  notes) VALUES
+        (3,  'English (American)', "en-US", "American English");
+INSERT INTO language
+        (id, name,     iso,  notes) VALUES
+        (4,  'French', "fr", "French");
+#
+#       The conumber table
+#
+
+create table conumber (
+        id primary key,
+        name varchar(30),
+        datecreated varchar(10),
+        user integer,
+        department integer,
+        notes text
+);
+
+INSERT INTO conumber
+        (id, name,    datecreated, user, department, notes) VALUES
+        (1,  "CO567", "today",    1,    2,          "Womble");
+INSERT INTO conumber
+        (id, name,    datecreated, user, department, notes) VALUES
+        (2,  "CO767", "today",    2,    1,          "Burp");
+INSERT INTO conumber
+        (id, name,    datecreated, user, department, notes) VALUES
+        (3,  "CO5h7", "tomorrow", 1,    1,          "humble");
+
+
+#
+#       The country table
+#
+
+create table country (
+        id primary key,
+        name varchar(30),
+        operation varchar(30),
+        notes text
+);
+
+INSERT INTO country
+        (id, name,             operation, notes) VALUES
+        (1,  "United Kingdom", "UK",      "UK Sales company");
+INSERT INTO country
+        (id, name,             operation, notes) VALUES
+        (2,  "United Kingdom", "IHQ",      "International Headquarters");
+INSERT INTO country
+        (id, name,     operation, notes) VALUES
+        (3,  "France", "FR",      "French Sales company");
+</pre>
+
+<p>That creates a tiny sqlite db, that we then access via Maypole. Here is the Maypole code.</p>
+
+<pre>
+package Ibudb;
+
+
+#
+#       Load modules
+#
+
+use strict;
+use Maypole::Application;
+use Class::DBI::Loader::Relationship;
+
+
+#
+#       Base configuration
+#
+
+
+Ibudb->setup("dbi:SQLite:/home/web/vhost/alarisibu/ibu/ibu.db");
+Ibudb->config->uri_base("http://dev.alarisibu.int.alarismed.com/ibudb/");
+Ibudb->config->template_root("/home/web/vhost/alarisibu/ibu/factory");
+Ibudb->config->rows_per_page(10);
+
+
+#
+#       Define the tables to Display
+#
+
+
+Ibudb->config->display_tables([qw[asset department language conumber country]]);
+
+
+#       asset table
+Ibudb::Asset->untaint_columns(
+        printable => [qw/name category dateapproved datecreated qpnumber projectid description/],
+        integer   => [qw/user/] );
+
+
+#       department table
+Ibudb::Department->untaint_columns( printable => [qw/name notes/] );
+
+
+#       language table
+Ibudb::Language->untaint_columns( printable => [qw/name iso notes/] );
+
+
+#       conumber table
+Ibudb::Conumber->untaint_columns( printable => [qw/name datecreated notes/] );
+
+#       country table
+Ibudb::Country->untaint_columns( printable => [qw/name operation notes/] );
+
+#
+#       Define the table-table relationships
+#
+
+Ibudb->config->{loader}->relationship($_) for (
+        "a department defines assets",
+        "a department defines conumbers",
+        "a language defines assets",
+        "a conumber defines assets",
+        "a country defines assets",
+        "a country defines conumbers",
+);
+
+1;
+</pre>
+
+<p>I can view the asset table okay, and the department page, any other table causes a segfault...</p>
+ </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

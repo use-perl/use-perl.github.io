@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Aristotle: A simple `unfold` in Perl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>A simple `unfold` in Perl</h1>
+<h2><a href="/user/Aristotle/">Aristotle</a> on 2008-11-08T16:49:41</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>For many years, a very simple issue about writing an <code>unfold</code> in Perl&#160;5 has stymied me.</p>
+
+<p>(An <code>unfold</code> is the opposite of <code>fold</code>, of course. The latter is better known to Perl programmers as <code>reduce</code> from List::Util, which is a function that takes a block and a list and returns a single value by repeatedly applying the block to successive values. An <code>unfold</code> does the opposite: it takes a block and a single value and then repeatedly applies the block to the value, accumulating the return values to eventually return them as a list.)</p>
+
+<p>A good <code>unfold</code> as I want it will allow the same thing as <code>map</code> does: for any iteration to return any number of elements, including zero. Also, the elements returned from an iteration must be passed out of the block as its return value for that iteration &#8211; otherwise you might as well write a conventional loop instead.</p>
+
+<p>But then you have a problem: how do you know when the block is finished generating output? There is no possible return value you could use for this. The Python implementations of this function that I&#8217;ve seen invariably expect an exception to be thrown to signal the end of the iteration, which struck me as profoundly un-Perlish. But how else do you signal the termination condition out of band?</p>
+
+<p>I could think of no sensible solution given the combination of constraints that I adopted. Until an hour ago, that is, when a flash of inspiration struck me.</p>
+
+<p>I&#8217;ll let the code speak for itself.</p>
+
+<pre>
+sub induce (&$) {
+    my ( $c, $v ) = @_;
+    my @r;
+    for ( $v ) { push @r, $c->() while defined }
+    @r;
+}
+</pre>
+
+<p>In this version, the initial scalar value is made available to the block in <code>$_</code> (somewhat cleverly done via <code>for</code>, which is necessary because <code>local $_</code> has lots of subtle pitfals), and the block is called repeatedly as long as <code>$_</code> is defined. The block therefore signals the detection of its exit condition by undefining <code>$_</code>.</p>
+
+<p>It&#8217;s that simple. It&#8217;s so simple I cannot believe it took me so many years to think of it, but there it is.</p>
+
+<p>Here is a silly example:</p>
+
+<pre>
+my @reversed = induce { @$_ ? pop @$_ : undef $_ } [ 1 .. 10 ];
+</pre>
+
+<p>Of course, the eagle-eyed will immediately notice a problem: this produces 11 return values, the last one being the <code>undef</code> that got returned from <code>undef $_</code>. The fact that <code>induce</code> will collect the value of the final iteration rather than throw it away was a conscious design decision: there are two cases for the return value of the final iteration, either it is useful or not. What happens if it it&#8217;s not useful, but would be collected? Then you have to suppress it, which is easy. What happens if it&#8217;s useful, but would be thrown away? Then you have to arrange for the block to remember state so it can return the useful value first and then signal the termination condition on its next invocation. Since it is so much easier to suppress useless values that would be kept than to retain useful values that would be dropped, I chose to have <code>induce</code> keep the final iteration&#8217;s value.</p>
+
+<p>There are various ways to arrange the suppression in the above example. One of them is to check more eagerly for whether another iteration will be necessary:</p>
+
+<pre>
+my @reversed = induce { my @l = @$_ ? pop @$_ : (); @$_ or undef $_; @l } [ 1 .. 10 ];
+</pre>
+
+<p>That is clearly extremely awkward. A simpler (and insignificantly less efficient) approach is to suppress the value returned by the <code>undef</code> function:</p>
+
+<pre>
+my @reversed = induce { @$_ ? pop @$_ : ( undef $_, return ) } [ 1 .. 10 ];
+</pre>
+
+<p>That&#8217;s much better, but still not pretty. In particular, that <code>return</code> can be awkward to place due to precedence rules. In the above example it requires those annoying parens. (Try it: the code compiles but breaks without them.) Instead, we&#8217;ll take a page from Javascript and write another function:</p>
+
+<pre>
+sub void {}
+</pre>
+
+<p>No, seriously. The point of this function is, well, to take any arguments you pass it, throw them away, do nothing, and return nothing &#8211; most importantly, to return an empty list in list context.</p>
+
+<p>I admit that writing this, err, function greatly amused me. But the end result is quite satisfying:</p>
+
+<pre>
+my @reversed = induce { @$_ ? pop @$_ : void undef $_ } [ 1 .. 10 ];
+</pre>
+
+<p>So these two functions, <code>induce</code> (named like this instead of <code>unfold</code>, of course, to contrast with List::Util&#8217;s <code>reduce</code>) and <code>void</code>, will probably start appearing in my small scripts from now on.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Since $_ is global&amp;#8230;</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2008-11-17T16:30:20</h3>
+<p>couldn't you write&#8230;</p><blockquote><div><p> <tt>my @reversed = induce { @$_ ? pop @$_ : end_of_fold } [ 1<nobr> <wbr></nobr>.. 10 ];</tt></p></div> </blockquote><p>&#8230;and have <code>end_of_fold</code> undef $_?</p><p>If you used a different localised variable, you might also be able to unfold undef values. But I don't really know if that is wanted.</p><p>--phaylon</p>
+
+
+
+<blockquote>
+
+<h2>Re:Since $_ is global&amp;#8230;</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-01-16T13:00:51</h3>
+<p>That makes it seem like the <code>end_of_fold</code> function is somehow special. I&#8217;d prefer people who use this to understand exactly how it works, and avoiding low-gain abstractions helps.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>returning refs?</h2>
+<h3><a href="/user/Eric Wilhelm/">Eric Wilhelm</a> on 2009-01-16T01:06:53</h3>
+<p>Why not return []'s which get flattened into the output until undef is returned?</p><p>
+&nbsp; &nbsp; my @rev = induce {@$_ ? pop @$_ : undef} [1..10];</p><p>But maybe I'm missing something as to why the prototype is &amp;$ instead of &amp;@, or am just wanting a better example?  I would think that unfold might be more like:</p><p>
+&nbsp; &nbsp; my @flat = map({map({$_} @$_)} [1..10],[12..20]);</p><p>or thereabouts - and the 'reverse' example does not clarify that for me.</p>
+
+
+
+<blockquote>
+
+<h2>Re:returning refs?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-01-16T13:21:32</h3>
+<blockquote><div><p>Why not return []&#8217;s which get flattened into the output until undef is returned?</p></div> </blockquote><p>Because then there has to be an escape mechanism for the block to be able to return an actual <code>[]</code> that should be preserved in the output, and the block has to make sure to use it when appropriate.</p><blockquote><div><p>But maybe I&#8217;m missing something as to why the prototype is &amp;$ instead of &amp;@</p></div> </blockquote><p>Because unfold (&#8220;induce&#8221;) takes a single value and inflates it to a list, as opposed to fold (reduce) which takes a list and deflates it to a single value. In the example I gave, which is admittedly idiotic, the single value is an array ref which gets inflated to an array.</p><p>A more reasonable example might be turning a number into a list of factors of powers of some base:</p><blockquote><div><p> <tt>my $number = 4711;<br>my $base = 12;<br>my @power = induce {<br>&nbsp; &nbsp; my $r = $number % $base;<br>&nbsp; &nbsp; $number<nobr> <wbr></nobr>/= $base;<br>&nbsp; &nbsp; $r || void undef $_;<br>} $number;</tt></p></div> </blockquote><p>Or cutting a string into chunks of 3 characters:</p><blockquote><div><p> <tt>my $str = "foobarbaz";<br>my @chunk = induce { (length) ? substr $_, 0, 3, '' : void undef $_ } $str;</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:returning refs?</h2>
+<h3><a href="/user/Eric Wilhelm/">Eric Wilhelm</a> on 2009-01-17T00:17:44</h3>
+<p><div class="quote"><p><div class="quote"><p>Why not return []&#8217;s which get flattened into the output until undef is returned?</p></div><p>Because then there has to be an escape mechanism for the block to be able to return an actual [] that should be preserved in the output, and the block has to make sure to use it when appropriate.</p></div><p>No, you would not reach inside the returned ref - only flatten it at the first level.  It is either [] or undef, so [[]] would be a list of one reference.</p><p><code><br>
+&nbsp; &nbsp; my @power = induce {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $r = $_ % 12<br>
+&nbsp; &nbsp; &nbsp; &nbsp; $_<nobr> <wbr></nobr>/= 12;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return $r ? [$r] : undef;<br>
+&nbsp; &nbsp; } 4711;<br></code><br><code><br>
+&nbsp; &nbsp; my @chunk = induce {<br>
+&nbsp; &nbsp; &nbsp; (length) ? [substr $_, 0, 3, ''] : undef<br>
+&nbsp; &nbsp; } "foobarbaz";<br></code></p><p>The <code>return $condition ? [@stuff] : undef</code> seems like it might be forming a pattern.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>unfoldr</h2>
+<h3><a href="/user/int32/">int32</a> on 2009-01-29T21:44:58</h3>
+I played a bit with the concept, and found an issue I can't resolve, possibly
+you can help me here. The problem concerns whether $_ is an alias or a copy to
+the parameter passed. If it is a copy then you can't modify it unless it
+is a reference. If it is an alias you can't modify it if it is read-only.
+You may ask why should it be modified at all, and here comes the classic
+unfoldr:
+<p> <code>
+   unfoldr { $_ ? ($_, $_ - 1) : () } 10;</code></p><p><code>
+   10,9,8,7,6,5,4,3,2,1
+</code>
+</p><p>
+which allows to pass arbitrary values to the callback . Now back to your
+example, if I want to send values other than the original parameter to myself
+(e.g. callback), then I can't. Also, I can't send an "undef" back to me that
+way. That seems too much of a limitation.
+</p><p>
+So a question. Why not a good old unfoldr?
+</p><p> <code>
+   unfoldr { @$_ ? ( pop @$_, $_ ) : () } [1..10];</code></p><p><code>
+   10,9,8,7,6,5,4,3,2,1
+</code></p>
+
+
+
+<blockquote>
+
+<h2>Re:unfoldr</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-01-29T22:24:41</h3>
+<p>Read my post; I addressed that concern. To reiterate: because the empty list is a valid return value. I want to be able to make compute state transitions on the input value without them having to contribute to the resulting list.</p><p>It&#8217;s not hard to convert a read-only value to modifiable copy.</p><blockquote><div><p>if I want to send values other than the original parameter to myself (e.g. callback), then I can&#8217;t.</p></div>
+</blockquote><p>You can. You just have to capture them with a closure. Admittedly that&#8217;s cumbersome.</p><p>So yeah, it&#8217;s not syntactically very nice in certain edge cases. But all versions have tradeoffs of various forms. This one is the most minimally restrictive while maximally idiomatic rendition of <code>unfold</code> that I have seen so far. And yet since writing this entry I have grown too dissatisfied with it to use it.</p><p>The problem, ultimately, is you need to return <em>two</em> lists: one for the parameters to the next iteration, one for the result values produced during the current iteration. Unfortunately there&#8217;s just no nice way to do this.</p>
+
+
+
+<blockquote>
+
+<h2>Re:unfoldr</h2>
+<h3><a href="/user/int32/">int32</a> on 2009-01-29T22:42:42</h3>
+Oh well, I could say the same, read my post; I addressed that concern too<nobr> <wbr></nobr>:) unfoldr actually allows to return empty lists. Here's a hacked quote from haskell description: <p>
+
+The unfoldr function is a `dual' to foldr: while foldr reduces a list to a
+summary value, unfoldr builds a list from a seed value. The function takes the
+element and returns empty list if it is done producing the list or returns
+(@a,$b), in which case, @a is a appended to the list and $b is used as the next
+element in a recursive call.
+</p><p>
+As to the problem as you address it that you need to return two lists, I don't think there is a point to do so, at least for unfoldr, because it transforms a scalar to a list, not a list to a list. A list and a scalar is just fine.</p>
+
+
+
+<blockquote>
+
+<h2>Re:unfoldr</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-01-29T22:54:21</h3>
+<p>But then you need to drag it along through all of your return values. That is cumbersome.</p><p>Using <code>$_</code> for the purpose is more idiomatic. The problem is in reusing <code>$_</code> to signal the last iteration &#8211; that prevents you from unfolding <code>undef</code>, should you want to, and it bloats the code by your having to be careful not to return that <code>undef</code> when you meant to stop iterating.</p><p>However I can&#8217;t think of any good way to signal termination out of band.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:unfoldr</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-01-29T22:53:45</h3>
+<p>Btw, no, your point about alias vs copy is mistaken. The <code>induce</code> function above takes a copy of the value and then aliases <code>$_</code> to that copy, so you are guaranteed to be able to modify the value, although if you want to preserve its last value past the unfolding, you want to arrange for that yourself.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

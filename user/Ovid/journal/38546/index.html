@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Today's Database Nightmare</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Today's Database Nightmare</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-02-24T16:07:45</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Years ago, the mysql folks had an essay online explaining why foreign key constraints belong in your code and not in your database.  I can't find a copy of that essay any more, but it's an excellent symptom of so many things which have plagued this database.</p>
+
+<p>One problem many people face is how <a href="http://dev.mysql.com/doc/refman/5.1/en/timestamp.html">you cannot have both auto-updating "created" timestamps and "modified" timestamps in the same table definition</a> (thanks MySQL!).  Solutions:</p>
+
+<ol>
+  <li>Setting their values with triggers</li>
+  <li>Setting their values in your code</li>
+  <li>Setting their values via a stored procedure</li>
+</ol>
+
+<p>All of those are generally awful solutions, but we've opted for number 2, setting them in our code, because MySQL triggers have proven so problematic.  That has led to some interesting problems.</p>
+
+<p>We've had tables where somehow these values have either not been set or not been updated.  How did this happen?  Who knows?  The problem seems to have gone away, but it's potentially there.</p>
+
+<p>We now have the annoying problem where another client has read-only (thank goodness for small favors) access to our database.  We have several tables with "titles" (brands, series, episodes, etc.) and we need to remove those and put them into a central "title" table.  Unfortunately, this other client is maintained by another team who cannot update their client due to a major release coming out.</p>
+
+<p>The classic strategy for this is to keep both sets of titles and merely have the "title" table populated by triggers on the other tables (see the <a href="http://databaserefactoring.com/MoveColumn.html">Move Column database refactoring</a>).  This is a temporary solution, but it's introduced some very subtle issues.  Initially we had triggers just like this (with corresponding UPDATE and DELETE triggers):</p>
+
+<pre>CREATE TRIGGER tr_brand_insert AFTER INSERT ON brand
+FOR REACH ROW BEGIN
+    INSERT INTO title (entity_pid, title_type_id, value, created, modified)
+    VALUES(NEW.pid, 1, NEW.title, now(), now());
+END;</pre>
+
+<P>Our tests failed.  We were getting annoying errors about trying to set "NOT NULL" columns to a NULL value.  MySQL thoughtfully reported the SQL which <em>triggered</em> the trigger, but not the trigger itself.  I found myself staring at SQL which did not have the column which MySQL reported caused the problem (thanks MySQL!).  Fortunately, since I'm working on this now, it was quickly obvious what was happening.  (This is what led me to <a href="http://use.perl.org/user/Ovid/journal/38544">cursing earlier today</a>).</p>
+
+<p>Resolving that meant I had to rewrite the above trigger.  The problem is that it's possible to have an empty string for a title (long story).  So the above trigger became this:</p>
+
+<pre>CREATE TRIGGER tr_${table}_insert AFTER INSERT ON $table
+FOR EACH ROW BEGIN
+    IF COALESCE(NEW.title, '') != '' THEN
+        INSERT INTO title (entity_pid, title_type_id, value, created, modified)
+        VALUES(NEW.pid, 1, NEW.title, now(), now());
+    END IF;
+END;</pre>
+
+<p>As soon as you start inserting conditional logic into your database, you're probably introducing bugs.  Sure enough, it happened when we tried to update a title by setting it to a non-null value.  Our update trigger would try to update a non-existent row.  That's when one of my colleagues pointed out an elegant solution.  MySQL allows <a href="http://dev.mysql.com/doc/refman/5.0/en/insert-on-duplicate.html">INSERT ... ON DUPLICATE KEY UPDATE...</a>.  This is very handy.  Try to INSERT a record and if it violates a unique constraint, it will turn the INSERT into an UPDATE.</p>
+
+<P>Except that doesn't work.  Remember the created/modified restriction that MySQL imposes?  Because we handled this in our code, when we INSERT a record, we set both the "created" and "modified" columns.  If that INSERT gets switched to an UPDATE, then we'll also wind up updating our "created" column.  Grr ...</p>
+
+<P>As a result, that nice, simple UPDATE trigger (there are actually 10 variations of this) has become this:</p>
+
+<pre>CREATE TRIGGER tr_brand_update AFTER UPDATE ON brand
+FOR EACH ROW BEGIN
+    IF COALESCE(NEW.title, '') != '' THEN
+        IF EXISTS(SELECT 1 FROM title WHERE entity_pid=OLD.pid) THEN
+            UPDATE title SET value=NEW.title
+            WHERE entity_pid=OLD.pid AND title_type_id=1 AND value=OLD.title;
+        ELSE
+            INSERT INTO title (entity_pid, title_type_id, value, created, modified)
+            VALUES(NEW.pid, 1, NEW.title, now(), now());
+        END IF;
+    END IF;
+END;</pre>
+
+<p>So far, the tests are passing, but a combination of MySQL limitations and issues in our code have taken a relatively simple problem and made it a real headache.</p>
+
+<p><strong>Update:</strong>  And if you can spot the three bugs I missed, you're a better MySQL programmer than I am :)</p></p>
+
+
+<hr/>
+
+
+
+<h2>If they are readonly...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-02-25T07:12:29</h3>
+<p>Can you convert the old tables to back-compatibility views on the new table(s)?</p><p>BTW, that essay was in the actual MySQL documentation. And it was removed, of course, once foreign key constraints were added.</p>
+
+
+
+<blockquote>
+
+<h2>Re:If they are readonly...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-25T10:21:28</h3>
+<p>We have no desire to add views to provide backwards-compatibility.  This should (usually) be considered a "last resort" because otherwise, you layer on view after view every time you want to change a feature and thing become a mess.  Plus, they're willing to make the switch, just not yet.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Missing Essay</h2>
+<h3><a href="/user/Smylers/">Smylers</a> on 2009-02-25T08:37:22</h3>
+<blockquote><div><p>that essay was in the actual MySQL documentation. And it was removed, of course, once foreign key constraints were added.</p></div> </blockquote><p> <a href="http://web.archive.org/web/20010127081400/mysql.com/doc/B/r/Broken_Foreign_KEY.html" title="archive.org">The Wayback Machine to the rescue</a archive.org>.  It's even worse than I remember it:</p><blockquote><div><p> There are so many problems with foreign key constraints that we don't know where to start:  </p><ul> <li>  Foreign key constraints make life very complicated&nbsp;...</li></ul></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Missing Essay</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-25T10:25:08</h3>
+<p>Thanks Smylers.  Wow, I remember that essay being:</p><ul>
+  <li>Longer</li><li>Not so full of the Dumb</li></ul><p>I really like the bit about:</p><p><div class="quote"><p>FOREIGN KEY constraint checks are useless because you usually insert records in the right tables in the right order</p></div><p>.
+
+</p><p>But they don't <em>totally</em> trash foreign keys!  In fact, they make it clear that their is one (and only one) good reason for them.</p><p><div class="quote"><p>The only nice aspect of FOREIGN KEY is that it gives ODBC and some other client programs the ability to see how a table is connected and to use this to show connection diagrams and to help in building applicatons (sic).</p></div><p>Thanks for starting my day off with a laugh<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Missing Essay</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-03-06T15:39:37</h3>
+<blockquote><div><p>I remember that essay being longer and not so full of the Dumb</p></div> </blockquote><p>That&#8217;s probably because there also exists <a href="http://web.archive.org/web/20011004084443/http://www.mysql.com/doc/B/r/Broken_Foreign_KEY.html" title="archive.org">a later revision of that page</a archive.org> that stayed around for much longer. The first, short, really stupid version lasted 10 months before it was replaced with the tempered version that stayed around for 4 years.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

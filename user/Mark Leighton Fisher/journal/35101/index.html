@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Mark Leighton Fisher: Get Unicode Text from a VB6 RichTextBox Via the Clipboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Get Unicode Text from a VB6 RichTextBox Via the Clipboard</h1>
+<h2><a href="/user/Mark Leighton Fisher/">Mark Leighton Fisher</a> on 2007-12-14T17:43:40</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>VB6 works with Unicode internally, but for compatibility reasons ("hysterical raisins" (sic)), most of the VB6 GUI components work only on ANSI text (ASCII with codepages). However, Unicode is displayed nicely in VB6 if you use a RichTextBox control and the right font(s). I came to a point where I wanted to get the Unicode text out of that RichTextBox for use elsewhere in my program. The RichTextBox  <b>Text</b> and <b>TextRTF</b> properties let you get at the ANSI-equivalent text and the underlying RTF, respectively &mdash; but there is no RichTextBox property or method to get the plain old Unicode text from a VB6 RichTextBox.</p>
+<p>But, when you copy a VB6 RichTextBox's text to the Clipboard, you get both the ANSI and the Unicode text on the Clipboard. It is unfortunate that this is the only easy way (I've found) to get the Unicode text of a VB6 RichTextBox, as it means throwing away the current contents of the Clipboard, then copying the RichTextBox text to the Clipboard where you can then extract the Unicode text for later use in your program. Still, it's better than limiting my code to work only with ANSI text (or writing a parser for the VB6 RichTextBox variant of RTF).</p>
+<p>Here is some sample code that demonstrates how to get the Unicode text of a VB6 RichTextBox by passing it through the Clipboard first:</p>
+<pre>
+Option Explicit
+
+Const CF_UNICODETEXT = 13
+
+Const WM_COPY = &H301
+
+Private Declare Function OpenClipboard Lib "user32" (ByVal hwnd As Long) As Long
+Private Declare Function CloseClipboard Lib "user32" () As Long
+Private Declare Function EmptyClipboard Lib "user32" () As Long
+Private Declare Function GetClipboardData Lib "user32" (ByVal wFormat As Long) As Long
+
+Private Declare Function SendMessage Lib "user32" Alias "SendMessageA" _
+ (ByVal hwnd As Long, ByVal wMsg As Long, ByVal wParam As Long, lParam As Any) As Long
+
+Private Declare Function GlobalLock Lib "kernel32" _
+    (ByVal hMem As Long) As Long
+Private Declare Function GlobalUnlock Lib "kernel32" _
+    (ByVal hMem As Long) As Long
+Private Declare Function GlobalSize Lib "kernel32" _
+    (ByVal hMem As Long) As Long
+Private Declare Sub CopyMemory Lib "kernel32" _
+    Alias "RtlMoveMemory" ( _
+    lpvDest As Any, lpvSource As Any, ByVal cbCopy As Long)
+
+
+Private Sub Command1_Click()
+
+    On Error GoTo Command1_Click_Error
+
+    Dim s As String
+    Dim hMem As Long
+    Dim memSize As Long
+    Dim lPtr As Long
+    Dim bData() As Byte
+    
+    'copy Unicode text from RichTextBox1 to the Clipboard
+    Clipboard.Clear
+    RichTextBox1.SetFocus
+    RichTextBox1.SelStart = 0
+    RichTextBox1.SelLength = Len(RichTextBox1.Text) * 2
+    SendMessage RichTextBox1.hwnd, WM_COPY, 0, 0
+    
+    'get Unicode text in a global, movable memory block
+    OpenClipboard RichTextBox1.hwnd
+    hMem = GetClipboardData(CF_UNICODETEXT)
+    memSize = GlobalSize(hMem)
+    s = ""
+    If memSize <= 0 Then
+        GoTo Command1_Click_Exit
+    End If
+    
+    'get a non-movable global pointer to the Unicode text
+    lPtr = GlobalLock(hMem)
+    If (lPtr = 0) Then
+        GoTo Command1_Click_Exit
+    End If
+    
+    'copy Unicode text to the String "s"
+    ReDim bData(0 To memSize - 1) As Byte
+    CopyMemory bData(0), ByVal lPtr, memSize
+    GlobalUnlock hMem
+    s = StrConv(bData, vbUnicode)
+    
+    'output what we got, including first 4 bytes of Unicode String
+    Debug.Print vbCrLf & "START: " & Now & vbCrLf & "  <" & s & ">"
+    If Len(s) >= 4 Then
+        Debug.Print "#1: " & AscW(Mid$(s, 1, 1))
+        Debug.Print "#2: " & AscW(Mid$(s, 2, 1))
+        Debug.Print "#3: " & AscW(Mid$(s, 3, 1))
+        Debug.Print "#4: " & AscW(Mid$(s, 4, 1))
+    End If
+    
+Command1_Click_Exit:
+
+    CloseClipboard
+    
+    Unload Me
+    
+    Exit Sub
+    
+Command1_Click_Error:
+
+    Err.Raise Err.Number, Err.Source, Err.Description
+
+End Sub
+</pre>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

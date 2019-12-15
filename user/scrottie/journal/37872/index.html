@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of scrottie: Coro and SDL</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Coro and SDL</h1>
+<h2><a href="/user/scrottie/">scrottie</a> on 2008-11-14T00:06:22</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>SDL loves to suck in pthread, then as soon as Perl hits a Perl_safemalloc call, it coredumps.  Apparently pthread does some magic that replaces malloc() with an evil twin that likes to die and take you with it.<br/><br/><pre>
+#0  0x402ba038 in pthread_getspecific () from /lib/libpthread.so.0
+#1  0x0809e795 in Perl_safesysmalloc ()
+#2  0x40551b19 in pe_sys_multiplex () from /home/knoppix/lib/perl5/site_perl/5.8
+.8/i686-linux/auto/Event/Event.so
+</pre><br/><br/>gdb stacktrace.<br><br><br/><br/>Even building SDL with <tt>--enable-threads=no --enable-pthreads=no</tt> isn't enough.  It'll just you you with a libSDL.so with dangling references to the pthreads librarty, that SDL_Perl won't be able to link to and the other SDL libs won't be able to build against.  Joy of joys.  I love it when something doesn't work, so you do the obvious thing, but that doesn't work, so you go to fix that... fucking yak shaving.
+<br><br>
+The most important SDL APIs on Unix have ifdefs to work without threads, but some just plain don't.  You need to disable them:
+<pre>
+ ./configure --enable-threads=no --enable-pthreads=no --enable-audio=no --enable-timers=no
+</pre>
+I did a <tt>--prefix=/usr</tt> also but you probably want to keep the default of /usr/local and then build other stuff explicitly against that so you don't piss apt off and never get another system update again.  Speaking of broken ass shit...
+<br><br>
+Then go get <tt>SDL_ttf-2.0.9.tar.gz</tt> and <tt>SDL_image-1.2.6.tar.gz</tt> and rebuild those.  Make sure they're finding (use <tt>--includedir</tt> and <tt>--libdir</tt>) and using your hobbled libSDL.so, whereever you installed it.  They should find the <tt>sdl-config</tt> command and use it to pick up on the lack of <tt>-lpthread</tt>.  Build and install those.
+<br><br>
+<tt>SDL_Perl</tt> uses one of those new build systems that don't work right on Linux and don't have a chance in hell of working on anything else.  There are a dozen build bug reports on rt.cpan.org for the thing, and I added a new one:  it installs the XS .so files in <tt>~usr/lib/perl5/site_perl/5.*.*/i686-linux/auto/src/SDL</tt> and <tt>SDL_Perl</tt>, adding a superfluous "/src" that keeps it from being found.  You'll have to cd into your Perl's lib directory, find those two <tt>SDL</tt> directories, and copy them up a level, if you have this same problem.  And remember kids, writing build systems is hard, so just fuckin' use MakeMaker and spare us all the grief.
+<br><br>
+But first you need to edit <tt>Build.PL</tt> and pull out mention of <tt>SDL_mixer</tt>, <tt>SDL_net</tt>, and <tt>SDL_timer</tt> -- the same modules we removed support for in the <tt>./configure</tt> in the SDL source.  So, if you can get it to go, build SDL_Perl:
+<pre>
+perl Build.PL
+./Build
+./Build install
+</pre>
+Then go fix the miss-installed .so files... then maybe, with some luck and probably about a dozen other "how to make this crap work right" tutorials like this one, you'll have an SDL that doesn't try to bloody pull in libpthread and make your Perl blow up!  Yay!
+<br><br>
+-scott
+</p>
+
+
+<hr/>
+
+
+
+<h2>What are you using Perl+SDL for?</h2>
+<h3><a href="/user/laburu/">laburu</a> on 2008-11-14T11:00:53</h3>
+That's interesting.  Not long ago, <a href="http://geneve.mongueurs.net/meetings/index.en.html" title="mongueurs.net">someone showed</a mongueurs.net> how, with a little help from SDL, Perl can be a suitable platform on which to develop <a href="http://www.frozen-bubble.org/" title="frozen-bubble.org">a commercial-quality game</a frozen-bubble.org>.  I wonder whether <a href="http://use.perl.org/user/scrottie/journal/37872" title="perl.org">the trouble with SDL's thread support</a perl.org> means that this combination falls short of its promise; indeed, I can imagine games so demanding that this issue would be a show-stopper.  But what kind of application are you writing that would cost you this kind of grief?  And what did the SDL maintainers have to say about what you found?
+
+
+
+<blockquote>
+
+<h2>Re:What are you using Perl+SDL for?</h2>
+<h3><a href="/user/scrottie/">scrottie</a> on 2008-11-15T06:08:09</h3>
+<p>Hey.  Out of some mix of (false?) modesty and other factors, I don't like to talk about what I actually do.  Usually I have more room to talk about stuff but in this case, it's kind of a three way and one of the parties is shy.  But if you really care, telnet to weehours.net 2000 and ask for me.  Obviously I'm not going to let anyone's cat out of the bag, but I can give some background.  If you care, that is.</p><p>SDL works okay as far as I know.  For about anything, you can ignore the fact that SDL sucks in threads and just use POE, or Event, or write your own event loop, or use SDL's.</p><p>SDL's event loop doesn't have file watchers, and one of the requirements for this project is async communication with a server over an SSL socket.  So that ain't going to fly.  I can fork off waiting for mouse events in another process and then select() or use Event to watch for activity from either the mouse or the SSL socket.  But I'm a Coro junkie.</p><p>It's really Coro that's touchy here, and that's to be expected as long as Coro is a module rather than a comprehensive core rework.  And even then, the problem of XS is hard.  Cory has to copy the C stack in and out.  I have a reasonably good idea how C compilers, libc, dynamic linking, etc works, but not when it comes to threads, so I don't know why Coro and threads don't play nice together, but in this case, it looks like even loading libpthreads replaces malloc() with one that does things to the stack frame that aren't safe to do with Coro loaded.  And it blows up.</p><p>The real trouble with SDL that maintainers should be notified of is the build system problems, and I filed a report.  However it looks like there have been no releases since 2003.  Off the top of my head.  Maybe I'm misremembering.   But I already said all of that in the main article.  There's nothing they can be expected to do about the libs they link to (the C SDL libs) sucking in libpthread, especially since this isn't generally a problem.</p><p>The retarded thing that really makes this yak shaving is I'm supposed to be working on a bit of embedded-ish hardware (which I decided to use SDL and some XS libs I wrote to wrap the vendor's C++ libs) but I can't get their API to work right, so I'm just kind of prototyping on the x86 laptop.  So, part of my motivation for making Coro work with SDL is that it frickin' works on the embedded board and I might have to/get to move development back there if the vendor get their act together.</p><p>Way more than you wanted to now?  Sorry.</p><p>The board is from igamesplus.com by the way.  That'll give you a clue what I'm working on here.  Fun stuff.</p><p>-scott</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

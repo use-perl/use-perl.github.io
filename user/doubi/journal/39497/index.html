@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of doubi: XS debugging and &quot;holding out for the pretty one&quot;</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>XS debugging and &quot;holding out for the pretty one&quot;</h1>
+<h2><a href="/user/doubi/">doubi</a> on 2009-08-19T23:19:19</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>In the last couple of days I used gdb a little for the first time as a result of looking around a bit for information on debugging XS, some of which I want to share here.</p>
+<p>First is <a href="http://use.perl.org/user/Shlomi+Fish/journal/33650" target="_blank">this journal entry by Shlomi Fish</a> where he gives some useful settings for debugging an XS function with gdb.</p>
+<p>I also found this <a href="http://markmail.org/message/5pbskl4fx6xtoi5a" target="_blank">very useful message from Eric Maland</a> in <a href="http://markmail.org/thread/gj6erdzq775izrey" target="_blank">a thread in the org.perl.perl-xs archives</a>, which I will reproduce here in full:</p>
+<blockquote>
+It seems like real overkill, to me, to build a static version of perl with debugging symbols just to debug one module. maybe i'm just lazy.
+<br><br>
+The approach I take to debugging XS modules (and this is entirely home-brewed, since I've found virtually zero useful information on the subject) is this:
+<br><br>
+<ul>
+<li>Build your module, test it, watch it segfault or whatever.</li>
+<li>Once this has occurred, rebuild it with debugging symbols and don't strip symbols from the module (MakeMaker defaults to using ld -s).</li>
+<li>Load perl into gdb, and get into the perl debugger. From there, load your module (use DynaLoader, add the module path to your @INC and 'use' it, do it from the command line, whatever). Now we're "meta-debugging".</li>
+<li>Execute your perl/XS code, and watch it die. Nicely. In gdb. Where you can debug it.</li>
+</ul>
+
+You also have the option of loading the symbols from the shared library in gdb, and from there you can set breakpoints, which tends to be useful. I've never had a need for a staticly linked module just to debug it(!). Nor have I ever required a version of perl with debugging symbols included. I'm glad. Who has time for that? Maybe if you're debugging perl that would be useful, but aside from that I see no real benefit (maybe i'm ignorant of the limitations of other platforms, though, some on which I know you would have to statically link, so please don't flame me on that).
+<br><br>
+<a href="http://markmail.org/download.xqy?id=5pbskl4fx6xtoi5a&number=1" target="_blank">I've attached a dinky module</a> that just calls one XS function that strcpy()'s into a NULL pointer, and included in it a 'debuglog' file that shows how I approach debugging this type of problem in XS modules (just a screen snapshot of my debugging session, with some minor comments at the top). This seems to work 9 times out of 10, for me. Your results may vary. I suspect the platform you're working on and your compiler and linker may be quite different from mine so out-of-the-box my method may not work for you - in fact, it probably won't. But if you get the general idea, it should be easy to tweak to work on your platform.
+<br><br>
+Hope this helps.
+<br><br>
+-eric
+</blockquote>
+<p>He did help a number of people on the list, and I hope reposting his wisdom here might make it even more findable. I didn't use all the techniques he details but he pointed me in the right direction for what I needed to do.</p>
+<p>What I was doing was trying to work out the answer to <a href="http://use.perl.org/user/doubi/journal/39458" target="_blank">issue number four</a> in my Wx::WebKit mentioned a couple of posts ago. I spent a day or so trying to narrow down ever further the exact place where things were going wrong. I eventually had my finger on it, but no idea what to do about it. When I eventually took it to the list, Mattia informed me that "Everything in wxPerl assumes that the C++ class name matches the Perl name" and suggested I subclass at the Perl level, as another person who should know had suggested to me before I spent a lot of extra time looking deeper into the problem :-p</p>
+<p>It had occurred to me as well of course, but it seemed somehow an untidy solution, ending up with one more .pm than I thought I should need floating around, and I was sure if I really got to grips with the problem properly there would be a more elegant solution to be had in the C / XS layer. That snobbery wasted a day of development time at least - the danger of holding out for the prettier solution that's just around the corner.</p>
+<p>Anyway, the upshot of all this is my Wx::WebKit has been updated so you call with Wx::WebKit->new rather than Wx::WebView->new (because wtf's WebView and why should you care?) and is <a href="http://gitorious.org/wx-perl-webkit/" target="_blank">available at the git repo</a>.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

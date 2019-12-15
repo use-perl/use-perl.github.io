@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: Parallel Testing</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Parallel Testing</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2005-06-09T22:17:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've got a somewhat automated regression suite generator for a webapp I'm working on.  The process starts out with a script that crawls a portion of a site, and produces a list of URLs to examine.  That list of URLs is passed to a script that fetches each URL in turn, munges it, and builds a test script based on that munged data.  At that point, I have a bunch of test scripts that prove whether or not the (munged) HTML varies in any request.
+<p>
+(The process is slightly more complex in reality; there's some Makefile trickery involved as well.)
+<P>
+The whole process is parameterized by location and cookie file.  That is, a baseline server runs on one webserver, while the system-under-test runs side-by-side on another.  Once the baseline/sandbox specific prefixes are factored out, the URLs should match across servers, simplifying testing.  By varying the cookie file, I can mimic multiple users with a minimum of fuss.  
+<p>
+Here is some of the Makefile trickery I mentioned before.  At some point, it all boils down to two targets, <tt>make check</tt> and <tt>make test</tt>:
+<pre>
+SANDBOX=http://localhost:8001
+BASELINE=http://localhost:8002
+PROVE=$(HOME)/bin/prove
+
+test: $(TESTS)
+    -HOST=$(SANDBOX) $(PROVE) $(TESTS)
+
+check: $(TESTS)
+    -HOST=$(BASELINE) $(PROVE) $(TESTS)
+</pre>
+
+The <tt>make check</tt> target exists to run the tests against the baseline server to see if any test failures are because of a bug in the new code, or a bug in the test.  This is important, because any page that adds today's date will cause a failure on a ~daily basis, and you need to isolate those problems from the real ones.
+<p>
+As you can see, this works great, so long as you're willing to let <tt>prove</tt> work its way through hundreds of tests.  If you want to test in parallel, you're out of luck.
+<p>
+Until you start hacking up your Makefile, that is.  ;-)
+<p>
+Here are some GNU Make recipes to convert those serialized tests into parallel ones:
+<pre>
+.PHONY: *.t-parallel-check
+.PHONY: *.t-parallel-test
+
+%.t-parallel-check: %.t
+    -@HOST=$(BASELINE) $(PROVE) $< 2>&1 | perl -e 'print <>' ; echo
+
+%.t-parallel-test: %.t
+    -@HOST=$(SANDBOX) $(PROVE) $< | perl -e 'print <>'; echo
+
+parallel-check: $(subst .t,.t-parallel-check,$(TESTS))
+
+parallel-test:  $(subst .t,.t-parallel-test,$(TESTS))
+</pre>
+That works reasonably well, except all of the outputs get intermingled and unintelligible.  Until they are piped through this oneliner:
+<pre>
+perl -e 'print <>'
+</pre>
+Isn't it wonderful when less than few characters of Perl save the day?  ;-)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

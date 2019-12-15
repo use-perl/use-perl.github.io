@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pjf: Autodie 2.00 released</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Autodie 2.00 released</h1>
+<h2><a href="/user/pjf/">pjf</a> on 2009-07-01T05:45:12</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><b>Autodie 2.00 released</b><br />
+This weekend the long awaited <a
+href="http://search.cpan.org/perldoc?autodie">autodie 2.00</a> for
+Perl was released to the CPAN, which was almost immediately replaced
+by 2.02, which fixes some oopsed tests and which adds a couple more features to
+give us a really sweet experience.  This blog entry assumes you're
+using 2.02.
+</p><p>
+Observant viewers will notice that the major version number has
+changed.  I've taken the great leap from 1.999 to 2.00.  Clearly,
+something is different, and you might be wondering what.
+</p><p>
+Well, autodie 2.0 now supports a <a
+href="http://search.cpan.org/perldoc?autodie::hints">hinting
+interface</a> for user-defined subroutines.  Put simply, if you have a
+user-defined subroutine that does something funny to signify failure,
+you can now tell autodie about that.  Once it knows, it can Do The
+Right Thing when checking your subroutine.  You can even put the hints
+into the same file as those subs, and if someone is using autodie
+2.00, it will find the hints and use them.
+</p><p>
+This may not sound very exciting, but it is.  It means that a lot of
+really ugly error-checking code, both on the CPAN and the DarkPAN, can
+go away.  Lexically.  Still not convinced this will change your life?
+Let's look a little more closely; trust me, you'll like it.
+</p><p>
+Let's pretend you're working on a piece of legacy code.  For some
+reason, the people who wrote this code decided the best way to
+signal errors is by returning the list <tt>(undef, "Error
+message")</tt>.  I don't know why, but I've seen this anti-pattern
+emerge independently in <i>three</i> 100k+ line projects I've been
+involved in.
+</p>
+<pre>
+sub some_sub {
+    if ( not batteries_full() ) {
+        return ( undef, "insufficient energy" );
+    }
+
+    if ( not coin_inserted() ) {
+        return ( undef, "insufficient credit" );
+    }
+
+    my @results = some_calculation();
+
+    return @results;
+}
+</pre>
+<p>
+If you want to check to see if <tt>some_sub()</tt> returns an error,
+you need to capture its return values, look at the first one to see if
+it's undefined, and if it's not, use the second one as your error.
+At least, that's what you're <i>supposed</i> to do.
+</p><p>
+What actually happens is most developers decide that's way too hard,
+and don't bother checking for errors.  Then one day, the batteries on
+your doomsday-asteroid-destroying-satellite go flat, nobody notices,
+and through an ironic twist of fate you're left as the last known human
+survivor, and there are zombie hordes and walking killer plants
+outside.
+</p><p>
+So, how can <a
+href="http://search.cpan.org/perldoc?autodie">autodie</a> help us?
+Well, before version 2.00, it couldn't.  But now, with
+<a
+href="http://search.cpan.org/perldoc?autodie::hints">autodie::hints</a>,
+it can!  We can give autodie hints about how the return values are
+checked.  They look like this:
+</p>
+<pre>
+use autodie::hints;
+
+autodie::hints->set_hints_for(
+    'Some::Package::some_sub' => {
+        scalar => sub { 1 },
+        list   => sub { @_ == 2 and not defined $_[0] },
+    },
+);
+</pre>
+<p>
+Our hints here are simple subroutines.  If they return true, our
+subroutine has failed.  If they return false, it's executed
+successfully.  Notice that our scalar hint always returns true.
+That's because we consider any call of our subroutine in scalar
+context to be a mistake.  It's returning a list of values, and
+you should be checking that list.
+</p><p>
+Once we've set our hints, we can then use autodie to automatically
+check if we're successful:
+</p>
+<pre>
+use Some::Module qw(some_sub);
+
+sub target_asteroid {
+
+    use autodie qw( ! some_sub );
+
+    # autodie has lexical scope, so only calls to some_sub inside
+    # the target_asteroid subroutine are affected.
+
+    my @results = some_sub();     # Succeeds or dies
+}
+
+sub target_ufo {
+    my @results = some_sub();
+
+    # autodie is out of lexical scope, so we have to manually
+    # process @results here.
+}
+
+</pre>
+<p>
+If you're wondering what that exclamation mark means, it means "insist
+on hints", and is a new piece of syntax with autodie 2.00.  If for any
+reason autodie can't find the hints for <tt>some_sub</tt>, our code
+won't compile.  That's a very good thing, and avoids us having a false
+sense of security if we use autodie on an unhinted sub.
+</p><p>
+However the error messages from autodie aren't really that useful.
+They're going to be things like <tt>"Can't some_sub() at
+space_defense.pl line 53"</tt>.  There's a noticable lack of
+explanation as to why <tt>some_sub()</tt> failed.
+</p><p>
+Luckily, since the way early versions of autodie, we've been able
+to register message handlers.  And with the new features in autodie
+2.02, we can produce very rich messages.  Let's see how!
+</p>
+<pre>
+use autodie::exception;
+
+autodie::exception->register(
+    'Some::Module::some_sub' => sub {
+        my ($error) = @_;
+
+        if ($error->context eq "scalar") {
+             return "some_sub() can't be called in a scalar context";
+        }
+
+        # $error->return gives a list of everything our failed sub
+        # returned.  We know this particular sub puts the error
+        # message the second argument (index 1).
+
+        my $error_msg = $error->return->[1];
+
+        return "some_sub() failed: $error_msg";
+    }
+);
+</pre>
+<p>
+Now, whenever <tt>some_sub()</tt> fails, it'll print a genuinely
+useful message, like <tt>"some_sub() failed: Insufficient energy at
+space_defense.pl line 53"</tt>.  Yes, autodie automatically adds the
+file and line number for you.  Nice!
+</p><p>
+But wait, there's more!  We don't want to see this sort of code
+floating around in your programs.  You may be dealing
+with other people's modules that you can't modify, so we can't hide
+all this configuration in there.  So, we can <i>write our own
+pragma</i> that contains all this info.  Here's the full
+code for a theoretical <tt>my::autodie</tt> pragma, and is the exact
+same code used by the <tt>t/blog_hints.t</tt> file in autodie's
+test suite.
+</p>
+<pre>
+package my::autodie;
+use strict;
+use warnings;
+
+use base qw(autodie);
+use autodie::exception;
+use autodie::hints;
+
+autodie::hints->set_hints_for(
+    'Some::Module::some_sub' => {
+        scalar => sub { 1 },
+        list   => sub { @_ == 2 and not defined $_[0] }
+    },
+);
+
+autodie::exception->register(
+    'Some::Module::some_sub' => sub {
+        my ($E) = @_;
+
+        if ($E->context eq "scalar") {
+            return "some_sub() can't be called in scalar context";
+        }
+
+        my $error = $E->return->[1];
+
+        return "some_sub() failed: $error";
+    }
+);
+
+1;
+</pre>
+<p>
+It works exactly the same as regular autodie, except it also knows
+how to handle <tt>some_sub()</tt>, and display good looking error
+messages.  Here's how we'd use it:
+</p>
+<pre>
+use Some::Module qw(some_sub);
+use my::autodie qw( ! some_sub );
+
+my @results = some_sub();  # Succeeds or dies with a useful error!
+</pre>
+<p>
+There's a lot more you can do with autodie, and if you want to learn
+more, I'd suggest coming to my talk at <a href="http://en.oreilly.com/oscon2009/public/schedule/detail/8165">OSCON</a> or <a href="http://yapceurope2009.org/ye2009/talk/2063">YAPC::EU</a>, where I'll be covering all this and more, with a distinctive Star Trek twist. ;)
+</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

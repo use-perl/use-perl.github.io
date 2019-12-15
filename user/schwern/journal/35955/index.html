@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: New Module:  XS::Writer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>New Module:  XS::Writer</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2008-03-22T07:14:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I have written a Perl module to write XS code which writes C code to wrap up more C code so that I can call it from Perl.<br/><br/>Follow?<br/><br/>Such is XS.  I have a project to wrap up a big pile of undocumented, stinking C code in Perl in order to better test it.  Because it's a ginormous pile and because the header files have all sorts of circular dependencies and because you need a big hairy autoconf generated pile of switches to compile it, h2xs goes into convulsions trying to deal with it.  So I have to write the XS manually.<br/><br/>The basic XS for the basic functions wasn't that hard, after doing some puzzling out with "Extending and Embedding Perl" and the perlxs man page.  Mostly it's just a matter of informing XS of the subroutine signature.<br/><br/><pre>
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"<br/><br/># Some magic from Devel::PPPort
+#define NEED_sv_2pv_flags
+#include "ppport.h"<br/><br/>MODULE = My::Thing                 PACKAGE = My::Thing<br/><br/>int check_file(char *file_name);<br/><br/>int isoption(char *option, int form);
+</pre><br/><br/>Yes, you have to tell the routine to determine if something is an option if the option is going to be the short (s) or long (stupid) form.  It doesn't just figure that out for itself with a strlen(), probably the rationale being that it would be a huge waste of resources!  Wacky C programmers.<br/><br/>Did I mention the code does it's own argument processing?  Did I mention that's a huge (and totally inconsequential) part of what it does?<br/><br/>Anyhow, the problem comes when you hit things that take structs.  Like this struct to hold options.<br/><br/><pre>
+typedef struct options_struct_t
+{
+  char *config_file_name;
+  char *input_file_name;
+  char *time_str;
+  int test_mode;             /* flag set from command line or config value */
+  int mail_input;            /* flag set from command line */
+  int debug;                 /* flag set from command line */
+  int save;                  /* flag set from command line */
+  int debug_level;           /* output level for debug */
+  ...and so on for about 20 lines...
+} options_struct_t;
+</pre><br/><br/>My first approach was to try and map this to a hash, but that required translating it back and forth from hash to struct on every function call which seemed inelegant.  EEP suggested mapping it to an object, but its examples were simplistic.  Tom Heady showed me an approach which worked and allowed me to have an accessor for each element of the struct.<br/><br/><pre>
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"<br/><br/>#define NEED_sv_2pv_flags
+#include "ppport.h"<br/><br/>#include "option.h"<br/><br/>typedef options_struct_t *              My::Option;<br/><br/>MODULE = My::Option        PACKAGE = My::Option       PREFIX=MY__Option_<br/><br/>My::Option
+My__Option_new(char* CLASS)
+    CODE:
+       /* my_option initializes an options_struct_t */
+       RETVAL = my_option();
+        if( RETVAL == NULL ) {
+           warn( "unable to create new My::Option" );
+       }
+    OUTPUT:
+       RETVAL<br/><br/>
+int
+My__Option_test_mode( My::Option self, ... )
+    CODE:
+        if( items > 1 )
+            self->test_mode = SvIV(ST(1));
+        RETVAL = self->test_mode;
+    OUTPUT:
+        RETVAL
+</pre><br/><br/>Maybe not the best code, but it gives me a way to construct an object around the struct and access its elements.  Trouble is I have to write an accessor for each element of the struct.  There's no way to automate it.  #define doesn't work in XS to make a macro.  I hate cut & code, and there's plenty more structs to wrap.<br/><br/>I looked around for anything on CPAN that might make this easier.  <a href="http://search.cpan.org/dist/Inline-Struct">Inline::Struct</a> looked promising but I couldn't get it to work and it has no facilities to deal with non-standard types.  This code likes to use the Gnome lib types, GList and GHashTable.  <a href="http://search.cpan.org/dist/ExtUtils-XSBuilder">ExtUtils::XSBuilder</a> looks really powerful and just what I'd need, except it looks just as complicated as XS itself.<br/><br/>So of course I wrote a module to write the code for me.  <a href="http://search.cpan.org/dist/XS-Writer">XS::Writer</a> is my first attempt.  It will do some elementary parsing of a struct and write the XS code to wrap it up in an object.  You can then INCLUDE: that XS file in another and add your own custom functions.  It also allows you to write accessors to non-standard types.<br/><br/>And why keep it simple?  It uses both Moose and autobox, neither of which I've used in production before!  And Module::Build to put it all together, now I can see how it does with XS.  Hey, when you're learning new things why not learn a whole pile of them?<br/><br/>You still need to know XS, but at least some of the drudge work can be taken care of.  I don't know what else I'm going to put in other than structs, but I'm sure more is coming.<br/><br/>Next up, how to best deal with GList and GHashTable.
+</p>
+
+
+<hr/>
+
+
+
+<h2>How about SWIG?</h2>
+<h3><a href="/user/Bernhard/">Bernhard</a> on 2008-03-22T12:30:40</h3>
+Have you looked at SWIG for achieving that?
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

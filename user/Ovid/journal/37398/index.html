@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Pulling the MySQL Triggers</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Pulling the MySQL Triggers</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-09-10T09:53:53</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Again, I hate MySQL.  Did you know you can add a trigger which can attempt to update non-existent tables?  You don't even get a warning for this.  Exactly how is that supposed to be useful?  And when said trigger fires, does it tell you that the table doesn't exist?  No.  It tells you that the table can't be locked.  That's real fun when you know the table is there but you don't realize you've misspelled it in the trigger.  Dear MySQL developers:  if you insist upon allowing me to add invalid triggers would you please make the follow-up error messages sensible?</p>
+
+<p>As part of our continuing quest to speed up our test suite (now taking between 40 minutes and an hour for around 20,000 tests), we're exploring a new strategy for rebuilding our database between test programs.  We can't just drop and recreate the database.  This would make our test suite take hours, so we've moved away from that.  We used to not rebuild our "static" tables unless they had changed, but to tell if they had changed, we simply compared before/after counts.  Now that we've redone how much of our system works, that's even more unreliable than it was.  As a result, I wrote the following (only affects tests, not production):</p>
+
+<pre>CREATE TABLE changed_table (
+    changed_table_id INT(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    table_name       VARCHAR(30) NOT NULL,
+    is_static        INT NOT NULL DEFAULT 0,
+    inserts          INT NOT NULL DEFAULT 0,
+    updates          INT NOT NULL DEFAULT 0,
+    deletes          INT NOT NULL DEFAULT 0
+)</pre>
+
+<p>And then I wrote this:</p>
+
+<pre>sub _add_triggers_and_records {
+    my $self   = shift;
+    $self->_add_changed_table_data([ $self->static_tables ],  1);
+    $self->_add_changed_table_data([ $self->dynamic_tables ], 0);
+}
+
+sub _add_changed_table_data {
+    my ( $self, $tables, $is_static ) = @_;
+    my $dbh = $self->dbh;
+
+    foreach my $table ( @$tables ) {
+        $dbh->do(
+            'INSERT INTO changed_table (table_name, is_static) VALUES (?, ?)',
+            undef,
+            $table, $is_static
+        );
+
+        foreach my $action (qw/insert update delete/) {
+            $dbh->do(<<"            END_SQL");
+            CREATE TRIGGER tr_${action}_$table BEFORE $action ON $table
+            FOR EACH ROW UPDATE changed_table SET ${action}s = ${action}s + 1
+            WHERE table_name = '$table';
+            END_SQL
+        }
+    }
+}</pre>
+
+<P>At first, this failed miserably because I had misspelled the 'changed_table' name in the trigger.  See the first paragraph.  Getting past this, though, we have a system whereby we can know which tables have changed during testing and only rebuild those tables which have been impacted instead of every table in the databsae.  I'm not done building it, but it works like a charm and it's very fast.  We'll see how it impacts the speed of the test suite.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Brilliant!</h2>
+<h3><a href="/user/amoore/">amoore</a> on 2008-09-10T14:14:33</h3>
+Good thinking, Ovid. We rebuild most of our tables many times throughout our test suite and it takes eons. I might try to do something similar to this.<br/><br/>Thanks for sharing the idea!
+
+
+
+<h2>Still wondering why...</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2008-09-10T14:44:23</h3>
+<p>We have a large test suite as well (almost 18,000 tests with a run time of about 54 minutes). I agree that running the whole thing is annoying. But it seems like you are spending too much time trying to speed up your test suite. As your application gets larger and more complex you will be guaranteed to add more tests (and even if you don't add any new features there are probably parts of the application that are undertested, so there's more tests there). Seems like a losing battle.</p><p>Here at $work when a developer is working on a feature he should run the tests that are most relevant to that feature and nothing more. We have a smoke machine setup to constantly run against svn and report if there are any failures. So within an hour of checkin we find out if there are any problems.</p><p>For the rare case where a certain feature is far reaching and changes lots of things about the code, then we have a branch for that and we can setup the smoker to run tests for that branch.</p><p>Automated tests are nice, so why make humans run all of them by hand?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Still wondering why...</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2008-09-10T17:20:33</h3>
+<blockquote><div><p> <i>Here at $work when a developer is working on a feature he should run the tests that are most relevant to that feature and nothing more.</i></p></div> </blockquote><p>Shameless self promotion, etc.</p><p>Have you looked at <a href="http://search.cpan.org/dist/Devel-CoverX-Covered/lib/Devel/CoverX/Covered.pm" title="cpan.org">Devel::CoverX::Covered</a cpan.org>?</p>
+
+
+
+<h2>Re:Still wondering why...</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-09-10T17:43:06</h3>
+<blockquote><div><p> <em>Seems like a losing battle.</em></p></div> </blockquote><p>If you only get 3 - 5% improvements here and there, it probably is.  (You have to <em>work</em> for those after the first few.)</p><p>Ovid, I still wonder two things.  What percentage of your tests eventually perform database work?  How much data is in your testing database?</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>fast data loading</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2008-09-10T14:58:58</h3>
+I've given some thought to how to reload data quickly after a test.  In most cases, piping mysqldump output through the mysql shell is fast enough.  When there's too much data for that, LOAD DATA INFILE is very fast and can be done for the whole database using mk-parallel-dump and mk-parallel-restore.  It's also possible keep a test database and just copy all the tables from it when you want to restore with CREATE TABLE...LIKE and INSERT...SELECT FROM.  The fastest way though is probably to use LVM snapshots.  The copy-on-write nature of LVM makes restore operations very fast.
+
+
+
+<h2>The MYSQL Hate is Strong in This One</h2>
+<h3><a href="/user/grantm/">grantm</a> on 2008-09-10T21:19:38</h3>
+<p>I'm happy to say that I don't have to work with MySQL.  The test suite for our Postgres-based app has several thousand tests grouped into directories.  The database is re-initialised for each directory.  The initialisation was based on replaying the original SQL/DDL followed by a bunch of schema patches, but that got really slow.  We switched to using a dump of the DB and using pg_restore for each test directory and that was much faster.  The next step was when someone realised that the Postgres createdb command can take an optional parameter specifying which existing DB should be used as a template.  So instead of saving a dump of an initialised DB our test framework stores a whole spare DB (per developer).</p><p>Our full test suite takes about 90 minutes to run and it's probably never going to get faster.  Generally a developer is only running tests in one directory so the runtime is measured in seconds rather than hours.  Once changes have been checked in, the automated smoke testing box runs the whole suite.  If all the tests pass, the smoker builds debian packages from the new source and deploys them to the virtual servers in our staging cluster.</p>
+
+
+
+<h2>Compulsory first question</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-09-11T00:43:04</h3>
+<p>Are you using (MySQL) strict (mode)?</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

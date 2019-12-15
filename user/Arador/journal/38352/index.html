@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Arador: Elegance in minimalism</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Elegance in minimalism</h1>
+<h2><a href="/user/Arador/">Arador</a> on 2009-01-27T19:05:41</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Some time ago, I read <a href="http://use.perl.org/user/Aristotle/journal/37831">this</a> journal entry by Aristotle. I liked it and suspected it could be easily implemented in XS. It turned out to be the most elegant piece of XS I've ever written.</p>
+
+<code>void<br>
+induce(block, var)<br>
+&nbsp; &nbsp; SV* block;<br>
+&nbsp; &nbsp; SV* var;<br>
+&nbsp; &nbsp; PROTOTYPE: &amp;$<br>
+&nbsp; &nbsp; PPCODE:<br>
+&nbsp; &nbsp; &nbsp; &nbsp; SAVESPTR(DEFSV);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; DEFSV = sv_mortalcopy(var);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; while (SvOK(DEFSV)) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; PUSHMARK(SP);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; call_sv(block, G_ARRAY);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SPAGAIN;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }</code>
+
+<p>I assume most readers don't know much C, let alone the perl API or XS, so I'll explain it piece by piece.</p>
+
+
+<p><code>void<br>
+induce(block, var)<br>
+&nbsp; &nbsp; SV* block;<br>
+&nbsp; &nbsp; SV* var;<br>
+&nbsp; &nbsp; PROTOTYPE: &amp;$</code><br>
+This declares the xsub. It has two parameters, both scalar values. The function has the prototype <code>&amp;$</code>. So far little surprises.</p>
+
+<p><code>&nbsp; &nbsp; PPCODE:</code><br>
+This declares that a piece of code follows. Unlike <code>CODE</code> blocks, <code>PPCODE</code> blocks pop the arguments off the stack at the start. This turns out to be important later on.</p>
+
+<p><code>&nbsp; &nbsp; &nbsp; &nbsp; SAVESPTR(DEFSV);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; DEFSV = sv_mortalcopy(var);</code><br>
+These lines localizes <code>$_</code> and initializes it to <code>var</code>.</p>
+
+<p><code>&nbsp; &nbsp; &nbsp; &nbsp; while (SvOK(DEFSV)) {</code><br>
+This line is equivalent to <code>while (defined($_))</code>.</p>
+
+<p>Now comes the interesting part:<br>
+<code>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; PUSHMARK(SP);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; call_sv(block, G_ARRAY);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; SPAGAIN;</code><br>
+To understand what this block does, you have to know how perl works inside.</p>
+
+<p>If you've read <a href="http://perldoc.perl.org/perlxs.html">perlxs</a>, you may notice this function does not push any values on the stack. Are careless reader might be mistaken and think this function doesn't return anything: they couldn't be more wrong!</p>
+
+<p>If you've read <a href="http://perldoc.perl.org/perlcall.html">perlcall</a>, you would notice a lot more is missing. For starters, the function calls <code>SPAGAIN</code> (pretty much equivalent to saying <i>I accept the values you return to me</i>), but it doesn't do anything with them.<br>
+Also, you may notive that both <code>ENTER/LEAVE</code>(needed to delocalize <code>$_</code>) and <code>SAVETMPS/FREETMPS</code> (needed to get rid of temporary values) are missing. The function that calls the xsub automatically surrounds it by an <code>ENTER/LEAVE</code> pair, so that one isn't necessary. The lack of <code>SAVETMPS/FREETMP</code> however is not only deliberate but also essential.</p>
+
+<p>The loop calls the block without arguments (<code>PUSHMARK</code> &amp; <code>call_sv</code>). The xsub accept the return values on the stack and leaves them there. This sequence repeated. This way it assembles the induces values <b>on the stack</b>. <code>PPCODE</code> removing the arguments at the start prevents it from returning those as first two return values. It also adds a trailer that causes all elements that have been pushed on the stack to be recognized as return values of this function. That's why a <code>SAVETMPS/FREETMPS</code> pair would break this code: the values must live after the code returns.</p>
+
+<p>That's the elegance of this function. It doesn't even touch it's return values, it delegates everyting to the block. All the things that are missing make that it does exactly what it should do.</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

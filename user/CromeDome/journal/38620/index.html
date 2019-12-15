@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of CromeDome: Catalyst Idioms I'm Missing</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Catalyst Idioms I'm Missing</h1>
+<h2><a href="/user/CromeDome/">CromeDome</a> on 2009-03-09T12:51:25</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>So I am trying to get a URL that looks like this:<br/><br/><code>    http://localhost:3000/admin/itemtype/32/edit</code><br/><br/>Instead, I am getting URLs that look like:<br/><br/><code>    http://localhost:3000/admin/itemtype/edit/32</code><br/><br/>In my template, I tried this:<br/><br/><code>    [% c.uri_for( 'edit', [ item_type.type_id ]) %]</code><br/><br/>which gave me the latter URL.  If I do this:<br/><br/><code>    [% c.uri_for(c.controller('Admin::ItemType').action_for('edit'), [item_type.type_id] ) %]</code><br/><br/>I get what I want, but it seems too clunky to be doing in my view.  Is there a simpler way to write that and have it still work?  It seems like too common a thing to not have there be a simpler way, but I am just not finding it.</p>
+
+
+<hr/>
+
+
+
+<h2>Chained actions</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2009-03-09T17:40:20</h3>
+<p>You might want to look at chained actions: <a href="http://search.cpan.org/dist/Catalyst-Runtime/lib/Catalyst/DispatchType/Chained.pm" title="cpan.org">Catalyst::DispatchType::Chained</a cpan.org>.</p><p>That gives you an easy way to have URIs like</p><blockquote><div><p><nobr> <wbr></nobr><code>/user/$userid/entries/$year/$month</code></p></div> </blockquote><p>And you can set the URI via:</p><blockquote><div><p> <tt>my $action = $ctx-&gt;controller('Foo')-&gt;action_for('edit');<br>my $uri = $ctx-&gt;uri_for($action, \@captures, @arguments);</tt></p></div> </blockquote><p>What goes into captures and what into arguments depends on your application design.</p><p>While the version of uri_for() that uses an action object instead of a string seems a bit more work, it gives you one huge advantage: If you change your application's URIs later on (imagine wanting to move<nobr> <wbr></nobr>/st/$id to<nobr> <wbr></nobr>/stories/$id for SEO purposes), you can do that via the applications configuration file, and if you use action objects instead of giving it an explicit string path, Catalyst will from then on generate the new, correct, URIs without you needing to touch one link.</p><p>If you just want to type less, it might be the simplest thing to build yourself a utility method. One possibility would be to do this in a controller subclass:</p><blockquote><div><p> <tt>sub uri_closure_for {<br>&nbsp; &nbsp; my ($self, $ctx, $action) = @_;<br> <br>&nbsp; &nbsp; my $action_obj = $self-&gt;action_for($action);<br> <br>&nbsp; &nbsp; return sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; $ctx-&gt;uri_for($action_obj, @_);<br>&nbsp; &nbsp; };<br>}</tt></p></div> </blockquote><p>and in the actual controller you could do:</p><blockquote><div><p> <tt>sub foo :<nobr> <wbr></nobr>... {<br>&nbsp; &nbsp; my ($self, $ctx) = @_;<br> <br>&nbsp; &nbsp; $ctx-&gt;stash(make_edit_uri =&gt; $self-&gt;uri_closure_for('edit'));<br>}</tt></p></div> </blockquote><p>and then in the template</p><blockquote><div><p> <tt>[% make_edit_uri([2, 3], 4) %]</tt></p></div> </blockquote><p>where <code>[2, 3]</code> would be the captures and the <code>4</code> would be the argument.</p><p>HTH, phaylon</p><p>PS: Note that the code is just quickly hacked up and untested, of course.</p>
+
+
+
+<h2>Excerpt from $work</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-03-19T20:44:38</h3>
+<p>From <code>MyApp.pm</code>:</p><blockquote><div><p> <tt>sub uri_for {<br>&nbsp; &nbsp; my $c = shift;<br>&nbsp; &nbsp; my ( $path ) = @_;<br> <br>&nbsp; &nbsp; if ( not Scalar::Util::blessed( $path ) and 'ARRAY' eq ref $path ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $action_path = shift @$path;<br>&nbsp; &nbsp; &nbsp; &nbsp; unshift @_, $action_cache-&gt;{ $action_path } ||= $c-&gt;dispatcher-&gt;get_action_by_path( $action_path );<br>&nbsp; &nbsp; &nbsp; &nbsp; $path = $_[0];<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; return URI::WithBase::Rel-&gt;new( $c-&gt;NEXT::uri_for( @_ ), $c-&gt;req-&gt;uri );<br>}</tt></p></div> </blockquote><p>With that, you can write your second example like this:</p><blockquote><div><p> <tt>[% c.uri_for(['/admin/itemtype/edit, item_type.type_id]) %]</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Excerpt from $work</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-03-19T20:46:57</h3>
+<p>Woops, that would be:</p><blockquote><div><p> <tt>sub uri_for {<br>&nbsp; &nbsp; my $c = shift;<br>&nbsp; &nbsp; my ( $path ) = @_;<br> <br>&nbsp; &nbsp; if ( not Scalar::Util::blessed( $path ) and 'ARRAY' eq ref $path ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $action_path = shift @$path;<br>&nbsp; &nbsp; &nbsp; &nbsp; unshift @_, $c-&gt;dispatcher-&gt;get_action_by_path( $action_path );<br>&nbsp; &nbsp; &nbsp; &nbsp; $path = $_[0];<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; return URI::WithBase::Rel-&gt;new( $c-&gt;NEXT::uri_for( @_ ), $c-&gt;req-&gt;uri );<br>}</tt></p></div> </blockquote><p>(The actual method in our source is much more complicated since it also caches a bunch of things and papers over a few misbehaviours in the Cat dispatcher.)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of masak: November 13, 2008 -- the storm after the storm</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>November 13, 2008 -- the storm after the storm</h1>
+<h2><a href="/user/masak/">masak</a> on 2008-11-13T22:50:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>38 years ago today, what has been called the <a href="http://en.wikipedia.org/wiki/1970_Bhola_cyclone">20th century's worst natural disaster</a> claimed between 300,000 and 500,000 lives in one night, primarily as a result of the storm surge that flooded much of the low-lying islands of the Ganges Delta.</p>
+
+<blockquote>The Pakistan Meteorological Department issued a report calling for "danger preparedness" in the coastal regions in danger during the day on November 12. As the storm neared the coast, a "great danger signal" was broadcast on Pakistan Radio. Survivors later said that this meant little to them, but that they had recognised a No. 1 warning signal as representing the greatest possible threat. It is estimated that 90% of the population in the area was aware of the cyclone before it hit, but only about 1% sought refuge in fortified structures.</blockquote>
+
+<p>Though destructive of people and property, the storm finally led to the creation of a new state.</p>
+
+<blockquote>The Pakistani government was severely criticized for its handling of the relief operations following the storm, both by local political leaders in East Pakistan and in the international media. The opposition Awami League gained a landslide victory in the province, and continuing unrest between East Pakistan and the central government triggered the Bangladesh Liberation War, which concluded with the creation of the state of Bangladesh.</blockquote>
+
+<p>&#10086;</p>
+
+<p>Longish post. I'll document, as best I can, why a simple piece of code that I thought would take one (half-hour) day, instead took three.</p>
+
+<p>Oh, and sensitive readers, people who are used to code actually getting prettier and more reasonable as it matures, or who are used to programming on stable, well-established platforms, should perhaps consider slowly putting this blog post away and closing their browser tab. Things'll get nasty, I'm afraid.</p>
+
+<p>Behold my <a href="http://gist.github.com/24637">first attempt</a>. There's much I like about this code (which, by the way, transforms something like <code>"foo\n\nbar\nbaz"</code> into <code>"&lt;p>foo&lt;/p>\n\n&lt;p>bar baz&lt;/p>"</code>, a useful transformation when you're building HTML from markup):</p>
+
+<ul>
+  <li>It's short and to the point.</li>
+  <li>I discovered that something like <code>/\n ** 2..*/</code> actually works in Rakudo (well, PGE) already. How cool is that? (I guess this would be written <code>/\n{2,}/</code> in Perl 5.)</li>
+  <li>Though the <code>.trans</code> method call is already a workaround &#8212; we don't yet have the moral equivalent of <code>$string ~~ s/\s+/ /</code> in Rakudo &#8212; it's quite clear and concise.</li>
+</ul>
+
+<p>But alas, it was not meant to last. Because when I ran it, Rakudo yelped:</p>
+
+<pre>too few arguments passed (2) - 3 params expected</pre>
+
+<p>Turned out that the <code>.trans</code> call was the culprit. See the error? No, I didn't either. In fact, similar calls worked in other files in the code base. <code>.trans</code> takes a list of pairs as an argument. When the invocant is counted among the arguments, we have 2 arguments, not 3. Why did it want 3 arguments all of a sudden?</p>
+
+<p>pmichaud++ <a href="http://irclog.perlgeek.de/perl6/2008-11-11#i_681660">explained</a> on #perl6: the <code>.split</code> returns a list of strings &#8212; however, instead of a list of <em>Rakudo</em> strings (called <code>Perl6Str</code> internally in Parrot), it returned a list of <em>Parrot</em> strings (called <code>Str</code> <b>[Update 2008-11-13: no, <code>String</code>. pmichaud++]</b>). Only Rakudo strings have the Perl 6 string methods on them, of course. So the next method call on those strings will likely fail. Like <code>.trans</code>, for example.</p>
+
+<p>But why the strange error message? Well, as it turns out (grr!), Parrot strings <em>also</em> have a <code>.trans</code> method, which happens to modify the string in-place and take 3 arguments. I've come across this method <a href="http://rt.perl.org/rt3/Ticket/Display.html?id=57400">before</a>, in similar situations of abstraction leakage.</p>
+
+<p>So, in other words, not good. But it can be fixed, right? Turns out, <a href="http://irclog.perlgeek.de/perl6/2008-11-11#i_681670">not right now</a>. &#9785; Something called "HLL type mapping" is needed before this can be adequately fixed. Now, HLL type mapping is the interesting issue of converting between the object types of different High Level Languages on top of Parrot. In this case, Rakudo and PGE. Mapping data types sensibly between different languages sounds like a non-trivial problem to me. I hope someone starts working on it soon, so that I can use <code>.trans</code> on my <code>.split</code> list of strings.</p>
+
+<p>But what I needed there and then was a workaround. <a href="http://gist.github.com/24656">Here it is</a>. No, it doesn't look as nice as before. I'm glad you noticed, very astute of you. <em>And</em> it doesn't work. What it did was turn up <a href="http://irclog.perlgeek.de/parrot/2008-11-12#i_684987">yet another bug</a>.</p>
+
+<p>This time it turned out to be a <a href="http://irclog.perlgeek.de/parrot/2008-11-12#i_685251">lexicals issue</a>: the gather block somehow got old values in variables, values which were the latest fad in the last iteration, but which are currently outdated in this one. (For those of you who are unsure of what a lexical is, you can think of it as the thing which stands between you and undeserved pain when you're programming. That doesn't simplify things too much.)</p>
+
+<p>Ah. Well, since this problem involved gather/take, which is essentially sugar for array/push, I settled on pushing to arrays instead. <a href="http://gist.github.com/24663">Here's attempt number three</a>. Not as sexy, but it works. You heard right: my third attempt at this code worked. Yay.</p>
+
+<p>I won't need to go through the list of advantages and compare. Those advantages disappeared in the first watering-down iteration. The second only made it worse. It's actually a recurring phenomenon: workarounds in November tend towards pseudocode. It's still pseudocode dressed as Perl 6, to be sure, but the conversion is always accompanied with a certain sadness, because you know you're (temporarily) walking away from some cool Perl 6 feature, which you itched to use.</p>
+
+<p>Here's hoping that the destruction and mayhem I've described above will eventually lead to the creation of a stable, dependent Perl 6. I'm crashing Rakudo today, so that it won't crash for you tomorrow.</p>
+
+<p>(P.S. Just <a href="http://irclog.perlgeek.de/parrot/2008-11-13#i_688419">talked</a> to pmichaud++. He says that solving both the above problems might actually not be very far into the future. I'm looking forward to see the pseudocode curl up into beautiful code again.)</p>
+
+<p>[Update 2008-11-14: pmichaud++ surprises with an almost-clean workaround with only <a href="http://nopaste.snit.ch/14575">one extra line</a>, working <em>today</em>. The world just got a tad brighter again.]</p></p>
+
+
+<hr/>
+
+
+
+<h2>T-Shirt</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-11-13T22:57:10</h3>
+<blockquote><div><p> <em>I'm crashing Rakudo today, so that it won't crash for you tomorrow.</em></p></div> </blockquote><p>At this point I might as well get that tattoo, or at least the t-shirt.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jonasbn: Perl Bug?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl Bug?</h1>
+<h2><a href="/user/jonasbn/">jonasbn</a> on 2004-05-18T06:50:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Yesterday my friend Allan mailed me a script, he could not understand did not work for me to have a look at. <br/><br/>After debugging using the Perl debugger, trying all kind of tricks and reading some documentation, I started to suspect a bug in Perl, when I later talked to him, he had made an even smaller version of the and he mailed it to me.<br/><br/>I ended up writing my own barebones version of the demo, which demonstrates the problem:
+<pre>
+use strict;<br/><br/>my $str = q(
+J:somestring
+I:someother
+);<br/><br/>my $i = 0;
+my $err = "\t### ERR ###\n\tNo match\n";
+my $success = "\tsuccess...\n";<br/><br/>foreach my $key ("J","I") {
+    my $str2 = $str;<br/><br/>    print "### RUN 1/".++$i." ###\nTesting \$str ... looking for $key\n";
+    if ($str =~ m/^$key:.+/gm) {
+        print "$success\n";
+    } else {
+        print "$err\n";
+    }<br/><br/>    print "Testing \$str2 ... looking for $key\n";
+    if ($str2 =~ m/^$key:.+/gm) {
+        print "$success\n";
+    } else {
+        print "$err\n";
+    }
+}<br/><br/>foreach my $key ("I","J") {
+    my $str2 = $str;<br/><br/>    print "### RUN 2/".++$i." ###\nTesting \$str ... looking for $key\n";
+    if ($str =~ m/^$key:.+/gm) {
+        print "$success\n";
+    } else {
+        print "$err\n";
+    }<br/><br/>    print "Testing \$str2 ... looking for $key\n";
+    if ($str2 =~ m/^$key:.+/gm) {
+        print "$success\n";
+    } else {
+        print "$err\n";
+    }
+}
+</pre><br/><br/>The problem see to be the /g operator in the regular expressions when it is removed the thing works and as the demo shows, when 'J' comes before 'I' there is no problem.<br/><br/>This is the output:<br/><br/><pre>
+### RUN 1/1 ###
+Testing $str ... looking for J
+        success...<br/><br/>Testing $str2 ... looking for J
+        success...<br/><br/>### RUN 1/2 ###
+Testing $str ... looking for I
+        success...<br/><br/>Testing $str2 ... looking for I
+        success...<br/><br/>### RUN 2/3 ###
+Testing $str ... looking for I
+        ### ERR ###
+        No match<br/><br/>Testing $str2 ... looking for I
+        success...<br/><br/>### RUN 2/4 ###
+Testing $str ... looking for J
+        success...<br/><br/>Testing $str2 ... looking for J
+        success...
+</pre><br/><br/>If you alter the string so the part containing 'I' comes before the part that contains 'J', the problem is with 'J'.<br/><br/>I have searched for the string 'regex' at <a href="http://rt.perl.org/">rt.perl.org</a> only to be presented with 72 tickets. I have looking through some of these, but I have not yet found out whether this bug is already known.</p>
+
+
+<hr/>
+
+
+
+<h2>You keep matching against $str</h2>
+<h3><a href="/user/Whammo/">Whammo</a> on 2004-05-18T12:13:49</h3>
+You reset $str2 (in essence) on every loop, but you continually match against the same $str.<br> <br>So if you unroll your loops, you get basically this.<br> <br>Look for, at the beginning of the string, "J:", followed by a bunch of stuff that isn't a newline.  (.+ with<nobr> <wbr></nobr>/m).  Did you succeed?  Remember this spot and proceed.<br> <br>Look for, at the beginning of the string (where we left off), "I:", followed by a bunch of stuff that isn't a newline.  Did you succeed?  *Remember this spot and proceed*.<br> <br>Look for, at the beginning of the string *where we left off*, "I:", followed by a bunch of stuff that isn't a newline.  Did you succeed?  No?  Oh, well, reset.<br> <br>Look for, at the beginning of the string, "J:", followed by a bunch of stuff that isn't a newline.  Did you succeed?<br> <br>
+
+
+
+<h2>From perlop</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2004-05-18T16:35:04</h3>
+What <a href="http://use.perl.org/user/Whammo" title="perl.org">Whammo</a perl.org> said, and from perlop:
+<blockquote><div>In scalar context, each execution of "m//g" finds
+the next match, returning true if it matches, and
+false if there is no further match.  The position
+after the last match can be read or set using the
+pos() function; see the pos entry in the perlfunc
+manpage.   A failed match normally resets the search
+position to the beginning of the string, but you can
+avoid that by adding the "/c" modifier (e.g.
+"m//gc").  Modifying the target string also resets
+the search position.
+</div></blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

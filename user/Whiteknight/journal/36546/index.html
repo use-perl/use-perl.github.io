@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Whiteknight: Getting my mind right</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Getting my mind right</h1>
+<h2><a href="/user/Whiteknight/">Whiteknight</a> on 2008-05-29T23:08:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>One reason why I love writing, both in blogs and on Wikibooks, is because it forces me to really understand things. Having to put a concept into actual words, my own words, requires that I have a concrete understanding of that concept. My previous blog entry is a case in point: I wrote a post that didn't make a whole lot of sense, there were some comments, I posted some replies, and in the process I developed a much firmer picture of this whole GC project. <br/><br/>A lot of my misunderstanding stems from terminology problems. Here's an example: In parrot there is a data structure called "Arenas" which maintains pointers to all the pools. "Pools" are memory areas from which allocations can be made, and are typically defined by the data structure "Small_Object_Pool". Each pool contains a specific type of thing, typically with uniform size. There are 6 pools for objects: PMCs, Constant PMCs, Extended PMCs, Buffer headers, String headers, and constant string headers. The Arenas structure also contains a few GC-related function pointers, and some data items that can be used by the GC.<br/><br/>Small_Object_Pool objects contain pointers to a data structure called a Small_Object_Arena, which is used to demarcate sections of the pool (for what ultimate purpose, however, I am not sure). The Small_Object_Pool also contains pointers to Memory_Pool objects, which are the low-level storage implementations.<br/><br/>So when we talk about "Arenas", it's not immediately clear whether we mean "struct Arenas" or "struct Small_Object_Arena". When we say "Pool", it's not immediately obvious whether we mean a Small_Object_Pool or a Memory_Pool. When we talk about headers, we could mean "Gc_it_hdr" (from the garbage collector) or buffer headers, or PMC headers. See the confusion?<br/><br/>The GC operates per-pool, or pool-at-a-time (I'm treating the two as equivalent terms). When we need new PMC headers, we scan through the PMC pool. When we need new buffer headers, we scan that pool instead. Each pool, since it represents a distinct situation for the GC, gets it's own GC-related structures: generations, cardmarking bitmaps, etc. I'm having to redo all the data structures that I had created previously to follow these relationships.<br/><br/>The allocators that I have to write are also written per-pool, although other GCs have reused code for these and I'm going to do the same. I want to get those knocked out tonight or tomorrow, and I don't see any major impediments to that. </p>
+
+
+<hr/>
+
+
+
+<h2>Why Pools Contain Arenas</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-05-29T23:15:38</h3>
+<p><blockquote> <div><em>Small_Object_Pool objects contain pointers to a data structure called a Small_Object_Arena, which is used to demarcate sections of the pool (for what ultimate purpose, however, I am not sure).</em></div> </blockquote>
+
+<p>A pool contains a linked list of arenas so that we can allocate or deallocate an arena at a time rather than reallocating a pool at a time.</p>
+
+<p>I'm never sure how much to explain for everyone else following along, but I like to err on the side of verbosity.</p>
+
+<p>All of our GCable entities ultimately come out of arenas.  An arena is just a chunk of memory from which we expect to pull <em>n</em> headers of <em>m</em> bytes apiece.  Because we don't know at Parrot's compile-time how much memory any given program will use, we allocate only a few arenas.  If we need more objects of size <em>m</em> than fit in the arenas we have available, we can allocate a new arena.  Thus a pool contains a linked list of arenas which hold headers of size <em>m</em>.</p>
+
+<p>If we had a copying or compacting scheme, where we copied every live GCable entity we found in our system into a freshly-allocated arena, we could assume that at the end of the GC run, all of the previously existing arenas held only copied-over entities or dead entities, and we could free them, one arena at a time, back to the OS.</p>
+
+<p>We don't currently do that for various interesting reasons, but we could do so.</p>
+
+<p>If anyone's still confused about finer details, please feel free to post specific questions, and I'll answer them in top-level journal posts.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why Pools Contain Arenas</h2>
+<h3><a href="/user/Whiteknight/">Whiteknight</a> on 2008-05-30T00:21:05</h3>
+I had actually figured out what the Small_Object_Arena structure was used for after I had written my post. I probably could have posted an addendum or something to explain it.<br><br>Parrot, as a matter of brilliance, doesn't call malloc for every single bit of memory it needs: instead, it allocates memory in large-ish chunks with the intent that those chunks store precisely n objects of size m, as chromatic mentioned. Doing things this way, reducing the number of memory transactions and speculating on future memory needs, helps to increase performance in a major way, and also helps the OS to reduce memory fragmentation.<br><br>As chromatic also mentioned, Parrot does not currently ever return memory to the OS after it has been checked out. I think it is not only feasible, but should be requisite eventually that Parrot does return memory to the OS if it has a surplus and is not using it all. If we do some basic compacting to combine together half-full arenas, we would end up with a large number of arenas that are empty. If we are currently using X arenas, and have a total of Z allocated with Y = Z - X empty arenas, there should be some mathematical relation Y = D X above which we can return some empty arenas back to the system. This is all speculation, at this point. This kind of advanced memory management scheme might be beyond the scope of my GSoC project (although there is no saying I wont be able to implement it after the fact).<br><br>The Parrot memory system, like the rest of it, is very complex. However, the deeper I look, the more obvious it is to me how well thought-out most of it is. There are a precious few small issues that I would change if I could, but none of them are that huge a deal.<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

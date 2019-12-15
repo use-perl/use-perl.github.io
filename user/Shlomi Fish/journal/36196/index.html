@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Shlomi Fish: Test-Run Tests Breakage on BSD Systems</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Test-Run Tests Breakage on BSD Systems</h1>
+<h2><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2008-04-18T20:29:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+OK, as I expected <a href="http://use.perl.org/user/Shlomi+Fish/journal/36050">my 
+previous entry</a> sparked an active discussion - nothing like a good 
+licences war to liven things up. But it was more civil than I expected.
+Here's a much more technical entry.
+</p>
+
+<p>
+As I discovered, <a href="http://cpantesters.perl.org/show/Test-Run.html#Test-Run-0.0115">Test-Run-0.0115 
+consistently failed to pass "./Build test" on all BSD systems</a>, while doing
+mostly fine on Linux. Inspecting the logs of the failure
+yielded a "File name too long" error. What happened was that I created a
+filename that was artificially very long (<tt>../t/../t/../t/</tt>), but still 
+well within the limits of my Linux system's 4096 bytes limit for file paths. 
+However, as I discovered the POSIX standard defined a minimum of 256 bytes
+for maximal paths which is what BSD is supporting.
+</p>
+
+<p>
+The reason I had this long path in the first place was to make sure long paths
+are handled properly by the harness output after some customisations. This
+in turn was inspired by a problem I found when using Test-Run at my workplace
+for some internal test suite, which inspired me to write the
+<a href="http://search.cpan.org/dist/Test-Run-Plugin-TrimDisplayedFilenames/">Trim-displayed-Filenames plugin</a>.
+</p>
+
+<p>
+So after I received all these failure reports, I added some logic to
+<tt>t/output.t</tt> that makes use of POSIX::PATH_MAX() to keep the
+path at bay. A bit convulted, but it now 
+<a href="http://cpantesters.perl.org/show/Test-Run.html#Test-Run-0.0116">passes
+on BSD systems (as well as Linux and Solaris)</a>, with a two isolated
+failures on Linux, which I have not looked into yet. I'd like to thank apeiron
+from Freenode for testing the pre-release in Mac OS X and verifying it
+works there.
+</p>
+
+<p>
+In any case, I'm a bit tired of doing unknowledgable UNIX programming, and
+therefore would like to read <a href="http://www.amazon.com/Programming-Environment-Addison-Wesley-Professional-Computing/dp/0201433079">the 
+2nd edition of Stevens' book</a> (which is considered the Bible of UNIX
+programming). The book is kinda costy, and big (960 pages), so I think I'll
+renew my <a href="http://safari.oreilly.com/">Safari subscription</a> and
+see if I can read it there effectively. If I can't I'll just use it for
+something else, and order a paper-copy of the book.
+</p>
+
+<p>
+And finally, I wonder how a 256-octets path limit can ever be enough. In this
+day and age of long filenames and UTF-8 ones (which require several bytes), 
+one can expect that a path with a few especially long components
+will quickly overflow such a short limit. Can any BSD users comment?
+</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>256 does sound rather short</h2>
+<h3><a href="/user/kag/">kag</a> on 2008-04-19T01:29:06</h3>
+[kag@kagnote ~]$ uname -smr<br>FreeBSD 6.3-STABLE i386<br>[kag@kagnote ~]$ grep PATH_MAX<nobr> <wbr></nobr>/usr/include/sys/syslimits.h<br>#define    PATH_MAX         1024<nobr> <wbr></nobr>/* max bytes in pathname */<br>
+
+
+
+<blockquote>
+
+<h2>Re:256 does sound rather short</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-04-19T04:39:41</h3>
+1024 CYGWIN_NT-5.1 1.5.24(0.156/4/2) i686 [WinXP SP2]<br>1024 FreeBSD 6.2-STABLE i386<br>1024 Darwin 8.11.0 Power Macintosh [OSX 10.4.11]<br>1024 Darwin 8.11.1 i386 [OSX 10.4.11]<br>4096 Linux 2.4.32-grsec-opteron-peon-1.1.1 i686 [Debian ?]<br>4096 Linux 2.6.9-55.ELsmp i686 [RHEL4]<br>4096 Linux 2.6.18-53.1.14.el5PAE i686 [RHEL5]<br>4096 Linux 2.6.22-14-generic i686 [Ubuntu 7.10]<br><br>Interestingly, I saw the following in some cases, even on Linux:<nobr> <wbr></nobr>/usr/include/X11/Xwindows.h:#define PATH_MAX 1024<br><br>I found this article very interesting:<br>
+&nbsp; <a href="http://insanecoding.blogspot.com/2007/11/pathmax-simply-isnt.html" title="blogspot.com">http://insanecoding.blogspot.com/2007/11/pathmax-simply-isnt.html</a blogspot.com>
+
+
+
+<blockquote>
+
+<h2>Re:256 does sound rather short</h2>
+<h3><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2008-04-19T07:23:55</h3>
+<p>
+Thanks!
+</p>
+
+<p>
+Interesting. I guess the original path I used was longer than 1024, but still shorter than 4096. 1024 does sound more reasonable. I guess the POSIX standard defines the minimal limit as "256" but some systems naturally have a greater value. I also know the Perl POSIX.pm contains "PATH_MAX", "_PC_PATH_MAX" and "_POSIX_PATH_MAX", but I'm not sure what the exact differences are.
+</p>
+
+<p>
+Thanks for the link. It looks interesting, but since it's kinda long, I only skimmed it so far.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

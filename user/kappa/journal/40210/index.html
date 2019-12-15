@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of kappa: h-index for CPAN</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>h-index for CPAN</h1>
+<h2><a href="/user/kappa/">kappa</a> on 2010-02-25T03:04:37</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I was researching into scientific activity metrics and calculated the <a href="http://en.wikipedia.org/wiki/H-index">h-index</a> for all CPAN authors as an experiment (I used <a href="http://ali.as/top100/">CPANDB</a> by a very high h-indexed CPAN author).
+
+<p>The above linked Wikipedia article has all the gory details about the index, but I calculated it as follows:
+
+<i>"An author X has h-index of H if he has at least H distributions each of which is a runtime dependency for at least H distributions by other CPAN authors".</i>
+
+<p>Strictly speaking this is not the h-index proper. I used CPAN dependencies as an equivalent of bibliographic citations.
+
+Here's everyone with h-index > 5:
+<pre>
+Adam Kennedy          19  
+Dave Rolsky           16  
+Florian Ragwitz       14  
+Ricardo Signes        13  
+Gisle Aas             11  
+David Golden          9   
+Graham Barr           8   
+Steffen Mueller       8   
+Alexandr Ciornii      7   
+Damian Conway         7   
+Tatsuhiko Miyagawa    7   
+Michael G Schwern     7   
+Andy Lester           7   
+Richard Clamp         7   
+Chris Williams        6   
+Tomas Doran           6   
+Ingy dot Net          6   
+Marc Lehmann          6   
+Yuval Kogman          6   
+</pre>
+
+<p>By the way, 6875 of 8029 CPAN authors have h-index of zero.
+
+<p>I don't know whether my restriction of runtime-phase dependencies invalidates the calculation due to inaccurate data. Will run the suite without it tomorrow.
+
+<p>Here's the gist of the code (it's 6 a.m. here in Moscow and I may very well have gone totally nuts):
+<pre>
+sub hindex($author) {
+    my $res =
+    $dbh->selectall_arrayref('
+        select d.distribution, count(dep.distribution) as deps
+            from distribution d, dependency dep, distribution d2
+            where   d.author = ?
+                and dep.dependency = d.distribution
+                and dep.phase = "runtime"
+                and d2.distribution = dep.distribution
+                and d2.author != ?
+            group by d.distribution
+            order by deps desc
+        ',
+        undef, $author, $author);
+
+    my $h = 0;
+    while ($res->[$h] && $res->[$h]->[1] > $h) {
+        $h++;
+    }
+
+    return $h;
+}
+</pre>
+
+<p>This is not pure Perl, it's Perl with <a href="http://search.cpan.org/dist/signatures/">signatures</a> which I totally love.</p>
+
+
+<hr/>
+
+
+
+<h2>I suffer from a bunch of Wikipedia's noted flaws.</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-02-25T09:50:32</h3>
+<p>Looking at the details on the Wikipedia article, I would say several of the listed flaws in the h-index apply to me in a pretty major way<nobr> <wbr></nobr>:)</p><p><i>- The h-index does not account for confounding factors such as "gratuitous authorship", which is still common in some research cultures, the so-called Matthew effect, and the favorable citation bias associated with review articles.</i></p><p>I often release in lots of small chunks, so I'm clearly inflating my numbers here...</p><p><i>- The h-index does not account for singular successful publications. Two scientists may have the same h-index, say, h = 30, but one has 20 papers that have been cited more than 1000 times and the other has none. Several recipes to correct for that have been proposed, such as the g-index, but none has gained universal support.</i></p><p>Much of my code is top-heavy. I don't maintain anything like Test-Simple which gets "cited" (at test-time) in huge volumes. So I believe I get a reasonable number of direct dependencies, but not many highly recursive ones.</p><p><i>- The h-index does not take into account the presence of self-citations. A researcher working in the same field for a long time will likely refer to his or her previous publications, with growing self-citations affecting the h-value in a self-referenced way. This issue is even more severe in the presence of large networks of researchers, as they can cite papers of people sharing the same alliance even if not coauthors. This may affect the h-index wherever there are networks, such as in huge collaborations especially within the European Community, with multi-PI approaches and a large number of coauthors.</i></p><p>Lots of my code uses lots of my other code, piled up in giant dependency stacks. So guilty as charged.<nobr> <wbr></nobr>:)</p><p><i>The h-index does not account for the number of authors of a paper. If the impact of a paper is the number of citations it receives, it might be logical to divide that impact by the number of authors involved.</i></p><p>A variant of this applies. Because I've built a highly efficient and scalable distribution maintenance infrastructure, I probably find it disproportionately easy to take over old distributions to fix even single small bugs or to clean up the installation packaging.</p><p>This results in me getting "credit" for things I didn't even remotely "discover" but just happened to do a little maintenance on. Even when other people take over my stuff, about 80% of the time they end up just committing updates and I continue to look after automating the releases (and so get the credit).</p><p>An alternative metric I'd be interesting in trying at some point would be to identify the "centrality" of each distribution (i.e. PageRank) and multiply that by the Normalised SLOC size of all<nobr> <wbr></nobr>.pm modules in that distribution that appear in the CPAN index.</p><p>(And then total up the scores of all distributions for the author)</p><p>The idea here would be to place the most value on things that BOTH depend on a lot of things, and lots of other things depend on despite the cost. And then give more points to high SLOC distributions (as a proxy for how much novelty is contained in the distribution) compared to small things.</p><p>I suspect (but can't prove) this measure would provide the highest scores for things like Catalyst::Runtime. The final result would (I hope) be a way to identify and prioritise the key "workhorse" distributions that provide the heavy lifting in businesses, or that are the CPAN's true "headline" features.</p>
+
+
+
+<h2>Additional improvements</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-02-25T09:59:08</h3>
+<p>While this h-index applies to the list of current distribution maintainers, you might be able to develop a more science'like version by treating the authors of all historical versions of a distributions as co-authors.</p><p>This would allow proper crediting of both people that founded great concepts but lost focus and moved on, and people that did most of the work during the distributions life, but had someone like me take over and do a tiny amount of work.</p><p>Personally, I like the idea of excluding the test and build dependencies.</p><p>While we do like to encourage the role of testing and the toolchain in general, your measurement identifies the impact of authors on the actual day to day operations of code, what it really does when run for real.</p><p>A secondary h-index including the test and build dependencies would skew the weighting towards the "toolsmiths" that make building cpan modules easier. Valuable in it's own right, but I'd like to see it as a separate measure.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

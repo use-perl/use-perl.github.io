@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of geoff: Apache-Test for the php CLI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Apache-Test for the php CLI</h1>
+<h2><a href="/user/geoff/">geoff</a> on 2005-01-28T03:04:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><b>UPDATE:</b><i>you might find this all confusing if you haven't heard about our <code>Apache-Test</code> efforts yet and how it joins PHP and Perl together in the testing world.  take a look at the talk <a href="http://shiflett.org">Chris</a> and I gave at ApacheCon 2004:<br/><br/><ul>
+<li>Testing PHP with Perl slides - <a href="http://xrl.us/phpperl">http://xrl.us/phpperl</a>
+</li>
+<li>Testing PHP with Perl demo - <a href="http://xrl.us/phpperlcode">http://xrl.us/phpperlcode</a>
+</li>
+<li>README from the demo, which has lots of details - <a href="http://xrl.us/phpperlREADME">http://xrl.us/phpperlREADME</a>
+</li>
+</ul>
+now, back to the blog...</i>
+<br><br><br/><br/>today I added the ability to run client-side PHP scripts to <code>Apache-Test</code>.  so, now you can have<br/><br/><pre>
+  t/foo.t
+  t/bar.php
+  t/response/TestPHP/baz.php
+</pre><br/><br/>all within the same <code>t/</code> directory.<br><br>
+the perl script <code>t/foo.t</code> will run using perl, just like always.  <code>t/bar.php</code> will run using the php command-line interpreter, while
+<code>t/response/TestPHP/baz.php</code> will run via PHP <i>within the Apache runtime</i> (through standard <code>Apache-Test</code> magic).
+and all are executed with a simple <code>make test</code> and tabulated on the command line like you would expect.<br><br><br/><br/>furthermore, the <code>test-more.php</code> that <code>Apache-Test</code> generates can be automatically found from the client-side tests as well.  so, here is what a sample <code>t/foo.php</code> looks like:<br/><br/><pre>
+<?php
+  require "test-more.php";<br/><br/>  plan(1);
+                                                                                                                             
+  diag("this is a php test");
+                                                                                                                             
+  is('php', 'perl', "something php passed");
+?>
+</pre><br/><br/>look familiar?  so does the output...<br/><br/><pre>
+$ make test TEST_VERBOSE=1
+/perl/perl-5.8.6/bin/perl -Iblib/arch -Iblib/lib \
+t/TEST  -clean
+APACHE_TEST_GROUP= APACHE_TEST_HTTPD= APACHE_TEST_PORT= APACHE_TEST_USER= APACHE_TEST_APXS= \
+/perl/perl-5.8.6/bin/perl -Iblib/arch -Iblib/lib \
+t/TEST  -bugreport -verbose=1 t/foo.php t/foo.t
+/usr/local/apache/bin/httpd  -d /src/devel/perl-php-test/t -f /src/devel/perl-php-test/t/conf/httpd.conf -D APACHE1 -D PERL_USEITHREADS
+using Apache/1.3.32
+ 
+waiting 60 seconds for server to start: ..
+waiting 60 seconds for server to start: ok (waited 1 secs)
+server localhost.localdomain:8529 started
+t/foo....1..1
+# this is a php test
+not ok 1 - something php passed
+#     Failed test (t/foo.php at line 9)
+#          got: 'php'
+#     expected: 'perl'
+# Looks like you failed 1 tests of 1.
+FAILED test 1
+        Failed 1/1 tests, 0.00% okay
+t/foo....1..1
+# this is a perl test
+not ok 1 - something perl passed
+ 
+#     Failed test (t/foo.t at line 7)
+#          got: 'php'
+#     expected: 'perl'
+# Looks like you failed 1 test of 1.
+dubious
+        Test returned status 1 (wstat 256, 0x100)
+DIED. FAILED test 1
+        Failed 1/1 tests, 0.00% okay
+Failed Test Stat Wstat Total Fail  Failed  List of Failed
+-------------------------------------------------------------------------------
+t/foo.t        1   256     1    1 100.00%  1
+t/foo.php                  1    1 100.00%  1
+Failed 2/2 test scripts, 0.00% okay. 2/2 subtests failed, 0.00% okay.
+</pre><br/><br/>hard to tell which is <code>Test::More</code> and which is <code>test-more.php</code> isn't it?
+<br><br><br/><br/>I find it interesting that in a very large testing framework here at work we use a mixture of <code>*.t</code> tests that have nothing to do with mod_perl or Apache, yet we just let <code>Apache-Test</code> run everything for convenience.  now, PHP users can do the same - code PHP clients to talk to their PHP web app using <code>Test::More</code> syntax, or just use <code>Apache-Test</code> as the engine for their CLI scripts:<br/><br/><pre>
+$ t/TEST -no-httpd t/foo.php  -v
+[warning] skipping httpd configuration
+t/foo....1..1
+# this is a php test
+not ok 1 - something php passed
+#     Failed test (t/foo.php at line 5)
+#          got: 'php'
+#     expected: 'perl'
+# Looks like you failed 1 tests of 1.
+FAILED test 1
+        Failed 1/1 tests, 0.00% okay
+Failed Test Stat Wstat Total Fail  Failed  List of Failed
+-------------------------------------------------------------------------------
+t/foo.php                  1    1 100.00%  1
+Failed 1/1 test scripts, 0.00% okay. 1/1 subtests failed, 0.00% okay.
+</pre><br/><br/></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of excalibor: Promises, promises...</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Promises, promises...</h1>
+<h2><a href="/user/excalibor/">excalibor</a> on 2006-09-26T14:19:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've been thinking in lazy evaluation, and so, as of late, due to some healthy readings.
+<p>One thing that I've always liked about some languages (and which Perl 6 will have for free) is the ability to have lazy arrays, and list comprehensions (Haskell is the brightest example, but Python's gotten them for a good while now, and they have been proposed in a Scheme SRFI which is pretty cool).
+<p>The nice thing about Scheme's (or Python's) comprehensions is that they are eager, and that rings closer to Perl's world view than Haskell's.
+<p>Of course, we've always have something similar to a list comprehension in Perl, namely <i>map</i>.
+<p>For example, Haskell's simple example:
+<pre>
+Prelude> let a = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+Prelude> a
+[0,1,2,3,4,5,6,7,8,9]
+Prelude> let b = [ x `mod` 2 == 0 | x <- a ]
+Prelude> b
+[True,False,True,False,True,False,True,False,True,False]
+</pre>
+where 'Prelude>' is GHCi's prompt, can be easily written in Perl as
+<pre>
+$ perl -we '@a=0..9;@b=map { $_%2 == 0 ? 'True' : 'False' } @a; print "@b\n"'
+False True False True False True False True False True
+</pre>
+Of course, Perl's thruth and falsehood vallues are different, we write 0  (or '', or ()) for 'False' and anything else for 'True' (for example, 0 and 1).<p>
+<p>The <b>real</b> difference in both cases is which terms are calculated. If we limited this get just the first 3 elements of the comprehension, Haskell will only calculate those, and forget to test the rest of the elements. And if it's a calculated list, it will even skip the generation of the rest of the list. Perll will make all of it before slicing the result. A lot of unnecessary work.
+<p>We may have a hard time to make lazy list comprehensions in Perl, but we can make eager list comprehensions of sort pretty easily. This is <b>part I</b>.
+<p>And the trick is to resort to promises, like Scheme does. (There are probably other possibilities, but this is the one I know of :-P ):
+<p>We are going to implement a new type, a Promise, that, when created, will return the promise of a future evaluation. Thus:
+<pre>
+my $promise = delay(q[foo(2+4)]);
+</pre>
+is a promise to, eventually, evaluate foo(2+4), if forcefully asked for:
+<pre>
+my $result = force($promise);
+</pre>
+<p>We are striving for a simple implementation to see how this works, the details are for CPAN, if I ever upload this over there.
+<p>Scheme's <i>delay</i> and <i>force</i> work <b>as if</b> defined this way:
+<pre>
+(define (delay x) (lambda () x))
+(define (force p) (p))
+</pre>
+<p>They are actually defined as macros, so the evaluation of the arguments is delayed until the macro is expanded. We can simulate this with Perl's ability to eval expressions. And thanks to Perl's closures, we can implement this straightforward:
+<pre>
+package Promise;
+
+# a bit of debugging info, and we name the argument of delay() so we can close over it (lexically speaking)
+sub delay { print STDERR "<@_>\n"; my $code = $_[0]; return sub { eval $code } }
+sub force { $_[0]->() }
+
+1;
+</pre>
+
+and test it:
+
+<pre>
+use Promise;
+
+sub foo { $_[0] + 1 }
+
+my $p = Promise::delay(q[foo( 3 + 4 + foo(5) )]);
+my $r = Promise::force($p);
+print "* $r\n";
+</pre>
+
+Executing it, we get:
+<pre>
+$ perl test.pl
+<foo( 3 + 4 + foo(5) )>
+*
+</pre>
+
+Uh? The debugging sentence printed what we wanted to execute correctly, what went wrong? Well, if we had done our homework we would be capturing return value of the eval block, stored in $@, and we would then be able to raise the exception 'Undefined subroutine &Promise::foo called at (eval 1) line 1.'. Let's do it:
+<pre>
+(in Promise.pm):
+package Promise;
+
+sub delay { print STDERR "<@_>\n"; my $code = $_[0]; return sub { eval $code; die $@ if $@ } }
+sub force { $_[0]->() }
+
+1;
+(in test.pl):
+use Promise;
+
+sub foo { $_[0] + 1 }
+
+my $p = Promise::delay(q[foo( 3 + 4 + foo(5) )]);
+my $r = Promise::force($p);
+print "* $r\n";
+__END__
+</pre>
+
+And now we get:
+<pre>
+$ perl test.pl
+<foo( 3 + 4 + foo(5) )>
+Undefined subroutine &Promise::foo called at (eval 1) line 1.
+</pre>
+as expected. Why is this failing? Because the symbol 'foo' is not defined in the Promise:: package, we have defined it in main:: ... There's surely a way to 'upval' <i>foo</i> from main:: to Promise:: (like Tcl does), but we don't have to, for the time being, because we can fully qualify our code-to-be.
+<pre>
+(test.pl):
+use Promise;
+
+sub foo { $_[0] + 1 }
+
+my $p = Promise::delay(q[::foo( 3 + 4 + ::foo(5) )]);
+my $r = Promise::force($p);
+print "* $r\n";
+__END__
+</pre>
+
+No exception now, but it doesn't work. Before the error check, we were returning the eval, now we aren't. Let's fix it:
+<pre>
+package Promise;
+
+sub delay { print STDERR "<@_>\n"; my $code = $_[0]; return sub { my $ret = eval $code; die $@ if $@; $ret } }
+sub force { $_[0]->() }
+
+1;
+(in the shell):
+$ perl test.pl
+<::foo( 3 + 4 + ::foo(5) )>
+* 14
+</pre>
+
+Now it works!
+<p>Of course, this is a really naÃÂ¯ve implementation, and it may be particularly awful, as Perl doen't optimize its tail calls, but it's a beginning. Another problem is that we may be recalculating a promise again and again, which defeats its very purpose of easying calculations; in Scheme promises are fulfilled once, and the next time you ask for it, you get the result instead of a promise object. Memoize can help in here and save us a lot of cruft, or not, depending on how we do construct our code to be evaluated. Actually evaluating a string is suboptimal, but it's the easier way to avoid Perl's eager evaluation of function parameters. There surely are other ways.
+
+<p>Anyway, to check that this is really working, let's try something a little bit more involved. Let's calculate numbers. A (potentially) infinite chain of numbers:
+
+<pre>
+(in test_naturals.pl):
+use Promise;
+# returns a number and a promise to calculate the next one later
+sub nat {
+    my $N = shift;
+    return [ $N, Promise::delay(qq{::nat($N+1)}) ];
+};
+
+# getters
+sub get_N { $_[0]->[0] }
+sub get_next { $_[0]->[1] }
+# pretty-printer
+sub show_N { print get_N($_[0]), "\n" }
+
+# the number one
+my $one = nat(1);
+show_N($one);
+# the next Natural is, of course, the number two
+my $two = Promise::force(get_next($one));
+show_N($two);
+
+# let's get some of them...
+my @naturals;
+my $number = nat(1);
+my $num = get_N($number);
+while ( $num <= 10 )
+{
+    push @naturals, $num;
+    $number = Promise::force(get_next($number));
+    $num = get_N($number);
+}
+
+print "@naturals\n";
+</pre>
+
+We create some convenience functions but don't let 'em fool you. nat() defines a function that takes a number, and returns it alongside a promise to calculate the next one.
+
+<p>We check that it works, and then we calculate the first ten Natural numbers. Note that after calling nat(1) to assign it to $number right before the loop, we don't use the fuction never again explicitely. It's implicitely called by each promise we force to be fulfilled.
+
+<p>The popular name for these 'objects' is Generators. I'm sure there are pretty good implementations of these in books (like in MJD's <i>Higher Order...</i>); but this is the basis, and I didn't find any in CPAN. Hope you find this idea useful, because it is more powerful than it may appear at first (deceptively simple, uh? ;-)
+
+<p>Comments and discussion welcome! Laters!
+</p>
+
+
+<hr/>
+
+
+
+<h2>You've seen..</h2>
+<h3><a href="/user/jesse/">jesse</a> on 2006-09-26T19:03:35</h3>
+Scalar::Defer?
+
+
+
+<blockquote>
+
+<h2>Re:You've seen..</h2>
+<h3><a href="/user/excalibor/">excalibor</a> on 2006-09-26T19:53:11</h3>
+No, actually I haven't (at least until you wrote<nobr> <wbr></nobr>:-)<br><br>I have now, and it looks pretty interesting! Not that I'm going to stop pondering on eager comprehensions, mind you, but it looks like a good place to learn new ways to get this working...<br><br>Thanks a bunch!
+
+
+
+
+
+</blockquote>
+
+
+<h2>HOP::Stream</h2>
+<h3><a href="/user/rhesa/">rhesa</a> on 2006-09-26T23:48:43</h3>
+Since you mentioned "Higher Order Perl", Ovid has released HOP::Stream that does some of this.
+
+
+
+<blockquote>
+
+<h2>Re:HOP::Stream</h2>
+<h3><a href="/user/excalibor/">excalibor</a> on 2006-09-27T16:19:49</h3>
+Thanks, I'll have a look!<br><br>Laters!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

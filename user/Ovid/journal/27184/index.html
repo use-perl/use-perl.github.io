@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Design considerations</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Design considerations</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-10-15T20:42:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I just released <a href="http://search.cpan.org/dist/Array-AsHash/">Array::AsHash 0.20</a>.  The version number has been jumping quickly due to rapid development of this code.  This development has been driven by real, live needs.  You can take a gander at it if you're curious to see what my production code is like though I admit there's a bit of duplication that I'm trying to figure the best way of factoring out.  I'm actually not terribly worried about the duplication (yet).  That's because I have a good test suite and what's more important is that I present a good interface.  The internals can be dealt with once I know that my interface is solid.</p>
+
+<p>This code has solved certainly problems for me quite handily and the current interface reflects this.  Perhaps the most interesting bit is the following construct you'll see in some methods:</p>
+
+<pre>return wantarray  ? @results
+  : @arg_list > 1 ? \@results
+  :                 $results[0];</pre>
+
+<p>What the heck is that?  Well, think about getting a value from a hash:</p>
+
+<pre>my $val = $hash{$key};
+my $val = $array->get($key);</pre>
+
+<p>My <tt>get</tt> method (and others) returns a single value in scalar context.  What about a hash slice though?</p>
+
+<pre>my @vals = @hash{qw/key1 key2 key3/};
+my @vals = $array->get(qw/key1 key2 key3/);</pre>
+
+<p>In scalar context, we usually think of an array returning the number of elements it contains.  However, a hash slice dos not return an array, it returns a list.  This means that in scalar context, we'll get the value of the last item it returns.</p>
+
+<pre>my %hash  = qw/one un two deux three trois/;
+my $count = @hash{qw/one three/};
+print $count; # probably not what we wanted</pre>
+
+<p>That prints "trois". It is, in fact, pretty useless for most folks.  Thus, I don't want my <tt>get</tt> method to behave this way.  So what's a standard Perl idiom for returning an array from a method in scalar context?  I return an array reference.  Because I provide separate "count" methods, I don't think this is too much of a problem.  I find the array reference to be more useful.  However, that poses a problem:</p>
+
+<pre>my $value = $array->get('foo');</pre>
+
+<p>Because that's in scalar context, it should return an array reference.  However, that doesn't behave the way most people would be expecting it to.  You could force it to work correctly like this:</p>
+
+<pre>my ($value) = $array->get('foo');</pre>
+
+<p>That, however, is ugly and is going to confuse people.  Thus, I have a rule for several methods.  If called in scalar context <em>with a single argument</em>, they return a scalar.  Mostly things work as expected though the following is problematic:</p>
+
+<pre>my $values = $array->get(@list);</pre>
+
+<p>If <tt>@list</tt> contains only one argument, <tt>$values</tt> will be a single value, not an array reference containing the values to be returned (though it might be an aref if that's what what stored in that slot).  This is because Perl's argument handling is primitive enough that it's not easy to distinguish this case.  This forces the programmer to do the following:</p>
+
+<pre>my $values = $array->get(@list);
+$values = [$values] if 1 == @list;</pre>
+
+<p>That's ugly, but since this is not the common case, I chose not to optimize for it.</p>
+
+<p>In other news, you can now optionally create "strict" hashes with this module.  Use a key which doesn't exist and the module falls down and goes boom.  I do provide <em>explicit</em> methods for using keys which don't exist, though; you just can't implicitly work with or ignore non-existent keys.  You have to tell the object exactly what you want to do.  See the docs for more details.</p>
+
+<p>Other features of the new release of this module:</p>
+
+<pre>0.20    2005-10-15
+        "strict' mode added.  Using non-existent keys is fatal.
+        "strict" method also added.
+        Reorganized the docs to be a bit cleaner.
+
+0.12    Not released (these are all in 0.20, though)
+        "put" can now accept an even-sized list of pairs.
+        "get" can now take a list of keys.
+        Did a bit of an internals cleanup.
+        each() now returns an iterator in scalar context
+            Thanks to Adrian Howard for the suggestion.
+        Added "rename" method.
+        Overloaded stringification as a debugging aid.</pre></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

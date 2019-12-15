@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jozef: sub r {return if !$_[0]; r($_[0]-1); } leaktrace{ r(1);};</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>sub r {return if !$_[0]; r($_[0]-1); } leaktrace{ r(1);};</h1>
+<h2><a href="/user/jozef/">jozef</a> on 2010-06-22T17:22:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Today @$work we discovered that even dummy recursive calling of a function is leaking memory. Here is the one-liner 10000x calling it self and returning:</p>
+
+<code>perl -MEnglish -MGTop -le 'my $g=GTop->new();$m=$g->proc_mem($PID);print $m->size; sub r { return if not $_[0]; r($_[0]-1); } r(100000); $m=$g->proc_mem($PID); print $m->size;'
+</code>
+
+<p>The output is:</p>
+
+<code>
+7122944<br/>
+34729984
+</code>
+
+<p>Before the recursion 7MB allocated. After the recursion (that finished) 34MB...</p>
+
+<p>Here is what <a href="http://search.cpan.org/perldoc?Test::LeakTrace">Test::LeakTrace</a> say about it:</p>
+
+<code>
+$ perl -MTest::LeakTrace  -le 'sub r { return if not $_[0]; r($_[0]-1); } leaktrace{ r(1); };'<br/>
+leaked ARRAY(0x9b7e8e8) from -e line 1.<br/>
+leaked SCALAR(0x9b98cb8) from -e line 1.<br/>
+leaked ARRAY(0x9c311f8) from -e line 1.<br/>
+leaked SCALAR(0x9c311e8) from -e line 1.
+</code>
+
+<p>Are we doing anything wrong? Is it ok? How to release the memory?</p></p>
+
+
+<hr/>
+
+
+
+<h2>Re: sub r {return if !$_[0]; r($_[0]-1); } leaktra</h2>
+<h3><a href="/user/daxim/">daxim</a> on 2010-06-22T17:28:21</h3>
+#p5p<blockquote><div><p> <tt>[16:49] &lt;shadowpaste&gt; "daxim" at 217.168.150.38 pasted "recursion does not release memory for reuse?" (14 lines) at http://paste.scsys.co.uk/45082<br>[16:49] &lt;dipsy&gt; [ magnet_web paste from "daxim" at 217.168.150.38... ]<br>[16:49] &lt;daxim&gt; what's going on here?<br>[16:50] &lt;Zefram&gt; fragmentation?<br>[16:50] &lt;purl&gt; fragmentation is interesting<br>[16:50] &lt;Nicholas&gt; no, Pad frames created for recursion are not released<br>[16:50] &lt;Nicholas&gt; the assumption is that you'll recurse again<br>[16:51] &lt;Nicholas&gt; patches not unwelcome to add the option to change this<br>[16:51] &lt;Nicholas&gt; but I've not thought totally about how to do it<br>[16:51] &lt;Nicholas&gt; you could, in theory, do it from XS<br>[16:51] &lt;Nicholas&gt; manually, on subrouties by passing in a reference to them<br>[16:52] &lt;Zefram&gt; keeping pads beyond N levels deep seems like a bad idea<br>[16:53] &lt;Nicholas&gt; actually, better I think is is "keeping pads N levels deeper than the level you just left"<br>[16:53] &lt;Zefram&gt; if you're recursing deep, you're spending enough time that the overhead of reallocating pads is probably not a worry<br>[16:53] &lt;Zefram&gt; yes, was just about to suggest that.&nbsp; hysteresis<br>[16:53] &lt;Nicholas&gt; that would avoid penalising things that recurse and stay recursed<br>[16:53] &lt;Zefram&gt; yes</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re: sub r {return if !$_[0]; r($_[0]-1); } leaktra</h2>
+<h3><a href="/user/jozef/">jozef</a> on 2010-06-22T17:48:15</h3>
+<code>perl -MTest::LeakTrace  -le 'sub r {return if !$_[0]; r($_[0]-1); } r(1); leaktrace{ r(1);};'</code>
+
+<p>Hmm yes the second recursion calling is not leaking memory any more.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

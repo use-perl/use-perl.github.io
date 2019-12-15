@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of petdance: Make your classes use their own methods</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Make your classes use their own methods</h1>
+<h2><a href="/user/petdance/">petdance</a> on 2003-11-24T03:32:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Classes need to use their own methods inside the class, and not access the internal object store directly, even though Perl allows it.  This is often called "eating your own dog food."  For example, if you have<br/><br/><ECODE>
+sub name {
+    my $self = shift;
+    return $self->{name};
+}
+</ECODE>
+then in your other methods in the class, go ahead and use the accessor directly, with
+<ECODE>
+sub foo {
+    my $self = shift;
+    print $self->name;
+}
+</ECODE>
+instead of
+<ECODE>
+sub foo {
+    my $self = shift;
+    print $self->{name};
+}
+</ECODE><br/><br/>There are a number of reasons for this, and you don't have to be a Java object purist to appreciate them:<br/><br/><UL>
+<LI><B>You can't use inheritance.</B><BR>
+What if you have a subclass of your class, and it overrides the <TT>name()</TT> method, but not the <TT>foo()</TT> method?  You won't be using the overridden <TT>name()</TT></LI>
+<LI><B>You're making a permanent assumption that the accessor will always be simple</B><BR>
+What if somewhere down the road you do some manipulation inside <TT>name()</TT>?  Say you want it to return a proper-cased string.  Now you're going to either replicate that code to proper-case the string, or you're going to go and change your uses of <TT>$user-&gt;{name}</TT> to <TT>$user-&gt;name</TT> anyway.
+</LI><br/><br/><LI><B>Using your own accessors tests them</B><BR>
+What if your accessor is broken somehow?  You'll never know.</LI><br/><br/><LI><B>You're tying your code to the specific implementation of your object.</B><BR>
+Objects don't have to be hashes: Maybe you want to change to use an array, like in WWW::Mechanize::Link.
+</LI><br/><br/><LI><B>You're tied to the naming convention</B><BR>
+Maybe you want to change the internal naming convention.  You shouldn't have to go retrofit your code to do so.
+</LI>
+</UL><br/><br/>Heck, accessors can even reduce punctuation: <TT>$user-&gt;name</TT> vs. <TT>$user-&gt;{name}</TT>.
+<P>
+There is only one reason to not use your own accessor methods, and that's to microoptimize your code for speed.  If you've gone ahead and profiled your code, say, with Devel::DProf, and you know that calls to your accessors are causing a significant slowdown from overhead, and you've eliminated other sources of speedup, and you comment your code explaining WHY you're using the attributes directly, then sure, go ahead.  We had to do this in MARC::Record in some tight-loop intensive code, but even then we changed some internal representations that bypassed the accessors entirely to get even more speedup.<br/><br/></p>
+
+
+<hr/>
+
+
+
+<h2>Agreed!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2003-11-24T05:55:38</h3>
+<p>I've recently changed over to doing this in my own code and it's quite nice.  You can really tell how complex a method is by how many accessor methods you need to call on it.</p>
+
+
+
+<h2>At the very least</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2003-11-24T06:20:52</h3>
+<p>At the very least, write good tests for all your public methods.  Then, when you are finally coerced into changing your attribute accesses into method calls as Andy describes (and you will if any of the following is true: your code lives long enough, your code grows large enough, or your code passes through enough maintainers), making the change will be much quicker, easier, and reliable due to the confidence you receive from being able to run the tests and say "It runs exactly like it did before I did that global search and replace."</p>
+
+<p>Effective unit testing reduces the cost of change.</p>
+
+
+
+<h2>But Be Careful</h2>
+<h3><a href="/user/davorg/">davorg</a> on 2003-11-24T11:20:35</h3>
+I was recently persuading a cow orker on this very point and changed all of the attribute accesses in the constructor in order to demonstrate.<br> <br>Unfortunately we didn't bless the hash reference into the object until the <i>end</i> of the constructor so none of the accessor calls worked.<br> <br>What started off as a demonstration of why using accessors is a good idea turned into a demonstration of why unit tests are essential before doing any refactoring<nobr> <wbr></nobr>:)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

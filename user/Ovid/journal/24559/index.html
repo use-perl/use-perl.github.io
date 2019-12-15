@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Funky Regex Problem</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Funky Regex Problem</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-05-06T00:51:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>To make a <a href="http://perlmonks.org/index.pl?displaytype=display;node_id=454550">long story</a> short, I can't figure out why this is failing (I'm trying to force the regex to fail if it matches a single dot):</p>
+
+<pre>#!/usr/bin/perl
+use strict;
+use warnings;
+use Data::Dumper;
+
+use Regexp::Common;
+
+use constant SUCCEED => qr{(?=)};
+use constant FAIL    => qr{(?!)};
+
+my $QUOTED = $RE{quoted};
+my $NUM    = $RE{num}{real};
+
+my $VALUE  = do {
+    use re 'eval';
+    qr/(?:$QUOTED|$NUM)(??{'.' eq $+ ? FAIL : SUCCEED})/;
+};
+
+my $text = 'name => "foo", fav.num => 3';
+my @text = split /($VALUE)/ => $text;
+print Dumper \@text;</pre>
+
+<p>That prints:</p>
+
+<pre>$VAR1 = [
+  'name => ',
+  '"foo"',
+  ', fav',
+  '.',
+  'num => ',
+  '3'
+];</pre>
+
+<p>What I want it to print is:</p>
+
+<pre>$VAR1 = [
+  'name => ',
+  '"foo"',
+  ', fav.num => ',
+  '3'
+];</pre>
+
+<p>Any ideas?</p></p>
+
+
+<hr/>
+
+
+
+<h2>Try this instead:</h2>
+<h3><a href="/user/Damian/">Damian</a> on 2005-05-06T04:44:23</h3>
+<blockquote> <div> <tt>my $VALUE&nbsp; = do {<br>&nbsp; &nbsp; use re 'eval';<br>&nbsp; &nbsp; qr/(?&gt;($QUOTED|$NUM))(??{'.' eq $^N ? FAIL : SUCCEED})/;<br>};<br> <br>my $text = 'name =&gt; "foo", fav.num =&gt; 3';<br>my @text = split<nobr> <wbr></nobr>/$VALUE/ =&gt; $text;<br>print Dumper \@text;</tt> </div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Try this instead:</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-05-06T05:00:56</h3>
+<p>Very interesting.  I suspect it would take me a while to debug, but I've discovered that while this passes my test case wonderfully, it fails miserably when using that in the <tt> <a href="http://hop.perl.plover.com/Examples/ALL/Lexer.pm" title="plover.com">Lexer.pm</a plover.com> </tt> example from HOP.  My test case is clearly not representing the problem as well as I thought since others are having this problem on the Perlmonks site.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>A more natural way?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-05-06T09:20:19</h3>
+<p>Do you really need a deferred pattern there? I&#8217;d write it like so:</p> <blockquote> <div> <tt>qr/(?:$QUOTED|$NUM)(?(?{ '.' eq $+ })$FAIL)/;</tt> </div> </blockquote> <p>(which of course implies variables rather than constants.)</p>
+
+<p>Now given that, you get a zero-length match:</p> <blockquote> <div> <tt>$VAR1 = [<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 'name =&gt; ',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; '"foo"',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ', fav',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; '',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; '.num =&gt; ',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; '3'<br>&nbsp; &nbsp; &nbsp; &nbsp; ];</tt> </div> </blockquote> <p>So obviously a match against the lone dot was prevented, but <code>$QUOTED</code> succeeds in matching nothing.</p>
+
+<p>Okay then.</p> <blockquote> <div> <tt>qr/($QUOTED|$NUM)(?(?{ '.' eq $+ or not length( $+ ) })$FAIL)/;</tt> </div> </blockquote> <p>Result:</p> <blockquote> <div> <tt>$VAR1 = [<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 'name =&gt; ',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; '"foo"',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ', fav.num =&gt; ',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; '3'<br>&nbsp; &nbsp; &nbsp; &nbsp; ];</tt> </div> </blockquote> <p>Well, I never. That&#8217;s what we wanted!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

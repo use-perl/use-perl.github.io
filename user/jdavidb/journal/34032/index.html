@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jdavidb: Simple math in DateTime: partitioning an interval</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Simple math in DateTime: partitioning an interval</h1>
+<h2><a href="/user/jdavidb/">jdavidb</a> on 2007-08-07T19:29:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I loved Time::Piece (formerly Time::Object) with a passion.  After Y2K I sketched out a plan for two Perl libraries that would perform date functions.  It sat on my whiteboard for several months, and then suddenly Matt Sergeant released a module that implemented it almost exactly.  It worked exactly the way I wanted to think.  There was a class to represent moments in time, there was a class to represent intervals of time, and every operator possible was overloaded in meaningful ways.  If you subtracted two points in time you got an interval, if you added an interval to a point in time you got a point in time, if you performed multiplication or division on an interval it just worked, and on and on.  Intervals were real objects, not just integers representing some unit of time like in Oracle or other systems I've seen.</p>
+
+<p>DateTime came out, and I knew it was the next best thing, and in fact Time::Object was reimplemented to use it internally.  But the learning curve was steep.  I slowly picked up a bit here and there, wrote myself some utility programs, and then when I got interested in other calendars and some of the more esoteric things that happened to have DateTime-related modules on CPAN I converted and started writing with it.</p>
+
+<p>But DateTime's two classes did not work the way I expected.  I tried to perform division on a time interval and got something that was not a time interval.  DateTime refused to perform all sorts of conversions because of exception cases that meant that certain things were not always true.  Every time I touched it I found myself looking things up ...</p>
+
+<p>... and looking things up didn't help.  Time interval objects didn't stringify.  They appeared to have redundant methods.  There weren't ways to say "Look, don't give me the seconds <i>component</i> of the interval, tell me how many seconds long the interval really is, and since I computed it from two moments in time this is not a meaningless question that can't be answered; tell me, and tell me in a way that I can perform math on."  And the documentation had an oh-so-helpful section on "How Datetime Math is done" that really didn't help at all, because it dealt with all sorts of exceptions I didn't care about and didn't actually tell me how to do what I used to just do with Time::Object.</p>
+
+<p>Of course, I couldn't go back for a host of reasons.  So I'd puzzle something out, and then when I needed it again I'd hope I'd find it lying around in one of my programs somewhere so I could refer to it again.</p>
+
+<p>So it's time to start recording some of this knowledge here.  IMO, DateTime long since should've had a date math section in the documentation that actually shows how to do these things.</p>
+
+<p>So, today's puzzle is: given two DateTimes, divide the interval between them into N equal parts and give me back a series of N + 1 DateTimes, from $start to $end, all evenly spaced:</p>
+
+<pre>sub partition_datetime
+{
+  my($start, $end, $n) = @_;
+  my @a;
+  my $int = $end - $start;
+  for my $i (0 .. $n)
+  {
+    push @a, $start + $int->clone->multiply($i / $n);
+  }
+  return @a;
+}</pre>
+
+<p>Of course, I'm scared to death this somehow doesn't really work right because DateTime is so pathological about saying, "I can't really tell if this interval divides like this or like that because sometimes days have extra hours or seconds or something."  Even though I'm doing it all in UTC.</p>
+
+<p><b>Update:</b> No, it doesn't work.  If I divide into too many partitions, DateTime can't handle adding fractional days, hours, minutes, seconds, etc.  Look, the interval is three days long.  Divide it into 250 equal portions and let me know where those breaks are.  I could do it in a snap with Time::Object.</p></p>
+
+
+<hr/>
+
+
+
+<h2>how about...</h2>
+<h3><a href="/user/jtrammell/">jtrammell</a> on 2007-08-07T21:12:22</h3>
+<p><blockquote> <div><tt>sub partition {<br>&nbsp; &nbsp; my ($start, $end, $n) = @_;<br>&nbsp; &nbsp; my $s = $start-&gt;epoch;<br>&nbsp; &nbsp; my $e = $end-&gt;epoch;<br>&nbsp; &nbsp; my $i = int( ($e - $s) / $n );&nbsp; &nbsp; # interval<br>&nbsp; &nbsp; return map DateTime-&gt;from_epoch(epoch =&gt; $s + $i * $_), 0<nobr> <wbr></nobr>.. $n;<br>}</tt></div> </blockquote> ?
+
+
+
+<blockquote>
+
+<h2>Re:how about...</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2007-08-08T02:00:52</h3>
+<p>What's the point of having classes to handle date arithmetic if you have to convert back into numbers in order to do the math?</p>
+
+<p>That works, but one shouldn't have to go to those lengths.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>There's always the DateTime FAQ code...</h2>
+<h3><a href="/user/Hasher_Bob/">Hasher_Bob</a> on 2007-08-07T22:07:07</h3>
+<a href="http://datetime.perl.org/index.cgi?FAQSampleCalculations" title="perl.org">http://datetime.perl.org/index.cgi?FAQSampleCalculations</a perl.org> <p><blockquote> <div><tt># As a Perl list<br>my $start_dt = DateTime-&gt;new(year =&gt; 1998, month&nbsp; =&gt; 4,&nbsp; day =&gt; 7);<br>my $end_dt&nbsp; &nbsp;= DateTime-&gt;new(year =&gt; 1998, month&nbsp; =&gt; 7,&nbsp; day =&gt; 7);<br> <br>my @list = ();<br>for (my $dt = $start_dt-&gt;clone();<br>&nbsp; &nbsp; &nbsp;$dt &lt;= $end_dt;<br>&nbsp; &nbsp; &nbsp;$dt-&gt;add(weeks =&gt; 1) )<br>{<br>&nbsp; push @list, $dt-&gt;clone();<br>}<br> <br># As a DateTime::Set.&nbsp; We use DateTime::Event::Recurrence to easily<br># create the sets (see also DateTime::Event::ICal for more<br># complicated sets)<br>use DateTime::Event::Recurrence;<br>use DateTime::Span;<br>my $set = DateTime::Event::Recurrence-&gt;daily(start&nbsp; &nbsp; =&gt; $start_dt,<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;interval =&gt; 7);<br> <br>$set = $set-&gt;intersection(DateTime::Span-&gt;from_datetimes(start =&gt; $start_dt, end =&gt; $end_dt ));</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:There's always the DateTime FAQ code...</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2007-08-08T02:05:46</h3>
+<p>The first of those solutions only works if you know the size of the intervals you want to partition into ahead of time.  I want to deal with the general case: say I have two moments in time that are exactly 29 days, 3 hours, 1 minute, and 17 seconds apart, and I want to divide it into 8 equal intervals?  (My next journal entry does reveal the solution, but I'm just responding to show that I'm dealing with a harder problem than your solution addressed.)</p>
+
+<p>I think the same is true of the second solution.  The crucial issue is how to perform meaningful math on a DateTime::Duration.  And the real issue behind it is that I'm always dealing with durations that are the result of subtracting two DateTime objects, and the output of the overloaded subtraction operator is a DateTime::Duration that is basically useless for most of the purposes I want to use it for.  The good news is there's a DateTime-&gt;subtract_datetime_absolute method that yields what I want and, in my opinion, should be what the subtraction operator overloads to.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: More MySQL &quot;fun&quot;</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>More MySQL &quot;fun&quot;</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-09-11T14:48:49</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>A colleague had lots of fun debugging this table:</p>
+
+<pre> CREATE TABLE `mail` (
+  `mail_id` int(11) unsigned NOT NULL auto_increment,
+  `user` varchar(64) default NULL,
+  `mail_type_id` int(10) unsigned NOT NULL,
+  `domain_id` int(10) unsigned NOT NULL,
+  PRIMARY KEY  (`mail_id`),
+  KEY `mail_type_id` (`mail_type_id`),
+  KEY `domain_id` (`domain_id`,`user`),
+  CONSTRAINT `mail_ibfk_2` FOREIGN KEY (`mail_type_id`) REFERENCES
+`mail_type` (`mail_type_id`) ON UPDATE CASCADE,
+  CONSTRAINT `mail_ibfk_4` FOREIGN KEY (`domain_id`) REFERENCES `domain`
+(`domain_id`) ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;</pre>
+
+<p>And after much debugging of a particular problem, ran into this:</p>
+
+<pre>mysql> select * from mail where mail_type_id = 6 and user = '';
++---------+------+--------------+-----------+
+| mail_id | user | mail_type_id | domain_id |
++---------+------+--------------+-----------+
+|   25006 | NULL |            6 |        28 |
+|   25008 | NULL |            6 |      3728 |
+...
+| 4603476 | NULL |            6 |     13579 |
+| 4603507 | NULL |            6 |      3511 |
++---------+------+--------------+-----------+
+364 rows in set (0.00 sec)</pre>
+
+<p>How the heck is a NULL value equal to the empty string?</p>
+
+<p>NULL values are not allowed in indexes, so it sort of looks like MySQL is using the empty string for the index value but returning the correct 'NULL' value for the field when displayed.  Damn.</p>
+
+<pre> $ mysql --version
+mysql  Ver 14.12 Distrib 5.0.22, for redhat-linux-gnu (i686) using
+readline 5.0</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Index?</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2007-09-11T15:01:34</h3>
+<p><blockquote><div>NULL values are not allowed in indexes, so it sort of looks like MySQL is using the empty string for the index value but returning the correct 'NULL' value for the field when displayed. Damn.</div></blockquote>
+<p>
+You don't have index for 'user' column so it must be something else.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Index?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-09-11T15:09:33</h3>
+<p>There's a key with the <tt>user</tt> column.</p> <p><blockquote> <div><tt>KEY `domain_id` (`domain_id`,`user`)</tt></div> </blockquote>  <p>What am I misunderstanding?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Index?</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2007-09-11T15:14:12</h3>
+This key is only used when you have domain_id in where condition. <a href="http://ilyamart.blogspot.com/2007/08/4-silly-mistakes-in-use-of-mysql.html" title="blogspot.com">Order of columns in key is important</a blogspot.com> (see point #3).
+
+
+
+<blockquote>
+
+<h2>Re:Index?</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2007-09-11T15:18:53</h3>
+BTW you can see this with 'explain select':
+<p><p><blockquote> <div><tt>mysql&gt; explain select * from mail where mail_type_id = 6 and user = '';<br>+----+-------------+-------+------+---------------+--------------+--------<nobr>-<wbr></nobr>  +-------+------+-------------+<br>| id | select_type | table | type | possible_keys | key&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; | key_len | ref&nbsp; &nbsp;| rows | Extra&nbsp; &nbsp; &nbsp; &nbsp;|<br>+----+-------------+-------+------+---------------+--------------+---------<nobr>+<wbr></nobr>  -------+------+-------------+<br>|&nbsp; 1 | SIMPLE&nbsp; &nbsp; &nbsp; | mail&nbsp; | ref&nbsp; | mail_type_id&nbsp; | mail_type_id | 4&nbsp; &nbsp; &nbsp; &nbsp;| const |&nbsp; &nbsp; 1 | Using where |<br>+----+-------------+-------+------+---------------+--------------+---------+<nobr>-<wbr></nobr>  ------+------+-------------+<br>1 row in set (0.00 sec)</tt></div> </blockquote> Note that key `domain_id` is not listed as a possible key.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>corrupted database?</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2007-09-11T15:10:27</h3>
+BTW I tried to reproduce this and I cannot:
+<p>
+<code>
+mysql&gt; show create table mail\G<br>
+*************************** 1. row ***************************<br>
+       Table: mail<br>
+Create Table: CREATE TABLE `mail` (<br>
+  `mail_id` int(11) unsigned NOT NULL auto_increment,<br>
+  `user` varchar(64) default NULL,<br>
+  `mail_type_id` int(10) unsigned NOT NULL,<br>
+  `domain_id` int(10) unsigned NOT NULL,<br>
+  PRIMARY KEY  (`mail_id`),<br>
+  KEY `mail_type_id` (`mail_type_id`),<br>
+  KEY `domain_id` (`domain_id`,`user`)<br>
+) ENGINE=InnoDB AUTO_INCREMENT=25009 DEFAULT CHARSET=latin1<br>
+1 row in set (0.00 sec)<br>
+<br>
+mysql&gt; select * from mail;<br>
++---------+------+--------------+-----------+<br>
+| mail_id | user | mail_type_id | domain_id |<br>
++---------+------+--------------+-----------+<br>
+|   25006 | NULL |            6 |        28 |<br>
+|   25008 | NULL |            6 |      3728 |<br>
++---------+------+--------------+-----------+<br>
+2 rows in set (0.00 sec)<br>
+<br>
+mysql&gt; select * from mail where mail_type_id = 6 and user = '';<br>
+Empty set (0.00 sec)<br>
+</code>
+</p><p>
+<code>
+ilya@denmark:~$ mysql --version<br>
+mysql  Ver 14.12 Distrib 5.0.45, for pc-linux-gnu (i486) using readline 5.2<br>
+</code>
+</p><p>
+Could it be you have a corrupted database? Have you tried 'REPAIR TABLE mail'?</p>
+
+
+
+<blockquote>
+
+<h2>Re:corrupted database?</h2>
+<h3><a href="/user/jalh/">jalh</a> on 2007-09-12T08:55:19</h3>
+It's certainly weird. The database is not corrupted - check table and even using the extended check it says all is ok.<br><br>I can reproduce by the following:<br><br>mysql&gt; CREATE TABLE `foo` (<br>
+&nbsp; &nbsp; &nbsp; &nbsp; -&gt;   `mail_id` int(11) unsigned NOT NULL auto_increment,<br>
+&nbsp; &nbsp; `user` varchar(64) default NULL,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; -&gt;   `user` varchar(64) default NULL,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; -&gt;   `mail_type_id` int(10) unsigned NOT NULL,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; -&gt;   `domain_id` int(10) unsigned NOT NULL,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; -&gt;   PRIMARY KEY  (`mail_id`),<br>
+&nbsp; &nbsp; &nbsp; &nbsp; -&gt;   KEY `mail_type_id` (`mail_type_id`),<br>
+&nbsp; &nbsp; &nbsp; &nbsp; -&gt;   KEY `domain_id` (`domain_id`,`user`)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; -&gt; ) ENGINE=InnoDB DEFAULT CHARSET=latin1;<br>Query OK, 0 rows affected (0.07 sec)<br><br>mysql&gt; insert into foo set mail_type_id = 4, domain_id = 6;<br>Query OK, 1 row affected (0.00 sec)<br><br>mysql&gt; insert into foo set mail_type_id = 4, domain_id = 6, user = '';<br>Query OK, 1 row affected (0.01 sec)<br><br>mysql&gt; select * from foo;<br>+---------+------+--------------+-----------+<br>| mail_id | user | mail_type_id | domain_id |<br>+---------+------+--------------+-----------+<br>|       1 | NULL |            4 |         6 |<br>|       2 | NULL |            4 |         6 |<br>+---------+------+--------------+-----------+<br>2 rows in set (0.00 sec)<br><br>wtf? I guess after the given point, the program which accesses the database was changed to insert user as '' rather than null, but why is mysql displaying a '' varchar string as NULL?<br>
+
+
+
+<blockquote>
+
+<h2>Oracle like feature?</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2007-09-12T09:30:09</h3>
+Interesting. I tried exactly the same SQL statements and I get different result:
+<p><p><blockquote> <div><tt>mysql&gt; CREATE TABLE `foo` (<br>&nbsp; &nbsp; -&gt;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;`mail_id` int(11) unsigned NOT NULL auto_increment,<br>&nbsp; &nbsp; -&gt;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;`user` varchar(64) default NULL,<br>&nbsp; &nbsp; -&gt;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;`mail_type_id` int(10) unsigned NOT NULL,<br>&nbsp; &nbsp; -&gt;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;`domain_id` int(10) unsigned NOT NULL,<br>&nbsp; &nbsp; -&gt;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;PRIMARY KEY (`mail_id`),<br>&nbsp; &nbsp; -&gt;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;KEY `mail_type_id` (`mail_type_id`),<br>&nbsp; &nbsp; -&gt;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;KEY `domain_id` (`domain_id`,`user`)<br>&nbsp; &nbsp; -&gt;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;) ENGINE=InnoDB DEFAULT CHARSET=latin1;<br>Query OK, 0 rows affected (0.11 sec)<br> <br>mysql&gt; insert into foo set mail_type_id = 4, domain_id = 6;<br>Query OK, 1 row affected (0.01 sec)<br> <br>mysql&gt; insert into foo set mail_type_id = 4, domain_id = 6, user = '';<br>Query OK, 1 row affected (0.02 sec)<br> <br>mysql&gt;<br>mysql&gt; select * from foo;<br>+---------+------+--------------+-----------+<br>| mail_id | user | mail_type_id | domain_id |<br>+---------+------+--------------+-----------+<br>|&nbsp; &nbsp; &nbsp; &nbsp;1 | NULL |&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 4 |&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;6 |<br>|&nbsp; &nbsp; &nbsp; &nbsp;2 |&nbsp; &nbsp; &nbsp; |&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 4 |&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;6 |<br>+---------+------+--------------+-----------+<br>2 rows in set (0.00 sec)</tt></div> </blockquote> I know that Oracle has similar behavior as you are seeing: <a href="http://www.google.com/search?q=oracle+emptry+string+null" title="google.com">empty string is treated as NULL</a google.com>. Could it be there is some configuration parameter in MySQL to make it compatible with Oracle?
+
+
+
+<blockquote>
+
+<h2>Re:Oracle like feature?</h2>
+<h3><a href="/user/jalh/">jalh</a> on 2007-09-12T10:26:22</h3>
+The setup on my test box was a standard centos5 install with no extra config. Perhaps the version is buggy or something?
+
+
+
+<blockquote>
+
+<h2>Re:Oracle like feature?</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2007-09-12T12:51:54</h3>
+Yep, it is buggy. See my <a href="http://use.perl.org/comments.pl?sid=36923&amp;cid=57760" title="perl.org">other comment</a perl.org>.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Known mysql bug</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2007-09-12T09:36:21</h3>
+I've just found that this is known <a href="http://bugs.mysql.com/bug.php?id=20067" title="mysql.com">mysql bug</a mysql.com> which was fixed in 5.0.23.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

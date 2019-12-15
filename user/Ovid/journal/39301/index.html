@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Ruby Mixins: An Example</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Ruby Mixins: An Example</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-07-16T12:04:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Many people hear about Ruby mixins, but don't actually know what they are since they don't program in Ruby.  Plus, I see a number of questions online about how to write a mixin in Ruby.  So here's a quick example for Perl programmers to see how it's done (note: I'm hardly a Ruby guru, so be forewarned).</p>
+
+<p>To use mixins in Ruby, first create <a href="http://ruby-doc.org/core/classes/Module.html">modules</a> with the behavior you want to share.  A module can be thought of as an incomplete class which you cannot instantiate.</p>
+
+<pre>module Bomb
+    def explode
+        puts "Bomb explode"
+    end
+    def fuse
+        puts "Bomb fuse"
+    end
+end
+module Spouse
+    def explode
+        puts "Spouse explode"
+    end
+    def fuse
+        puts "Spouse fuse"
+    end
+end</pre>
+
+<p>Then in your class, simply <tt>include</tt> the mixins:</p>
+
+<pre>class PracticalJoke
+    include Spouse
+    include Bomb
+end</pre>
+
+<p>So what does that do?</p>
+
+<pre>joke = PracticalJoke.new()
+joke.explode
+joke.fuse</pre>
+
+<p>This nicely allows classes to simply be responsible for generating instances and shared behavior is handled by the mixins.  Unfortunately, that prints:</p>
+
+<pre>Bomb explode
+Bomb fuse</pre>
+
+<p>In other words, we've exchanged multiple inheritance's "first wins" behavior with mixin's "last wins" behavior.  Trying to get one method from each appears to need delegation.</p>
+
+<p>Also, I've noticed that it <em>appears</em> that you're not flattening these methods into your class, as you would with roles, but are instead inheriting from the mixins:</p>
+
+<pre>irb(main):026:0> PracticalJoke.ancestors
+=> [PracticalJoke, Bomb, Spouse, Object, Kernel]</pre>
+
+<p>This means that your mixin methods aren't really getting "mixed in" to your class.  I'm not sure of the downside of this (aside from having a longer inheritance chain), but the upside is that you can at least override methods cleanly:</p>
+
+<pre>class PracticalJoke
+    include Spouse
+    include Bomb
+
+    def explode
+        puts "PracticalJoke explode"
+    end
+end
+
+joke = PracticalJoke.new()
+joke.explode
+joke.fuse</pre>
+
+<p>And <tt>joke.explode</tt> will print <tt>PracticalJoke.explode</tt>.  I think this means that if you want a warning at the <tt>PracticalJoke</tt> level about an accidental override, you're out of luck.</p>
+
+<p>Further comments from Ruby experts welcome.</p>
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>Why?</h2>
+<h3><a href="/user/joeri/">joeri</a> on 2009-07-16T15:14:00</h3>
+Why would you add two mixins with a similar set of methods to one file? Can you think of a practical example ?<br/><br/>A frequent pattern of mixins is adding a certain behavior to different classes, I use this patterm a lot in my apps.<br/><br/>For example, I have module Geocodeable, and I mix it in into other classes like for instance Person and Organization. Voila.<br/><br/>One of the best examples is how Enumerable is mixed in into Array and Hash, adding its cool methods select, reject, inject, partition and so on, and how can easily add the same behavior to your custom class with one line of code.
+
+
+
+<blockquote>
+
+<h2>Re:Why?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-07-16T15:49:55</h3>
+<p>It's easy for this to happen, particularly in large systems.  Here's what I'm working on right now:</p><blockquote><div><p> <tt>$ find lib/ -name '*.pm'|grep -v 'Role/'|wc -l<br>600<br>$ find lib/ -name '*.pm'|grep 'Role/'|wc -l<br>42</tt></p></div> </blockquote><p>And we're still adding roles.</p><p>When you have a large system with multiple roles, it's likely that you'll eventually encounter situations where roles provide similarly named methods.  This should generally only happen if these methods are semantically equivalent, but provide different implementations.  As just one example from our code, we have "publication events".  Anything which <tt>does('Role::PublicationEvent')</tt> event gets the <tt>entity_identifier()</tt> and <tt>memberships()</tt> methods, but anything which also <tt>does('Role::Identifier')</tt> must exclude the latter's version of <tt>entity_identifier()</tt> and <tt>memberships()</tt> because the behavior is different, even though they're semantically equivalent (actually, <tt>memberships</tt> is provided via a different role, but this is getting long enough as is).</p><p>Since these methods are semantically equivalent, disambiguating these methods via different names would be a bad idea because if we eventually find that we can drop support for one of those conflicting methods (will will for <tt>entity_identifier</tt> for publication events) and fall back on the original, we don't want to go through all of our code and remove the other method name.  That being said, if you have identically named methods which do semantically different things, then you should consider renaming your methods.</p><p>As our system grows, we're finding a few more cases like this, but it's vitally important that we have the tools necessary to cleanly resolve this.  Mixins don't provide us with that facility.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why?</h2>
+<h3><a href="/user/joeri/">joeri</a> on 2009-07-16T16:03:11</h3>
+<p>Using a thing like the Ruby mixins for such cases is over the top.
+</p><p>
+The programming God tells me one should use simple delegation for such cases like they do in Cocoa (and it looks simple and beautiful).
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-07-16T16:12:28</h3>
+<p>Delegation is great, but when the thing delegating and the thing being delegated to need to communicate with one another, you start winding up with problems.  We already have components (roles) that we can assemble and need to work well together and separating them out via delegation means a separate class heirarchy just have to have something to delegate to.  Why would I want to write the scaffolding for delegation?  Honestly, roles are really, really simple and make this trivial<nobr> <wbr></nobr>:)</p><p>Plus, delegation is for a <em>has-a</em> relation and that's not what our code is expressing via roles.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Proxies</h2>
+<h3><a href="/user/rfunduk/">rfunduk</a> on 2009-07-16T16:11:46</h3>
+If you _really_ need to mixin two modules that have the same methods you could make a proxy for the first:<br/><br/><a href="http://gist.github.com/148507" title="github.com">http://gist.github.com/148507</a github.com>
+
+
+
+<h2>Pickaxe Book</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2009-07-16T16:25:34</h3>
+<p>
+According to the <a href="http://img.skitch.com/20090716-1gihxqgarxueg183ni5e6da5mg.jpg" title="skitch.com">Pickaxe book (figure 18.4)</a skitch.com> (page 247 of the first edition). Mixins modules are actually proxied. You can see in the diagram that it inserts a Proxy class between Guitar class and the Object class. The Proxy class does not have any methods itself, but instead it has a pointer to the method table of the module it is proxying. This gets more and more ugly and complicated the more modules you mixin, however it does explain the odd "last wins" behavior.
+</p><p>
+Of course, I am not sure if this is still how it is done, after all the first edition of the Pickaxe book is almost 8 years old now.
+</p><p>
+- Stevan
+</p>
+
+
+
+<h2>Mixins and Inheritance</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2009-07-23T12:25:38</h3>
+This blog article from Chad Fowler may interest you:
+<p>
+<a href="http://www.chadfowler.com/2009/7/8/how-ruby-mixins-work-with-inheritance" title="chadfowler.com">http://www.chadfowler.com/2009/7/8/how-ruby-mixins-work-with-inheritance</a chadfowler.com></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

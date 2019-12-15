@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Stevan: Roles for Moose</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Roles for Moose</h1>
+<h2><a href="/user/Stevan/">Stevan</a> on 2006-05-13T03:12:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+I have just released <a href="http://search.cpan.org/user/stevan/Moose/">Moose 0.09_01</a> (as well as <a href="http://search.cpan.org/user/stevan/Class-MOP/">Class::MOP 0.29_01</a> to go with it). 
+It is a fairly significant update with a number of new features, the most interesting 
+of them being a fairly complete implementation of Roles. For the most part the Role 
+features are based on Perl 6 roles, but I have added a few features from <A href="http://www.iam.unibe.ch/user/scg/Research/Traits/">the original 
+Traits paper</a> and some new ideas from <a href="http://research.sun.com/projects/plrg/fortress0903.pdf">the Fortress spec</a>. 
+</p>
+<p>
+Roles in Moose look a lot like classes in Moose do, in fact almost all Moose class 
+keywords are supported in Moose::Role. Here are some basic examples.
+</p>
+<pre>
+package Equality;
+use Moose::Role;
+
+requires 'equal_to';
+
+sub not_equal_to {
+    my ($self, $other) = @_;
+    not $self->equal_to($other);
+}
+</pre>
+<p>
+This is a basic Equality role, it requires any class which 'does' it to implement 
+a method called 'equal_to', and then provides a 'not_equal_to' method to compliment it. 
+The 'requires' feature is not from Perl 6, but from the original Traits paper, although 
+Perl 6 mimics this with the 'method stub' feature. 
+</p>
+<pre>
+package Molecule::Organic;
+use Moose::Role;
+
+excludes 'Molecule::Inorganic';
+
+package Molecule::Inorganic;
+use Moose::Role;
+</pre>
+<p>
+This is a feature from the latest Fortress language spec (the example is taken from 
+there as well). Obviously a class would not want to 'do' both  Molecule::Organic and 
+ Molecule::Inorganic roles, they are mutually exclusive. The 'excludes' keyword allows you 
+to state that explicitly. This will assure than any class which 'does' Molecule::Organic 
+(and all it's subsequent subclasses) will never be allowed to 'do' Molecule::Inorganic, 
+and vice versa. 
+</p>
+<pre>
+package CGI::Application::Role::RequestLogger;
+use Moose::Role
+
+before 'run' => sub {
+    my $self = shift;
+    warn '-' x 80;
+    warn "REQUEST_URI: " . $ENV{REQUEST_URI};
+    warn "Query Params:";
+    warn "\t$_ => " . $self->query->param($_) 
+        for $self->query->param();
+    warn '-' x 80;
+};
+</pre>
+<p>
+Moose Roles also support the method modifiers as well. When a CGI::Application subclass
+'does' this role, the 'run' method (which does all the dispatching) will be wrapped 
+and a number of useful bits will be dumped to STDERR. Using it as simple as this:
+</p>
+<pre>
+package My::CGI::Application;
+use Moose;
+
+extends 'CGI::Application';
+   with 'CGI::Application::Role::RequestLogger';
+
+# ... now write your CGI::App subclass ...
+</pre>
+<p>
+Role now also have fairly sophisticated conflict detection mechanism as well. This allows
+roles to be combined together in a symmetrical way which will catch a number of compositional 
+problems, and assure all requirements are met. We even handle mutually recursive roles like
+these: 
+</p>
+<pre>
+package Role::Foo;
+use Moose::Role;
+
+requires 'foo';
+sub bar { 'Role::Foo::bar' }
+
+package Role::Bar;
+use Moose::Role;
+
+requires 'bar';
+sub foo { 'Role::Bar::foo' }
+
+package Foo::Bar;
+use Moose;
+
+# this will Just Work
+with 'Role::Foo', 'Role::Bar';
+</pre>
+<p>
+This is similar to how Perl 6 will work, but once again, we diverge slightly. Moose roles 
+can be combined (as above), and conflicts and requirements will be handled automatically, 
+and they can also be combined manually with multiple 'with' keywords. This allows for 
+a greater degree of control when you need it.
+</p>
+<p>
+Roles are also showing a lot of promise at $work as an excellent plugin mechanism. This 
+is where the 'requires' and 'excludes' features are coming in quite handy. They have the 
+potential to prevent a whole class of composition issues which the usual 'mixin' based
+plugin methods are sometimes plagued with.  
+</p>
+<p>
+Some people have been experimenting with Roles to implement abstract classes and Java-style 
+interfaces. The 'abstract' methods which a classes must implement can just be marked with 
+the 'requires' keyword, and the class which 'does' the role has to implement them.    
+</p>
+<p>
+So, please give Moose 0.09_01 a try and play with Roles, and let me know what you think :)
+</p>
+<p>
+- Stevan
+</p></p>
+
+
+<hr/>
+
+
+
+<h2>Interesting assumption there...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2006-05-13T03:43:29</h3>
+"Obviously a class would not want to 'do' both Molecule::Organic and Molecule::Inorganic roles, they are mutually exclusive."<br><br>I should point out there are organic macromolecules that have the properties of inorganic ones.<br><br>So there are molecules out there that -&gt;isa('Organic') but that by some clever tricks can -&gt;does('Inorganic').<br><br>excludes seems like a dangerous keyword...<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:Interesting assumption there...</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2006-05-13T05:09:23</h3>
+<p>
+Having pretty much failed high school chemisty myself, I will take your word on that. And to be honest, it is not my example, I took it direct from the <a href="http://research.sun.com/projects/plrg/fortress0618.pdf" title="sun.com">most recent Fortress spec</a sun.com>.
+</p>
+<blockquote>
+<div>"excludes seems like a dangerous keyword..."</div>
+</blockquote>
+<p>
+It is.
+</p>
+<p>
+Probably the best use case for 'excludes' is for tightly coupled role heirarchies, in which you want to provide two mutually exclusive interfaces (immutable and mutable come to mind). While forcing this exclusion might not be 100% appropriate in all cases, it may be appropriate for <b>your</b> roles (the key word here being <i>your</i> and applying only to the actual code written and not the theory behind the concept you are modeling). Having the ability to enforce this can go a long way to ensuring and enforcing proper usage.
+</p>
+<p>
+And of course, as with many of Moose's features, you don't have to use it if you don't want to.
+</p>
+<p>
+-Stevan
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Interesting assumption there...</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2006-05-13T14:58:24</h3>
+Whoops. Wrong link to the Fortress spec. <a href="http://research.sun.com/projects/plrg/fortress0903.pdf" title="sun.com">This one</a sun.com> is correct.<br/><br/>- Stevan
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

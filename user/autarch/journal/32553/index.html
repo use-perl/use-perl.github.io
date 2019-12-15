@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autarch: Catalystic conversion - part 4</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Catalystic conversion - part 4</h1>
+<h2><a href="/user/autarch/">autarch</a> on 2007-03-03T17:24:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>So I wanted to adapt my user handling bits to work with Catalyst's Authentication plugins. I decided to go ahead and use the <a href="http://search.cpan.org/user/jayk/Catalyst-Plugin-Authentication-0.09999_01/">dev version of Catalyst::Plugin::Authentication</a>, since this presumably will be <strong>the Catalyst way</strong> in the future.<br/><br/>However, there was one hitch in adapting my app's notion of a user to Catalyst's. In my app, there is always a user object, whether or not the end user has actually authenticated. Before an end user authenticates, this object is a <code>VegGuide::User::Guest</code>, and afterwards it's a <code>VegGuide::User</code>. I like this style because it means I can always count on having a user object. I find code like this rather tedious:<br/><br/><pre>
+if ( $c->user() and $c->user()->get_object()->can_delete_entry() )
+{
+    ...
+}
+</pre><br/><br/>When I know that <code>$c->user()->get_object()</code> <em>always</em> returns a valid object, the code that ends up written is much clearer in its intent.<br/><br/><pre>
+if ( $c->user()->get_object()->can_delete_entry() )
+{
+    ...
+}
+</pre><br/><br/>This wasn't too hard to work around. I have a controller for my root URI-space that includes an <code>auto()</code> method like this:<br/><br/><pre>
+sub auto : Private
+{
+    my $self = shift;
+    my $c    = shift;<br/><br/>    $c->authenticate( {} )
+        unless $c->user();<br/><br/>    ...<br/><br/>    return 1;
+}
+</pre><br/><br/>This is a bit of a hack, but it works. Once a user has hit the site once, their user_id is stored in their session. This means that <code>$c->user()</code> will always return <em>something</em> after the first hit. If the user hasn't really authenticated, then the session will just indicate that they are a guest.<br/><br/>It would be nice if <code>Catalyst::Plugin::Authentication</code> could support this style of usage natively, maybe with a flag like "auto_authenticate" or something.<br/><br/>To make this work, all I need to do is implement appropriate logic in my Store plugin. If we have real credentials to use, we try to load real user, otherwise we return a guest:<br/><br/><pre>
+sub find_user
+{
+    my $class = shift;
+    my $auth  = shift;
+    my $c     = shift;<br/><br/>    my $user = VegGuide::User->new(%$auth)
+        if %$auth;<br/><br/>    $user ||= VegGuide::User::Guest->new();<br/><br/>    return VegGuide::Plugin::Authentication::User->new($user);
+}
+</pre><br/><br/>The <code>VegGuide::Plugin::Authentication::User</code> class provides the minimal glue needed to make Catalyst happy. I didn't want my core user data object to subclass <code>Catalyst::Plugin::Authentication::User</code>, which feels unclean to me. Outside of Catalyst, I don't need any of the methods that <code>Catalyst::Plugin::Authentication::User</code> demands, and I want to make sure that any code that isn't webapp-specific is usable without Catalyst in the mix.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

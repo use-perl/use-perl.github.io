@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of doubi: Ctypes for Perl: Intro and API spec</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Ctypes for Perl: Intro and API spec</h1>
+<h2><a href="/user/doubi/">doubi</a> on 2010-05-21T03:10:25</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Hello, good evening and welcome.</p>
+<p>For the next few months I will be using this blog to help document and publicise my "<a href="http://socghop.appspot.com/gsoc/student_project/show/google/gsoc2010/tpf/t127230763807">Ctypes for Perl</a>" project. The project is being carried out for TPF under the auspices of the <a href="http://code.google.com/soc/">Google Summer of Code</a> programme, and mentored by <a href="http://blogs.perl.org/users/rurban">Reini Urban</a>.</p>
+<h2>What's a ctypes?</h2>
+<p>'<a href="http://starship.python.net/crew/theller/ctypes/">ctypes</a>' is the <a href="http://en.wikipedia.org/wiki/Foreign_function_interface">Foreign Function Interface</a> (FFI) library distributed with the Python core. It basically allows native C libraries to be called easily from Python; for module authors, it allows the wrapping of C libraries in pure Python.</p>
+<p>This is obviously a powerful concept. Imagine a world where Perl module authors didn't need to use XS, and module consumers don't need to have a correctly configured compiler set up on their system. This is the purpose of the project: to create an easy, cross-platform, pure-Perl interface to native C libraries.</p>
+<h2>Implementations</h2>
+<p>ctypes is based on <a href="http://sourceware.org/libffi/">libffi</a>. It's small, supports a wide range of systems, and has a very <a href="http://github.com/atgreen/libffi/blob/master/LICENSE">liberal license</a>. It's been distributed with GCC for a number of years, used by gcj for interfacing between interpreted and compiled code.</p>
+<p>From what I can gather, Python set the trend in dynamic languages using libffi. Looking at the success of the Python module, developers at Mozilla chose libffi to develop <a href="https://developer.mozilla.org/en/JavaScript_code_modules/ctypes.jsm">ctypes.jsm</a>. <a href="http://wiki.github.com/ffi/ffi/">Ruby-FFI</a> uses it too, so there's plenty of prior art which will hopefully help me out.</p>
+<p>The FFI problem hasn't been ignored in the Perl world. There's <a href="http://search.cpan.org/user/gaal/FFI-1.04/FFI.pm">FFI.pm</a>, the biggest disadvantage of which in my view is being built on libffcall, a library analogous to libffi but under the GPL (I don't think libffi was around at the time FFI.pm was written). It also sets out to provide a 'low-level' interface. <a href="http://search.cpan.org/user/chromatic/P5NCI-0.31/lib/P5NCI.pm">P5NCI</a>, on the other hand, is all about the lovely interfaces, but only allows up to four arguments passed to C functions, and doesn't yet support passing in pointers. <a href="http://search.cpan.org/user/rurban/C-DynaLib-0.60/lib/C/DynaLib.pm">C::Dynalib</a> provides similar functionality to the other two modules; <a href="http://blogs.perl.org/users/rurban/2010/05/cdynalib-progress.html">click here</a> for the latest updates on its development. It's worth pointing out that none of these modules worked out of the box on Strawberry 5.10.1.</p>
+<p>My proposed API rolls in features of several of the above implementations, particularly P5NCI and FFI.pm. I have indeed copied and pasted swathes from their POD pages <small>(So what? Wanna fight about it?)</small>. I plan to also mimic C::DynaLib's acceptance of both positional & named parameters; examples are omitted below for succinctness.<br /><br />
+<h2>1. Functional</h2>
+<p><code>
+    use Ptypes;<br />
+    # FFI.pm's interface of Absolute Freedom...<br />
+    my $addr = (address of a C function)<br />
+    my $signature = (function signature)<br />
+    my $ret = Ptypes::call($addr, $signature, ...);<br />
+<br />
+    # Keeping things where you can see them...<br />
+    my $library_path = Ptypes::find_lib( 'mathtastic' );<br />
+    my $library      = Ptypes::load_lib( $library_path );<br />
+    my $double_func  = Ptypes::load_func( $library, 'double_double', 'dd' );<br />
+    my $ret   = $double_func->( 1.0 );<br />
+<br />
+    # Supplying a Perl callback...<br />
+    $ret = Ptypes::call($addr, $signature, $subref, ...)<br />
+</code></p><br />
+<h2>2. Objectionable</h2>
+<p><code>
+    use Ptypes;<br />
+    my $lib = Ptypes->new( library => 'mathtastic' [, package => 'MyPackage' ] );<br />
+    my $double_func = $lib->load_function( 'double_double', 'dd' );<br />
+    my $ret  = $double_func->( 1.0 );<br />
+<br />
+    # Exposing funcs directly in Perl namespaces...<br />
+    $lib->install_function( 'double_int', 'ii' [, 'perl_sub_name', 'AnotherPackage' ] );<br />
+    my $ret = AnotherPackage::double_int( 1 );<br /><br />
+    # or simply...<br />
+    package AnotherPackage;<br />
+    my $ret = double_int( 3 );<br />
+</code></p>
+<p>All fairly self-explanatory, perhaps apart from arguments like 'ii' or 'dd' - these strings describe return values and arguments for C functions in the same notation used by <a href="http://perldoc.perl.org/functions/pack.html">pack</a>. In addition to the above, the module may provide mechanisms for manipulating C data types directly from Perl (<code>$c = new Ptypes::char</code>). To start off with though there'll be a fairly straight-forward / 'stupid' translation based on seeing what kind of data's in your SV*, for initial experimentation.</p>
+<p>There's also some exciting stuff to do with <a href="http://search.cpan.org/user/awin/GCC-TranslationUnit-1.00/TranslationUnit.pm">GCC::TranslationUnit</a> to tell you about, but details of that will wait till later. For now, I have some questions for you, the community:</p>
+<ul>
+	<li>How d'you like the API proposal above? Anything you'd add? Take out?</li>
+        <li>How does 'Ptypes' take you as a name for this malarky? Y'know, like ctypes, but for Perl. 'FFI' is already taken after all...</li>
+</ul>
+<p>Don't want to gush here, but I'm <em>so</em> chuffed* to be working on this. I'm already learning loads, and I think it will save a lot of blood, sweat & tears for module authors and users in the future. I want to thank rurban for his guidance & help so far, and dukeleto and others for organising the The Perl Foundation's participation in GSoC and letting me participate!</p>
+<p>I like to work log, so follow @doubious_code on Twitter to get far more information than you want about this project. I hope to be blogging pretty regularly too.</p>
+<p><x-small>* For American-speakers, 'chuffed' is kinda equivalent to 'stoked'</x-small></p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

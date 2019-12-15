@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of DAxelrod: Testing Installed Modules: Opening a Can of Worms</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Testing Installed Modules: Opening a Can of Worms</h1>
+<h2><a href="/user/DAxelrod/">DAxelrod</a> on 2006-09-16T18:53:26</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Ovid recently asked what should be a simple question: <a href="http://perlmonks.org/?node_id=572344">How should we install tests along with modules?</a></p>
+<p>Of course, this is not a simple question at all and breaks down into several distinct problems. The first is actually <b>"How do we test an installed module?"</b></p>
+<p>kwilliams responded with the brilliant idea of a Module::Build retest action, that would look for modules in @INC instead of blib.</p>
+<p>Unfortunately, this doesn't completely solve our first problem.</p>
+<p>Why? Because way too many tests are written with the assumption that they will be running from within an unpacked module distribution. Which means they require <b>context</b> outside of the installed .pm files.</p>
+
+<p>Off the top of my head, the kinds of tests that have this problem include
+<ul>
+<li>Tests that pull in specific files from the distribution
+	<ul><li>Tests that pull in test modules not in blib</li>
+		<li>Tests for scripts installed with the module</li>
+		<li>Tests that pull in data files (which may end up being installed)</li>
+	</ul><li>
+<li>Tests that depend on the whole distro structure
+	<ul><li>Test::Signature</li>
+		<li>Test::Distribution</li>
+		<li>Test::Pod</li>
+		<li>Test::Pod::Coverage</li>
+		<li>tests that rely on the MANIFEST</li>
+		<li>tests that scan files for spelling errors, minimum versions, or prereqs</li></ul></li>
+</ul>
+</p>
+<p>You could argue that any of these that are abstracted into Test::Whatever modules have enough of a layer of indirection to account for however you test installed modules. But I think that misses the point. A list that large is not evidence of special cases. It's evidence that it's important for tests to have more than the .pm alone.</p>
+<p>One solution that sucks could be a way of marking which tests assume they're being run in a distribution and which ones don't care. That would be horribly tedious.</p>
+<p>Maybe this is evidence that we need a metadata database to go with our installed modules. We already have a PACKLIST that sorta kinda serves as an installed module database. The problem is, now we need an API for tests to query that database.</p>
+<p>Maybe we're going about this wrong. Tests need a distribution. Modules work in a distribution and out of a distribution. It's common to develop modules inside a distribution.</p>
+<p><b>Why not install an entire module distribution?</b></p>
+<p>Have a lib-like directory which is searched for entire distributions rather than just .pm files. When you use a module, it will actually be pulled from its distribution.</p>
+<p>Running modules from within distributions? Doesn't that sound like <a href="http://search.cpan.org/perldoc?PAR">PAR?</a></p></p>
+
+
+<hr/>
+
+
+
+<h2>Works for me</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-16T19:45:29</h3>
+<blockquote> <div><p>Because way too many tests are written with the assumption that they will be running from within an unpacked module distribution.</p></div> </blockquote>
+
+<p>Which is exactly the situation that the <tt>retest</tt> feature in Module::Build assumes, so I don&#x2019;t quite see why this is a problem.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Works for me</h2>
+<h3><a href="/user/DAxelrod/">DAxelrod</a> on 2006-09-16T20:11:05</h3>
+<p>The problem is that installed modules have more to them than the<nobr> <wbr></nobr>.pm files, and those are basically the only parts of your installation you're going to be testing when you use <code>retest</code>.</p>
+<p>Tests for scripts will be tests on the scripts in the distribution, not the ones installed. Likewise for all the other things that a distro can have.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Simple</h2>
+<h3><a href="/user/acme/">acme</a> on 2006-09-18T12:42:05</h3>
+It was my original request. I want to make sure that things still work even though I've upgraded a module low down in the dependency tree. I don't want to solve this in every case. I don't want the moon on a stick. I just want something simple, like copying t/* somewhere during install. I was afraid of posting about it because I knew people would go overboard and get philosophical. And look what happened when Ovid mentioned it...
+
+
+
+<blockquote>
+
+<h2>Re:Simple</h2>
+<h3><a href="/user/DAxelrod/">DAxelrod</a> on 2006-09-18T13:15:22</h3>
+I'm interested in the future of the module ecosystem.<br><br>This was an opportunity for me to get philisophical, but it wasn't your fault.<nobr> <wbr></nobr>:)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

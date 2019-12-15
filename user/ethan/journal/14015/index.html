@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: porting Ruby's String class to Perl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>porting Ruby's String class to Perl</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2003-08-09T07:59:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Not that Perl would be lacking string manipulation facilities, but <a href="http://www.mail-archive.com/perl5-porters@perl.org/msg66140.html"> this new feature proposal</a> for (allegedly) perl5.10 simply cries for <code>rubyisms::String</code>:<br/><br/><code><br/><br/>    use autobox SCALAR =&gt; 'rubyisms::String';<br/><br/>    print "        bla  "-&gt;strip;<br/><br/>    my $foo = "bAR";
+    $foo-&gt;capitalizeI;
+    print $foo;
+    
+</code><br/><br/>Due to different lexer rules in Ruby I had to find a different nomenclature for <code>string.strip!</code> so I chose <code>$string-&gt;stripI</code> with 'I' being mnemonic for 'in-place' while maintaining some visual similarity to '!'.<br/><br/>So far done are <code>capitalize</code>, <code>capitalizeI</code>, <code>strip</code>, <code>stripI</code> and <code>center</code>. This will take another couple of days since it's being done in XS. After that I can finally run some benchmarks and see whether the XS approach makes up for some of the performance hits introduced by <code>autobox</code> (which I haven't yet benchmarked, either, so they might not even be severe at all).<br/><br/>For those being adventurous enough (and curious about how it feels like to have everything act like an object), grab <a href="http://search.cpan.org/author/JHI/perl-5.8.1-RC4/">perl5.8.1-RC4</a> and <a href="http://search.cpan.org/author/CHOCOLATE/autobox/">autobox</a> from the CPAN, apply the patch, compile and have <b>FUNNNNNN</b>!
+</p>
+
+
+<hr/>
+
+
+
+<h2>See CPAN</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2003-08-09T14:01:41</h3>
+Too some degree that was my intention with <i>Set::Array</i>, <i>Set::String</i> and <i>Set::Hash</i>.  I also used the <i>Want</i> module to make method chaining more sensical, passing $self if chained, or a value otherwise.
+<p>
+Rather than using <i>method</i> vs <i>methodI</i>, I chose to use context to determine whether or not the receiver was modified, which seemed more Perlish.</p>
+
+
+
+<blockquote>
+
+<h2>Re:See CPAN</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2003-08-09T15:43:16</h3>
+My first intention was to really duplicate Ruby's interface. On second thought, this might not be a good idea. One reason for that is that I am not yet sure whether autobox.pm is powerful enough. Also, I don't know what happens when you do a <code>string.strip!.capitalize!</code> in Ruby (that is, will <code>string</code> be capitalized <b>and</b> stripped in-place? If so, can this be done with autobox at all?)<br> <br>The main problem here is to determine whether something feels Perlish or not: Perl so far had no primitive objects and subsequently there is no experience with it. So far I can say that this new interface feels kind of odd with Perl...but not unpleasant.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Scalar::Properties does some of that</h2>
+<h3><a href="/user/marcel/">marcel</a> on 2003-08-10T00:01:28</h3>
+Have you seen Scalar::Properties?<br> <br>Seems to do some of what you propose.<br> <br>ObPlug.<br> <br>Marcel
+
+
+
+<blockquote>
+
+<h2>Re:Scalar::Properties does some of that</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2003-08-10T05:48:51</h3>
+No, actually I hadn't seen it. It seems to result in the same interface. Two differences though: One is the implementation. You use constant overloading and thus turn things into real objects. <code>autobox</code> on the other hand wont ever bless something. It invokes the method directly on the primitives (and thus wont suffer from the slowdown caused by blessed referents). Btw, it is lexically scoped, so it can be turned on and off selectively for blocks.<br> <br>Secondly, <code>Scalar::Properties</code> comes with its own methods whereaus in case of <code>autobox</code>  you add them to the classes <i>SCALAR</i>, <i>HASH</i> and <i>ARRAY</i> yourself. This is both more extensible and easier to use from XS since the extension subroutines simply receive an ordinary (non-blessed) <code>SV*</code> as first argument.<br> <br>The disadvantage of <code>autobox</code> on the other hand is that you need to patch perl itself, at least until it finds its way into perl5.10 (which isn't yet clear at all).
+
+
+
+
+
+</blockquote>
+
+
+<h2>Module name</h2>
+<h3><a href="/user/ioannis/">ioannis</a> on 2003-08-10T07:12:02</h3>
+ Perhaps you might consider changing the
+module name to String::Ruby to force consistency
+with String::Rexx (I am the author). For other
+more specific ruby features related to
+strings, the naming could in sync with
+String::RexxParse, String::RexxStack (which
+will scheduled to reach cpan later next week).
+This way, i suspect it will be easier for
+visitors to find your module when they search for
+"String". Just a suggestion.
+
+
+
+<blockquote>
+
+<h2>Re:Module name</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2003-08-10T07:32:36</h3>
+You are right, good suggestion. I don't like <code>rubyisms::String</code> very much either...I chose it because of Simon Cozen's <code>rubyisms</code> module.<br> <br>Hmmh, is there a rule that lexically scoped module usage has to relate to pragmata? I just implemented the import() and unimport() semantics that allow<br> <br> <code> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; use String::Ruby;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print "foo"-&gt;center(10);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; no String::Ruby;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print "foo"-&gt;center(10); # fatal error<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br> </code> <br> <br>I guess there's nothing wrong with that even though the module is still rather pragmatic.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

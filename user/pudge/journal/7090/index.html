@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: Fun with Mac OS X Preferences</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Fun with Mac OS X Preferences</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2002-08-14T15:08:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Mac OS still uses Internet Config to some extent, but it is different than in Mac OS 9 in a few ways.  First, there's no UI to edit all of the fields; so if you want to edit something, and it's not provided in the Internet prefs box, you're sorta out of luck.  Second, it doesn't use the same file format; it uses the XML plist format.<br/><br/>So my problem is that in Eudora, I like using ProFont ("Programmer's Font", similar to Monaco, but easier to read for code at small point sizes) for messages, but I check Eudora's prefs to use Internet Config (for SMTP host etc.), and there's no way to change the default screen font from Monaco to ProFont.<br/><br/>One solution might be to port Mac::InternetConfig, and use the API.  But I tried something else.<br/><br/>I opened /Users/pudge/Library/Preferences/com.apple.internetconfig.plist -- an XML file -- and poked around.  Nothing in there for <I>ScreenFont</I>, the pref I want to set.  I poke around a little more to figure out how to add it if I want to.  A standard entry looks something like:<br/><br/><ECODE>			<key>WebBackgroundColour</key>
+			<dict>
+				<key>ic-data</key>
+				<data>
+				////////
+				</data>
+			</dict>
+</ECODE><br/><br/>OK, so what's the data?  It looks suspiciously familiar.  The first line of the XML file, after the declaration, is:<br/><br/><ECODE><!DOCTYPE plist SYSTEM "file://localhost/System/Library/DTDs/PropertyList.dtd"></ECODE><br/><br/>OK, so that file tells us:<br/><br/><ECODE><!ELEMENT data (#PCDATA)> <!-- Contents interpreted as Base-64 encoded --></ECODE><br/><br/>Nice.  Sure enough:<br/><br/><ECODE>% perl -MMIME::Base64 -le 'print ord decode_base64(shift)' ////////
+255</ECODE><br/><br/>OK, so now I just need to get the data for ScreenFont, in the right format, then encode it in Base64.  MacPerl to the rescue!<br/><br/><ECODE>#!perl -wl
+use MIME::Base64;
+use Mac::InternetConfig;
+print encode_base64($RawInternetConfig{kICScreenFont()});
+</ECODE><br/><br/><TT>%InternetConfig</TT> gives a sane human-readable value (in this case, <TT>ProFont</TT>).  But <TT>%RawInternetConfig</TT> provides the raw packed data.  I encode it and print it out:<br/><br/><ECODE>
+AAkAAAdQcm9Gb250AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/////wAAAAA4W4tIAA2QVAAi
+WYgDhACj97QAAAAiWYgAMzACAAAAAgCmiLIADt6oAA7enGj/90AApoirAAAAAAAID0xURVhUdHR4
+dAANkFSIhAAiZJgDAwCj97QAAAAiZJ4AAAAAAAgAotoAAIEAAAAAAADMzMzMzMzMzACmiLpAnfFQ
+AKLTKAAiVlL///8AACJWQkCJXpYAotqg////AAAiVkI=
+</ECODE><br/><br/>So I reformat it a bit to have the same line lengths as the other entries in the file, and end up with:<br/><br/><ECODE>			<dict>
+				<key>ic-data</key>
+				<data>
+				AAkAAAdQcm9Gb250AAAAAAAAAAAAAAAAAAAAAAAAAAAA
+				AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+				AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////
+				/wAAAAA4W4tIAA2QVAAiWYgDhACj97QAAAAiWYgAMzAC
+				AAAAAgCmiLIADt6oAA7enGj/90AApoirAAAAAAAID0xU
+				RVhUdHR4dAANkFSIhAAiZJgDAwCj97QAAAAiZJ4AAAAA
+				AAgAotoAAIEAAAAAAADMzMzMzMzMzACmiLpAnfFQAKLT
+				KAAiVlL///8AACJWQkCJXpYAotqg////AAAiVkI=
+				</data>
+			</dict>
+</ECODE><br/><br/>I quit Eudora, save the plist file, and reopen Eudora, and there it is as my new screen font: ProFont, size 9.<br/><br/>Yay!
+</p>
+
+
+<hr/>
+
+
+
+<h2>Editing Property lists</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2002-08-14T15:32:54</h3>
+You have something against <a href="http://www.macaddict.com/osx/hacks/pledit.html" title="macaddict.com">the Property List editor</a macaddict.com>?<nobr> <wbr></nobr>:-)<p>
+
+<i>--Nat</i></p>
+
+
+
+<blockquote>
+
+<h2>Re:Editing Property lists</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-08-14T15:56:46</h3>
+I don't need it, first of all.  I also use command-line utilties for dealing with NetInfo.<br> <br>However, it would be harder in this case, IMO, to use it.  This is the particular data:<br> <br> <blockquote><div> <tt>\0    \0\0&#7;ProFont\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\<nobr>0<wbr></nobr>  \0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\<nobr>0<wbr></nobr>  \0\0\0\0\0\0\0\0\0\0&yuml;&yuml;&yuml;&yuml;\0\0\0\08[&#139;H\0<br>&#144;T\0&quot;Y&#136;&#3;&#132;\0&pound;&divide;&acute;\0\0\0&quot;Y&#136;\030&#2;\0\0\0&#2;\0&brvbar;&#136;<nobr>&sup2;<wbr></nobr> \0&#14;&THORN;&uml;\0&#14;&THORN;&#156;h&yuml;&divide;@\0&brvbar;&#136;&laquo;\0\0\0\0\0&#8;&#15;LTEXTttxt \0<br>&#144;T&#136;&#132;\0&quot;d&#152;&#3;&#3;\0&pound;&divide;&acute;\0\0\0&quot;d&#158;\0\0\0\0\0&#8;\0&cent;&Uacute;\0\0&#129;\0\0\0\0\0\0&Igrave;&Igrave;&Igrave;&Igrave;&Igrave;&Igrave;&Igrave;&Igrave;\0&brvbar;&#136;&ordm;@&#157;&ntilde;P\<nobr>0<wbr></nobr> &cent;&Oacute;(\ 0&quot;VR&yuml;&yuml;&yuml;\0\0&quot;VB@&#137;^&#150;\0&cent;&Uacute;&nbsp;&yuml;&yuml;&yuml;\0\0&quot;VB <br> </tt> </div></blockquote> <br> <br>My options are to Base64 it and paste it manually, which as shown is pretty trivial, or I'd need to figure out the right hex format to put it in:<blockquote><div> <tt>00090000 0750726f 466f6e74 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 ffffffff 00000000 385b8b48 000d9054 00225988 038400a3 f7b40000 00225988 00333002 00000002 00a688b2 000edea8 000ede9c 68fff740 00a688ab 00000000 00080f4c 54455854 74747874 000d9054 88840022 64980303 00a3f7b4 00000022 649e0000 00000008 00a2da00 00810000 00000000 cccccccc cccccccc 00a688ba 409df150 00a2d328 00225652 ffffff00 00225642 40895e96 00a2daa0 ffffff00 00225642</tt> </div></blockquote>I preferred the former.  It's a lot easier for me to wrap my head around it in the raw text file.  Yes, it's hard to imagine why I am a Mac user at all.<nobr> <wbr></nobr>:-)<br> <br>But even if I did use the plist editor, the rest of the steps would have been similar; I'd still need to figure out what format to put the data in, still need to use MacPerl to get the data and put it in that format, etc.<br>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Base 64</h2>
+<h3><a href="/user/TorgoX/">TorgoX</a> on 2002-08-15T08:16:44</h3>
+I wonder why they base-64 encoded it, instead of just &amp;-escaping it.  You know, &amp;#0; to &amp;255;.  Not very compact, but then if they wanted compact, they wouldn't be using XML.
+<p>Maybe they just wanted to be able to have free whitespace, which I presume you can have in Base-64 but not if you're relying on &amp;-encoding.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Base 64</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-08-15T11:31:32</h3>
+Maybe.  Base64 sure looks "neater" than &amp;#-encoding.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

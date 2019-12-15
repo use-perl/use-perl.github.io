@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ChrisDolan: Polymorphic database tables?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Polymorphic database tables?</h1>
+<h2><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-06-14T05:21:19</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>[I started asking this question on IRC, but it got too complicated...  It seems like something basic that most DBAs should know, but I'm not a DBA and I couldn't find a good solution after some searching.]<br/><br/>What's the best way to represent polymorphism in a collection of database tables?<br/><br/>Consider a website where students answer surveys administered by faculty or departments.  Start with three database tables: survey, faculty, and department.  How do I indicate one-to-one ownership from faculty to survey and from department to survey?  I like the strong-typing guarantees of foreign keys, so I really want to avoid un-keyed solutions.<br/><br/>I've thought about the following solutions, but I'm unhappy with all of them:<br/><br/><dl>
+<dt>One null field</dt>
+<dd>Put "faculty_id" and "department_id" foreign keys in the survey table and insist that exactly one is not null.  This is awkward in code due to the pervasive conditionals, and problematic as I consider more things that both faculty and departments can own (e.g. student rosters)</dd>
+<dt>Single owner table, two-to-one</dt>
+<dd>The survey table has an owner_id which points to an owner table which has faculty_id and department_id fields, exactly one of them non-null.  This is easier to code than the above because everything gets exactly one "owner".</dd>
+<dt>Single owner table, two-to-many</dt>
+<dd>Ownership is not represented in the survey table, but instead the owner table has faculty_id, department_id and survey_id fields.  This seems to have no advantage over the "One null field" option.</dd>
+<dt>Multiple owner tables</dt>
+<dd>Create a faculty_survey and department_survey one-to-many tables.  How do ensure that each survey is represented exactly once across those two tables?</dd>
+<dt>Multiple survey tables</dt>
+<dd>Partition the surveys into two tables, one for faculty surveys and one for department surveys.  This is very painful as I add more things that can be owned.</dd>
+</dl><br/><br/>Am I missing something obvious?  What happens when I add another type that can be an owner?</p>
+
+
+<hr/>
+
+
+
+<h2>Which database engine are you using?</h2>
+<h3><a href="/user/mattk/">mattk</a> on 2008-06-14T07:54:19</h3>
+You could use Postgres schemas to achieve this - keep your survey table in one schema, and your faculty/department tables, identically structured, in seperate schemas. When you want to work with the faculty stuff, set your search path to survey + faculty. If the survey schema holds unique keys, the same join queries should return different results based on which schema is active.
+
+
+
+<blockquote>
+
+<h2>Here's what I'd try first</h2>
+<h3><a href="/user/Ron Savage/">Ron Savage</a> on 2008-06-15T01:37:24</h3>
+o The survey table has a context_id<br><br>o The context table has:<br>- the id pointed to by context_id<br>- the owner_id<br>- the owner_type_id<br><br>o The owner_type table has:<br>- the id pointed to by owner_type_id<br>- the name of the owner type<br><br>o The owner_id points to either the faculty<br>table's id or the dept table's id (if you<br>insist on having these in separate tables,<br>an assumption which needs questioning)<br><br>(o Alternately, the faculty and dept tables<br>can have owner_type_id, of course)<br><br>o The owner_type's name tells you what type<br>of thing, faculty or dept, to instantiate<br>to handle the desired behaviour of the<br>owner<br><br>o The owner_type table can be effortlessly<br>extended, as per the very last comment in<br>your original post<br><br>o The golden rule is that every list of<br>things goes in it's own table. Hence the<br>tables for surveys, owner_types, faculties<br>and depts (if the last 2 are really so<br>different)<br><br>o From that follows the owner_type_id<br>field and the owner_id field<br><br>o Your design fault, which you seem committed<br>to, is the put a list into a list of foreign<br>keys, faculty_id and dept_id, rather than<br>into a table. It's a classic mistake<nobr> <wbr></nobr>:-)<br><br>o Reposted via emacs after use.$curse.perl.org<br>let me preview and submit my last post but still<br>threw it away, AFAICT<br>
+
+
+
+
+
+</blockquote>
+
+
+<h2>use views</h2>
+<h3><a href="/user/hdp/">hdp</a> on 2008-06-14T11:48:01</h3>
+<a href="http://www.kineticode.com/docs/polymorphic_database_design.pdf" title="kineticode.com">http://www.kineticode.com/docs/polymorphic_database_design.pdf</a kineticode.com>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

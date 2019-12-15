@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Code Coverage and the Zune Bug</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Code Coverage and the Zune Bug</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-01-05T10:28:22</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Many of you have probably heard of the <a href="http://news.bbc.co.uk/1/hi/technology/7807797.stm">Zune bug</a> and some of you may have seen the <a href="http://pastie.org/349916">source code of the bug</a>.  Specifically, the bug resides in this:</p>
+
+<pre>BOOL ConvertDays(UINT32 days, SYSTEMTIME* lpTime)
+{
+    int dayofweek, month, year;
+    UINT8 *month_tab;
+
+    //Calculate current day of the week
+    dayofweek = GetDayOfWeek(days);
+
+    year = ORIGINYEAR;
+
+    while (days > 365)
+    {
+        if (IsLeapYear(year))
+        {
+            if (days > 366)
+            {
+                days -= 366;
+                year += 1;
+            }
+        }
+        else
+        {
+            days -= 365;
+            year += 1;
+        }
+    }
+
+
+    // Determine whether it is a leap year
+    month_tab = (UINT8 *)((IsLeapYear(year))? monthtable_leap : monthtable);
+
+    for (month=0; month<12; month++)
+    {
+        if (days <= month_tab[month])
+            break;
+        days -= month_tab[month];
+    }
+
+    month += 1;
+
+    lpTime->wDay = days;
+    lpTime->wDayOfWeek = dayofweek;
+    lpTime->wMonth = month;
+    lpTime->wYear = year;
+
+    return TRUE;
+}</pre>
+
+<p>Regardless of whether or not you know this programming language (C), you should be able to see what caused the Zune player to freeze.  In fact, it's a common <a href="http://c2.com/xp/CodeSmell.html">code smell</a>:  the <a href="http://c2.com/cgi/wiki?ArrowAntiPattern">arrow anti-pattern</a>.</p>
+
+<p>Still don't see it?  Take a close look at that while/if/if loop.  Still don't see it?  Well, there was <a href="http://www.reddit.com/r/programming/comments/7muzl/source_code_of_the_file_containing_the_zune_bug/">some discussion of this code over at Reddit</a>.  There was some talk about whether or not it would be possible to find this bug automatically and that's really an interesting topic.  Some type inference systems <a href="http://www.usenix.org/publications/library/proceedings/vhll/full_papers/koenig.a">can catch infinite loops</a> (the paper that Mark Jason Dominus drew on for his <a href="http://perl.plover.com/classes/typing/samples/slide030.html">Strong Typing and Perl</a> talk).  However, I doubt such inference could catch this bug.</p>
+
+<p>Using type systems to find infinite loop bugs requires that you have a sound type system for your language (<a href="http://www.pphsg.org/cdsmith/types.html">"sound type systems" has a very specific meaning</a>), something Perl 5 does not have (Perl 6 won't, either).  Microsoft has <a href="http://research.microsoft.com/en-us/news/features/terminator.aspx">Terminator</a>, software which looks for infinite loops and, while admitting it can't handle everything, can find many infinite loop bugs. But Terminator probably isn't going to work for us -- it appears to be geared towards C programs and in any event, dynamic languages cause all sorts of havoc with many analysis tools.</p>
+
+<p>So what are we to do?  Given that the code above is probably a small sample in many hundreds of thousands of lines of code, it's quite understandable how that could be missed.  But can we avoid that?</p>
+
+<p>Well, yeah, actually.  It wouldn't be fully automatic, but the simple answer is more than just "write tests for you software".  It's "use code coverage tools".  Rewriting the problem in Perl (and reformatting to avoid the excessive horizontal whitespace):</p>
+
+<pre> 1: while ( $days > 365 ){
+ 2:    if ( is_leap_year($year) ) {
+ 3:        if ( $days > 366 ) {
+ 4:            $days -= 366;
+ 5:            $year += 1;
+ 6:        }
+ 7:    }
+ 8:    else {
+ 9:        $days -= 365;
+10:        $year += 1;
+11:    }
+12: }</pre>
+
+<p><em>Now</em> does the problem stand out?  What happens if <tt>$day == 366</tt>?  Now we have a problem, but code coverage would have caught that.</p>
+
+<p>Specifically, "conditional coverage" would have caught that the condition in line 3 was never false.  Then, a sharp programmer could examine the coverage report and for those conditions which are easy to test, test them!  It doesn't guarantee that your software is bug free, but it would have helped Microsoft avoid an embarrassing PR fiasco like this one.</p></p>
+
+
+<hr/>
+
+
+
+<h2>What amazes me the most...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-01-05T11:47:48</h3>
+<p>... is despite all the vast amounts of code in the Microsoft mobile areas, there wasn't something reusable for that, because clearly someone's had to write it from scratch some time in the last 4 years.</p>
+
+
+
+<blockquote>
+
+<h2>Re:What amazes me the most...</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2009-01-05T13:40:47</h3>
+<p>Maybe it's so vast noone can find things in it.</p><p>Or maybe it's there, but coupled to other things they can't afford to bring in along with the deps.</p>
+
+
+
+<h2>Re:What amazes me the most...</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2009-01-05T18:14:53</h3>
+<p>It <a href="http://theindiearmy.newsvine.com/_news/2009/01/03/2269927-zune-bug-not-ms-bug-actually-a-freescale-bug-affecting-toshiba-gigabeats-too" title="newsvine.com">was not a Microsoft bug</a newsvine.com>.  Which goes to show the dangers of reusing someone else's code.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Not a strong typing kind of bug</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2009-01-05T18:25:14</h3>
+<p>First, I appreciate the schadenfreude here as much as the next hacker, but it appears this bug was in the Freescale code for the platform, not the code Microsoft wrote for the Zune.  So it effects more than just Zunes...
+</p><p>
+Second, the "some type inference systems" is misleading.  The one type inference system that Andrew Koenig and MJD discuss is the <a href="http://en.wikipedia.org/wiki/Type_inference" title="wikipedia.org">Hindley-Milner</a wikipedia.org> type system, which is used in ML and its descendants (OCaml, F#, Haskell, etc.).  Koenig's example demonstrated that a <i>recursive</i> algorithm would have never worked properly because it was missing a base case.  That's totally different from a while loop in an imperative program.  No type inferencing system can find a bug like this in an imperative program.
+</p><p>
+Third, this is <i>not</i> the kind of problem simple code coverage would be able to isolate.  What happens if <tt>$days</tt> is 367 and <tt>$year</tt> is a leap year?  Then the inner <tt>if</tt> branch fires, <tt>$year</tt> increments, and <tt>$days</tt> decrements by 1 leap year.  </p><p>
+That's why this code works perfectly, except for one day every 4 years -- the last day of every leap year.
+You could try 1000 random inputs and demonstrate all branches are exercised, and still miss the case where <tt>$days = 366</tt> in a leap year.
+</p><p>
+Date math is hard, and full of corner cases like this.  This is a problem that by its very nature isn't amenable to automated reasoning, whether you're talking about type inferencing, theorem proving, automated testing or code coverage analysis.  Your best bet for <i>all</i> date math related code is to build up a body of known edge cases and try them all, in a brute force manner.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Not a strong typing kind of bug</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-01-05T20:11:00</h3>
+<p>Thanks for the extra information.</p><p>I think, ultimately, that part of the problem here could be alleviated by coupling things which <em>must</em> be coupled.  For example, having a <tt>DayOfYear</tt> type with a type coercion system could partially help.  Imagine the following type definition (in Perl 6, which doesn't do inferencing, of course, but bear with me):</p><blockquote><div><p> <tt>subset DayOfYear of Int where { 0 &lt;= $_ &lt;= 366 };</tt></p></div> </blockquote><p>Obviously, that still leaves edge cases, but I would imagine with inferencing, while you wouldn't get a compile time check, you couldn't get this:</p><blockquote><div><p> <tt>Int day = get_day_of_year();<br>day++;&nbsp; &nbsp;# runtime-fail if day was 365</tt></p></div> </blockquote><p>Even though that's an "Int" and its static type would be an Int (thus preventing catching this at compile time), you could at least get a runtime failure when there's no suitable method/function to be called on its <em>dynamic</em> type.  This will prevent certain classes of problems, but at the end of the day, there are still plenty of edge cases for date math and trying to decouple the day of the year from the year is the real culprit here.</p><p>If you merge that with <a href="http://search.cpan.org/dist/Test-LectroTest/" title="cpan.org">Test::LectroTest</a cpan.org> (like Haskell's <a href="http://www.cs.chalmers.se/user/rjmh/QuickCheck/" title="chalmers.se">Quickcheck</a chalmers.se>), and you might actually catch those errors in testing, even if you didn't explicitly test for them.</p><p>All of this, of course, if from a typing newbie, so if I'm talking complete bollocks, feel free to correct me!</p><p>Er<nobr> <wbr></nobr>... except, now that I think of it, since its static type is an Int, that still allows adding two days together, something which DayOfYear would have to forbid.  This means that DayOfYear would have to be able to know all operators available for Int and disallow inappropriate ones, something which is just begging for trouble.  I guess the decoupling is the real problem and I don't know that coercive typing would help<nobr> <wbr></nobr>:(</p>
+
+
+
+<blockquote>
+
+<h2>Re:Not a strong typing kind of bug</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2009-01-05T21:00:59</h3>
+<p><div class="quote"><p>All of this, of course, if from a typing newbie, so if I'm talking complete bollocks, feel free to correct me!</p></div><p>
+You're talking complete bollocks.<nobr> <wbr></nobr>:-)
+</p><p>
+The kinds of things a strong static typing system can do is let you create types like <tt>DayOfYear</tt>, which let you specify a single calendar date, and prevents such nonsense like the 47th of April as being a "date".  From there, you can create functions like <tt>addDays</tt> that take a <tt>DayOfYear</tt> and an integer number of days and return a new <tt>DayOfYear</tt>.
+</p><p>
+What this code was doing was taking a count of days since the beginning of time, and figuring out the current date by subtracting one year's worth of days at a time, and producing the current year and the current count of days since the start of the year.  If we were dealing with a calendar that didn't have leap days, it would be a simple matter of calculating <tt>day_count div days_in_year</tt> and <tt>day_count mod days_in_year</tt>.  But date math is more complex than that, so...
+</p><p>
+What type checking cannot do is infer specific magic properties about a simple counter used in a specific context.  Adding and subtracting numbers is always just adding and subtracting numbers.  If you want a type checker to help you out (in Java or in Haskell), then you need to define a new type with new behaviors that more closely matches the domain, whether you're talking about date math, tax math or statistical probabilities.
+</p>
+
+
+
+<h2>Re:Not a strong typing kind of bug</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-01-06T21:06:26</h3>
+<p>I think the mindblowingly clever technology you are looking for here is called a truth table.<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

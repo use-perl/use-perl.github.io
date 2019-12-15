@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjray: RPC::XML Bloat-be-Gone</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>RPC::XML Bloat-be-Gone</h1>
+<h2><a href="/user/rjray/">rjray</a> on 2003-01-27T22:57:39</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><!-- posted by /home/rjray/bin/upj_post.pl -->
+<p>I just released 0.50 of <a href="http://www.blackperl.com/RPC::XML">RPC::XML</a>
+and no, you didn't miss any interim releases. I bumped the number up to reflect
+that the package has some very extensive new features, though almost all are
+behind-the-scenes changes that aren't obvious (indeed, they <i>should</i> be
+as inconspicuous as possible).</p>
+<p>The main reason for this is that my <a href="http://www.tellme.com">day
+job</a> is using this package in an application that sends Very Large messages
+containing base64-encoded audio. I don't know that I can say <i>what</i> it is
+at this stage, but it showed me that having the whole XML-RPC message in memory
+at once wasn't always a good thing. So this version addresses that on two
+fronts:</p>
+<ul>
+<li><b>Incoming messages</b>:<br/>
+Messages coming into a class (for the server classes these are the
+requests from a client, for the client these are the responses from the server)
+are now sent in chunks to a non-blocking <tt>XML::Parser</tt> instance (using
+the <tt>parse_start</tt> method). In the case of servers, I could have passed
+the filehandle to the <tt>parse</tt> method, but I couldn't do this for the
+client (I don't have access to the filehandle within the confines of the
+<tt>LWP::UserAgent</tt> object). More importantly, my support for compression
+would have defeated that anyway. Using callbacks (for the client) or loops
+(for the servers) lets me handle both the compression and the arbitrary-sized
+messages.</li>
+<li><b>Outbound messages</b>:<br />
+Messages going out (requests sent by a client, or responses sent by a
+server) are a different matter. While I extended the data objects in the
+<a href="http://www.blackperl.com/RPC::XML/man/RPC/XML.html"><tt>RPC::XML</tt></a>
+module to serialize themselves to a filehandle, I again ran
+into the issue of supporting compression, plus the lack of direct access to
+a socket-handle in <tt>LWP::UserAgent</tt>. To accomodate this, I've added
+options to the client and server classes to define a size-threshhold above
+which a message is first written to an anonymous temp file, then spooled from
+that file. This allows me to also support compression, though that requires
+writing to a second intermediary file, then copying from it to the primary one,
+compressing as I go. On the plus side, under Apache this allows me to use the
+<tt>send_fd</tt> method, which is extremely fast. And in the other cases, it's
+no more cumbersome than the callbacks for the incoming messages were. I had
+considered using tied filehandles to see if I could abstract all of this logic
+sufficiently, but I can't remember how complete the tied FH support was in
+5.005, and I do actually have some users using this package under 5.005.</li>
+</ul>
+<p>On another note, I've realized that I can't really make either of the
+<a href="http://www.blackperl.com/RPC::XML/man/Apache/RPC/Server.html"><tt>Apache::RPC::Server</tt></a>
+or
+<a href="http://www.blackperl.com/RPC::XML/man/Apache/RPC/Status.html"><tt>Apache::RPC::Status</tt></a>
+modules work under Apache2/mod_perl2 with the compatibility layer. I will have
+to (eventually) develop new classes entirely for use in MP2 environments. Sorry
+if this impacts anyone negatively.</p>
+<blockquote><em>For every complex problem there is a solution which is simple,
+neat and wrong.&#160;&mdash;H.L.&#160;Mencken</em></blockquote>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Coolio!</h2>
+<h3><a href="/user/jjohn/">jjohn</a> on 2003-01-27T23:30:16</h3>
+Chunking the messages and writing them to disk seems like the way to go. I'll be interested to see how this works out for you over the long haul. Can you also chunk large payloads? For instance when you send a 2M MP3 over XML-RPC, the XML message is dwarfed by the MP3 payload. If the library could be smart enough to save 50K chunks and assemble them when the user asks for the payload, I'd say you've got a pretty durn slick library.<nobr> <wbr></nobr>;-)
+
+
+
+<blockquote>
+
+<h2>Re:Coolio!</h2>
+<h3><a href="/user/rjray/">rjray</a> on 2003-01-28T22:24:44</h3>
+<p>Limitations of the underlying protocol, alas. In other words, this must remain compatible with XML-RPC as a whole.</p>
+<p>That doesn't preclude writing an application that uses XML-RPC to send MP3 data in chunks, but the chunking has to be part of the application, not part of the protocol.</p>
+<p>On that note, I <i>will</i> be putting support for chunked transfer-encoding into the library at some point. While this technically flies in the face of the spec, I think that it's both useful enough and important enough to include, regardless of how pissy it makes Dave (Winer).</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ishigaki: #news on irc.perl.org</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>#news on irc.perl.org</h1>
+<h2><a href="/user/ishigaki/">ishigaki</a> on 2006-12-23T18:31:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I started running yet another plagger bot at #news on irc.perl.org, since jbisbee's bot has been down for a month or so. Here's bot's config.yaml (a bit modified; and the num of spaces are not correct because of the "nbsp"s).<br/><br/><code>
+global:
+  plugin_path: myplugins
+  timezone: Asia/Tokyo
+  log:
+    level: debug<br/><br/>plugins:
+  - module: Subscription::Config
+    config:
+      feed:
+        - http://search.cpan.org/uploads.rdf
+        - http://www.perlcast.com/rss/current.xml
+        - http://www.perlfoundation.org/perl-foundation.rdf
+        - http://jobs.perl.org/rss/standard.rss
+        - http://use.perl.org/journal.pl?op=top&content_type=rss
+        - http://use.perl.org/useperl.rdf
+        - http://www.perl.com/pace/perlnews.rdf
+        - http://annocpan.org/recent.rss
+        - http://log.perl.org/index.rdf
+        - http://perlmonks.org/?node_id=30175<br/><br/>  - module: CustomFeed::PerlMonks<br/><br/>  - module: Filter::PerlNews<br/><br/>  - module: Filter::Rule
+    rule:
+      - module: Deduped
+        path: .plagger-perlnews/irc.db<br/><br/>  - module: Notify::IRC
+    config:
+      daemon_port: 9992
+      nickname: rssbot2
+      server_host: irc.perl.org
+      server_port: 6667
+      server_channels:
+        - #news
+      charset: utf8
+      announce: action
+</code><br/><br/>and Filter::PerlNews (this is an ad hoc plugin, not (and will not be) uploaded in the official svn tree):<br/><br/><code>
+package Plagger::Plugin::Filter::PerlNews;<br/><br/>use strict;
+use base qw( Plagger::Plugin );<br/><br/>sub register {
+    my ($self, $context) = @_;
+    $context->register_hook(
+        $self,
+        'update.feed.fixup'  => \&change_feed_title,
+    );
+}<br/><br/>sub change_feed_title {
+    my ($self, $context, $args) = @_;<br/><br/>    my $title = $args->{feed}->title;<br/><br/>    $title =~ s/^AnnoCPAN Recent Notes/AnnoCPAN/;
+    $title =~ s/^Perl.com Perl.com/Perl.com/;
+    $title =~ s/^use Perl Journals/Journals/;
+    $title =~ s/^jobs\.perl\.org/Jobs/;
+    $title =~ s/^The Perl Foundation/PerlFoundation/;
+    $title =~ s/^search\.cpan\.org/CPAN/;
+    $title =~ s/^Perl Monks Newest Nodes/PerlMonks/;<br/><br/>    $args->{feed}->title( $title );<br/><br/>    my @entries = reverse @{ $args->{feed}->{entries} };<br/><br/>    $args->{feed}->{entries} = \@entries;
+}<br/><br/>1;
+</code><br/><br/>Actually you can do this without writing a plugin. If you prefer, replace the last part with this:<br/><br/><code>
+  - module: Notify::IRC
+    config:
+      daemon_port: 9992
+      nickname: rssbot2
+      server_host: irc.perl.org
+      server_port: 6667
+      server_channels:
+        - #news
+      charset: utf8
+      announce: action
+    rule:
+      expression: $args->{feed}->{title} =~ s/^AnnoCPAN Recent Notes/AnnoCPAN/;
+</code><br/><br/>or, more clearly:<br/><br/><code>
+  - module: Filter::Rule
+    rule:
+      expression: $args->{feed}->{title} =~ s/^AnnoCPAN Recent Notes/AnnoCPAN/;<br/><br/>  - module: Notify::IRC
+    config:
+      daemon_port: 9992
+      nickname: rssbot2
+      server_host: irc.perl.org
+      server_port: 6667
+      server_channels:
+        - #news
+      charset: utf8
+      announce: action
+</code><br/><br/>Since this rule/expression stuff is not well-documented and a bit too magical, I prefer the first, though I totally agree we shouldn't include this kind of ad hoc plugins in the svn tree.<br/><br/>Suggestions and corrections are welcome ;)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of tsee: More refactoring goodness</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>More refactoring goodness</h1>
+<h2><a href="/user/tsee/">tsee</a> on 2009-06-14T16:50:40</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+Writing code that modifies code is a difficult task. Writing code that modifies Perl code is a horrible task. Thankfully, writing <i>Perl</i> code that modifies Perl code is not quite as horrible as it could be, thanks to <a href="http://use.perl.org/user/Alias/journal">Adam Kennedy</a>'s <a href="http://search.cpan.org/dist/PPI">PPI</a>.
+</p>
+<p>
+One stated goal of the <a href="http://padre.perlide.org">Padre</a> project is to provide refactoring tools for Perl code as well as reasonably possible. So far, there's shortcuts for replacing a variable in its lexical scope, finding a variable's declaration (be it a lexical, file-scoped (our), or package variable declared with 'use vars'), finding unmatched braces, and aligning code blocks on operators. These features are all useful, but they're only a subset of what more mature projects like Eclipse provide. A recent <a href="http://perlmonks.org/?node_id=769387">post on perlmonks</a> discusses some examples of refactoring tools (or strategies) and their applicability to different languages. One of these is the <i>Introduce Explaining Variable</i> pattern. It's now implemented in <a href="http://svn.perlide.org/padre">Padre trunk</a>. It's really quite simple, let me explain with an example:
+</p>
+<p>
+The following code implements the derivative of the atan2 function. The code is from the <a href="http://search.cpan.org/user/smueller/Math-Symbolic-0.603/lib/Math/Symbolic/Derivative.pm">Math::Symbolic::Derivative</a> module. (I wrote it, so I'm complaining about my own cruft.) This basically implements the  equation that is shown in the highlighted comment.
+
+<blockquote><code>sub _derive_atan2 {
+    my ( $tree, $var, $cloned, $d_sub ) = @_;
+    <b># d/df atan(y/x) = x^2/(x^2+y^2) * (d/df y/x)</b>
+    my ($op1, $op2) = @{$tree-&gt;{operands}}; 
+
+    my $inner = $d_sub-&gt;( $op1-&gt;new()/$op2-&gt;new(), $var, 0 );
+    # templates
+    my $two = Math::Symbolic::Constant-&gt;new(2);
+    my $op  = Math::Symbolic::Operator-&gt;new(&#39;+&#39;, $two, $two);
+
+    my $result = $op-&gt;new(&#39;*&#39;,
+      $op-&gt;new(&#39;/&#39;,
+        $op-&gt;new(&#39;^&#39;, $op2-&gt;new(), $two-&gt;new()), 
+        $op-&gt;new(
+          &#39;+&#39;, $op-&gt;new(&#39;^&#39;, $op2-&gt;new(), $two-&gt;new()),
+          $op-&gt;new(&#39;^&#39;, $op1-&gt;new(), $two-&gt;new())
+        )
+      ),
+      $inner
+    );
+    return $result;
+}
+</code></blockquote>
+
+Now, this is pretty hard to read. The <tt>$op1</tt> and <tt>$op2</tt> variables correspond to the function operands <i>y</i> and <i>x</i> respectively. <tt>$d_sub</tt> is a closure that can derive recursively. The two <i>templates</i> are simply a shorthand so I didn't have to write <tt><i>someclass</i>-&gt;new(...)</tt> repeatedly. To make <i>x</i> and <i>y</i> more apparent and to name <tt>$d_sub</tt> more fitting to its purpose, I open up the file in Padre, right-click each of those variables, select <i>Lexically Replace Variable</i> from the context menu, and provide the new names. Similarly, I replace <tt>$inner</tt>. This yields:
+
+<blockquote><code>sub _derive_atan2 {
+    my ( $tree, $var, $cloned, <b>$derive</b> ) = @_;
+    # d/df atan(y/x) = x^2/(x^2+y^2) * (d/df y/x)
+    my (<b>$y</b>, <b>$x</b>) = @{$tree-&gt;{operands}}; 
+
+    my <b>$inner_derivative</b> = <b>$derive</b>-&gt;( <b>$y</b>-&gt;new()/<b>$x</b>-&gt;new(), $var, 0 );
+    # templates
+    my $two = Math::Symbolic::Constant-&gt;new(2);
+    my $op  = Math::Symbolic::Operator-&gt;new(&#39;+&#39;, $two, $two);
+
+    my $result = $op-&gt;new(&#39;*&#39;,
+      $op-&gt;new(&#39;/&#39;,
+        $op-&gt;new(&#39;^&#39;, <b>$x</b>-&gt;new(), $two-&gt;new()), 
+        $op-&gt;new(
+          &#39;+&#39;, $op-&gt;new(&#39;^&#39;, <b>$x</b>-&gt;new(), $two-&gt;new()),
+          $op-&gt;new(&#39;^&#39;, <b>$y</b>-&gt;new(), $two-&gt;new())
+        )
+      ),
+      <b>$inner_derivative</b>
+    );
+    return $result;
+}
+</code></blockquote>
+
+Of course, that leaves the giant expression intact which actually calculates the result. It makes sense to add a few more temporary variables with descriptive names. I select <tt>$op-&gt;new(&#39;^&#39;, $x-&gt;new(), $two-&gt;new())</tt> in the above version of the code, right-click, and select <i>Insert Temporary Variable</i>. Then I type the name of the new variable <tt>$x_square</tt>. Padre finds the beginning of the current statement for me and inserts a temporary variable declaration for <tt>$x_square</tt> at that point. It also replaces the selected text with <tt>$x_square</tt>. I manually replace another occurrance of the new temporary and then select <tt>$op-&gt;new(&#39;^&#39;, $y-&gt;new(), $two-&gt;new())</tt> and have it replaced with <tt>$y_square</tt> accordingly. There's more that can be cleaned up, but this handful of clicks and practically no typing has improved the code's readability considerably:
+
+<blockquote><code>sub _derive_atan2 {
+    my ( $tree, $var, $cloned, $derive ) = @_;
+    # d/df atan(y/x) = x^2/(x^2+y^2) * (d/df y/x)
+    my ($y, $x) = @{$tree-&gt;{operands}}; 
+
+    my $inner_derivative = $derive-&gt;( $y-&gt;new()/$x-&gt;new(), $var, 0 );
+    # templates
+    my $two = Math::Symbolic::Constant-&gt;new(2);
+    my $op  = Math::Symbolic::Operator-&gt;new(&#39;+&#39;, $two, $two);
+
+    my <b>$x_square</b> = $op-&gt;new(&#39;^&#39;, $x-&gt;new(), $two-&gt;new());
+    my <b>$y_square</b> = $op-&gt;new(&#39;^&#39;, $y-&gt;new(), $two-&gt;new());
+    
+    my $result = $op-&gt;new(&#39;*&#39;,
+      $op-&gt;new(
+        &#39;/&#39;, <b>$x_square</b>, $op-&gt;new(&#39;+&#39;, <b>$x_square</b>, <b>$y_square</b>)
+      ),
+      $inner_derivative
+    );
+    return $result;
+}
+</code></blockquote>
+
+Thus Padre helps me refactor crufty code with ease. Many more of these tiny helpers are planned. Stay tuned!
+</p>
+
+<p>
+<i>PS</i>: If this didn't convince you, maybe you should just give it a shot. I had to wrestle use.perl for hours to get it to add the highlighting in the example code. If I could add screenshots of the real thing...</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of masak: Fun with code blocks in Perl 6</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Fun with code blocks in Perl 6</h1>
+<h2><a href="/user/masak/">masak</a> on 2008-12-20T18:34:25</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Here's a little pattern I've discovered while hacking away at <a href="http://use.perl.org/user/masak/journal/37885">a board game implementation</a> in Perl 6.</p>
+
+<p>I had a subroutine called <code>input_valid_move</code>, whose job it was to read a move from <code>$*IN</code>, and return the move <em>if it was valid</em> according to the rules of the game. Easy enough.</p>
+
+<pre>
+repeat {
+    print "\n", $player, ': ';
+} until my $move = input_valid_move(...);
+</pre>
+
+<p>Now, there are several ways a move can be illegal, and I found myself printing and returning a lot from the sub:</p>
+
+<pre>
+unless $row_diff == 2 && $column_diff == 0
+    || $row_diff == 0 && $column_diff == 2 {
+
+    say 'Must be exactly two cells apart';
+    return;
+}
+
+unless @heights[$row_1][$column_1]
+    == @heights[$row_2][$column_2] {
+
+    say 'Must be supported at both ends';
+    return;
+}
+</pre>
+
+<p>Notice the repetition? There were many (7) such tests for move correctness, and all of them made a boolean test, printed something and then returned from the sub:</p>
+
+<pre>
+if ( ... ) { # or 'unless'; depends
+    say '...';
+    return;
+}
+</pre>
+
+<p>Repetition is a sign that there there is an abstraction just waiting to be created. I wanted to make an abstraction <code>flunk_move</code> that closed over the <code>say '...'; return</code> part of the above pattern, parametrizing the message printed. That way, I could just write this instead:</p>
+
+<pre>
+    flunk_move 'Must be exactly two cells apart'
+        unless $row_diff == 2 && $column_diff == 0
+            || $row_diff == 0 && $column_diff == 2;
+
+    flunk_move 'Must be supported at both ends'
+        unless @heights[$row_1][$column_1]
+            == @heights[$row_2][$column_2];
+</pre>
+
+<p>Each move correctness test now became a single statement, instead of an <code>if/unless</code> statement containing two statements. As an added bonus, the most important part of the statement (the disqualification of the move) is now leftmost in the statement, something Damian Conway talks about in his book "Perl Best Practices".</p>
+
+<p>But a new subroutine would not do as a repetition-reducing abstraction. The <code>return</code> statement in such a new sub, having moved from its original environment would be a no-op. I wanted to eat the cake and have it, too.</p>
+
+<p>S06 states that the <code>return</code> function <a href="http://perlcabal.org/syn/S06.html#The_return_function">throws a control exception that is caught by the current lexically enclosing <code>Routine</code>,</a> and this fact turned out to be just what I needed. To decipher the Perl 6 designese, the <code>return</code> in a <code>sub</code> returns from that <code>sub</code>, but the <code>return</code> in a bare block returns from the <code>sub</code> (or whatever) it was called from.</p>
+
+<pre>
+  # not what I want -- the return does nothing
+  sub flunk_move($reason) { say $reason; return };
+
+  # what I want, using pointy block
+  -> $reason { say $reason; return };
+
+  # what I want, using placeholder variables
+  { say $^reason; return };
+</pre>
+
+<p>Think of it in biological terms: a <code>sub</code> is like a <a href="http://en.wikipedia.org/wiki/Eukaryote">eukaryote</a>: a little more complex, handles advanced things like <code>return</code> when necessary. A bare block doesn't have all that advanced piping, and has to delegate its <code>return</code> calls to its surrounding host cell. In other words, a bare block is a bit like an <a href="http://en.wikipedia.org/wiki/Endosymbiont">endosymbiont</a> <a href="http://en.wikipedia.org/wiki/Prokaryote">prokaryote</a>, a simple organism that in the course of evolutionary history ended up in a symbiotic relationship inside a larger eukaryotic cell.</p>
+
+<p>Biological analogies aside, what it meant to me was that I could do this in my <code>sub input_valid_move</code>:</p>
+
+<pre>
+my &flunk_move = { say $^reason; return };
+</pre>
+
+(There's the endosymbiont, right there! It can't return from itself, because it's just a humble code block, so it returns from its surrounding subroutine instead, which happens to be <code>input_valid_move</code>.)
+
+<p>After that, I could use <code>&flunk_move</code> just as I wanted, as if it were a <code>return</code> statement with side effects. (Same code as above.)</p>
+
+<pre>
+    flunk_move 'Must be exactly two cells apart'
+        unless $row_diff == 2 && $column_diff == 0
+            || $row_diff == 0 && $column_diff == 2;
+
+    flunk_move 'Must be supported at both ends'
+        unless @heights[$row_1][$column_1]
+            == @heights[$row_2][$column_2];
+</pre>
+
+<p>Some Smalltalk people extol the power in being able to define things like <a href="http://pozorvlak.livejournal.com/94558.html">the if statement</a> from within the language, without any magical trickery to make it work. The pattern I discovered above uses the same kind of strengths, the ability to define my own slightly fancy return statement, and have it look like a built-in in subsequent code.</p>
+
+<p>That kind of power is what makes Perl 6 a joy to use.</p></p>
+
+
+<hr/>
+
+
+
+<h2>&quot;As an added bonus...&quot;</h2>
+<h3><a href="/user/Ron Savage/">Ron Savage</a> on 2008-12-20T20:31:22</h3>
+<p>Hi. Where you talk about Damian's recommendation, I think you've got it backwards. On p 93 of his book he says 'avoid using the postfix form of if'. But that's exactly what you're doing!<br>Cheers</p>
+
+
+
+<blockquote>
+
+<h2>Re:&quot;As an added bonus...&quot;</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-12-20T21:01:21</h3>
+<p>Page 94 says "Reserve postfix <code>if</code> for flow-of-control statements."  It's his only exception to the previous guideline.</p>
+
+
+
+<blockquote>
+
+<h2>Re:&quot;As an added bonus...&quot;</h2>
+<h3><a href="/user/masak/">masak</a> on 2008-12-20T21:23:33</h3>
+<p>Right, and this is a fancy <code>return</code>, hence control flow. I forgot to clarify that.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Obscure</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-12-21T15:04:40</h3>
+<p>While clever, I think you've harmed readability rather than helped it by hiding the return in the block. As a reader, I want the flow control statements to be as explicit and obvious as possible so I don't miss them. That's the reason why PBP makes an exception for them in end-of-line conditionals and loops.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Obscure</h2>
+<h3><a href="/user/masak/">masak</a> on 2008-12-21T15:45:58</h3>
+<p>I can certainly understand that objection. Readability is important, and inventing new control flow "builtins" is a risky business.</p><p>However, it's also possible to reason the other way: I expect any conscientious reader to familiarize themselves with all the local variables in my sub before trying to understand what it does. <code>&amp;flunk_move</code> is one of those local variables; and it happens to be a code block controlling the program flow. Making use of PBP's rule for putting control flow on the left, serves to make this fact even clearer.</p><p>I suspect this is a pattern that, by its nature, won't please everybody. Some people will think that the ability to define control flow closures will be worth the slight hit to readability, some won't. TIMTOWTDI.</p>
+
+
+
+<h2>Re:Obscure</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-12-21T18:36:54</h3>
+<p>This technique is open to abuse, but consider a function with several potential exit points, each of which need to release acquired resources.  This technique offers a cleaner approach than a local-<code>goto</code> or cut-and-past resource release blocks.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Obscure</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-12-21T19:34:54</h3>
+<p>Agreed, to a degree. Carl is trading clarity of control flow for a consistent level of abstraction. As long as the technique is used sparingly and locally, I think it can be a net win.</p><p>But I'll wager that someone will write a Perl6::Critic policy about it in the future, maybe to say that pointy blocks with far-reaching control statements should be simple or not exported beyond the lexical scope.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Obscure</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-12-22T19:03:53</h3>
+<p>That seems like an odd attitude coming from someone programming in Perl. I know Python programmers who think <em>statement modifiers</em> are a terrible idea in any and all cases on principle. Where did we lose the idea of giving people enough rope to hang themselves if they so desire? Just because this particular abstraction facility is new to you does not make it dangerous. All abstraction facilities have abuse potential &#8211; practice shows which ones are very dangerous and which ones can offer enough potential benefit to make up for their potential drawbacks. FWIW, this particular thing has been possible in Ruby for a very long time and does not seem to be making news as a maintainability problem; I am not wary of it.</p><p>Personally, I like to think that it&#8217;s a matter of bringing some taste to the work of a programmer, and that programmers need to develop taste, restraint and style just as much writers do. For such taste there is no substitute. Java is what happens if you approach language design with the contrary assumptions.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Obscure</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-12-22T20:17:07</h3>
+<p>You're preaching to the choir.  I'm just on the other end of the style continuum from you, I guess.  I work with enough less-experienced programmers to prefer simple solutions, all else being (roughly) equal.</p><p>I'm not saying the practice should be *banned* from the language.  I just don't want to see it in any code I must maintain.  Action at a distance is the problem -- if the distance is small enough, then it's probably fine. On first read, I personally didn't think the solution was beneficial enough to justify the obfuscation.  Carl has swayed my opinion from opposition to neutrality by pointing out he made the block a lexical.</p><p>Indeed, Perl 6 will have plenty of rope just like Perl 5.  That's why Perl::Critic policies are all optional and should stay that way.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

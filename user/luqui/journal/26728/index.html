@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of luqui: Type equation inference</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Type equation inference</h1>
+<h2><a href="/user/luqui/">luqui</a> on 2005-09-15T02:46:18</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Before TaPL comes in the mail and I'm "forced" to actually read about this, I'm working on a type inference algorithm.  It's always kind of fun to pretend that all that research out there doesn't exist and become a pioneer.  You'll either come up with an inferior approach that makes some trade-offs that the real pioneers didn't think of, or you'll come up with the same thing they did, but you'll understand it really well, because you thought of it.  The latter happens to me a lot.<br/><br/>Anyway, here's my algorithm.  It considers all types to be sets, nothing more, nothing less.  It also considers type classes to be sets of types (sets of sets).  That way, you can use the same algorithm to do type inference and type class inference.  It also lets you trivially do type class classes, whatever those are.<br/><br/>The two operations it works with are "does" (subset) and "in" (element).  Let's look at how it would translate some simple code into type equations:<br/><br/><pre>
+    sub fact($x) {        # fact: a --> b
+        if $x == 0 { 1 }
+              # ==: c,c --> Bool | Eq[c]
+        else       { $x * fact($x - 1) }
+              # -: d,d --> d | Num[d]
+              # *: e,e --> e | Num[e]
+    }
+</pre><br/><br/>This gives rise to the following type equations:<br/><br/><pre>
+    # conditional
+    a does c
+    0  in  c
+    c  in  Eq
+    Bool does Bool
+    # if branch
+    1  in  b
+    # else branch
+    a does d
+    1  in  d
+    d  in  Num
+    d does e
+    a does e
+    e does b
+</pre><br/><br/>I think that's all of them.  Clearly these can be programmatically generated, if you give the code a function that can create unique variables.  Then it's just a simple (!) matter of solving the equations, and you have all the type constraints everywhere in your function.<br/><br/>My current approach for solving these is to consider all the "does" relations to form the edges of a graph, and all the "in" relations to form the edges of another graph.  I take the transitive closure of the "does" graph.  All strongly connected vertices are then exactly the same thing (if you remember from your abstract math class, if a is a subset of b and b is a subset of a, then a = b).  Then I substitue into the "in" graph, which gives me back all the constraints.  Currently, however, there's a little problem, because it will give constraints like "a does some class that is a member of Num", which aren't exactly user-friendly.  They don't mean a lot to me, either.  So, that's the kink at the moment.  More updates once I have some code, instead of paper scribbles.</p>
+
+
+<hr/>
+
+
+
+<h2>Nitpicks and comments</h2>
+<h3><a href="/user/roger.hale/">roger.hale</a> on 2005-09-15T07:59:47</h3>
+Instead of<br>
+&nbsp; &nbsp; &nbsp; &nbsp; d does e<br>I get<br>
+&nbsp; &nbsp; &nbsp; &nbsp; d does a<br>
+&nbsp; &nbsp; &nbsp; &nbsp; b does e<br>(from the call to fact).<br><br>Inferring<br>
+&nbsp; &nbsp; &nbsp; &nbsp; a == d<br>
+&nbsp; &nbsp; &nbsp; &nbsp; b == e<br>leaves<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 1 in a in Num<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 1 in b in Num<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 0 in c in Eq<br>
+&nbsp; &nbsp; &nbsp; &nbsp; a does b<br>
+&nbsp; &nbsp; &nbsp; &nbsp; a does c<br>which may not be as tight as you'd like but expresses the constraints reasonably.  It allows, for instance,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; a == [1..5]<br>
+&nbsp; &nbsp; &nbsp; &nbsp; b == [1..120]<br>
+&nbsp; &nbsp; &nbsp; &nbsp; c == Nat<br>which a more detailed interval analysis might point to.  On the other hand, it dislikes<br>
+&nbsp; &nbsp; &nbsp; &nbsp; a == [0..5]<br>
+&nbsp; &nbsp; &nbsp; &nbsp; b == [1..120],<br>demanding b be widened to [0..120], basically because a does not get narrowed to [1..5] on the else branch, as it might.  Way down the line this might be a fruitful extension to pursue.
+
+
+
+<blockquote>
+
+<h2>Re:Nitpicks and comments</h2>
+<h3><a href="/user/luqui/">luqui</a> on 2005-09-15T17:35:38</h3>
+&gt; Instead of<br>&gt;         d does e<br>&gt; I get<br>&gt;         d does a<br>&gt;         b does e<br>&gt; (from the call to fact).<br><br>That's right, good eye.<br><br>&gt;        1 in a in Num<br>&gt;        1 in b in Num<br>[...]<br>&gt; which may not be as tight as you'd like but<br>&gt; expresses the constraints reasonably. It allows,<br>&gt; for instance,<br>&gt;         a == [1..5]<br><br>Actually it doesn't.  "a in Num" means that a is a ring.  If you say 4 + 3 (which are both in a here), you get 7, which is not in a, so a is not in Num.<br><br>What I'm currently stumpted on is if you say fact(3).   The caller is supposed to provide the instances present in the constraints.  But 3 is in Int, Float, Bigint, Z_4 (integers mod 4), etc.  Which one do you pick?  Also, what do you pick for your return value?  Why would you have to provide the Eq[c] instance, when you don't even know what c represents.<br><br>But, upon looking at the constraints, this is all you can really infer without monotypes.  So I'm hoping there's a way around it.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

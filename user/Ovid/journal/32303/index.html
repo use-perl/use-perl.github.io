@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Subtle Bug When Using Readonly</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Subtle Bug When Using Readonly</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-02-02T10:35:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><P>The code originally had this:</p>
+
+<pre>my $CurrentUser = $ENV{SUDO_USER} || getpwuid $>;</pre>
+
+<p>Since that should be a constant and I was adding other constants, I changed it to this:</p>
+
+<pre>use Readonly;
+Readonly my $CURRENT_USER => $ENV{SUDO_USER} || getpwuid $>;</pre>
+
+<p>Do you see the bug?  It's a fatal error and three people read through the code and missed it (which is really no excuse for me writing it in the first place).  Fortunately, it's an easy fix.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Precedence?</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2007-02-02T13:35:03</h3>
+<p>Just looking at it, I'd guess that it's a precedence issue and you need some parens thrown in.  This is what I get from B::Deparse.</p> <p><blockquote> <div><tt>&nbsp; % perl -MO=Deparse -MReadonly -e 'Readonly my $CurrentUser = $ENV{SUDO_USER} || getpwuid $&gt;'<br>&nbsp; Type of arg 1 to Readonly::Readonly must be one of [$@%] (not scalar assignment) at -e line 1, at EOF<br>&nbsp; -e had compilation errors.<br>&nbsp; use Readonly;<br>&nbsp; &amp;Readonly(my $CurrentUser = $ENV{'SUDO_USER'} || getpwuid $&gt;);</tt></div> </blockquote>  <p>So, not what I expected, but still an error.</p>
+
+<p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Precedence?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-02-02T13:45:01</h3>
+<p>It's a context error.  Consider the first line:</p> <p><blockquote> <div><tt>my $CurrentUser = $ENV{SUDO_USER} || getpwuid $&gt;;</tt></div> </blockquote>  <p>That must be scalar context (in fact, the || forces the left side to be in scalar context).  However, consider the new version:</p> <p><blockquote> <div><tt>Readonly my $CURRENT_USER =&gt; $ENV{SUDO_USER} || getpwuid $&gt;;</tt></div> </blockquote>  <p>We have a list, not an assignment, so we have list context.  <tt>getpwuid $&gt;</tt> in list context generates more than one value and <tt>Readonly</tt> recognizes that we're trying to use a scalar, so it dies.  The fix is to force scalar context:</p> <p><blockquote> <div><tt>Readonly my $CURRENT_USER =&gt; $ENV{SUDO_USER} || scalar getpwuid $&gt;;</tt></div> </blockquote>  <p>Side note, because || forces the left side to be in scalar context, you can get strange results:</p> <p><blockquote> <div><tt>perl -le 'print&nbsp; qw&lt;a b c&gt; || 4'</tt></div> </blockquote>  <p>That prints 'c', but guess what the following prints:</p> <p><blockquote> <div><tt>perl -le 'print&nbsp; qw&lt;a b 0&gt; || qw&lt;1 3 7&gt;'</tt></div> </blockquote>  <p>That prints '137'.  The left side is forced into scalar context and a list in scalar context returns the last item, but the right side is in list context.  The following, of course, prints '3', because arrays behave differently from lists in scalar context:</p> <p><blockquote> <div><tt> perl -le 'my @x = qw&lt;a b 0&gt;; print&nbsp; @x || qw&lt;1 3 7&gt;'</tt></div> </blockquote>  <p>Confused yet?<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Precedence?</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2007-02-02T21:10:29</h3>
+I'm not so sure "lists in scalar context" is what you mean. The comma operator in scalar context does that and qw(...) looks like a funny kind of list that might use the comma operator.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Nasty</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-02-02T13:47:21</h3>
+<p>This is probably one of those times to say &#8220;Perl 6 will fix that.&#8221;</p>
+
+<p>(Besides providing for such as &#8220;<code>is ro</code>.&#8221;)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

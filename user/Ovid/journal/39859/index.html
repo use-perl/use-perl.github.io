@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: use_ok isn't ok</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>use_ok isn't ok</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-11-08T08:57:40</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><strong>Update</strong>:  I'm so annoyed by this anti-pattern that it appears <a href="http://www.google.com/search?hl=en&q=site%3Ause.perl.org%20inurl%3Aovid%20use_ok%20BEGIN">I've griped about it before</a>.</p>
+
+<P>No matter how many times I write <tt>use_ok $some_module</tt>, I hate it.  I hate it because this is wrong:</p>
+
+<pre>use_ok 'My::Module';</pre>
+
+<p>There are several issues with that.  First, you really should wrap it in a BEGIN block.  This can ensure, amongst other things, that prototypes are respected.  So you need to do this:</p></p>
+
+<pre>BEGIN {
+    use_ok 'My::Module';
+}</pre>
+
+<p>Of course, that's wrong, too.  I remember one very long, painful debugging day where I and another programmer paired to find out why tests were failing for our perfectly valid code.  Every minimal test case showed the code worked, but we had multiple failures when integrated.  What happened?</p>
+
+<p>This was several years ago and if we had <tt>use&nbsp;Test::Most&nbsp;qw(no_plan&nbsp;die);</tt> available, the problem would have immediately shown itself.  Otherwise, I needed to go back and do this:</p>
+
+<pre>BEGIN {
+    use_ok 'My::Module' or die;
+}</pre>
+
+<p>You see, internally, <tt>use_ok</tt> will eval something like "use My::Module" and if it fails, the test fails.  What happens when it fails?  Three guesses as to what's left in the symbol tables.  That's right, you may very well have <em>partial</em> optrees sitting around in memory and when your code tries to run them, BOOM!  I wonder what sort of interesting side-effects we could get there?  Even the <a href="http://search.cpan.org/dist/Test-Simple/lib/Test/More.pm#SYNOPSIS">SYNOPSIS</a> for <tt>Test::More</tt> gets this wrong:</p>
+
+<pre>BEGIN { use_ok( 'Some::Module' ); }</pre>
+
+
+<P>The programmer and I wasted hours trying to debug perfectly fine code because I didn't see the <tt>use_ok</tt> had failed at the top and the failures scrolled off the screen.</p>
+
+<p>But even with the "or die", it's wrong, because when I look at test suites, I see the following:</p>
+
+<pre># in t/00-load.t:
+BEGIN {
+    use_ok 'My::Module' or die;
+}
+
+# in t/basic.t:
+BEGIN {
+    use_ok 'My::Module' or die;
+}
+
+# in t/exceptions.t:
+BEGIN {
+    use_ok 'My::Module' or die;
+}
+
+# in t/regressions.t:
+BEGIN {
+    use_ok 'My::Module' or die;
+}
+
+# in t/advanced.t:
+BEGIN {
+    use_ok 'My::Module' or die;
+}</pre>
+
+<P>That's a lot of boilerplate repetition.  And that's <em>assuming</em> that it's done correctly with the <tt>BEGIN</tt> and <tt>or die</tt>.  Why?  Just for an extra test?</p>
+
+<p>I see no advantage here, but I see plenty of disadvantages.  Just put your <tt>use_ok</tt> tests (if you want them) in <tt>t/00-load.t</tt> and have that possibly bail out one doesn't load.</p>
+
+<pre>#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Test::Most 'bail';
+
+BEGIN {
+    my @modules = get_modules();
+    plan tests => scalar @modules;
+
+    use_ok $_ foreach @modules;
+}</pre>
+
+<p>And in your other tests:</p>
+
+<pre>use My::Module;</pre>
+
+<p>If that fails, it will fail <em>correctly</em> without you having to remember the boilerplate.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Wow awesome</h2>
+<h3><a href="/user/Ether/">Ether</a> on 2009-11-08T17:07:40</h3>
+I registered here just to say thank you. I've been long irritated by Test::More's default behaviour, and just last week was writing up a patch to add bail_on_failure() behaviour. Now I don't have to; I can just use Test::Most qw(die). Thank you so much! Tomorrow one company is going to see a  revision in all its test suites...<nobr> <wbr></nobr>:D
+<br> <br>
+PS. I recently learned about Devel::BeginLift (thanks jrockway@SO), which allows methods to be marked as running at compile-time.. It would be *really really* valuable to do this for Test::Most::use_ok.
+
+
+
+<blockquote>
+
+<h2>Re:Wow awesome</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-11-08T18:43:37</h3>
+<p>Glad to hear you like <tt>Test::Most</tt>.  We use it extensively on our BBC project.</p><p>As for the <tt>Devel::BeginLift</tt> idea, that's a tempting thought. My only concern is that this is introducing a module which has a high failure install rate <em>and</em> changes the semantics of the module.  We'd still have to have the <tt>or die</tt> behavior, but I'd rather use have <tt>use My::Module</tt> at the top of the code, I think.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

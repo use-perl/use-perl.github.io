@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Pondering Role Organization</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Pondering Role Organization</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-04-06T09:21:42</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><strong>Important Update:</strong>  Please do not code like I did below.  I <em>know</em> that using separate <tt>with</tt> statements is stupid and I don't understand why I did that in the code below.  If you have separate <tt>with</tt> statements, you won't get method collision detection, so the code below should be written like this:</p>
+
+
+<pre>package PIPs::ResultSetBase::Group;
+
+use Moose;
+extends 'PIPs::ResultSetBase::Pips';
+with qw(
+    PIPs::ResultSet::Role::DoesCreateWithEntity
+    PIPs::ResultSet::Role::DoesPromotionSearch
+    PIPs::ResultSet::Role::DoesTagSearch
+);
+
+__PACKAGE__->meta->make_immutable( inline_constructor => 0 );
+no Moose;
+
+1;</pre>
+
+<p>Now back to your original post :)</p>
+
+<p>We have some <a href="http://search.cpan.org/dist/DBIx-Class/lib/DBIx/Class/ResultSource.pm">DBIx::Class::ResultSource</a> classes -- Groups, Seasons, Franchises and Collections -- which represent editorial rules around how other things can be grouped.  Their corresponding <a href="http://search.cpan.org/dist/DBIx-Class/lib/DBIx/Class/ResultSet.pm">DBIx::Class::ResultSet</a> classes really don't have any behavior that's unique to editorial groups.  They're just ways of containing groups of classes.  One of them looks like this:</p>
+
+<pre>package PIPs::ResultSet::Franchise;
+
+use Moose;
+extends 'PIPs::ResultSetBase::Group';
+
+__PACKAGE__->meta->make_immutable( inline_constructor => 0 );
+no Moose;
+
+1;</pre>
+
+<p>Because we don't inherit directly from our result set class, we've an extra layer that you have to read to fully understand everything.  What does that layer look like?</p>
+
+<pre>package PIPs::ResultSetBase::Group;
+
+use Moose;
+extends 'PIPs::ResultSetBase::Pips';
+with 'PIPs::ResultSet::Role::DoesCreateWithEntity';
+with 'PIPs::ResultSet::Role::DoesPromotionSearch';
+with 'PIPs::ResultSet::Role::DoesTagSearch';
+
+__PACKAGE__->meta->make_immutable( inline_constructor => 0 );
+no Moose;
+
+1;</pre>
+
+<p>So we're basically doing this:</p>
+
+<pre>DBIx::Class::ResultSet
+         ^
+         |
+PIPs::ResultSetBase::Pips
+         ^
+         |
+PIPs::ResultSetBase::Group
+         ^
+         |
+PIPs::ResultSet::Franchise</pre>
+
+<P>Ignoring the inheritance in <tt>DBIx::Class</tt>, we've stacked an extra three levels on top.  Why?  This has gained us nothing.  My goal is eventually to have something like this:</p>
+
+<pre>package PIPs::ResultSet::Franchise;
+
+use Moose;
+with 'PIPs::Role::DoesResultSet';
+with 'PIPs::ResultSet::Role::DoesCreateWithEntity';
+with 'PIPs::ResultSet::Role::DoesPromotionSearch';
+with 'PIPs::ResultSet::Role::DoesTagSearch';
+
+__PACKAGE__->meta->make_immutable( inline_constructor => 0 );
+no Moose;</pre>
+
+<p>We can thus see instantly that this class can be treated as a result set, creates an "entity" (long story) and can be searched by promotions and tags.  My only concern is that this result set no longer identifies itself as a "group" the way it did when it inherited from the "group" base class.  I could create a "DoesGroup" role:</p>
+
+<pre>package PIPs::ResultSet::Role::DoesGroup;
+
+use Moose::Role;
+with 'PIPs::ResultSet::Role::DoesCreateWithEntity';
+with 'PIPs::ResultSet::Role::DoesPromotionSearch';
+with 'PIPs::ResultSet::Role::DoesTagSearch';
+
+__PACKAGE__->meta->make_immutable( inline_constructor => 0 );
+no Moose;
+
+1;</pre>
+
+<P>And the Franchise class would merely do this role and you can call <tt>$franchise-&gt;meta-&gt;does_role('PIPs::ResultSet::Role::DoesGroup')</tt>, but that gains me little over inheritance because I no longer have a list of convenient behaviors at the top of the Franchise class.</p>
+
+<p>On the other hand, do I really want that?  I often find that code which handles <tt>-&gt;can</tt> and <tt>-&gt;does</tt> is a code smell because the object system should handle dispatching and we shouldn't be manually checking our types, but it is useful at times.</p>
+
+<p>I've decided to hold on this refactoring because frankly, I'm unsure what's the right thing to do here.  Decisions, decisions ...</p></p>
+
+
+<hr/>
+
+
+
+<h2>-does a code smell?</h2>
+<h3><a href="/user/sartak/">sartak</a> on 2009-04-06T18:12:00</h3>
+<p>I disagree with <tt>-&gt;does</tt> being a code smell. I'll just let a slide from my <a href="http://sartak.org/talks/frozen-perl-2009/moose/" title="sartak.org">recent Moose talk</a sartak.org> explain what I mean:</p><blockquote><div><p> <tt>$creature = get_creature;<br> <br>if ($creature-&gt;does('Role::Doglike')) {<br>&nbsp; &nbsp; $creature-&gt;bark(at =&gt; $mailman);<br>}</tt></p></div> </blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jonswar: Auto-wrapping subclass methods</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Auto-wrapping subclass methods</h1>
+<h2><a href="/user/jonswar/">jonswar</a> on 2009-04-27T02:45:18</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Back in Feb I asked on various lists how I could auto-wrap CHI driver methods, but didn't get any completely satisfying answers:</p>
+
+<quote>
+<p>CHI drivers implement methods like remove() and clear(). If you call $cache->remove(), it goes directly to the driver subclass.</p>
+   
+<p>The problem is that there are now legitimate reasons to "wrap" these methods at the CHI/Driver.pm superclass level (meaning, do something before and/or after the method). For example, I want to add an optional generic size-awareness feature (the cache can keep track of its own size), which means that we have to adjust size whenever remove() and clear() are called. And I want to log remove() calls the way we currently log get() and set().</p>
+   
+<p>So one solution is to define remove() and clear() in CHI/Driver.pm, and have them call _remove() and _clear() in the driver subclasses.  But this kind of change makes me uneasy for several reasons:</p>
+   
+<ul>
+<li>It changes the driver API, i.e. all existing drivers out there have to modified. And we might have to change it again as we identify new methods to wrap.</li>
+<li>The list of 'normal' versus 'underscore' methods becomes rather arbitrary - it's "whatever we've needed to wrap so far".</li>
+</ul>
+</quote>
+
+<p>I thought about using regular wrapping modules, like Sub::Prepend or Hook::LexWrap. But this fails when you have subclasses more than one level deep. e.g.:</p>
+
+<small><pre>
+CHI::Driver -> CHI::Driver::Foo -> CHI::Driver::Foo::Bar
+</pre></small>
+
+Now if you call CHI::Driver::Foo::Bar::remove(), the wrapping code will get called twice, once for each subclass. I only want it to be called once regardless of how deep the subclass is.
+
+<p>Here's how I solved this in CHI-0.2. When each CHI driver is used for the first time, e.g. CHI::Driver::Memory:</p>
+
+<small><pre>
+my $cache = CHI->new('Memory');
+</pre></small>
+
+<p>CHI autogenerates a new class called CHI::Wrapped::CHI::Driver::Memory, which inherits from</p>
+
+<small><pre>
+('CHI::Driver::Wrapper', 'CHI::Driver::Memory')
+</pre></small>
+
+<p>then blesses the actual cache object (and future cache objects of this driver) as CHI::Wrapped::CHI::Driver::Memory.</p>
+
+<p>Now, when someone calls a method like $cache->get() or $cache->remove(), CHI::Driver::Wrapper has an opportunity to handle it first, and then pass control to CHI::Driver::Memory. If not, it goes directly to CHI::Driver::Memory.</p>
+
+<p>I was unable to find this solution on CPAN, even though I feel like I must be reinventing the wheel. If someone knows of a distribution that encapsulates this technique, please let me know.</p>
+
+<p>Here's the code from <a href="http://cpansearch.perl.org/src/JSWARTZ/CHI-0.2/lib/CHI/Driver/Wrapper.pm">CHI::Driver::Wrapper</a> that creates the wrapper class:</p>
+
+<small><pre>
+sub create_wrapped_driver_class {
+    my ( $proto, $driver_class ) = @_;
+    carp "internal class method" if ref($proto);
+   
+    if ( !$wrapped_driver_classes{$driver_class} ) {
+        my $wrapped_driver_class      = "CHI::Wrapped::$driver_class";
+        my $wrapped_driver_class_decl = join( "\n",
+            "package $wrapped_driver_class;",
+            "use strict;",
+            "use warnings;",
+            "use base qw(CHI::Driver::Wrapper $driver_class);",
+            "sub driver_class { '$driver_class' }",
+            "1;" );
+        eval($wrapped_driver_class_decl);    ## no critic ProhibitStringyEval
+        die $@ if $@;                        ## no critic RequireCarping
+        $wrapped_driver_classes{$driver_class} = $wrapped_driver_class;
+    }
+    return $wrapped_driver_classes{$driver_class};
+}
+</pre></small>
+
+<p>And here's the first application of auto-wrapping: when certain methods are called on a cache, automatically call them on the <a href="http://search.cpan.org/user/jswartz/CHI-0.2/lib/CHI.pm#SUBCACHES">subcaches</a>, if any.</p>
+
+<small><pre>
+# Call these methods first on the main cache, then on any subcaches.
+#
+foreach my $method (qw(remove expire expire_if clear purge)) {
+    no strict 'refs';
+    *{ __PACKAGE__ . "::$method" } = sub {
+        my $self = shift;
+        my $retval = $self->call_native_driver( $method, @_ );
+        $self->call_method_on_subcaches( $method, @_ );
+        return $retval;
+    };
+}
+
+# Call the specified $method on the native driver class, e.g. CHI::Driver::Memory.  SUPER
+# cannot be used because it refers to the superclass(es) of the current package and not to
+# the superclass(es) of the object - see perlobj.
+#
+sub call_native_driver {
+    my $self                 = shift;
+    my $method               = shift;
+    my $native_driver_method = join( "::", $self->driver_class, $method );
+    $self->$native_driver_method(@_);
+}
+</pre></small>
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>SUPER</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-04-27T06:18:22</h3>
+<p>The <a href="http://search.cpan.org/perldoc?SUPER" title="cpan.org">SUPER</a cpan.org> module addresses that problem.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

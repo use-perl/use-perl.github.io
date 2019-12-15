@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Clarification to Database Programming Rule #1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Clarification to Database Programming Rule #1</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2004-06-16T20:36:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>There's been enough disagreement (and no agreement, to date) with <a href="/user/Ovid/journal/19305">Database Rule #1</a> that I felt some clarification is in order (pun intended.)</p>
+
+<p>The rule was:  In production code, if your SELECT statement returns more than one record and it doesn't have an ORDER BY clause, it's probably a bug.</p>
+
+<p>First I'll deal with a side issue that was brought up: despite the objection, performance is not a consideration.  Unless there are systemic reasons to consider performance (which is why Perl's not a great choice for AI -- darn it), performance should not be considered.  Correctness of code is far more important.  However, it was pointed out at the same time that Perl can do the sorting.  This is frequently wrong.  Let the database do the things the database is naturally good at.  Unless Perl's sorting offers something the database can't (as <a href="/user/phillup">phillup</a> implied) it's probably not going to be as efficient as the database sorting.  It's <em>optimized</em> for that sort of thing.</p>
+
+<p>As for "but I'm just dumping data into Excel" argument, I don't buy it.  Admittedly, my experience may not be typical, but usually if I'm dumping some data into a spreadsheet and I'm not worried about sorting, it's a one-off task.  However, if it's <em>production</em> code (as specified in the rule), then <tt>ORDER BY</tt> tends to become more important because it's easier to test ordered data ... and my pedantic little self says that if you check in code without checking in tests than you're being a bad programmer (as I have, on more than one occassion.)  Of course, one could argue for a sort in the test and sometimes this is OK, but most of the time I would think that it's not.  Consider:</p>
+
+<pre>my @actual = sort { 
+        $a->[1] cmp $b->[1] # sort by customer name
+                || 
+        $b->[3] <=> $a->[3] # and then order total
+    } fetch_foo_from_db();
+is_deeply(\@actual, \@expected, '... and the datasets should match');</pre>
+
+<p>If we fail to sort the data, we cannot guarantee a deterministic query and this can lead to intermittant test failures, so we're sorting the data here.  If we consider the performance argument mentioned earlier, this is clearly not an optimal solution because if performance <em>does</em> become a consideration, we are probably returning a lot of data and Perl is unlikely to sort it as efficiently as the database will (and sorting dates can really get ugly.)</p>
+
+<p>So when I say that failure to order your select results is probably a bug, I really mean to say "apply logic as early as possible."  Admittedly, this means that my database rule becomes a specific example (and possibly a bad one) of this issue.  A beautiful example of this problem is how so many applications mishandle error reporting.</p>
+
+<pre>$self->report_error($error) if $error;
+
+sub report_error {
+  my ($self, $error) = @_;
+  my $fh = $self->_error_fh;
+  print $fh $self->_time .":  ($error)\n";
+  return $self;
+}
+</pre>
+
+<p>That's bad design and begging for bugs.  Whenever someone calls the function and forgets to test for the existence of an error, empty messages are written to the error log.  It's better written as:</p>
+
+<pre>$self->report_if_error($error);
+
+sub report_if_error {
+  my ($self, $error) = @_;
+  return $self unless $error;
+  ...
+}</pre>
+
+<p>Now you never have to worry about the test again.  However, sometimes you need the method call wrapped in the conditional because the method may not always be able to determine when it should be called.  When this happens, the logic is justifiably pushed higher in the code.  In the case of sorting return results from the database, the earlier it can be done, it should be done.  Doing it later means that you're more likely to forget it or do it incorrectly.  If it can be done in the database, it should.  If it can't, but the order must not vary, then wrap the call in a function or method which minimizes the chance of the sort order being skipped.</p>
+
+<p>In short:  I grudgingly admit that my "database programming rule #1" was too simplistic :)</p></p>
+
+
+<hr/>
+
+
+
+<h2>Database Rule #2</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2004-06-16T21:36:45</h3>
+<p>This might inspire similar levels of disagreement.</p>
+
+<p>If a query is expected to return one row, then it had better be specify the key in the WHERE clause.  Never depend on some other considerations to result in only one row being returned.  Uniquely constrained fields might be used instead.</p>
+
+<p>Corollary: any time you have a query which returns only one record, encapsulate it in a function.  That might be a PL/SQL function or a Perl function or something else.</p>
+
+
+
+<h2>Optimization</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2004-06-16T22:29:33</h3>
+<i>Unless Perl's sorting offers something the database can't (as phillup implied) it's probably not going to be as efficient as the database sorting. It's optimized for that sort of thing.</i>
+<p>
+With Oracle (and others?), a sort operation is guaranteed to increase CPU usage and can significantly affect query performance.  In addition, there can be extra I/O overhead, which can cause you to slam into your I/O limits, especially if a disk sort is required.  Plus, all rows must be accessed and sorted before the first can be returned, which may be unacceptable for web page interfaces (although you can futz with your optimizer to alter how this behaves).
+</p><p>
+This is really the main reason I avoid ORDER BY clauses - it hammers I/O and pisses off the DBA, assuming I avoid the I/O limit at all.  So, if Perl can do it reasonably quickly then I'm happy to handle it on the client side and earn a few brownie points with the DBA.  It's often a case of trial and error - try it with the ORDER BY clause, then try the SQL without it and see how each performs.
+</p><p>
+Also note that ORDER BY clauses are not necessary if an index exists on some or all of the columns in the clause.  Oracle can use the index to fetch the rows in the required order and eliminate the need for a sort operation, although in some cases this approach can be worse than using a sort.  Again, trial and error.
+</p><p>
+So, I guess what I'm saying is that you have to know your database, not just your goal, before you can make a blanket assumption about how SQL should be constructed.  Hell, there are whole companies that *specialize* in SQL tuning.
+</p><p>
+Anyway, that's my 2 cents for the day.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Optimization</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-06-16T22:53:47</h3>
+<p>You've mentioned great examples of where optimization should still be done after the fact.  If I don't know that a query (and I frequently create huge queries) is going to cause a problem with performance, I am not going to worry about it up front.  The simplest thing to do is simply to have the SQL specify the order.  That's what SQL is there for, after all.  If some DBA tells me "I don't want you using SQL the way it's intended to be used," I would suggest that the DBA is sorely mistaken -- if that's a blanket statement (if the DBA is only discussing problematic SQL, I can buy that,)  If it turns out that individual queries are causing issues, it's OK to optimize those particular queries and deal with the potential extra complexity; sometimes delaying logic is important for optimization reasons and I'd wouldn't object to that so long as there is a <em>demonstrated need</em> for optimization.  I would much rather maintain clean code than "optimized" code.</p>
+
+<p> <em>Also note that ORDER BY clauses are not necessary if an index exists on some or all of the columns in the clause.</em> </p>
+
+<p>To be honest, I was not aware of that.  Can you provide some documentation?  I'd like to learn more about that.  However, if you rely on that (and I don't know enough about it to know if that's a good idea), then you're still pushing some logic down to the database layer and that fits with the "apply the logic as early as possible" rule, though I confess to feeling a bit dubious about a relatively invisible feature having a great impact on my results as it feels like action at a distance.  It also seems to overload the meaning of "index", something else that I also view dubiously, though I'd be happy to be convinced otherwise.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Optimization</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2004-06-17T01:25:52</h3>
+<blockquote><div> <p><em>Also note that ORDER BY clauses are not necessary if an index exists on some or all of the columns in the clause.</em></p>
+<p>To be honest, I was not aware of that. Can you provide some documentation?</p>  </div></blockquote>
+<p>It's common sense, if an index is being used and there's no ORDER BY clause, then rows will be returned in the order of the index. But I wouldn't generally rely on it in production application code and I would explicitly specify the ORDER BY if that's the order I wanted.</p>
+<p>I have run across production code that had something like 'where field1 = ?', and there was a composite index on 'field1, field2', and the code relied on field2 being in order without the SQL statement explicitly specifying it. An 'ORDER BY field2' clause actually made the sql less efficient, because the optimizer thought there needed to be a temp table for a sort. An 'ORDER BY field1, field2' fixed that. Though that doesn't mean it would behave the same in all databases</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Still not convinced :-)</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2004-06-16T22:50:12</h3>
+Afraid it still doesn't convince me. For testing I would tend to either mock the DB input, or use bag/set tests.<br> <br>The efficiency argument doesn't persuade me.<br> <br>If you need ordering for the production code then it's needed by the problem domain and it obviously makes sense.<br> <br>If ordering is not needed by the production code and just makes the test more convenient to write then it smells to me. You're unnecessarily exposing implementation details to the test suite.<br> <br>You're also swapping slower tests for slower production code, which seems a bad exchange.<br> <br>Also, unless you're adding indices to the columns in question, this could really slow down the production code quite a bit. Databases can be surprisingly dumb about this sort of thing. So now we're having to add extra indices that are only needed for the test suite - slowing down the commits and updates!<br> <br>Finally if we decide at a later date that some sort of ordering is important, and that  ordering differs from our 'test order', then all of our tests break. Nasty.<br> <br>
+
+
+
+<blockquote>
+
+<h2>Re:Still not convinced :-)</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-06-16T23:01:54</h3>
+<p>I think I should have been clearer about the "apply logic as early as possible" rule.  I'm not advovating applying unecessary logic.  I'm advocating applying the logic as early as is reasonable.  If you need your database records sorted, sort them in the database, if possible.  This discussion, to be quite frank, came from me working on some code which returns records in database order and is sorted after it's fetched, but this led to places in the code where it should have been sorted, but wasn't.  I was venting, but I really wasn't very clear (which is an excellent reason not to vent while irritated.)</p>
+
+<p>As for "mock the DB input", that's very useful, but not if you're testing the actual DB functionality.  Then mocking the input is not the best way to go<nobr> <wbr></nobr>:)</p>
+
+<p>What are "bag/set" tests?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Still not convinced :-)</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2004-06-17T05:33:15</h3>
+<blockquote><div> <em>What are "bag/set" tests?</em> </div></blockquote>
+
+<p>You don't care in which order you pull the Scrabble tiles out of the bag, only that it contains nothing more or less than a complete set.</p>
+
+
+
+<h2>Re:Still not convinced :-)</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2004-06-17T15:05:53</h3>
+<blockquote><div> <em>What are "bag/set" tests?</em> </div></blockquote>
+
+<p>What chromatic said<nobr> <wbr></nobr>:-) Things like <tt>eq_set</tt> from Test::More or <tt>cmp_set</tt> and <tt>cmp_bag</tt> from Test::Deep.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

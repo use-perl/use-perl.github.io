@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Bash database shell</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Bash database shell</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2004-07-09T21:36:33</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Sometimes it gets very frustrating searching through the metadata of Oracle to find what what I want, particularly since I don't have the shell handy.  Getting tired of this, I wrote a simple Perl program, <tt>qsql</tt> which allows me to execute a lot of queries without using Oracle's pitiful SQLPlus.  After fine-tuning it, I realized that most of the things I need to use it for are amenable to further tweaking.  I can now do things like:</p>
+
+<pre>$ desc ti_releases | grep COUNTRY_ID
+ti_releases.COUNTRY_ID                NOT NULL  VARCHAR2(5)</pre>
+
+<p>Want a quick description of every table whose name contains the word "product"?</p>
+
+<pre>$ for table in `tabs product`; do desc $table; done;</pre>
+
+<p>And then I can grep for the fields I am really looking for.  It's the full power of bash with most of my most commonly needed database search tools.</p></p>
+
+
+<hr/>
+
+
+
+<h2>URL</h2>
+<h3><a href="/user/melopt/">melopt</a> on 2004-07-09T22:01:35</h3>
+So where do we download this?<nobr> <wbr></nobr>;)
+
+
+
+<blockquote>
+
+<h2>Re:URL</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-07-09T22:27:04</h3>
+<p>It still has work a fair amount of work that it needs and it's specific to Oracle, but if you want to see the core of it (fair warning, it's a sloppy hack):</p> <blockquote><div> <tt>use Text::CSV_XS;;<br> <br>my $dbh = DBI-&gt;connect(...);<br>my $sql = @ARGV &gt; 1<br>&nbsp; &nbsp; ? join ' ' =&gt; @ARGV<br>&nbsp; &nbsp; : shift;<br> <br>$sql = munge_sql($dbh, $sql) || die "No sql supplied";<br> <br>if ($sql =~<nobr> <wbr></nobr>/^\s*desc\s*(\w+)/) {<br>&nbsp; &nbsp; desc_tables_and_exit($dbh, $sql, $1);<br>}<br> <br>print "Executing ($sql)\n" if $ENV{DEBUG};<br>my $sth;<br>{<br>&nbsp; &nbsp; local $^W; # stop some silly internal warning<br>&nbsp; &nbsp; $sth = $dbh-&gt;prepare($sql);<br>}<br> <br>$sth-&gt;execute;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;my $csv = Text::CSV_XS-&gt;new<br>while (my @data = $sth-&gt;fetchrow_array) {<br>&nbsp; &nbsp; my $status = $csv-&gt;combine(@data);<br>&nbsp; &nbsp; print $csv-&gt;string(), "\n";<br>}<br> <br>$dbh-&gt;disconnect;<br> <br>sub desc_tables_and_exit {<br>&nbsp; &nbsp; my ($dbh, $sql, $table) = @_;<br>&nbsp; &nbsp; my $sth = $dbh-&gt;column_info({TABLE_NAME =&gt; uc($1)});<br> <br>&nbsp; &nbsp; my $format = "$table.%-30s %-8s %-20s\n";<br>&nbsp; &nbsp; my $description = '';<br>&nbsp; &nbsp; while (my $data = $sth-&gt;fetchrow_arrayref) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my ($name, $type, $length1, $length2, $null) = @{$data}[3,5,6,7,17];<br>&nbsp; &nbsp; &nbsp; &nbsp; $null = $null eq 'YES' ? 'NULL' : 'NOT NULL';<br>&nbsp; &nbsp; &nbsp; &nbsp; $type =&nbsp; "$type($length1)" if $length1 == $length2;<br>&nbsp; &nbsp; &nbsp; &nbsp; $description<nobr> <wbr></nobr>.= sprintf $format =&gt; $name, $null, $type;<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; print $description;<br>&nbsp; &nbsp; exit;<br>}<br> <br>sub munge_sql {<br>&nbsp; &nbsp; my $dbh = shift;<br>&nbsp; &nbsp; my $sql = shift;<br>&nbsp; &nbsp; if ($sql =~<nobr> <wbr></nobr>/^\s*tabs?\s+(\S+)/) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $table_name = $1;<br>&nbsp; &nbsp; &nbsp; &nbsp; $table_name =~ s/\W//g;<br>&nbsp; &nbsp; &nbsp; &nbsp; $sql = "SELECT table_name FROM tabs WHERE table_name LIKE upper('%$table_name%')";<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; return $sql;<br>}</tt> </div></blockquote> <p>Then it's a simple matter of writing shell utilities around it.  I call the above program <tt>qsql</tt>, so my <tt>desc</tt> and <tt>tabs</tt> (table names) utilities are:</p> <blockquote><div> <tt>#/bin/sh<br>$HOME/bin/qsql desc $1</tt> </div></blockquote> <p>and</p> <blockquote><div> <tt>#/bin/sh<br>$HOME/bin/qsql tabs $1</tt> </div></blockquote> <p>You can also write simple select statements from the command line with my <tt>sel</tt> utility:</p> <blockquote><div> <tt>sel name from users where login_id = \'ovid\'</tt> </div></blockquote> <p>Implemented with:</p> <blockquote><div> <tt>#/bin/sh<br>$HOME/bin/qsql "select $*"</tt> </div></blockquote> <p>Again, everything is very specific to Oracle and it's not rocket science, but it's very, very useful to me.  Note that the <tt>desc</tt> utility will only describe tables, not views.  That can be confusing if you don't know what you're looking for isn't a real table.</p>
+
+
+
+<blockquote>
+
+<h2>Re:URL</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2004-07-11T00:42:51</h3>
+<p>This doesn't need to be Oracle specific if you use the 'table_info' method. In fact, you're calling 'column_info' in a deprecated style (though in past docs, I can only tell that the style was once valid for 'table_info'). Since the 'table_info' and 'column_info' methods allow wildcards for the table name, you could do all the tricky parts with just those methods.</p>
+<blockquote><div> <em>it's a sloppy hack...</em> </div></blockquote>
+<p>Yeah, there is a bit of slop in that you pass the table name to the desc_tables_and_exit function, but use the captured match from the previous function instead of the passed arg, and that the dbh is passed but not used in munge_sql<nobr> <wbr></nobr>:-)</p>
+
+
+
+<blockquote>
+
+<h2>Re:URL</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2004-07-11T00:50:18</h3>
+I should also admit that I've never actually used the table_info OR the column_info methods<nobr> <wbr></nobr>:) But then, I do most all my <a href="http://www.perlmonks.org/index.pl?node_id=302521" title="perlmonks.org">SQL from vi(m)?</a perlmonks.org> anyway.
+
+
+
+<h2>Re:URL</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-07-11T20:20:40</h3>
+<em>Yeah, there is a bit of slop in that you pass the table name to the desc_tables_and_exit function, but use the captured match from the previous function instead of the passed arg...</em><p><em><em>Well, that bit of dreck can easily be explained away by the fact that I was busy doing a refactor I later abandoned and when I posted here I noticed I was using <tt>$1</tt> so I tried to fix that on the fly and failed miserably<nobr> <wbr></nobr>:)</em></em></p>
+
+
+
+<h2>Re:URL</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-07-11T20:28:06</h3>
+<p>Ack.  I hit submit instead of preview.  Sigh.</p>
+
+<p>I was <em>trying</em> to thank you for the information, but I didn't get that far<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>What did you dislike about existing shells?</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2004-07-12T23:38:58</h3>
+What existing shells you ask?  Well several co-workers use a hacked up version of <a href="http://piqt.sourceforge.net/" title="sourceforge.net">piqt</a sourceforge.net>.  I suspect that <a href="http://dbishell.sourceforge.net/" title="sourceforge.net">dbishell</a sourceforge.net> is going to provide more functionality out of the box.  The latter page points at several more to look at.<p>
+
+Perhaps another way to state this question is, "What features are you really looking for in a project like this?"</p>
+
+
+
+<blockquote>
+
+<h2>Re:What did you dislike about existing shells?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-07-13T00:01:01</h3>
+<p>I didn't know about those others but it looks like they might provide what I was looking for.  Basically, I wanted to interact with the database without leaving Bash.  By building a few small utilities that interacted with one another, I have the database directly in the shell.  If these other projects provide that as seamlessly, I'll probably go with one of them.  Thanks for the heads up.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: Iterators</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Iterators</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2002-05-02T15:07:01</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've been playing with iterators at work this week.  It's a great way to create stackable filters for a stream of input.
+<p>
+What I'm trying to accomplish is write a pattern matcher that will identify certain common multi-line patterns in an input file -- such as a diff between two XML files.  I've already done a decent amount of post-processing, and don't want to keep munging my post-processors to make all of the meaningless differences conform.
+<p>
+One set of files I'm dealing with is about 250,000 lines of XML output, about 7.5MB.  The diff between the old and new versions is about 1.4MB, or about 1600 divergent blocks.  Most of these differences are effectively meaningless -- open+close tags vs. empty tags, extraneous whitespace, etc.  Filtering out those meaningless differences, I can isolate the ~200 divergent sections that I really need to fix.
+<p>
+I suppose I could read in the whole megabyte diff and then iteratively run a series of regexes over the input to weed out the meaningless diffs.  But that just felt a wee bit too hinky.  My current solution works something like this:
+<pre>
+my $generator = sub {return scalar <>};
+my $filter = make_filter($generator, @pattern1);
+$filter = make_filter($filter, @pattern2);
+$filter = make_filter($filter, @pattern3);
+[...]
+
+
+## Read the entire file and ignore each pattern I don't care about
+print while (defined($_ = $filter->()));
+</pre>
+This has been really working wonderfully.  Except that I can't seem to find a tremendous amount of literature about iterators (I managed to avoid Common Lisp until now; and it's starting to bite me).</p>
+
+
+<hr/>
+
+
+
+<h2>Iterator info</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2002-05-02T17:04:59</h3>
+<p>Iterators are mentioned fairly frequently in the pattern literature, but the discussion generally assumes that you know how or have the libraries around to create and use them. They're generally very simple: the Java <code>java.util.Iterator</code> interface just has the operations <code>hasNext()</code> (are there any more?), <code>next()</code> (returning the next item) and the optional <code>remove()</code> which deletes the last element kicked out of the iterator.</p>
+
+<p>MJD has some excellent articles that center on or around iterators. In fact, after seeing one of his talks at last year's YAPC I sent up to the dorm and created an iterator class for SPOPS so you don't have to deal with an entire query full of records at once.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Iterator info</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2002-05-02T17:59:00</h3>
+I've looked into the GoF discussion about iterators, and it looks like the Iterator pattern is simply an interface that classes can implement, or an adaptor to translate a tree into a linear sequence.  The <tt>java.util.Iterator</tt> interface is a case in point.  These also dominate the search results at google.
+<p>
+What I'm looking for is deeper than that.  For example:</p><blockquote><div> <tt>sub make_iterator($$) {<br>&nbsp; &nbsp; my $next = shift;<br>&nbsp; &nbsp; my $pattern = shift;<br> <br>&nbsp; &nbsp; return sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $line = $next-&gt;();<br> <br>&nbsp; &nbsp; &nbsp; &nbsp; while (defined ($line) &amp;&amp; $line =~ m/$pattern/) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $line = $next();<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; &nbsp; &nbsp; return $line;<br>&nbsp; &nbsp; };<br>}<br> <br>my $generator = sub {return scalar &lt;&gt;};<br>my $filter = make_filter($generator, qr{^$});<br>$filter = make_filter($filter, qr{^skip});<br> <br>print while (defined ($_ = $filter-&gt;()));</tt> </div></blockquote>Note that these filters are both statically bound and composable.  Once the initial generator is finished, I can't reuse the pipeline I've defined that ignores two classes of input.  Also, the behavior of the iterator that's applying 0/1/many filters is identical to the simple generator with no filters tacked on.
+<p>
+Surely this is possible with Java/C++ STL, but that's not the idiom I've seen used with those languages, where classes that unroll trees (e.g. an XML DOM) into a serial data structure (e.g. SAX events, XMLPull) are much more common.
+</p><p>
+I've talked to MJD about this, and he says most of the literature I'm looking for is scattered about the Common Lisp universe.  He also mentioned a similar pattern called <tt>gatherer</tt> that is sort of an inverted iterator:</p><blockquote><div> <tt>my $gatherer = make_gatherer(...);<br>while (&lt;&gt;) {<br>&nbsp; &nbsp; $gatherer-&gt;next($_);<br>}<br>print $gatherer-&gt;results();</tt> </div></blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Iterator info</h2>
+<h3><a href="/user/darobin/">darobin</a> on 2002-05-02T19:22:25</h3>
+<p>
+  My memory is quite fuzzy on this, but I seem to recall that DOM2's chapter called DOM Traversals has tree unrollers that are a bit more beefed up than the vanilla ones. Not sure that it fits your problem (or that I remember correctly) but you might want to check them out.
+</p>
+
+
+
+<h2>co-routines</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2002-05-02T19:42:13</h3>
+If you have a language that supports co-routines nicely, you can easily chain together iterators and gatherers.<br> <br>It works essentially the same way as STDIN and STDOUT on a pipeline.  Each filter does a <code>$val = resume( $predecessor, $val )</code> to get the next item that it is to filter, and does <code>$val = resume( $successor, $val )</code> to pass on the next item that it has generated.  (Having the $val item be passed to the other both ways allows each co-routine to choose what buffer is used rather than having a predefined mailbox that stuff has to be copied into.)
+
+
+
+<h2>Re:Iterator info</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-05-03T11:37:41</h3>
+This looks awfully like AxKit's post-processing filter stuff (useful for adding in dynamic adverts into static content). Here's the code (slightly modified for sanity):<blockquote><div> <tt>sub get_output_transformer {<br>&nbsp; &nbsp; my $func = sub { @_ };<br>
+&nbsp; <br>&nbsp; &nbsp; my $actually_transform = 0;<br>
+&nbsp; <br>&nbsp; &nbsp; foreach my $AxOutputTransformer ( $AxKit::Cfg-&gt;OutputTransformers() ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; $actually_transform = 1;<br>&nbsp; &nbsp; &nbsp; &nbsp; my $outputfunc = $func;<br>&nbsp; &nbsp; &nbsp; &nbsp; no strict 'refs';<br>&nbsp; &nbsp; &nbsp; &nbsp; $func = sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; map { &amp;{$AxOutputTransformer}( $_ ) } ($outputfunc-&gt;(@_));<br>&nbsp; &nbsp; &nbsp; &nbsp; };<br>&nbsp; &nbsp; }<br>
+&nbsp; <br>&nbsp; &nbsp; return wantarray ? ($func, $actually_transform) : $func;<br>}</tt> </div></blockquote>Of course it's static (using @_) rather than pulling from a file descriptor, but it's interesting to see people using similar patterns.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

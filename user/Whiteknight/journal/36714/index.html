@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Whiteknight: Duff's Device and the GC Sweep Phase</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Duff's Device and the GC Sweep Phase</h1>
+<h2><a href="/user/Whiteknight/">Whiteknight</a> on 2008-06-18T13:58:43</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I haven't written in a while, it's been my intention to write updates here almost every day but I haven't had time to update in about a week. I've been making lots of progress, and I want to talk about some of it here.<br/><br/>I've basically finished, for varying definitions of the word "finished", the mark phase code for the GC. The code is now a state machine that can stop and restart itself in the middle of either the mark or sweep phases. Some parameters will need to be twiddled to determine how much work gets done before we take a break.<br/><br/>I started on the sweep code this week, and have already made good progress. The cardmarking scheme I'm using has cards of one byte, broken into four two-bit flags. Each flag represents one item in the arena, so this system seems to lend itself to doing four checks at a time. Doing things in groups immediately reminds me of loop-unrolling, an optimization technique we used to use back when I still did assembly language stuff in school. <br/><br/>Instead of looping to each card, and then looping individually over each flag, I loop to each card and then do all 4 flags in a single loop. This should be a relatively simple implementation:<br/><br/> while(card-- != gc_priv_data->start_card) {
+   mark_card_1()
+   mark_card_2()
+   mark_card_3()
+   mark_card_4()
+ }<br/><br/>However, we run into the problem that the number of items in the arena might not necessarily be divisible by 4. How do we reconcile this simple (and simple is desirable) unrolled loop with the fact that at least one iteration might not contain all 4 items? The 4 flags always exist on the card, so we could set the flags at the end to some kind of special "UNUSED" flag, and ignore that when we find it, but that means we would need to add 1 new conditional for every flag, four to each loop iteration. If I have 99 items in the arena, I would need to check for the UNUSED flag 99 times before it did anything useful. Luckily for us, there is a "better" way (for varying definitions of "better").<br/><br/>The answer, at least so far as I am concerned, is to use Duff's device. Duff's device (do a wikipedia search for that term, if you want a lot more info) is a strange and esoteric, but completely valid mechanism in C code. It takes advantage of a few things: (1) the relaxed requirements of the switch/case structure in C and (2) the default "fall-through" behavior of case statements. Here is an example of a Duff's device that I am using in the sweep phase of the new GC:<br/><br/> switch(number_of_cards % 4) {
+   case 0: 
+     while(card-- != start_of_cards) {
+       mark_flag_4();
+   case 3:
+       mark_flag_3();
+   case 2:
+       mark_flag_2();
+   case 1:
+       mark_flag_1();
+     }
+ }<br/><br/>It looks a little strange, doesn't it? Regardless of how it looks, this code is perfectly legal in C, and does precisely what I need: it allows me to keep the loop unrolled, but it also allows me to skip unused flags in the first loop iteration. The switch statement allows us to jump into the middle of the while loop, at a place determined by the number of items we have in the final card. Consider our example of an arena with 99 items in it: In the first iteration, 99 % 4 = 3, so we jump to the "case 3:" part of the loop. We mark the third flag, fall through and mark the second flag, fall through and mark the first flag. We hit the bottom of the while loop, so we jump back up to the top of it (not back to the top of the switch. From the top of the while loop, we mark the 4th item, fall through to the third, to the second, to the first, and then repeat. <br/><br/>Duff's device may not be perfect for all loop-unrolling needs, but I think it's perfect for this particular implementation. <br/><br/>Last night I threw together a quick PMC singleton class for the garbage collector. This will give programs written in PIR or one of the HLLs basic insight to the GC system's operation. Some of the accessor methods allow us to see the configuration settings of the GC, the number of items scanned, the number of threads running, if any, and the number of items in the queue, the root queue, and the free list (for the PMC pool only). In addition, I've added methods to launch a GC iteration and to perform a complete GC run. I personally would like to see a singleton PMC like this replace some of the GC-related opcodes that parrot supports, because I think this will give us better control and more options. However, it will be useful for testing this summer even if it's not used by the Parrot project at large.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

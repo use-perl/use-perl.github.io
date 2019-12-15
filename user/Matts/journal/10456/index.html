@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Matts: Perl 5.8.0 signals and sockets</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl 5.8.0 signals and sockets</h1>
+<h2><a href="/user/Matts/">Matts</a> on 2003-02-07T11:48:37</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This week I've been dreading the approach of a co-worker because he's had problems with a socket server on perl 5.8.0 that works fine on 5.6.1 and below. The problem was that the CHLD signal handler was causing the program to exit, rather than just reaping the child.<br/><br/>The problem looks something like this:
+<pre>
+$SIG{CHLD} = \&REAPER;
+my $server = _mk_sock();<br/><br/>while (my $client = $server->accept) {
+  my $pid = fork();
+  die "fork failed" unless defined $pid;
+  if ($pid) {
+     # parent
+     next;
+  }
+  # child
+  ...
+}
+</pre>
+Now this works beautifully under perls before 5.8.0, but with 5.8.0's safe signals it breaks.<br/><br/>Unfortunately it appears that very few people have experienced this problem on google groups or elsewhere, so we had to figure it out for ourselves...<br/><br/>What's happening is that safe signals break out of the accept() call and execute the REAPER, but they don't go back into the accept() call like non-safe signals would - they make the accept() call return false. This is logical if you think about it, but took us many brane stroking hours to figure out.<br/><br/>Anyway, the solution is:
+<pre>
+sub REAPER {
+   ...
+   $CHILDEXIT = 1;
+}
+...
+while (1) {
+  my $client = $server->accept;
+  if ($CHILDEXIT) {
+    $CHILDEXIT = 0;
+    next;
+  }
+  elsif (!$client) {
+    die "accept failed";
+  }
+  ...
+}
+</pre>
+There was something mentioned on usenet about EINTR but the above works fine.<br/><br/>(The main point of writing this journal entry is so that google indexes it to help others with similar problems).</p>
+
+
+<hr/>
+
+
+
+<h2>Good Practice</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2003-02-07T12:28:48</h3>
+It's probably always good practice to set a flag in a signal handler to let the main flow of code know that something has happened...
+
+<p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Good Practice</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-02-07T13:06:27</h3>
+Yes, but normally you'd do that like this:<blockquote><div> <tt>while (my $client = $server-&gt;accept()) {<br>&nbsp; &nbsp;if ($SOMEFLAG) {<br>&nbsp; &nbsp; &nbsp;...<br>&nbsp; &nbsp;}<br>&nbsp; &nbsp;...<br>}</tt> </div></blockquote>Which doesn't work any more.
+
+
+
+<blockquote>
+
+<h2>Re:Good Practice</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2003-02-07T13:18:45</h3>
+That's very true, and a subtle point for people who are used to looking at things one particular way; I quite glossed over that.
+
+<p>Basically, you're saying that EINTR won't get reported properly and the system call won't get restarted either.  Yuck.
+
+</p><p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Good Practice</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-02-07T13:54:42</h3>
+Mostly it's for people reading the Perl Cookbook, which has the code the original way. I guess this'll all be fixed in Cookbook2, but until then I wanted to get something in google.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

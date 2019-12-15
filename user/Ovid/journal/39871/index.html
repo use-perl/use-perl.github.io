@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: MySQL on a ramdisk</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>MySQL on a ramdisk</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-11-10T13:47:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Two interesting thoughts about tests:</p>
+
+<ul>
+  <li>You often don't care if you lose the test information as you start fresh each time.</li>
+  <li>Reading from RAM is one heck of a lot faster than reading from disk.</li>
+</ul>
+
+<p>We hired a new developer.  He didn't have a strong background in what we do, but he has solid skills and an excellent academic background.  In working with him yesterday, I was showing him the test suite and he mentioned that he heard it was slow.  He tossed out various ideas to speed it up, but there were problems with many of them.  Then he mentioned a ramdisk.</p>
+
+<p>Oh!</p>
+
+<p>Today we mounted a ram disk and pointed a test mysql instance at it.  Our "fast" set of tests takes about 57 minutes to run.  Now it takes 31.  I just reniced it and started it again.</p>
+
+<p>If this proves workable, we might even set up a dedicated test server just for this.  If we lose power, we lose the data, but who cares?  It's just for testing and we can bring it up again.</p>
+
+<p>Thinking about this raises an obvious question: what would happen if we put our production database on a solid state drive?  Their prices are dropping rapidly and we could get a huge performance boost on our production app with with no architectural changes.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Re: MySQL on a ramdisk</h2>
+<h3><a href="/user/daxim/">daxim</a> on 2009-11-10T14:52:45</h3>
+<a href="http://www.joelonsoftware.com/items/2009/03/27.html" title="joelonsoftware.com">http://www.joelonsoftware.com/items/2009/03/27.html</a joelonsoftware.com>
+<p>
+tl;dr desktop usage was faster, compile time was same</p>
+
+
+
+<h2>SSD</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2009-11-10T15:08:05</h3>
+<p>A lot of SSDs don't perform as well as people think they should because file systems haven't caught up with them yet. They are still trying to minimize seeks so they'll do extra processing that's unnecessary on SSDs.</p><p>How big is your working copy (the majority of your database that you use at a time, with indexes, etc)? It might make more sense just to buy a ton of RAM if you can fit most of your working copy in memory.</p>
+
+
+
+<blockquote>
+
+<h2>Re:SSD</h2>
+<h3><a href="/user/Wonko/">Wonko</a> on 2009-11-10T19:01:36</h3>
+<p>A good current gen SSD should provide a pretty reasonable boost in performance for a database.  The most interesting, and my favorite, number I got out of benchmarking my Intel X25-M is that it can pull over 4000 seeks per second on my laptop.  The cheap 4 disk RAID 10 in my web server only pulls a bit over 300.
+
+</p><p>The thing slowing the DB tests down isn't just the disks.  Its the ACID properties of the database.  I'm sure MySQL is calling sync quite a bit.  If it didn't, the OS disk caching would work nearly as well as the RAM disk.  Every sync is going to require at least 1, but probably more, seeks.  A good SSD would help out a lot there, but not nearly as much as a RAM disk should.
+
+</p><p>I agree with mpeters.  RAM is dirt cheap, buy lots of it and use RAM disks for testing.
+
+</p><p>If you can't buy enough RAM and you're testing on Linux you might want to try tmpfs.  tmpfs is memory+swap backed, and even when swapped is pretty fast.  I can't imagine that tmpfs has to respect the sync calls.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>SSD != RAM</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2009-11-10T15:39:39</h3>
+SSD is a kind of flash, and doesn't perform at all like RAM.  It's similar in that there's no rotational delay.  Writes tend to be staggered so that each bit gets a comparable number of writes (which leads to much worse fragmentation, especially in write-heavy environments).  You might get decent performance off of the SSD initially, but performance will likely degrade over time given a balanced or write-heavy workload.
+
+
+
+<h2>MEMORY storage engine</h2>
+<h3><a href="/user/mickeyc/">mickeyc</a> on 2009-11-10T16:19:19</h3>
+You may want to look at the MEMORY storage engine for MySQL. I'm surprised you got such a huge boost. Are your tests write heavy? I assume you've already tweaked the query cache so you're not reading the same data over and over from disk?
+
+
+
+<blockquote>
+
+<h2>Re:MEMORY storage engine</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-11-10T16:37:17</h3>
+<p> <a href="http://dev.mysql.com/doc/refman/5.1/en/memory-storage-engine.html" title="mysql.com">The MEMORY storage engine does not support transactions</a mysql.com>, thus making it unsuitable for our tests.  And I doubt tweaking our query cache on the test databases will do much good as, at the start of every test, we're flushing the data and loading a new set of fixtures.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>TMPFS on Linux</h2>
+<h3><a href="/user/adhoc/">adhoc</a> on 2009-11-11T02:03:47</h3>
+I'm not sure which 'ramdisk' you are using or which OS, so if you're on Linux I'd suggest you have a look at TMPFS. I've had some good results running large builds with make and lots of linking.<br/><br/>It does require copying all the data in first, but this may not be an issue if you set the db path and issue all the sql from "create database test" onwards.
+
+
+
+<h2>Steal from the otaku</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-11-12T23:02:55</h3>
+<p><a href="http://www.ramsan.com/success/ccpgames.htm" title="ramsan.com">http://www.ramsan.com/success/ccpgames.htm</a ramsan.com></p><p>The thing you want is called a RAMSAN, and I know this because I've read a ton of developer reports from EVE Online.</p><p>Those guys have a MASSIVE performance sensitivity on their database, so they run this gigantic RAMSAN-backed database.</p><p>If you can reach serious performance savings or developer time savings (and so can justify the cost) you probably want something like that.</p><p>Of course, you may not need the size of the gear they use, but in principle you want the same thing.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

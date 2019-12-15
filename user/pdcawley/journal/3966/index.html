@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pdcawley: Perl 6, making life easier for tool writers...</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl 6, making life easier for tool writers...</h1>
+<h2><a href="/user/pdcawley/">pdcawley</a> on 2002-04-04T11:01:28</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>So, I was thinking about Smalltalk, and Perl 6, and another idea popped up.<br/><br/>Smalltalk has the concept of method categories, which are used to organize methods within the system browser. This means you can easily look at all the 'factory method's implemented by a class, or all the accessor methods or whatever. With large classes this can make a big difference to the class's understandibility when you look at it in the system browser.<br/><br/>So, consider this chunk of Perl6 code.
+<pre><br/><br/>module Categories is Mixin {
+  sub add_categories(@categories) {...}<br/><br/>  # Big, big guess/handwave, but it's not 
+  # essential to have. Just nice.
+  sub category($name, &block) {
+    &block.optree.walk_with -> $op {
+      when OP::Sub {
+        .attrib(category) //= $name;
+      }
+      return $op;
+    }
+  }
+}<br/><br/>class SomeClass {
+  use Categories;<br/><br/>  add_categories 
+    'accessor', 'setter', 
+     strangeCategory => "Category description";<br/><br/>  method new is category(factoryMethod) {...}
+  
+  method attrib is category(accessor) {...}
+  method set_attrib is category(setter) {...}<br/><br/>  category strangeCategory {
+    method foo {...}
+    method bar {...}
+  }
+}
+</pre>
+So, what's the benefit I hear you ask. Well, it moves documentation into the optree. I've realised from the work I've been doing on a refactoring browser that the more documentation you can get at 'programmatically', the easier it is to code useful tools.<br/><br/>For instance, given the category syntax above, it would become possible for a putative to class browser to query a class for its methods and categories, and it could then query those methods to find out which category to display the method in.<br/><br/>And, to my eyes at least, the source code reveals its intent more clearly.</p>
+
+
+<hr/>
+
+
+
+<h2>Reinventing Smalltalk</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2002-04-04T14:16:50</h3>
+This is certainly an idea from Smalltalk that has been lost for the ages.
+<p>
+As originally designed in Smalltalk, I <i>think</i> that the category descriptions for methods were done using metadata (comments):
+</p><blockquote><div> <tt>
+"methods for parsing"<br><nobr> <wbr></nobr>....<br>
+"methods for error handling"<br><nobr> <wbr></nobr>....<br>
+</tt> </div></blockquote>
+The code browser would respect these comments scattered about the code and use that information to simplify the display in the code browser.
+<p>
+Putting this information into the op tree sorta sounds good, but modifying the syntax of the language (through a user-defined <tt>category</tt> block) feels like it's taking three steps towards Java just to get one step closer to Smalltalk.
+</p><p>
+How does this look:</p><blockquote><div> <tt>use Categories;&nbsp; &nbsp; &nbsp; &nbsp; ## load behaviors to respect '=category' comments<br>class SomeClass {<br> <br>=category factoryMethod<br>&nbsp; method new {...}<br> <br>=category accessor<br>&nbsp; method attrib {...}<br> <br>=category setter<br>&nbsp; method set_attrib {...}<br> <br>=category strangeCategory<br>&nbsp; method foo {...}<br>&nbsp; method bar {...}<br>} </tt> </div></blockquote>(To be fair, that code is much smaller because the <tt>Categories</tt> module isn't stubbed in.)
+<p>
+Personally, I like this better because the metadata for this module <b>is</b> metadata.  Presumably the code browser is going to have access to raw source code, and can annotate it's view of the world accordingly.  That also means that the optree doesn't need to be decorated during execution, when this information is likely to be meaningless.
+</p><p>
+Depending on how the parser finally winds up, the <tt>Categories</tt> module could be quite small -- equating the <tt>=categories</tt> tag to a self-contained <tt>=for</tt> statement that doesn't need an empty paragraph to be terminated.  The code browser could switch in a different <tt>Categories</tt> module that actually processes the metadata and annotates the sub definitions.  Or perhaps that trivial amount of code is always switched on, but never used outside the code browser...</p>
+
+
+
+<blockquote>
+
+<h2>Re:Reinventing Smalltalk</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-04-04T14:54:00</h3>
+The catch with that approach is that the putative browser has to start parsing the source file to work out what's going on. <br> <br>If category information is just another attribute on the coderef then the browser doesn't have to start looking in the source to build its browsable structure, it only has to worry about it when you want the method listing.<br> <br>Of course, if B::Deparse's perl6 equivalent can be relied on to work in all cases, you don't even need to see the source, it can be regenerated from what's in memory.<br> <br>I'm wondering though if we're going to need to distinguish between the executable optree and some higher level abstract syntax tree. The AST would be far easier for tools/macros/whatever to monkey with but would (usually) get thrown away once you reach runtime...
+
+
+
+<blockquote>
+
+<h2>Re:Reinventing Smalltalk</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2002-04-04T15:23:34</h3>
+<blockquote><div> <i>
+The catch with that approach is that the putative browser has to start parsing the source file to work out what's going on.
+</i> </div></blockquote><nobr> <wbr></nobr>....then that's a good argument to adopt macros or otherwise tweak the parser to take a <tt>=category</tt> comment as a way of specifying a category attribute on a sub.
+<p>
+The <tt>category {...}</tt> syntax you propose looks like it's adding another level of lexical scope, when all it's doing is adding metadata.  That sounds like an impedence mismatch to me.
+</p><p>
+I'm less concerned about how the internals work here than I am about how the idiom looks and feels.  Keeping this metadata in a comment -- like Smalltalk did -- feels like a better solution.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Reinventing Smalltalk</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-04-04T16:24:21</h3>
+The 'new scope thing' is a very good point; most of the time you really don't want to do that. And I don't want to have to think about <blockquote><div> <tt>class foo {<br>&nbsp;<nobr> <wbr></nobr>...<br>&nbsp; <br>&nbsp; my category private is private {<br>&nbsp; &nbsp; sub foo {...}<br>&nbsp; &nbsp; sub bar {...}<br>&nbsp; }<br>}</tt> </div></blockquote>I am convinced. I'm not sure I like your proposed syntax though. <br> <br>However, quibbling over syntax is beside the point. The point is that Perl6 is going to make it possible for us to do this sort of categorization.
+
+
+
+<blockquote>
+
+<h2>Re:Reinventing Smalltalk</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2002-04-04T16:32:02</h3>
+<blockquote><div> <tt>
+my category private is private {...}
+</tt> </div></blockquote>
+Are you sure about that?  Sounds Clintonian (depends on what the meaning of "private" is...)
+<p><nobr> <wbr></nobr>:-)</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Reinventing Smalltalk</h2>
+<h3><a href="/user/Elian/">Elian</a> on 2002-04-11T19:16:23</h3>
+Few things Parrot's doing structurally that may help:
+
+<ol>
+<li>Docstrings as a guaranteed propery on everything. (Potentially <i>empty</i> mind, but guaranteed)</li>
+<li>Ties between the bytecode stream and the AST</li>
+<li>Ties between the bytecode stream/AST and the original source</li>
+</ol>
+
+So while there's no guarantee that everything'll be there (someone might strip the bytecode) you should be able to look at a sub ref, grab a pointer to its AST, grab a pointer to the beginning of its source, and potentially see any documentation that's been attached to it.
+<p>
+How this stuff is provided for, or represented, at the perl level is left as an exercise for Larry.<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: What I want in 5.12</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>What I want in 5.12</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-01-17T15:37:28</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><P>One of the biggest blights on the Perl language is the dereferencing syntax.  This can't be solved the Perl 6 way because leading sigils are not invariant:</p>
+
+<pre>my $foo = [qw/this that/];
+my @foo = qw/one two/;
+print $foo->[0];
+print $foo[0];</pre>
+
+<p>If we had invariant sigils, the <tt>-&gt;</tt> could be optional.  We don't, so we can't.  However, if we're willing to introduce another backwards incompatible change, we can clean up slices a bit:</p>
+
+<pre>  use Data::Dumper;
+
+  my $foo = [ qw/foo bar baz/ ];
+  my @foo = $foo->[1,2];
+  print Dumper \@foo;
+
+  @foo = @$foo[1,2];
+  print Dumper \@foo;
+  __END__
+  $VAR1 = [
+            'baz'
+          ];
+  $VAR1 = [
+            'bar',
+            'baz'
+          ];</pre>
+
+<p>In short, allow <tt>$foo-&gt;[1,2]</tt> to return a list.  Of course, this also implies: <tt>$bar-&gt;{'this', 'that'}</tt>.</p>
+
+<p>Schwern has listed <a href="http://use.perl.org/articles/08/01/11/2311212.shtml">some of the other suggestions</a> and Johan Vromans has proposed a working <tt>SUPER</tt> (yes, please!).</p>
+
+<p><strong>Update:</strong>  Doesn't work as it <em>does</em> break backwards-compatibility.  From <tt>perldoc perlvar</tt>:</p>
+
+<pre>    $;      The subscript separator for multidimensional array emulation. If
+            you refer to a hash element as
+
+                $foo{$a,$b,$c}
+
+            it really means
+
+                $foo{join($;, $a, $b, $c)}
+
+            But don't put
+
+                @foo{$a,$b,$c}      # a slice--note the @
+
+            which means
+
+                ($foo{$a},$foo{$b},$foo{$c})
+
+            Default is "\034", the same as SUBSEP in awk. If your keys
+            contain binary data there might not be any safe value for $;.
+            (Mnemonic: comma (the syntactic subscript separator) is a
+            semi-semicolon. Yeah, I know, it's pretty lame, but $, is
+            already taken for something more important.)
+
+            Consider using "real" multidimensional arrays as described in
+            perllol.</pre></p>
+
+
+<hr/>
+
+
+
+<h2>SUPER:: is just broken</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2008-01-17T18:18:31</h3>
+<p><blockquote> <div><i>
+ Johan Vromans has proposed a working SUPER (yes, please!)
+</i></div> </blockquote>
+<p>
+I commented on this on p5p as well, SUPER:: is broken simply because it is ambiguous in the case of multiple inheritance. The NEXT module provides one solution, but it is notoriously slow and has some issues with edge cases (as the Catalyst folk about that). We should instead start encouraging people to use the $self-&gt;next::method syntax which the mro pragma has introduced with 5.10 and the C3 mro if they are using multiple inheritance. This will ensure that they can have the dynamism needed (which  SUPER:: doesn't provide)  as well as a sane and predictable answer as to what next::method calls (the next thing in the mro).
+</p>
+<p>
+And all with the added benefit of not either breaking SUPER:: or having to make SUPER:: so complex in order to support backwards compat too.
+</p>
+<p>
+- Stevan
+</p>
+
+
+
+<h2>Tie::Math</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2008-01-17T21:23:42</h3>
+<a href="http://search.cpan.org/dist/Tie-Math" title="cpan.org">Tie::Math</a cpan.org> makes use of the existing behavior, though I'd gladly sacrifice it to see a nicer hash slice syntax.<p><blockquote> <div><tt>&nbsp; &nbsp; use Tie::Math qw(f X Y);<br>
+&nbsp; <br>&nbsp; &nbsp; my %pascal;<br>&nbsp; &nbsp; tie %pascal, 'Tie::Math',<br>&nbsp; &nbsp; &nbsp; &nbsp; sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;if( X &lt;= Y and Y &gt; 0 and X &gt; 0 ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;f(X,Y) = f(X-1,Y-1) + f(X,Y-1);<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;}<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;else {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;f(X,Y) = 0;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;}<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;},<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;f(1,1) = 1;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;f(1,2) = 1;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;f(2,2) = 1;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;};<br>
+&nbsp; <br>&nbsp; &nbsp; $height = 5;<br>&nbsp; &nbsp; for my $y (1..$height) {<br>&nbsp; &nbsp; &nbsp; &nbsp; print " " x ($height - $y);<br>&nbsp; &nbsp; &nbsp; &nbsp; for my $x (1..$y) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print $pascal{$x,$y} . " ";<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; print "\n";<br>&nbsp; &nbsp; }</tt></div> </blockquote>
+
+
+
+<h2>slice</h2>
+<h3><a href="/user/dagolden/">dagolden</a> on 2008-01-18T00:02:34</h3>
+<p>I like the idea, but see the point about compatibility.  How about just a 'slice' function?  (built-in or module)</p> <p><blockquote> <div><tt>@foo = slice($foo,1,2);<br> <br># vs<br> <br>@foo = @{$foo}[1,2];</tt></div> </blockquote>  <p>More keystrokes, but less line noise -- intent is clear.  Could DWIM for any slice-able variable:</p> <p><blockquote> <div><tt>@foo = slice( @array, 1, 2 );<br>@foo = slice( $a_ref, 1, 2 );<br>@foo = slice( %hash,&nbsp; qw/one two/ );<br>@foo = slice( $h_ref, qw/one two/ );</tt></div> </blockquote>  <p>/me wonders if this is already on CPAN</p>
+
+<p>--dagolden</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of chromatic: What C's Memory Management Gets Rightish</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>What C's Memory Management Gets Rightish</h1>
+<h2><a href="/user/chromatic/">chromatic</a> on 2008-05-24T18:28:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>In <a href="http://use.perl.org/user/chromatic/journal/36449">Double-Speed</a>, I gave numbers for two Parrot optimizations that added up to a big improvement.  Several people asked for explanations.</p>
+
+<p>The most dramatic change is a refinement on stack chunk recycling, which I
+first explained in <a
+href="http://use.perl.org/user/chromatic/journal/36212">Refcounting Isn't All
+Bad</a>.  I've been thinking a lot lately about the difference between things
+which happen often versus things which happen rarely.  Even though
+continuations at the VM level mean that control flow is not always a perfect
+singly-linked list of call frames, control flow is usually a singly-linked list
+of call frames.  Though your call state <em>can</em> be a tree, in practice
+taking a continuation is rare.</p>
+
+<p>In Parrot, taking a continuation is the only thing that will increase the
+reference count of a stack chunk.  (I assume by now that you either understand
+continuations enough to know what I mean, or you can look it up for yourself.
+The important point is that a continuation captures a point in the call graph
+and keeps it alive as long as the continuation is alive.  This allows the
+continuation to return to that point in the call graph whenever you invoke
+it.)</p>
+
+<p>When I realized this, I removed all of the other refcount manipulations from
+the system.  The only remaining refcount manipulation is for creating and
+destroying continuations.  That's why <a
+href="http://www.parrotvm.org/svn/parrot/revision?rev=27567">Parrot revision
+27567</a> gave a 30% improvement in the Rakudo-building benchmark.</p>
+
+<p><a href="http://www.parrotvm.org/svn/parrot/revision?rev=27568">Parrot
+revision 27568</a> is more interesting.  The final diff chunks, for the
+<code>isa</code> vtable entry, tell the story.  Given a PMC and the name of a
+class, is the PMC an instance of the class or one of its ancestors?</p>
+
+<p>To answer this question, the function must get the name of the PMC's current
+class.  That's the call to the <code>get_string</code> vtable entry.</p>
+
+<p>The second chunk of the diff shows this function.  It performs some
+calculations and caches the name, so there's a lazy-evaluation semantic here.
+Then it returns a <em>copy</em> of the name.  (Don't worry -- it's a
+copy-on-write copy.  I disabled COW once in Parrot for fun and, well, if
+there's one optimization we're keeping, it's that one.  Yikes.)</p>
+
+<p>Why?</p>
+
+<p>Strings are mutable in Parrot.  If you wanted to subclass a class at
+runtime, you might grab the name of the parent class, append a counter or other
+mangling to its name, and use the result as the name of the subclass.  If you
+modified the same string that the parent class used in its name cache, you'd
+effectively change the class's name in place.  (I should mention that strings
+are in two pieces.  There's a string header and a string body.  Headers are all
+of uniform size.  Bodies are appropriate to the length of the string.  This
+makes GC much easier in many ways and also makes COW possible.)</p>
+
+<p>However, if you don't actually modify the contents of the string, you've
+just used up a free string header that you can't reclaim until the next GC
+run.</p>
+
+<p><code>isa</code> doesn't modify the contents of the string.  It uses it only
+in a string comparison.  There are no problems there.  (Okay, that's a fib; the
+string comparison might change the encoding of the class name in place, but
+that's a safe operation, and actually a benefit -- lazy evaluation, again.)</p>
+
+<p>By extracting the name-calculation operation out of <code>get_string</code>
+into <code>make_class_name</code>, that vtable entry became a call to the
+extracted function and then a copy on its results.  The semantics stayed the
+same.</p>
+
+<p>The <code>isa</code> vtable entry now calls <code>make_class_name</code>
+directly, avoiding the copy.  Because <code>isa</code> is a hotspot, this
+reduces the amount of immediately recyclable garbage dramatically.</p>
+
+<p>There is one twist, however.  The PMCProxy PMC inherits its <code>isa</code>
+vtable entry from the Class PMC, but stores its name in a different manner.
+Thus the code needs to fall back on the <code>get_string</code> call if the
+<code>SELF</code> PMC is a PMCProxy.  This is slightly ugly, and a better
+solution is to give PMCProxy its own <code>isa</code> entry (or fill it out
+more, as it exists in part).</p>
+
+<p>Though I'm no big fan of C's memory model, it does have one useful semantic
+in the distinction between stack memory and heap memory.  The implementation of
+that semantic leads to plenty of bugs, but it <em>is</em> useful to be able to
+mark the expected lifetime of a piece of memory.  If we could do this more
+reliably in Parrot, we could ease even more GC pressure.  There are
+correctness, conciseness, and ease-of-use penalties in that idea however.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Stupid Question</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-05-25T01:46:40</h3>
+You say that upgrading the encoding of the string in place is a safe operation.  I'm just wondering how well that works with multi-threading.  After all one of the big problems that Perl 5 has with multi-threading is that if you're accessing a data structure while another thread is modifying it, you're hosed.  And it proved impossible to find all of the places where this might happen in Perl 5.  Hence our migration to a very heavy threading model.<br><br>I'm just checking that Parrot is not repeating this mistake.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

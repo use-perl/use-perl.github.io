@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of geoff: bugs</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>bugs</h1>
+<h2><a href="/user/geoff/">geoff</a> on 2001-09-06T00:28:22</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>well, I think I found a bug in Apache today.  just a minor nit really, but still...<br><br><br/><br/>mod_perl adds $r->as_string, which is just a nice way of listing all the HTTP related stuff about the request/response cycle (save the message bodies).  it's defined in Apache.xs and just joins r->the_request, r->headers_in/out r->err_headers_out, r->protocol, and r->status_line.  the problem I saw was with responses that are set using $r->custom_response - they leave r->status_line undefined, so you end up with the response message spewn from from $r->as_string looking like<br><br><br/><br/>HTTP/1.0 (null)<br><br><br/><br/>Apache seems to handle it ok, since a simple telnet shows that the 200 is coming through just fine.  hmph.  I wandered through http_protocol.c and http_request.c and my eyes started to cross when I tried to trace a custom response all the way through.  looks like custom_response just calls an internal redirect after much fanfair, so I suspect that $r->internal_redirect may suffer as well, but I didn't verify it.<br><br><br/><br/>speaking of which, here are a few bugs currently on my radar<br><br><br/><br/>o PerlSetEnv variables seem to get lost after the first hit to a child. you can read about it <a href="http://marc.theaimsgroup.com/?l=apache-modperl-dev&m=99565227711585&w=2">here</a><br><br><br/><br/>o not really a bug, but I worked through the ability to use push/set_handlers for method handlers by reference (\&method) instead of by string ('My->method').  if you progress through the entire <a href="http://marc.theaimsgroup.com/?t=99789776100010&w=2&r=1">thread</a> you'll see the final patch result near the end (thanks Doug for being patient :)  <br><br><br/><br/>o HTTP::Response::base doesn't handle content negotiated documents correctly.  At least that's my theory :)  to see for yourself, go ahead and try the <a href="http://search.cpan.org/doc/GAAS/HTML-Parser-3.25/lib/HTML/LinkExtor.pm">HTML::LinkExtor</a> code example on <a href="http://httpd.apache.org/docs/">http://httpd.apache.org/docs/</a> and watch what happens.<br>
+The problem is that the <a href="http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.14">HTTP/1.1 RFC</a> says Content-Location defines the base URI for the entity.  However, it also says that it may contain an absolute or relative URI and, if relative, then the base is interpreted with respect to the request URI.<br><br>
+The offending code in HTTP::Response is<blockquote>
+sub base<br>
+{
+    my $self = shift;<br>
+    my $base = $self->header('Content-Base')     ||  # used to be HTTP/1.1<br>
+               $self->header('Content-Location') ||  # HTTP/1.1<br>
+               $self->header('Base');                # HTTP/1.0<br>
+    return $HTTP::URI_CLASS->new_abs($base, $self->request->uri);<br>
+    # So yes, if $base is undef, the return value is effectively<br>
+    # just a copy of $self->request->uri.<br>
+}
+</blockquote>
+I sent a note to Gisle on 6/21/2001 to which he never responded, and the latest version of libwww-perl (5.53_96) doesn't have the fix, so I guess he didn't agree :)  oh, well.<br><br>
+o some day I'll figure out how to implement <a href="http://marc.theaimsgroup.com/?l=apache-modperl-dev&m=99079508923859&w=2">this</a><br><br><br><br/><br/>by the way, I had the passing thought that using Inline::Files would give you the ability to read from __END__, which would be a cool way to handle errors...
+<blockquote>
+local $/;<br>
+my $rtfm=&lt;__END__> && die $rtfm;
+</blockquote>
+untested :)
+  <br/><br/><br/><br/>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

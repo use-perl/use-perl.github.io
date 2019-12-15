@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: DBM::Deep: Cannot store something that is tied</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>DBM::Deep: Cannot store something that is tied</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2007-08-14T04:18:09</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I ran into this problem and it's plagued me for a couple weeks. I was playing with with stuff to store a bunch of stuff in a DBM::Deep file, and I'd do something to cause an error "DBM::Deep: Cannot store something that is tied". I'd change around some syntax and it would disappear. I've sorta solved the problem, but it doesn't really look like a real solution.<br/><br/>I figured that some other module I was using was supplying a tied object. Config::IniFiles seemed a likely candidate because it has tie methods inside it, so for awhile I blamed it and thought I had a workaround.<br/><br/>But the problem came back, this time without Config::IniFiles. Damn you Karl Rove!<br/><br/>It turns out that I was taking some data out of a DBM::Deep object and either moving it back into the object in a different form or trying to put it in a different DBM::Deep object:<br/><br/><pre>
+#!/usr/bin/perl<br/><br/>use Data::Dumper;
+use DBM::Deep;<br/><br/>my $db = DBM::Deep->new( 'foo.db' );<br/><br/>$db->{'foo'} = [ qw(a b c) ];<br/><br/>my $array = $db->{'foo'};<br/><br/>print Dumper( $array );<br/><br/>$db->{'bar'} = $array;<br/><br/>__END__
+</pre><br/><br/>Okay, that's no good. This eluded me for a while because <code>tied</code> doesn't work on <code>$array</code>, so when I was trying debugging statements such as <code>print ... if tied $array</code>, I never saw that output. I was just guessing about who was causing the problem.<br/><br/>I read through the DBM::Deep docs a couple of times looking for a warning about this, but I didn't find it. I figured that there must be a way to untie or de-objectify <code>$array</code>, so I started trying things. It turns out <code>export</code> will turn the DBM::Deep thingy into a regular thingy. I got sidetracked by the line in the docs that said 'Calling the "export()" method on an existing DBM::Deep object will return a reference to a new in-memory copy of the database.' I figured that meant that I'd just get another DBM::Deep object. However, the next sentence has "...are all exported to standard Perl objects."<br/><br/><pre>
+#!/usr/bin/perl<br/><br/>use Data::Dumper;
+use DBM::Deep;<br/><br/>my $db = DBM::Deep->new( 'foo.db' );<br/><br/>$db->{'foo'} = [ qw(a b c) ];<br/><br/>my $array = $db->{'foo'}->export;<br/><br/>print Dumper( $array );<br/><br/>$db->{'bar'} = $array;<br/><br/>__END__
+</pre><br/><br/>It gets trickier though. Watch this problem barge back into the program. I export to get the stuff back into a regular Perl data structure, then store it in the DBM::Deep object. I try to take that same reference and store it again, but it's been re-blessed into DBM::Deep!<br/><br/><pre>
+#!/usr/bin/perl<br/><br/>use Data::Dumper;
+use DBM::Deep;<br/><br/>my $db = DBM::Deep->new( 'foo.db' );<br/><br/>$db->{'foo'} = [ qw(a b c) ];<br/><br/>my $array = $db->{'foo'}->export;<br/><br/>$db->{'bar'} = $array; # this works<br/><br/>$db->{'baz'} = $array; # it's a DBM::Deep thingy again
+</pre><br/><br/>So, I could get rid of the temporary variable:<br/><br/><pre>
+$db->{'bar'} = $db->{'foo'}->export;<br/><br/>$db->{'baz'} = $db->{'foo'}->export; 
+</pre><br/><br/>That seems like it works, but it doesn't really work. Everyone of those references are deep copies, meaning that when I meant to store the data once, I'm actually recreating it. Worse than that, it's only going ot update in one place.<br/><br/>I haven't worked around that last bit yet, and it will probably mean I'll have to think a lot harder about the program.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

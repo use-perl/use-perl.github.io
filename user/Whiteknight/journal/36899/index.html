@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Whiteknight: End of another long week</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>End of another long week</h1>
+<h2><a href="/user/Whiteknight/">Whiteknight</a> on 2008-07-11T18:08:58</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This week is drawing to a close, and I never feel like I am getting enough work done before I take off for the weekend. <br/><br/>I managed to make some good debugging progress, especially with help from chromatic earlier in the week. He helped me to find two big problems: First, the finalization code was causing segfaults because I was not finalizing PMCs in an order that respected dependencies. We run into a problem when the finalization routines of a child PMC depend on the existence of a parent PMC. However, if we scan linearly through the arena, we often end up finalizing in the opposite order. To eliminate this problem, I've temporarily disabled the finalization code.<br/><br/>Another problem he helped me to find was a problem in the Memory_Pool compacting code. Something in there was going haywire with my GC installed, and it was screwing up string pointers something awful. So I disabled the compacting code too, for now.<br/><br/>I was getting a very weird pointer error this week too, and he mentioned that the pointers I was attempting to dereference (0xA8 and 0x08) looked an awful lot like card values. This clicked in my head, and I was able to determine the problem very quickly thereafter: The bounds checking on my sweep code was off by one, and I was absorbing a card value as a pointer value (this happens because the card and the first item are adjacent to each other in the arena). I was able to fix that pretty quickly after chromatic's insight.<br/><br/>I had another problem last night that I was able to fix this morning, where the interp->HLL_namespace PMC was being collected prematurely. Tracing through this, I realized a huge error in my sweep code. I'll walk through it here:<br/><br/>When we allocate a new arena, I loop through the arena's memory separating out all the objects, finding the headers, and linking them together into the free list. My list was structured like this:<br/><br/>for(i = last_index; i >= 0; i--) { }<br/><br/>When I originally conceived this loop, i was just an iterator and was never used inside the loop (so it's value and the direction it was moving did not matter). However, I later added in cached card/flag indexes to the header structs, so it would be easier to find and mark the header's card. Now suddenly, the value of i is used in the loop:<br/><br/>hdr->data.card = i / 4;
+hdr->data.card = i % 4;<br/><br/>Looping through the entire arena from start to back, the first object corresponds to the very last flag on the last card, and the last object corresponds to the first card.<br/><br/>Fast-forward now to the sweep code where, due to loop unrolling, I start at the last card and work my way forward. However, I was also starting with the last object in the pool. Essentially, I was marking cards and headers in reverse order. I fixed the ordering of this loop so cards start at the end and headers start at the beginning, and the problem I had with premature collection of interp->HLL_namespace disappeared. Of course, this exposed a new segfault in the code, something to do with hashes (I haven't attempted to debug this new one yet).<br/><br/>I also found and fixed an obvious (obvious in hindsight) problem in the children tracing code where PMC metadata was being traced before the PMC_EXT struct was. The metadata is inside the PMC_EXT, so if a given PMC doesn't have a PMC_EXT, attempting to dereference it to find the metadata PMC address would cause a segfault. <br/><br/>After all this work however, the build process is still segfaulting while attempting to build compilers/pge/PGE/builtins_gen.pir. It's the first step in the build process that appears to trigger a full GC run. All prior steps appear to be relatively small and memory non-intensive. So, it's not surprising to me that this is the step in the build process that breaks most frequently. This particular step can be a little bit of a pain to debug, but I'm getting used to it by now.<br/><br/>Perhaps the most important development of this week was a new file I created: src/gc/gc_it.readme. It's like a logfile that keeps track of things I've changed and problems I'm debugging. This way, when I comment out things like the Memory_Pool compacting code, or monkey around with the List allocation code, I can keep track of those and replace them later. <br/><br/>I will probably be back to the grind stone sunday night, and evenings next week. Here's hoping I can start making more obvious progress. </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

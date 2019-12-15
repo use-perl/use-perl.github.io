@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of scrottie: My reply to Removing database abstraction</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>My reply to Removing database abstraction</h1>
+<h2><a href="/user/scrottie/">scrottie</a> on 2010-08-06T21:53:04</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>My longwinded response to http://blogs.perl.org/users/carey_tilden/2010/08/removing-database-abstraction.html :<br/><br/>Don't get trapped in the mindset of "I have to use X because if I don't, I'm doing it wrong".  Quite often, if you don't use X, it's entirely too easy to do it wrong if you don't know what you're doing.  You probably don't want to re-implement CGI parameter parsing, for example.  But that's not the same thing as saying that you should always use CGI because it's a solved problem so never do anything else.  Nothing is a solved problem.  mod_perl is a valid contender to CGI and now Plack is a valid contender to mod_perl.  FastCGI was and is a valid contender to mod_perl and servers like nginx do awesome thing.  Yet, tirelessly, the fans of one explain that the competing ideas are somehow not valid.<br/><br/>Sorry, I'm trying to do proof by analogy here.  It isn't valid except to the degree that it is.  I'll get to databases in a minute.<br/><br/>Quick recap:  there are lots of valid approaches; using an alternative is not the same as re-inventing the wheel.<br/><br/>Furthermore, the heaviest technology is seldom the long term winner.  Witness the return to lighter HTTP pipelines.  For ages, Apache boasted being a bit faster than IIS, in response to which I could only wonder why Apache was so slow.<br/><br/>Okay, back to databases.  DBIx::Class to a relational database is a valid option.  It's also very heavy.  It alo doesn't really let you scale your web app out unless the database in question is DB2, Oracle, or one of a few of those that runs on a cluster with a lot of processors rather than just one computer.  Otherwise you've just added a new bottleneck.  DBIx::Class makes it harder to do real relational work -- subqueries, having, or anything hairy.  At the very least, you have to create a class file with a lot of boilerplate, reference that file from other files that you made or generated, and stuff the same SQL into there.  Abstracting the querying away in simple cases makes it easier to query the database without thinking about it.  This leads you to query the database without thinking about it.  That's a double edged sword.  In some cases, that's fantastic.<br/><br/>Lego blocks make it easy to build things but you seldom buy home appliances built out of Legos.  Even more so for Duplo blocks.  Some times easy tools are in order; some times, low level engineering with an RPN HP calculator is absolutely in order.<br/><br/>Okay, I'll get back to databases in a minute here, but I want to talk about something outrageous for a moment -- not using a relational database at all.<br/><br/>I wrote and use Acme::State for simple command line and daemonized Web apps.  It works well with Continuity and should work with the various Coro based Plack servers for the reason that the application stays entirely in one process.  All it does is restore state of variables on startup and save them on exit or when explicitly requested.  It kind of goes overboard on restoring state and does a good enough job that it breaks lots of modules if not confined to your own namespace, hence the Acme:: designation.<br/><br/>Similarly, people have used Data::Dumper or Storable directly (Acme::State uses Storable under the hood) to serialize datastructures on startup and exit.  In AnyEvent frameworks, it's easy to set a timer that, on expiration, saves a snapshot.  Marc Lehmann, the man who created the excellent Coro module, has patches to Storable to make it reenterant and incremental, so that the process (which might also be servicing network requests for some protocol) doesn't get starved for CPU while a large dump is made.  His Perl/Coro based multiplayer RPG is based on this idea.  With hundreds of users issuing commands a few times a second, this is the only realistic option.  If you tried to create this level of performance with a database, you'd find that you had to have the entire working set in RAM not once but several times over in copies in parallel database slaves.  That's silly.<br/><br/>You can be very high tech and not use a database.  If you're not actually using the relational capabilities (normalized tables, joining tables, filtering and aggregating, etc), then a relational database is a slow and verbose to use (even with DBIx::Class) replacement for dbmopen() (perldoc -f dbmopen, but use the module instead).  You're not gaining performance, elegance or scalability, in most cases.  People use databases automatically and mindlessly now days to the point where they feel they have to, and by virtue of having to use a database, they have to ease the pain with an ORM.<br/><br/>Anytime someone says "always", be skeptical.  You're probably talking to someone who doesn't understand or doesn't care about the tradeoffs involved.<br/><br/>Okay, back to databases.  Right now, it's trendy to create domain specific languages.  The Ruby guys are doing it and the Perl guys have been doing it for ages.  Forth was created around the idea -- the Forth parser is written in Forth and is extensible.  Perl 5.12 lets you hijack syntax parsing with Perl in a very Forth-ish style.  Devel::Declare was used to create proper argument lists for functions inside of Perl.  There's a MooseX for it and a standalone one, Method::Signatures.  That idea got moved into core.  XS::APItest::KeywordRPN is a demo.  Besides that, regular expressions and POD are two other entire syntaxes that exist in .pl and .pm files.  It's hypocritical to say that it's somehow "bad" to mix languages.  It's true that you don't want your front end graphic designer editing your .pl files if he/she doesn't know Perl.  If your designer does know Perl, and the code is small and doesn't need to be factored apart yet, what's the harm?  It's possible to write extremely expressive code mixing SQL and Perl.  Lots of people have written a lot of little wrappers.  Here's one I sometimes use:<br/><br/>http://slowass.net/user/scott/tmp/query.pm.txt<br/><br/>Finally, part of Ruby's appeal -- or any new language's appeal -- is lightness.  It's easy to keep adding cruft, indirection, and abstraction and not realize that you're slowly boiling yourself to death in it until you go to a new language and get away from it for a while.  The Ruby guys, like the Python guys before them, have done a good job of building up simple but versatile APIs that combine well with each other and keep the language in charge rather than any monolithic "framework".  Well, except for Rails, but maybe that was a counter example that motivated better behavior.  Look at Scrapi (and Web::Scraper in Perl) for an example.<br/><br/>Too much abstraction not only makes your code slow but it makes it hard to change development direction in the future when something cooler, faster, lighter and more flexible comes out.  Just as the whole Perl universe spent ten years mired down in and entrenched in mod_perl, so is there a danger that DBIx::Class and Moose will outlive their welcome.  POE, which was once a golden child, has already outlived its welcome as Coro and AnyEvent stuff has taken off.  Now there are a lot of Perl programs broken up into tiny non-blocking chunks that are five times as long as they could be, and the effort to move them away from POE is just too great.  The utility of a package should be weighed against the commitment you have to make to it.  The commitment you have to make to it is simply how much you have to alter your programming style.  With Moose as with POE, this degree is huge.  DBIx::Class is more reasonable.  Still, it's a cost, and things have costs.<br/><br/>Thank you for your article.<br/><br/>Regards,
+-scott</p>
+
+
+<hr/>
+
+
+
+<h2>only inasmuch as There's Only One Way To Do It</h2>
+<h3><a href="/user/rcaputo/">rcaputo</a> on 2010-08-07T03:21:18</h3>
+<blockquote><div><p>"Inside every large program, there is a small program trying to get out." --Tony Hoare</p></div></blockquote><p>Abstractions incur overhead, yep.  Fortunately, POE's higher-level abstractions (wheels, components) are entirely optional.  The low-level abstract event loop primitives are still there: select_read(), alarm(), sig(), etc.  There's a smaller POE inside.  It's already out, but it's been a bit neglected.</p><p>History has a bigger role to play than abstractions in the obstruction of change.  A long-established, stable module like POE has reduced mobility because lots of people actually use it.  A newbie module like <a href="http://search.cpan.org/dist/Reflex/" title="cpan.org">Reflex</a cpan.org> can reinvent itself every few weeks, and nobody is going to mind.  The depth of the abstraction stack has nothing to do with it.  Although POE+Reflex's is shorter and (I hope) a bit more efficient as a result.</p><p>If anything, the depth of the abstraction stack allows more rapid change to occur.  There's wiggle room in each level of abstraction, and if I'm allowed to consider modules to be abstractions, then delegating development (via CPAN, for example) accelerates change.  But I digress on a technicality.<nobr> <wbr></nobr><tt>:)</tt> </p><p>I think it's a mistake to talk about POE's "programming style" as if that's a particular thing.  The Perl I'm using has a motto: There Is More Than One Way To Do It.  That applies to using POE.  For example, you may prefer condvars or promises to callbacks.  <a href="http://search.cpan.org/perldoc?LWP::UserAgent::POE" title="cpan.org">POE can do that</a cpan.org>.  And if you prefer to write classes that provide callbacks or can be used as promises, then <a href="http://search.cpan.org/perldoc?Reflex#Coderef_Callbacks" title="cpan.org">POE can do that via Reflex</a cpan.org>.</p><p>Yeah, the flexibility comes at a cost, but, as you say, all things do.  I think the benefits are worth it, but of course I'm always looking for a better cost/benefit ratio.  All reasonable suggestions considered.</p>
+
+
+
+<blockquote>
+
+<h2>Re:only inasmuch as There's Only One Way To Do It</h2>
+<h3><a href="/user/scrottie/">scrottie</a> on 2010-08-17T05:29:01</h3>
+<p>The context I was talking about POE in was this:  a program written to use it versus one written to do something else looks very different.  This means that it's hard to switch styles.  A lot of changes have to happen to a lot of the program.</p><p>Everything goes out of fashion eventually.</p><p>That was part of the point of evaluating how entrenched any abstraction will make you.  Being entrenched by an abstraction is a mark against it.</p><p>Too much and leaky abstraction is another matter and I whipped on other things there.</p><p>I'm also talking about the style of POE people tend to write in.</p><p>I'm sorry that POE had to be the example of this one consideration.</p><p>-scott</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>I recommend you take a look at ORLite</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-08-07T04:30:31</h3>
+<p>I created ORLite to address precisely the problem you are talking about.</p><p>ORLite tries to use as little abstraction as possible, and in particular there is no abstraction of where clauses.</p><p>my @objects = ORLite::TableName-&gt;select( 'END_SQL', 'Bob' );<br>where name in (<br>
+&nbsp; &nbsp; &nbsp; &nbsp; select name from people where husband in (<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; select name from people where name like ?<br>
+&nbsp; &nbsp; &nbsp; &nbsp; )<br>)<br>END_SQL</p>
+
+
+
+<h2>Thanks</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2010-08-09T17:51:14</h3>
+<p>Thank you for the insights, and thank you for turning me on to Plack.</p>
+
+
+
+<h2>It takes time to realize what is the real core</h2>
+<h3><a href="/user/zby/">zby</a> on 2010-08-15T11:37:48</h3>
+Someone once wrote "I wrote you a long letter because I did not have time to write a short one" and it sounds like a paradox - but communicating clearly usually means communicating shortly and it takes time to work out what really is your core message.  This is the same case with programming libraries - it takes time to realize what are the highly cohesive components and what parts can be decoupled into independent modules.<br/><br/>It is a bit unfortunate how the big libraries have advantage in gaining popularity over the specialized and decoupled small ones.  It is understandable, when you use one library for one thing you are inclined to use it to something other even if some other library could solve the problem better.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

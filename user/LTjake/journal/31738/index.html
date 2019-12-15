@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of LTjake: Catalyst Tip: Generic Base Controllers</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Catalyst Tip: Generic Base Controllers</h1>
+<h2><a href="/user/LTjake/">LTjake</a> on 2006-11-28T03:32:58</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>So, you want to write a generic base controller for some set of actions? Great! Want to use <a href="http://search.cpan.org/dist/Catalyst-Runtime/lib/Catalyst/DispatchType/Chained.pm">Chained actions</a> for nicer looking URLs? Fantastic!</p>
+<p>Let's presume you're writing a generic account admin controller. Your URL-space might look like:</p>
+<dl>
+    <dt><code>/admin/account/</code></dt><dd>account list</dd>
+    <dt><code>/admin/account/1/</code></dt><dd>account view</dd>
+    <dt><code>/admin/account/1/update</code></dt><dd>account update</dd>
+</dl>
+<p>Currently, you have a couple of options in order to make this a reality:</p>
+<p>1) Action-specific configs</p>
+<p>Catalyst's configurability is extremely granular -- you can set specific attributes as configuration parameters for any given action.</p>
+<pre>
+package MyApp::Controller::Admin::Account;
+
+use strict;
+use warnings;
+
+use base 'Catalyst::Controller';
+
+__PACKAGE__->config( actions => {
+    instance => { PathPart => 'admin/account' },
+    list     => { PathPart => 'admin/account' }
+} );
+
+sub list     : Chained('/') Args(0) { die "index of accounts" }
+sub instance : Chained('/') CaptureArgs(1) { } # do something with $c->req->captures->[ 0 ]
+sub view     : Chained('instance') PathPart('') Args(0) { die "view account" }
+sub update   : Chained('instance') PathPart Args(0) { die "update account" }
+
+1;
+</pre>
+<p>In the above example we're explicitly setting the <code>PathPart</code> for the list and instance actions -- However, it's not quite fully generic.</p>
+<p>2) Create our own attribute</p>
+<p>We'll create an attribute that will expose a controller's <code>path_prefix</code> to any action -- aptly named <code>PathPrefix</code>.</p>
+<pre>
+package MyApp::Controller::Admin::Account;
+
+use strict;
+use warnings;
+
+use base 'Catalyst::Controller';
+
+sub _parse_PathPrefix_attr { 
+    my ( $self, $c, $name, $value ) = @_; 
+    return PathPart => $self->path_prefix; 
+} 
+
+sub list     : Chained('/') PathPrefix Args(0) { die "index of accounts" }
+sub instance : Chained('/') PathPrefix CaptureArgs(1) { } # do something with $c->req->captures->[ 0 ]
+sub view     : Chained('instance') PathPart('') Args(0) { die "view account" }
+sub update   : Chained('instance') PathPart Args(0) { die "update account" }
+
+1;
+</pre>
+<p>Now that's better -- except for that pesky sub. Well, you're in luck -- <code>PathPrefix</code> is now in the <a href="http://dev.catalyst.perl.org/repos/Catalyst/branches/current/Catalyst-Runtime/">current Catalyst::Runtime branch</a>. Our code is now even simpler:</p>
+<pre>
+package MyApp::Controller::Admin::Account;
+
+use strict;
+use warnings;
+
+use base 'Catalyst::Controller';
+
+sub list     : Chained('/') PathPrefix Args(0) { die "index of accounts" }
+sub instance : Chained('/') PathPrefix CaptureArgs(1) { } # do something with $c->req->captures->[ 0 ]
+sub view     : Chained('instance') PathPart('') Args(0) { die "view account" }
+sub update   : Chained('instance') PathPart Args(0) { die "update account" }
+
+1;
+</pre>
+<p>As I've stated, Catalyst is extremely configurable. Let's say you don't like "<code>admin/account</code>" as the path? No Problem!</p>
+<pre>
+package MyApp::Controller::Admin::Account;
+
+use strict;
+use warnings;
+
+use base 'Catalyst::Controller';
+
+__PACKAGE__->config( path => 'foo/bar' );
+
+sub list     : Chained('/') PathPrefix Args(0) { die "index of accounts" }
+sub instance : Chained('/') PathPrefix CaptureArgs(1) { } # do something with $c->req->captures->[ 0 ]
+sub view     : Chained('instance') PathPart('') Args(0) { die "view account" }
+sub update   : Chained('instance') PathPart Args(0) { die "update account" }
+
+1;
+</pre>
+<p>All of the actions will now start with "<code>/foo/bar/</code>"!</p>
+<p>Happy Hacking.</p>
+<p>Special thanks to <code>mst</code> for being my editor and sanity checker.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

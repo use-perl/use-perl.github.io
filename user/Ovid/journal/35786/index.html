@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: MySQL Bug of the Day</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>MySQL Bug of the Day</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-02-28T13:39:12</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>One thing which struck me as odd when I started working here is that we used moderately long strings, called 'pids' as primary keys on many of our tables.  These keys are <tt>char(8)</tt> and encoded as utf8.  This makes the key length longer than it needs to be and longer primary keys can cause performance issues (which is why you rarely see UUIDs being used as primary keys).</p>
+
+<p>When I asked about this, I was informed about a "fun" issue with MySQL.  Apparently, when using InnoDB (we have MySQL version 5.0.45), <tt>AUTO_INCREMENT</tt> keys <em>lock the entire table</em> and we were getting serious deadlock issues.  <a href="http://bugs.mysql.com/bug.php?id=16979">Allegedly this is fixed in 5.1</a>.  The rationale listed?</p>
+
+<blockquote>[Table level locks are] necessary with the current logical binlogging of MySQL, since the auto-inc values assigned in a single SQL statement must be consecutive.</blockquote>
+
+<p>I don't understand this.  From an application standpoint, auto-inc keys should be non-identifying and frankly, it shouldn't matter if they're consecutive, ordered, random, whatever, so long as they're unique.  I suspect that this is done for internal architectural reasons because I can't imagine that even the MySQL developers think that it's <em>logically</em> necessary that these keys be consecutive.</p>
+
+<p>The counter-argument I envision is someone telling me that you want to know what order the records were inserted in and gaps will give you an idea of what you might be deleting.  If that's the counter-argument, I would suggest that you explicitly plan for this and not rely allow an internal implementation detail.  That's encapsulation violation.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Yes it could be better... but a bug?</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2008-02-28T14:07:47</h3>
+<p><div class="quote">Apparently, when using InnoDB (we have MySQL version 5.0.45), AUTO_INCREMENT keys lock the entire table</div> This is only a problem when you are doing lots of inserts in one SQL statement. As they say later on, it's a performance reason (to avoid calling<nobr> <wbr></nobr><code>::get_auto_increment()</code> for each row) not something they think is logically required.<p><div class="quote">From an application standpoint, auto-inc keys should be non-identifying</div> Why? A unique number is a pretty good way to identify something and auto-increment keys should always be unique. It doesn't mean it's the best key. Somethings have pretty good natural keys, but even those are usually text and won't have the speed of an integer.<p><div class="quote">frankly, it shouldn't matter if they're consecutive</div> I agree that with-in a multi-insert statement, the various insert parts don't need to be consecutive. But if auto-increment keys weren't consecutive I'd be worried. "Increment" implies that the values are consecutive. I'd hate for <code>$i++</code> to increment my value to some non-consecutive number<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Yes it could be better... but a bug?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-02-28T14:38:10</h3>
+<p> <strong>Non-identifying</strong>:  since you aren't sure what these values are, you shouldn't use them as consistently identifying a record.  They get used internally to join tables and externally when identifying a particular result in a result set when you need to refer to it again, but <em>not</em> identifying the exact data.  Delete a record (on an auto-inc table) and later re-insert it.  You should get a different auto-inc primary key, but it's the same data, right?  The auto-inc PK is non-identifying (perhaps we're just using the term in different ways).</p>
+
+<p> <strong>Consecutive</strong>:  Start with auto-increment = 1 and insert three rows.  Then delete where id = 2.  The ids, though ordered, are no longer consecutive.  There's nothing wrong with the data and there's no logical requirement for these ids to be ordered.</p>
+
+<p> <strong>Bug</strong>:  OK, you got me on this one.  It's not a bug, but it's a severe implementation limitation which is frustrating as hell<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Yes it could be better... but a bug?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-02-28T19:09:59</h3>
+<p>I wonder if it's for write clustering.  Each slave gets a step value by which to increment all auto-increment rows.  I don't know if the clustering system guarantees an order of operation of writes though.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>sequences</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2008-03-07T17:52:30</h3>
+Presumably the AUTO_INCREMENT keys are sequential because people use them just like sequences.
+<p>
+There's some interesting stats on performance of char columns as keys <a href="http://www.mysqlperformanceblog.com/2007/06/18/using-char-keys-for-joins-how-much-is-the-overhead/" title="mysqlperformanceblog.com">here</a mysqlperformanceblog.com>.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

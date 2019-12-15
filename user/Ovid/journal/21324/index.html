@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: SOAP::WSDL :(</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>SOAP::WSDL :(</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2004-10-13T18:33:51</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Our customer appears to have set things up correctly at their end. Regrettably, SOAP::Lite is a bit, er, confusing. It's retrieving everything correctly, but it's being coy and refusing to actually let me have the data. I think I'll buy it flowers.</p></p>
+
+
+<hr/>
+
+
+
+<h2>returning multiple items?</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2004-10-13T19:27:23</h3>
+If the SOAP method returns multiple items (e.g., returns a Vector) see <a href="http://www.cwinters.com/news/display/?news_id=3250" title="cwinters.com">a recent blog entry</a cwinters.com> I wrote after running into this. It is possible to make SOAP::Lite behave, just takes a little work...
+
+
+
+<blockquote>
+
+<h2>Re:returning multiple items?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-10-13T19:58:22</h3>
+<p>I note that you state it only returns the last item when fetching multiple items.  I <em>am</em> fetching multiple items, but <a href="http://www.perlmonks.org/index.pl?displaytype=display;node_id=398955" title="perlmonks.org">I get nothing</a perlmonks.org>.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>use the SOM</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2004-10-15T15:30:12</h3>
+<tt>I agree that SOAP::Lite is quite opaque.&nbsp; In my work, I usually skip the "handy" wrappers that SOAP::Lite offers and dig into the XML.&nbsp; Here's a snippet like what I use in my unreleased SOAPClient package<br> <br>sub call<br>{<br>&nbsp; my ($uri, $proxy, $timeout, $method, $args, $want) = @_;<br>&nbsp; my @args = map {SOAP::Data-&gt;name($_, $args-&gt;{$_})} keys %$args;<br>&nbsp; my $som = SOAP::Lite<br>&nbsp; &nbsp; &nbsp;-&gt;uri($uri)<br>&nbsp; &nbsp; &nbsp;-&gt;proxy($proxy, timeout =&gt; $timeout)<br>&nbsp; &nbsp; &nbsp;-&gt;call($method, @args);<br>&nbsp; for (@$want) {<br>&nbsp; &nbsp; my $wantArray = (s/^\@//);<br>&nbsp; &nbsp; my @vals;<br>&nbsp; &nbsp; if ($som-&gt;match("/Envelope/Body/[1]/$_")) {<br>&nbsp; &nbsp; &nbsp; &nbsp;@vals = $som-&gt;valueof();<br>&nbsp; &nbsp; push @rets, $wantArray ? [@vals], $vals[0];<br>&nbsp; }<br>&nbsp; return @rets;<br>}<br> <br>Then use this like as follows (fictional service):<br> <br>my ($temp, $humid) = call($uri, $proxy, 30, "getWeather", {zip =&gt; 53711}, ["temp", "humidity]);<br> <br>This works best if the server looks like this:<br> <br>our @ISA = qw(SOAP::Server::Parameters);<br>sub getWeather<br>{<br>&nbsp; my %data;<br>&nbsp; if ($_[-1] &amp;&amp; UNIVERSAL::isa($_[-1] =&gt; 'SOAP::SOM') {<br>&nbsp; &nbsp; %data = %{$_[-1]-&gt;method() || {}};<br>&nbsp; } else {<br>&nbsp; &nbsp; push @_, undef if (@_ %2 != 0);&nbsp; # need even number of elements<br>&nbsp; &nbsp; %data = @_;<br>&nbsp; }<br>&nbsp; if (!$data{zip}) {<br>&nbsp; &nbsp; &nbsp;die SOAP::Fault-&gt;faultcode("MissingData")-&gt;faultstring("Zip not provided");<br>&nbsp; }<br>&nbsp; my ($temp, $windspeed, $humidity) = weather($data{zip});<br>&nbsp; return SOAP::Data-&gt;name(temperature =&gt; $temp),<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;SOAP::Data-&gt;name(windspeed =&gt; $wind),<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;SOAP::Data-&gt;name(humidity =&gt; $humidity);<br>}<br> <br>That server can be specified by the following WSDL (which is<br>incomplete since it lacks a service tag):<br> <br>&lt;?xml version="1.0" encoding="UTF-8" standalone="no" ?&gt;<br>&lt;definitions targetNamespace="urn:Weather" xmlns="http://schemas.xmlsoap.org/wsdl/" xmlns:enc="http://schemas.xmlsoap.org/soap/encoding/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:tns="urn:Weather" xmlns:xsd="http://www.w3.org/2001/XMLSchema"&gt;<br>&nbsp; &lt;documentation&gt;<br>&nbsp; &nbsp; Partial WSDL auto-generated from soap.pod by<nobr> <wbr></nobr>/perl/bin/pod2wsdl<br>&nbsp; &lt;/documentation&gt;<br>&nbsp; &lt;message name="getWeatherRequest"&gt;<br>&nbsp; &nbsp; &lt;part name="zip" type="xsd:integer"/&gt;<br>&nbsp; &lt;/message&gt;<br>&nbsp; &lt;message name="getWeatherResponse"&gt;<br>&nbsp; &nbsp; &lt;part name="temperature" type="xsd:float"/&gt;<br>&nbsp; &nbsp; &lt;part name="windspeed" type="xsd:float"/&gt;<br>&nbsp; &nbsp; &lt;part name="humidity" type="xsd:float"/&gt;<br>&nbsp; &lt;/message&gt;<br>&nbsp; &lt;portType name="WeatherInterface"&gt;<br>&nbsp; &nbsp; &lt;operation name="getWeather"&gt;<br>&nbsp; &nbsp; &nbsp; &lt;input message="tns:getWeatherRequest"/&gt;<br>&nbsp; &nbsp; &nbsp; &lt;output message="tns:getWeatherResponse"/&gt;<br>&nbsp; &nbsp; &lt;/operation&gt;<br>&nbsp; &lt;/portType&gt;<br>&nbsp; &lt;binding name="WeatherBinding" type="tns:WeatherInterface"&gt;<br>&nbsp; &nbsp; &lt;soap:binding style="rpc" transport="http://schemas.xmlsoap.org/soap/http"/&gt;<br>&nbsp; &nbsp; &lt;operation name="getWeather"&gt;<br>&nbsp; &nbsp; &nbsp; &lt;soap:operation soapAction="http://weather.foo.com/Weather#getWeather"/&gt;<br>&nbsp; &nbsp; &nbsp; &lt;input&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &lt;soap:body encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" namespace="http://weather.foo.com/Weather" use="encoded"/&gt;<br>&nbsp; &nbsp; &nbsp; &lt;/input&gt;<br>&nbsp; &nbsp; &nbsp; &lt;output&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &lt;soap:body encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" namespace="http://weather.foo.com/Weather" use="encoded"/&gt;<br>&nbsp; &nbsp; &nbsp; &lt;/output&gt;<br>&nbsp; &nbsp; &lt;/operation&gt;<br>&nbsp; &lt;/binding&gt;<br>&lt;/definitions&gt;<br> </tt>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

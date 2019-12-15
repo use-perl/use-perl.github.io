@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Neat SOAP::Lite mock interface hack</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Neat SOAP::Lite mock interface hack</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2004-10-15T23:03:04</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>In order to isolate some behavior in my <tt>SOAP::Lite</tt> tests, I wanted to ensure two things.  First, I wanted to know that the SOAP request XML matched my expectations.  Second, I wanted to ensure that the SOAP response XML was correctly parsed.  In neither case did I want to actually make the round-trip to our customer's SOAP server.</p>
+
+<pre>package MOCK::SOAP::INTERFACE;
+use Sub::Override;
+
+use overload
+    '""' => \&request;
+
+my $REQUEST; # this is the SOAP *request* XML
+
+sub _mock_soap_interface
+{
+    my $xml   = shift; # this is the SOAP *response* XML
+    my $token = Sub::Override->new(
+        'SOAP::Lite::call',
+        sub { 
+            my $self = shift;
+            $REQUEST = $self->serializer->envelope(method => shift(@_), @_);
+            return $xml;
+        }
+    );
+    bless $token => __PACKAGE__;
+    return $token;
+}
+
+sub request { return $REQUEST }
+
+1;
+</pre>
+
+<p>Because overridden subs from <tt>Sub::Override</tt> are lexically scoped, the caller has to hold onto the returned token in order to keep it in scope.  By blessing that token into my mocked class, I can then overload stringification and allow it to represent the SOAP request XML that <tt>&SOAP::Serializer::envelope</tt> returns.  Then I write my test something like this:</p>
+
+<pre>sub test_my_soap : Test(2) {
+    my $xml = <<'END_XML';
+<?xml version="1.0" encoding="utf-8"?>
+<!-- add valid soap envelope here.  
+     This should be what the SOAP server *returns* -->
+END_XML
+                                                                                                                               
+    my %expected_circuits = (
+        # some data
+    );
+    my $expected_xml = # expected *request* XML
+    my $response     = _mock_soap_interface($xml);
+    my $soap         = MY::SOAP::Package->new;
+
+    my $circuits = $soap->get_circuits;
+
+    is_deeply(
+        $circuits,
+        \%expected_circuits
+    );
+    # quote response to break the overloading
+    is_xml("$response", $expected_xml);
+}</pre>
+
+<p>Yeah, there's some hackish stuff there, but one thing I really like is that now, when you're reading the tests, the programmer is much more likely to remember to hold on to the returned token (<tt>$response</tt>).  Still, it looks weird having a scalar who's value is going to change for no apparent reason.  I can't say that I totally like this approach, but I was pretty durned pleased with myself.</p>
+
+<p>I think that I might just have to offer some sort of overloading support for <tt>Sub::Override</tt> so that the returned token actually does something useful.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

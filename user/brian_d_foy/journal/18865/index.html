@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: Radio programs, calendars, Date::Simple and avoiding the web</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Radio programs, calendars, Date::Simple and avoiding the web</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2004-05-21T08:29:26</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I like to listen to particular NPR programs while I work, but I do not like stopping whatever I am doing to get the next show going.  NPR changed the way they structured the web, making it much more baroque and broken and stupid.  They previously had a "current show" link, which always led to the audio of the last show (no matter the date it might be when I select it).<br/><br/>Now NPR has this really goofed, two-layer JavaScript thing going on.  The previously non-stupid and convenient link is now a JavaScript action which has to look in a couple different places to figure out what to do.<br/><br/>It is apparent why they did this, although not why they should.  They now offer audio in Windows Media Format, so they have extra options in the process.  They also standardize the audio links among all of their programs.  Behind the scenes, I think they also do some round-robin load balancing.<br/><br/>That does not help me much though.  I want to click once to start listening to a show.  I do not want to select a bookmark, find the link, then click on it.  Since they went to this goofy JavaScript action link model, I have to do a lot of work.<br/><br/>I wrote a little CGI script to get around this.  If I know the show's code, the date, and the media type (RealAudio), I can construct the right link. This script only create links valid on for that day.  If I call the script at 1 am (not an unusual time for me to work), the script tries to redirect me to a URL that spits out null files (since those shows have not yet aired).  In short, this script works within its very narrowly defined parameters, which you should read as "is stupid".<br/><br/><pre>
+#!/usr/bin/perl<br/><br/>=head1 NAME<br/><br/>npr_today.cgi - redirect to current National Public Radio shows<br/><br/>=head1 SYNOPSIS<br/><br/>        http://www.example.com/cgi-bin/npr-today.cgi?ATC
+        http://www.example.com/cgi-bin/npr-today.cgi?ME
+        
+=head1 DESCRIPTION<br/><br/>This script computes the current URL for a National Public Radio
+audio feed (which depends on the date), then redirects to that URL.
+This process skips a lot of javascript which www.npr.org uses to
+figure this out.<br/><br/>=head2 Show codes<br/><br/>=over 4<br/><br/>=item ATC<br/><br/>All Things Considered<br/><br/>=item ME<br/><br/>Morning Edition<br/><br/>=back<br/><br/>=head1 SOURCE AVAILABILITY<br/><br/>This source is part of a SourceForge project which always has the
+latest sources in CVS, as well as all of the previous releases.<br/><br/>        http://sourceforge.net/projects/brian-d-foy/<br/><br/>If, for some reason, I disappear from the world, one of the other
+members of the project can shepherd this module appropriately.<br/><br/>=head1 AUTHOR<br/><br/>brian d foy, E<lt>bdfoy@cpan.orgE<gt><br/><br/>=head1 COPYRIGHT<br/><br/>Copyright 2004, brian d foy, All rights reserved.<br/><br/>You may use this program under the same terms as Perl itself.<br/><br/>=cut<br/><br/>my %show_codes = map { $_, 1 } qw( ATC ME FA );<br/><br/>my $show_code = $ENV{QUERY_STRING};<br/><br/>unless( exists $show_codes{ $show_code } )
+        {
+        print <<"HTTP";
+Status: 408 Bad Request
+Content-type: text/plain<br/><br/>I do not recognize the NPR show code [$Show_code].
+HTTP
+        
+        exit;
+        }
+        
+my @months = qw( Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec );
+my( $day, $month, $year ) = (localtime)[3,4,5];<br/><br/>my $date = sprintf "%02d-%s-%4d",  $day, $months[$month], $year + 1900;<br/><br/>my $url = join '',
+                "http://www.npr.org/dmg/dmg.php?prgCode=",
+                $show_code,
+                "&showDate=",
+                $date,
+                "&segNum=&mediaPref=RM";
+                
+print <<"HTTP";
+Status: 303 See other
+Location: $url<br/><br/><html><head><title>Redirect to $url</title></head><body>
+Redirect to <a href="$url">$url</a>
+</body></html>
+HTTP
+</pre><br/><br/>This script also ignores another problem: What if I missed yesterday's shows?  I can only get the current ones. This script also does not handle the  weekend shows.<br/><br/>I did not look forward to the idea of making this script understand yesterday, the week before, or anything like that.  With a lot of extra programming I could do that, and it certainly is not hard: it is just boring programming.<br/><br/>Instead, I decided to create a calendar for all of the links for this month, and, while I am at it, all of the links for last month, in case I am in the first couple days of the month.  I ended up using HTML::Calendar::Simple and Date::Simple. Why didn't I know about Date::Simple before? It rocks.  And, check out that first map: I iterate through method names, not objects. :)<br/><br/><pre>
+#!/usr/bin/perl
+use strict;
+use warnings;<br/><br/>use Date::Simple qw(:all);
+use HTML::Calendar::Simple;<br/><br/>my %shows = (
+        weekend => [ qw(WESAT WESUN) ],
+        weekday => [ qw(ME ATC FA)   ],
+        );<br/><br/>my $this = [ map { today()->$_ } qw(year month) ];
+my $last = 
+        $this->[1] == 1                        ? 
+                [ $this->[0] - 1, 12             ] : 
+                [ $this->[0],     $this->[1] - 1 ];<br/><br/>my @months = map { HTML::Calendar::Simple->new( 
+                        { year => $_->[0], month => $_->[1] } 
+                        )
+                } ( $this, $last );<br/><br/>foreach my $this_month ( @months )
+        {
+        my( $year, $month ) = map { $this_month->$_ } qw(year month);<br/><br/>        foreach my $this_day ( 1 .. days_in_month( $year, $month ) )
+                {
+                my $date     = ymd( $year, $month, $this_day );
+                my $npr_date = $date->format( "%d-%B-%Y" );
+                my $weekday  = $date->day_of_week() % 6;<br/><br/>                my $shows   = $weekday ? $shows{weekday} : $shows{weekend};<br/><br/>                foreach my $show ( @$shows )
+                        {
+                        my $link = ram_href( $show, $npr_date );
+                        my $href = qq|<a href="$link">$show</a>|;
+                        $this_month->daily_info( {
+                                day    => $this_day,
+                                $show  => $href,
+                                });
+                        }
+                }
+        }<br/><br/>my $html = join '', map { qq|<td class="wrapper">| . $_->calendar_month . "</td>\n" }
+        @months;<br/><br/>         print <<"HERE";
+<html>
+<head><title>brian's NPR Listening Calendar</title>
+<link rel="stylesheet" type="text/css" href="npr_calendar.css" />
+</head>
+<body>
+<h1>brian's NPR Listening Calendar</h1><br/><br/><table><tr>
+$html
+</tr></table>
+     
+</body>
+</html>
+HERE<br/><br/>sub ram_href
+        {
+        "http://www.npr.org/dmg/dmg.php?prgCode=" .
+        $_[0]                                     .
+        "&showDate="                              .
+        $_[1]                                     .
+        "&segNum=&mediaPref=RM";
+        }
+</pre><br/><br/>
+I run the script through cron at the start of the month and save <a href="http://www.panix.com/user/comdog/npr_calendar.html">the output as a static file</a>.<br/><br/>This is quite kludgey.  The output is ugly, although I cleaned it up slightly with a style sheet.  However, it solves my problem, and has a cool hidden feature: the shows I have already listened to show up as visited links (and if I really wanted to do work, I could make the visitied link color the same as the background).  The browser knows what I have visited even if I got there through another path, such as the NPR web site or my earlier script.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

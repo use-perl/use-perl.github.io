@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org story by rafael: This Week on perl5-porters (23-29 June 2003)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>This Week on perl5-porters (23-29 June 2003)</h1>
+<h2><a href="/user/rafael/">rafael</a> on 2003-06-30T21:42:45</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This week's p5p summary is going to be a bit unusual : a few very long threads will be summarized (logically) in longer paragraphs. Read about         hashing algorithm vulnerabilities, new proposed syntax, CHECK and INIT blocks, and other unlittle things.</p>
+<p><h2>Algorithmic Complexity Attack, continued</h2>
+<p>The discussion that started last week about the possibility of algorithmic
+attacks on perl hashes (bug #22371) found its conclusion. Jarkko
+Hietaniemi proposed several successive iterations of a patch.</p>
+<p>Here's the final state : unless the <code>-DUSE_HASH_SEED_EXPLICIT</code> or
+<code>-DNO_HASH_SEED</code> preprocessor symbols are given to the Configure script,
+perl's internal hashing algorithm will use a random start value (called
+the <em>hash seed</em>). This value can be overriden via the <code>PERL_HASH_SEED</code>
+environment variable. That means that if you have a program that uses a
+hash, with a constant set of keys, inserted in the same order, the
+ordering of the output of <code>keys()</code> will different between different
+executions of your program.</p>
+<p>At some point Nick Ing-Simmons suggested to introduce a new attribute to
+declare ``repeatable'' hashes<nobr> <wbr></nobr>:</p>
+<pre>
+    my %hash : predictable;</pre>
+<p>or</p>
+<pre>
+    my %hash : lock_order;</pre>
+<p>Jarkko made a failed attempt at implementing it, but as anyway people seemed
+to dislike it, or to not like it enough (finding it overkill), it wasn't
+kept.</p>
+<p>The thread starts at <em> <a href="http://xrl.us/j7m">http://xrl.us/j7m</a> </em> -- and it counts more than 100
+messages.</p>
+<p>Now what would be interesting is to have some benchmark results, on
+different platforms. Using SpamAssassin (per Nicholas Clark's suggestion)
+seems to be a good idea.</p>
+<p>
+<h2>Hash mysteries</h2>
+<p>Jarkko finally applied his randomized hash seed patch, and two failures
+appeared randomly in the smoke test reports. The first one was caused by a
+piece of code that used to iterate wrongly over the keys of readonly
+hashes. The second one, in a test for Encode::Alias, was more difficult to
+hunt down. It was caused by an inconsistent definition of an encoding name
+alias, making the test effectively dependent on hash key ordering.</p>
+<p>
+<h2>My slice</h2>
+<p>Jarkko proposed a new syntax : the ability to declare a hash <em>and</em>
+initialize a slice of it at the same time<nobr> <wbr></nobr>:</p>
+<pre>
+    my @hash{@keys} = (values...);</pre>
+<p>Mark-Jason Dominus approves, but wonders why <code>my($h{$k})</code> shouldn't be
+accepted either. Rafael Garcia-Suarez proposes a one-line proof-of-concept
+patch to allow the syntax <code>my(@hash{qw/keys/})</code> (with parentheses --
+otherwise modifying the parser is necessary). Hugo van der Sanden worries
+that this may mislead users in expecting that <code>local @hash{@keys}</code> works
+analogously, by emptying %hash first, and thus pronounces himself against
+this idea.</p>
+<pre>
+    <a href="http://xrl.us/ks4">http://xrl.us/ks4</a> </pre>
+<p>
+<h2>CHECK and INIT blocks</h2>
+<p>Marc Lehmann reports (bug filed under number 22826) that <em>neither CHECK
+nor INIT blocks are executed when require() is used to load a module</em>.
+Rafael provides the explanation (and sheds some light on the unclear
+points of the documentation) : CHECK and INIT blocks are executed during
+the transition between the compilation phase of the main program and its
+execution. Thus, they're executed at only one point during the lifetime
+of the perl interpreter, and once the main program has been compiled,
+they're never executed again. (This explains the existence of the warning
+<code>Too late to run CHECK/INIT block</code>.)</p>
+<p>Rafael points out that the B compiler suite actually relies on the
+current behaviour, and that it seems to be well adapted to other profiling
+or analysis tools, such as Devel::Cover. Gurusamy Sarathy recalls that
+Larry wished the CHECK/INIT blocks be run once per optree. Apparently that
+would be a job for a new kind of special block.</p>
+<p>The state of the equivalents of CHECK, INIT, BEGIN and END blocks in Perl
+6 seems to be mostly unclear to the P5P crowd, although Arthur Bergman
+crafted a module that provides PRE and POST to Perl 5 (Hook::Scope).</p>
+<pre>
+    <a href="http://xrl.us/ks5">http://xrl.us/ks5</a>
+    <a href="http://xrl.us/ks6">http://xrl.us/ks6</a> </pre>
+<p>
+<h2>Perldoc and Cygwin</h2>
+<p>Gerrit P. Haase sent a patch for Pod::Perldoc on Cygwin, to disable the
+default use of <code>man(1)</code> to format output, because man is apparently broken.
+Perhaps something to do with groff. Merijn applied the patch. John Peacock
+found a workaround : setting the environment variable <code>LESS=-R</code> (or
+<code>--RAW-CONTROL-CHARS</code>) instead.</p>
+<pre>
+    <a href="http://xrl.us/ks7">http://xrl.us/ks7</a> </pre>
+<p>
+<h2>In brief</h2>
+<p>Johan Vromans posted a RFC to choose a default way to handle multiple
+valued options in Getopt::Long. Nobody commented.</p>
+<pre>
+    <a href="http://xrl.us/ks8">http://xrl.us/ks8</a> </pre>
+<p>Alan Burlison had a look at the build process (on Solaris), and he notices
+that <code>perl</code> is linked against libraries it doesn't actually use. He's
+investigating it.</p>
+<pre>
+    <a href="http://xrl.us/ks9">http://xrl.us/ks9</a> </pre>
+<p>Gurusamy Sarathy and Ed Avis talked about releasing Data::Dumper on CPAN.
+This raises the question of the test suite, that should work over all perl
+versions, which implies not relying on hash key order. But Jarkko did just
+fix that test suite to enable the <code>Sortkeys</code> option to Data::Dumper
+(related to his hash seed patches). Brian Ingerson points out that YAML
+might be a better tool than Data::Dumper for a large number of uses of
+Data::Dumper.</p>
+<pre>
+    <a href="http://xrl.us/kta">http://xrl.us/kta</a> </pre>
+<p>A new Perl Repository Browser has been put on line on ActiveState's side.
+The URL hasn't changed.</p>
+<p>
+<h2>About this summary</h2>
+<p>This summary was brought to you by Rafael Garcia-Suarez. Weekly summaries
+are available on <em> <a href="http://use.perl.org/">http://use.perl.org/</a> </em> and/or via a mailing list, which
+subscription address is <em> <a href="mailto:perl5-summary-subscribe@perl.org">perl5-summary-subscribe@perl.org</a> </em>. Comments,
+additions, multiplications, corrections, and suggestions
+are welcome.</p></p>
+
+
+<hr/>
+
+
+
+<h2>my %hash : predictable</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2003-06-30T22:28:28</h3>
+<blockquote><div>anyway people seemed to dislike it, or to not like it enough</div></blockquote>
+<p>Maybe I'm biased, but I thought that the most important reason for dropping it was that it <a href="http://www.xray.mpe.mpg.de/mailing-lists/perl5-porters/2003-06/msg00797.html" title="mpe.mpg.de">simply didn't work</a mpe.mpg.de> </p>
+
+
+
+<blockquote>
+
+<h2>Re:my %hash : predictable</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2003-06-30T22:45:03</h3>
+Things that don't work might, eventually, be made to work. Michael Schwern had stronger arguments than you.
+
+
+
+<blockquote>
+
+<h2>Re:my %hash : predictable</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2003-06-30T22:54:40</h3>
+<p>True. I was more thinking about the particular implemenation, and I did suggest ways to kludge it into working. And <a href="http://www.xray.mpe.mpg.de/mailing-lists/perl5-porters/2003-06/msg00792.html" title="mpe.mpg.de">Schwern's arguments</a mpe.mpg.de> were independant of the implementation, and unanswerable.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

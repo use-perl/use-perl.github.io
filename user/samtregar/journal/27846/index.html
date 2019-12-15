@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of samtregar: Putting MIME::Lite on a diet</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Putting MIME::Lite on a diet</h1>
+<h2><a href="/user/samtregar/">samtregar</a> on 2005-12-03T22:35:58</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+There's nothing quite like some justified optimization to get the heart pumping.  I've been working on a system which needs to produce multipart MIME messages very quickly.  It's using <a href="http://search.cpan.org/user/yves/MIME-Lite/">MIME::Lite</a>, which, it turns out, isn't actually all that lite.    After solving the other bottlenecks in my code I was left with around 30% of my processing time locked-up in MIME::Lite's code.
+</p>
+<p>
+My first stop was <a href="http://search.cpan.org/user/makler/MIME-Fast/">MIME::Fast</a>.  It certainly is fast, but unfortunately it also has some large memory leaks.  Running at full speed it was losing around 5MB per second!  I spent a few hours confirming that the leaks are somewhere in the huge XS codebase of MIME::Fast and not in the underlying gmime library.  I gave up and filed a bug with the author.
+</p>
+<p>
+That left me back with MIME::Lite, so I decided to see if I could speed it up.  After a few hours of work I've come up with a patch which offers a 50% speedup for my use-case (creating two-part messages from parts in memory).  For the curious, here's my work-log:
+<p>
+<ul>
+<li>Starting work => MIME::Lite is building messages at 750/s</li>
+<li>Use direct hash access for Attrs => 900/s</li>
+<li>Change how Attrs are stored, moved sub-attrs into a separate
+    structure.  This avoids the {''} access for the vastly more common
+    case of attribs without sub-attribs. => 980/s</li>
+<li>Did some work optimizing fields() which is a hot method.  => 1046/s</li>
+<li>Tightened-up fields_as_string a bit.  Might be worth making the
+    pretty-printing optional if the spec doesn't require it.  => 1057/s</li>
+<li> Started testing with more realistic part sizes, new base => 910/s</li>
+<li> inlined the popular routine known_types() => 930/s</li>
+<li>Played with speeding up IO_* to little effect.  Removing the
+    wrap() indirection entirely would no-doubt help but it's a big
+    project.</li>
+</ul>
+<p>
+I sent the patch to the MIME::Lite maintainer, so hopefully this code will be available to all someday soon.
+<p>
+-sam
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>I'd be interested in that patch</h2>
+<h3><a href="/user/TeeJay/">TeeJay</a> on 2005-12-05T11:08:41</h3>
+Hi Sam,<br><br>I'd be interested in that patch as at my previous job we had a system that sent thousands of big multipart MIME emails at a time and that could improve things greatly.<br><br>I'd also possibly use it in my new job too.
+
+
+
+<blockquote>
+
+<h2>Re:I'd be interested in that patch</h2>
+<h3><a href="/user/samtregar/">samtregar</a> on 2005-12-05T19:21:34</h3>
+Be my guest: <a href="http://sam.tregar.com/mime_liter.diff" title="tregar.com">http://sam.tregar.com/mime_liter.diff</a tregar.com>
+<p>
+-sam</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Maintaining MIME::Lite</h2>
+<h3><a href="/user/bart/">bart</a> on 2005-12-07T06:32:50</h3>
+As plans are that I'm taking over maintenance of MIME::Lite, I'm taking a special interest in what you have done. I've received a more recent developer version of MIME::Lite from the current/old maintainer some time ago. I'll have to see how these things merge.<br><br>First of all, as I'd like to duplicate your benchmarks, I wonder how exactly you measured things? What exactly did you test?<br><br>Second, I have my doubts on how <code>$sub_attrs-&gt;{'content-disposition'}{'filename'}</code> would ever be faster than <code>$sub_attrs-&gt;{'content-disposition.filename'}</code> &mdash; but maybe there's more to it than I see at first look. I'd like to understand your rationale for that change.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Maintaining MIME::Lite</h2>
+<h3><a href="/user/samtregar/">samtregar</a> on 2005-12-07T07:41:51</h3>
+1) I'll send you the benchmarks I sent to the current maintainer via.  I used Benchmark.pm, of course.
+<p>
+2) The code needs to be able to loop through all the sub-attrs for a given attr in fields().  That would be rather complicated with the scheme you suggest, although it's possible it would be faster (and there's only one way to find out!).  However, this isn't a change I made: the old code looked up every single attribute like $attr-&gt;{$attr}{$sub} where $sub was '' for the "main" attribute.  My change removed this for "main" attributes which are by far the most common case and left the sub-attribute storage scheme as-is, albeit moved to a separate structure.
+</p><p>
+-sam</p>
+
+
+
+<blockquote>
+
+<h2>Re:Maintaining MIME::Lite</h2>
+<h3><a href="/user/bart/">bart</a> on 2005-12-07T21:37:26</h3>
+RE #2: You're right, judging by your explanation, the original looks very ugly indeed. I hadn't caught that in the casual reading of your patch.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

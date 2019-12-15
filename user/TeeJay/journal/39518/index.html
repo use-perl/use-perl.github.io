@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of TeeJay: Adding a new submenu and core feature to padre in an evening</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Adding a new submenu and core feature to padre in an evening</h1>
+<h2><a href="/user/TeeJay/">TeeJay</a> on 2009-08-24T09:04:58</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+Last night I decided I'd spend a few hours adding something like gedits 'insert date' and any office program's Insert stuff menu.
+</p>
+<p>
+Previously I'd spent about 25 minutes looking at how the snippets feature worked and how it fitted into menu's dialogs, etc - just enough time to copy it and modify the menus
+</p>
+<p>
+Adding a new submenu is fairly simple
+</p>
+<pre>
++       my $submenu = Wx::Menu->new; 
++       $self->{insert_submenu}  = $self->AppendSubMenu( $submenu, Wx::gettext('Insert') );
++
++       $self->{insert_special} = $self->add_menu_item(
++           $submenu,
++           name       => 'edit.insert.insert_special',
++           label      => Wx::gettext('Insert Special Value'),
++           shortcut   => 'Ctrl-Shift-I',
++           menu_event => sub {
++               require Padre::Wx::Dialog::SpecialValues;
++               Padre::Wx::Dialog::SpecialValues->insert_special(@_);
++              },
++
++           );
++
+        $self->{snippets} = $self->add_menu_item(
+-               $self,
+-               name       => 'edit.snippets',
++               $submenu,
++               name       => 'edit.insert.snippets',
+                label      => Wx::gettext('Snippets'),
+                shortcut   => 'Ctrl-Shift-A',
+                menu_event => sub {
+
+</pre>
+<p> The new insert sub menu now holds 2 entries - snippets, and 'insert special value', which calls insert_special method on the new Dialog class, which will be defined next</p>
+<p> That's easy enough - now to add some actual functionality..
+<br><br>
+We define the functionality in the dialog class just below :
+<ul>
+<li>The menu item calls insert_special, which simply calls the dialog method.
+<li>The dialog methid is where most of the setup is done, layout of the dialog and the widgets, specifying what functions to call when widgets are clicked or selected
+<li>The widgets are best understood by looking at the examples in wxdemo, and Padre::Wx::Dialog which wraps some of the logic.
+<li>The Choice widgets just expect an array ref of labels, when a selection is made the indice of the selection is available from the widget object - see get_value and get_category for examples of mapping selection indices into your own data structures.
+<li>You can access the current editor object and thence document, etc using Padre::Current, see the _get_file_info sub.
+</ul>
+And now for the source code in full..
+</p>
+<pre>
+package Padre::Wx::Dialog::SpecialValues;
+
+# Insert special values such as dates in your code
+
+use strict;
+use warnings;
+use Padre::Wx         ();
+use Padre::Wx::Dialog ();
+use Padre::Current    ();
+
+our $VERSION = '0.01';
+
+my $categories = {
+		  'Dates' => [
+			      { label => 'Now', action => _get_date_info('now')  },
+			      { label => 'Yesterday', action => _get_date_info('epoch') },
+			      { label => 'Tomorrow', action => _get_date_info('epoch') },
+			     ],
+		  'File' => [
+			     { label => 'Size', action => _get_file_info('size') },
+			     { label => 'Name', action => _get_file_info('name') },
+			    ],
+		  'Line' => [
+			     { label => 'Number', action => _get_line_info('number') },
+			    ],
+		 };
+
+my $cats_list = [ sort keys %$categories ];
+
+sub get_layout {
+	my ($config) = @_;
+
+	my $default_cat_values = [map ($_->{label}, @{$categories->{$cats_list->[0]}})];
+
+	my @layout = (
+		[ [ 'Wx::StaticText', undef, Wx::gettext('Class:') ],   [ 'Wx::Choice', '_find_cat_',  $cats_list ], ],
+		[ [ 'Wx::StaticText', undef, Wx::gettext('SpecialValue:') ], [ 'Wx::Choice', '_find_specialvalue_', $default_cat_values ], ],
+		[ [], [ 'Wx::Button', '_insert_', Wx::gettext('&Insert') ], [ 'Wx::Button', '_cancel_', Wx::wxID_CANCEL ], ],
+	);
+	return \@layout;
+}
+
+sub dialog {
+	my $class  = shift;
+	my $parent = shift;
+	my $args   = shift;
+	my $config = Padre->ide->config;
+	my $layout = get_layout($config);
+	my $dialog = Padre::Wx::Dialog->new(
+		parent => $parent,
+		title  => Wx::gettext("Insert Special Values"),
+		layout => $layout,
+		width  => [ 150, 200 ],
+	);
+
+	Wx::Event::EVT_CHOICE( $dialog, $dialog->{_widgets_}->{_find_cat_}, \&find_category );
+	Wx::Event::EVT_BUTTON( $dialog, $dialog->{_widgets_}->{_insert_}, \&get_value );
+	Wx::Event::EVT_BUTTON( $dialog, $dialog->{_widgets_}->{_cancel_}, \&cancel_clicked );
+
+	$dialog->{_widgets_}->{_find_cat_}->SetFocus;
+	$dialog->{_widgets_}->{_insert_}->SetDefault;
+
+	return $dialog;
+}
+
+sub insert_special {
+	my $class  = shift;
+	my $main   = shift;
+	my $dialog = $class->dialog( $main, {} );
+	$dialog->Show(1);
+	return;
+}
+
+sub find_category {
+	my $dialog   = shift;
+	my $cat_name = _get_cat_name($dialog);
+	my $values   = [map ($_->{label}, @{$categories->{$cat_name}})];
+	my $field    = $dialog->{_widgets_}->{_find_specialvalue_};
+	$field->Clear;
+	$field->AppendItems($values);
+	$field->SetSelection(0);
+	return;
+}
+
+sub get_value {
+	my $dialog = shift;
+	my $data   = $dialog->get_data or return;
+	my $cat_name    = _get_cat_name($dialog);
+	my $value_ind = $data->{_find_specialvalue_};
+	my $text   = &{$categories->{$cat_name}[$value_ind]{action}};
+	warn "cat : $cat_name, value $value_ind, text : $text\n";
+
+	my $editor = Padre::Current->editor;
+	$editor->ReplaceSelection('');
+	my $pos = $editor->GetCurrentPos;
+	$editor->InsertText( $pos, $text );
+	return;
+}
+
+sub cancel_clicked {
+	$_[0]->Destroy;
+	return;
+}
+
+
+######
+
+sub _get_cat_name {
+    my $dialog = shift;
+    my $data   = $dialog->get_data;
+#    warn Dumper (data => $data);
+    my $cat_name  = $cats_list->[$data->{_find_cat_}];
+    return $cat_name;
+}
+
+sub _get_date_info {
+    my $type = shift;
+    if ($type eq 'now') {
+	return sub {
+	    return scalar localtime;
+	}
+    } else {
+	return sub {
+	    warn "date info $type not implemented yet\n";
+	    return '';
+	}
+    }
+}
+
+sub _get_file_info {
+    my $type = shift;
+    if ($type eq 'name') {
+	return sub {
+	    my $document = Padre::Current->document;
+	    my $filename = $document->filename || $document->tempfile;
+	    warn "doc : $document $filename \n";
+	    return $filename
+	};
+    } else {
+	return sub {
+	    my $document = Padre::Current->document;
+	    my $filename = $document->filename || $document->tempfile;
+	    warn "doc : $document $filename \n";
+	    return ($filename) ? -s $filename : 0;
+	};
+    }
+}
+
+sub _get_line_info {
+    my $type = shift;
+    return sub {
+	my $editor = Padre::Current->editor;
+	my $pos = $editor->GetCurrentPos;
+	my $line = $editor->GetCurrentLine;
+	return $line + 1;
+    } ;
+}
+
+</pre>
+<p>
+It's mostly an exersize for me in hacking padre and a proof of concept for a word-processor style insert menu, at the moment, but I hope to integrate plugins so that, for instance, a version control plugin would allow you to paste the name of the repo, or the version, tag or branch into the document.
+</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: Amazon.com redirector</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Amazon.com redirector</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2002-12-29T12:36:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Now that I listed all the things I am not going to do, I have started to do some of them.  I wrote my Amazon.com redirector because it is easily done.  I set my Amazon Associates ID with the <a href="http://httpd.apache.org/docs/mod/mod_env.html">SetEnv apache directive</a> in my .htaccess file (although you can do it from the server conf file too, but I do not control that on my public website).  I also have a private library tree in my cgi-bin directory because I cannot install modules globally, so I  add the <code>use lib</code> line.  I pull the ISBN directly from the query string since I use this as a keyword search---values do not have names.  I just want to add an ISBN to the end of a URL when I make a link, so CGI parameter parsing overkill.  If I use a bad ISBN, I stop the script and return 408 to signal a bad request. Not too many people use that, but I like to check for those sorts of errors in the logs.  If I output an error page with status 200 I cannot find the errors as easily.<br/><br/><pre>
+#!/usr/local/bin/perl<br/><br/>use lib qw(.);
+use Business::ISBN;<br/><br/>my $account = $ENV{AMAZON_ASSOCIATE_ID};<br/><br/>my $isbn = Business::ISBN->new( $ENV{QUERY_STRING} );<br/><br/>unless( ref $isbn and $isbn->is_valid )
+        {
+        print <<"HERE";
+Status: 408 Bad ISBN
+Content-type: text/plain<br/><br/>ISBN [$ENV{QUERY_STRING}] is not a valid ISBN.
+HERE<br/><br/>        exit;
+        }
+        
+my $isbn_str = $isbn->as_string( [] );<br/><br/>print <<"HERE";
+Status: 302 Ask here, go there
+Location: http://www.amazon.com/exec/obidos/ASIN/$isbn_str/$account<br/><br/>HERE
+</pre><br/><br/>A while ago I wrote about <a href="http://use.perl.org/user/brian_d_foy/journal/8285">tricking people into doing your work by pretending to not being able to do it yourself</a>.  Randal took the bait and sent me his program to do the same thing.  He likes CGI.pm, but that is okay.  His program is more forgiving than mine---he follows Jon Postel's maxim "Be liberal in what you accept, and conservative in what you send" (which first appeared in <a href="http://www.faqs.org/rfcs/rfc761.html">RFC 761</a>, although later removed, but is in <a href="http://www.faqs.org/rfcs/rfc1122.html">RFC 1122</a>. Alpha geeks probably already knew that, but I did not---isn't Google great?).  He outputs a form asking for an ISBN if he does not see one in the input.<br/><br/>Randal also shows proper paranoia by enabling warnings, taint checking, and strictures, even if he does use a magic constant (-1) instead of the symbolic versions (although I think the script pre-dates their addition to the module).<br/><br/><pre>
+#!/usr/bin/perl -Tw
+use strict;<br/><br/>use CGI qw(:standard);
+use Business::ISBN;<br/><br/>my $num = Business::ISBN->new(param('isbn') || "");
+unless ($num and $num->is_valid != -1) {
+  print
+    header,
+    start_html('Give me a valid ISBN'),
+    h1('Give me a valid ISBN'),
+    p, "I need a valid ISBN to proceed to the Amazon.com page",
+    hr, start_form,
+    submit("Suggest this ISBN: "),
+    textfield("isbn","",50);
+    end_form, hr;
+  exit 0;
+}
+print redirect("http://www.amazon.com/exec/obidos/ASIN/".
+               ($num->as_string([])).
+                 "/stonehengeconsul");
+</pre></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jozef: Vienna.pm OpenID hackathon 1.12.</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Vienna.pm OpenID hackathon 1.12.</h1>
+<h2><a href="/user/jozef/">jozef</a> on 2008-12-02T09:20:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><a href="http://socialtext.useperl.at/vienna-pm/index.cgi?hackmeet_am_1_12_2008">http://socialtext.useperl.at/vienna-pm/index.cgi?hackmeet_am_1_12_2008</a></p>
+
+<p>
+Yesteday we met to try to hack on OpenID server that will use pause as authentication
+mechanism. After initial fights with Git repository (git clone git@git.useperl.at:PAUSE-OpenID)
+and eating pizza we created 26 commits:
+</p>
+
+<URL:http://bratislava.pm.org/images/events/20081201-vienna.pm-openid-hacathon.png>
+
+<p>
+Was nice, was fun. We finished at midnigh. Lot of thinks to be done still. What I've learned?
+</p>
+
+<strong>xhtml is NOT html.</strong>
+
+<p>(how many times do I have to repeat this to my self?)</p>
+
+<p>WWW::Mechanize knows:</p>
+<code>
+sub is_html {       my $self = shift; return defined $self-&gt;ct &amp;&amp; ($self-&gt;ct eq &#39;text/html&#39;); }
+</code>
+
+<p>just forget that you'll use it on xhtml documents, without cheating like:</p>
+<code>
+    no warnings &#39;redefine&#39;;
+    sub WWW::Mechanize::is_html {
+        my $self = shift;
+        
+        return defined $self-&gt;{ct} &amp;&amp; (
+            ($self-&gt;{ct} eq &#39;text/html&#39;)
+            || ($self-&gt;{ct} eq &#39;application/xhtml+xml&#39;)
+            || ($self-&gt;{ct} eq &#39;application/vnd.wap.xhtml+xml&#39;)
+        );
+    }
+</code>
+
+<strong>LWP server ssl certificate validation is not so easy</strong>
+
+<p>
+If in the request header an "If-SSL-Cert-Subject" is passed it's validated agains
+certificate subject if it fails then exception is triggered. Server certificate
+can be validated but I was not able to generate exception if the validation fails.
+All there was was an response header $res->headers->{'client-ssl-warning'} but
+that's too late as the credentials were already send :-( Any way, here is the
+snipped how to check password against pause or any server with basic authentication:
+</p>
+
+<code>
+    my $ua = LWP::UserAgent-&gt;new;
+    my $req = HTTP::Request-&gt;new(GET =&gt; &#39;https://pause.perl.org/pause/authenquery&#39;);
+    $req-&gt;header(&#39;If-SSL-Cert-Subject&#39; =&gt; &#39;/CN=pause.perl.org&#39;);
+    local $ENV{HTTPS_CA_DIR} = $c-&gt;config-&gt;{&#39;ssl&#39;}-&gt;{&#39;ca_dir&#39;};
+    $ua-&gt;credentials(&#39;pause.perl.org:443&#39;, &#39;PAUSE&#39;, $username, $password);
+    my $res = $ua-&gt;request($req);
+    
+    # but this is bad as the certificate is checked AFTER the credentials are send :-(
+    die &#39;pause server certificate validation failed&#39;
+        if exists $res-&gt;headers-&gt;{&#39;client-ssl-warning&#39;};
+    
+    if ($res-&gt;code == 200) {
+        $c-&gt;log-&gt;info(&#39;login pass&#39;);
+        $c-&gt;res-&gt;redirect($c-&gt;uri_for(&#39;/login_pass&#39;));
+    }
+    else {
+        $c-&gt;log-&gt;warn(&#39;login failed&#39;);
+        $c-&gt;res-&gt;redirect($c-&gt;uri_for(&#39;/login_failed&#39;));
+    }
+</code>
+
+<strong>OpenID is not so simple</strong>
+
+<p>
+It seems that OpenID is not so simple but looks really nice. Besides having single
+password for the internet services, it can be used for intranet also to have a
+single-sign-in.
+</p>
+
+<strong>6h is nothing :-)</strong>
+
+<p>
+Well this was just a start. 6h is not a lot. But with a little refactoring there
+can be username+password abstraction put to a separate module(s) that can be choosed
+via config file. Then the OpenID server will be not tight just to a PAUSE or
+http basic authentication. DB or LDAP or ??? can be used to check the credetials
+having an general OpenID server implementation.
+</p>
+
+
+
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

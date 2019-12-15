@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjohn: use.perl blogging with win32 emacs + perl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>use.perl blogging with win32 emacs + perl</h1>
+<h2><a href="/user/jjohn/">jjohn</a> on 2005-02-24T16:09:26</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Since use.perl.org has become my de facto backup solution, 
+I now post the scripts I use to blog from winders.  These are modified 
+versions of the scripts I mentioned in a use.perl.org article published a 
+while ago.  
+<p>The emacs file:
+<p style="border: 1px solid black">
+<pre>
+(defvar prog
+   "C:/perl/bin/perl.exe F:/blog/use_perl_blog.pl"
+   "use_perl_journal: A SOAP client for use.perl journaling"
+)
+
+(defun edit-entry ()
+   "Add an entry or edit an existing one"
+   (interactive)
+   (setq cmd (concat prog " edit"))
+   (widen)
+   (shell-command-on-region (point-min) (point-max) cmd)
+)
+
+(defun get-entry (n)
+  "Get journal entry from use.perl.org"
+  (interactive "sJournal ID: ")
+  (setq buffer (generate-new-buffer "*use_perl_journal*"))
+  (switch-to-buffer buffer)
+  (setq cmd (concat prog (concat " -i " (concat n " get"))))
+  (shell-command-on-region (point-min) (point-max) cmd 1 nil nil) 
+)
+
+(defun list-entries (uid limit)
+   "Get journal entries"
+   (interactive "sUser ID: \nsLimit: ")
+   (setq buffer (generate-new-buffer "*use_perl:list_entries*"))
+   (switch-to-buffer buffer)
+   (setq cmd (concat prog (concat " -l " (concat limit " -i " (concat uid " list")))))
+   (shell-command-on-region (point-min) (point-max) cmd 1 nil nil)
+)
+
+
+(defun delete-entry (jid)
+  "Delete journal entry"
+  (interactive "nEntry ID: ")
+  (setq cmd (concat prog (concat " -i " (concat jid (concat " delete")))))
+  (shell-command-on-region (point-min) (point-max) cmd 1 nil nil)
+)
+
+;; don't use tabs
+(setq-default indent-tabs-mode nil)
+
+(global-set-key "\C-xtl" `list-entries)
+(global-set-key "\C-xtg" `get-entry)
+(global-set-key "\C-xts" `edit-entry)
+(global-set-key "\C-xtm" `edit-entry)
+(global-set-key "\C-xtd" `delete-entry)
+</pre>
+
+<p>The perl script:
+
+<pre>
+# -*-cperl-*-
+# A SOAP client to post USE.PERL.ORG journal entries
+
+use strict;
+use HTTP::Cookies;
+use SOAP::Lite;
+use File::Basename;
+use Digest::MD5 'md5_hex';
+use Data::Dumper;
+use Getopt::Std;
+
+use constant DEBUG => 0;
+use constant UID   => -1; # your UID here
+use constant PW    => 's3cr3t'; # your pw here
+use constant URI   => 'http://use.perl.org/Slash/Journal/SOAP';
+use constant PROXY => 'http://use.perl.org/journal.pl';
+
+my $Dispatch = {
+                 'get'  => \&get_entry,
+                 'list' => \&list_entries,
+                 'add'  => \&add_entry,
+                 'edit' => \&edit_entry,
+                 'delete' => \&delete_entry,
+               };
+
+my $opts = {};
+getopts('h?vi:u:l:', $opts);
+
+my $action = pop @ARGV;
+
+unless ($action) {
+  print usage(), "\n";
+  exit;
+}
+
+my $soap_client = make_soap();
+
+my $exit_value = 0;
+if (defined $Dispatch->{$action}) {
+  $exit_value = !$Dispatch->{$action}->($opts, $soap_client);
+} else {
+  warn("Unknown action '$action'");
+  print usage();
+  $exit_value = 1;
+}
+
+exit $exit_value;
+
+#------
+# subs
+#------
+
+sub usage {
+  my $base = basename($0);
+  return qq[
+$base - manage use.perl.org blog
+
+ USAGE: 
+   $base [options] [actions]
+
+ OPTIONS:
+   ?       print this screen
+   h       print this screen
+   v       verbose mode
+   i <id>  entry ID 
+   l <int> limit the number of listed entries to this number
+   u <id>  use.perl.org user ID
+
+ ACTIONS:  
+  add
+  delete 
+  edit
+  get
+  list
+ Input files take the following form:
+	  id:
+	  subject:
+          body:
+];
+}
+
+sub make_soap {
+  my $cookie = HTTP::Cookies->new;
+  $cookie->set_cookie( 0,
+		       user => bakeUserCookie(&UID, &PW),
+		       "/", 
+		       "use.perl.org",
+		     );
+
+  return SOAP::Lite->uri(URI)->proxy(PROXY, cookie_jar => $cookie);
+}
+
+sub add_entry {
+  my ($opts, $c, $in) = @_;
+  
+  $in ||= parse_input();
+
+  my $ret;
+  if ($in->{subject} && $in->{body}) {
+    if ($in->{id}) {
+      return edit_entry(@_, $in);
+    } else {
+      $ret = $c->add_entry($in->{subject}, $in->{body}); 
+    }
+  } else {
+    $ret = $c->add_entry("Random thought #$$", $in->{all});
+  }
+
+  return if had_transport_error($ret);
+  print "add_entry got articleID: ", $ret->result, "\n";
+  return 1;
+}
+
+sub delete_entry {
+  my ($opts, $c) = @_;
+
+  my ($id) = $opts->{i} || die "delete requires a journal ID\n";
+  my $ret = $c->delete_entry($id);
+  return if had_transport_error($ret);
+  print "Deleted article ID '$id'\n";
+  return 1;
+}
+
+sub edit_entry {
+  my ($opts, $c, $in) = @_;
+
+  $in ||= parse_input(); # add_entry may have already read STDIN
+ 
+  unless ($in->{id}) {
+    # warn("No article ID\n");
+    return add_entry($opts, $c, $in);
+  }
+
+  my $ret = $c->modify_entry($in->{id},
+			     subject => $in->{subject},
+			     body => $in->{body},
+			    );
+
+  return if had_transport_error($ret);
+
+  print "Updated article $in->{id}\n";
+
+  return 1;
+}
+
+sub get_entry {
+  my ($opts, $c) = @_;
+
+  my $id = $opts->{i} || die "get_entry requires a journal ID\n";
+  my $ret = $c->get_entry($id);
+  return if had_transport_error($ret);
+
+  if (my $hr = $ret->result) {
+    while (my ($k,$v) = each %{$hr}) {
+      print "$k: $v\n";
+    }
+
+  } else {
+    warn ("Couldn't fetch journal entry '$id'\n");
+    return;
+  }
+  return 1;
+}
+
+sub list_entries {
+  my ($opts, $c) = @_;
+  my ($uid, $limit) = (($opts->{u} || &UID), $opts->{l});
+
+  my $ret = $c->get_entries($uid, $limit);
+  return if had_transport_error($ret);
+
+  my $ar = $ret->result;
+  for my $row (@{$ar}) {
+    while (my ($k,$v) = each %{$row}) {
+      print "$k: $v\n";
+    }
+    print "\n";
+  }
+
+  return 1;
+}
+
+
+sub parse_input {
+  my %rec;
+
+  my $last_field = 'all';
+  while (defined ($_ = <STDIN>)) {
+    chomp($_);
+    if (/^(\w+):\s*(.*)/) {
+      $last_field = $1;
+      $rec{$last_field} = $2;
+    } else {
+      $rec{$last_field} .= "\n$_";
+    }
+  }
+
+  return \%rec;
+}
+
+sub bakeUserCookie {
+  my ($uid, $pw) = @_;
+  my $c = $uid . "::" . md5_hex($pw);
+  $c =~ s/(.)/sprintf("%%%02x", ord($1))/ge;
+  $c =~ s/%/%25/g;
+  return $c;
+}
+
+sub had_transport_error {
+  my ($ret) = @_;
+
+  if ($ret->fault) {
+    warn ("Oops: ", $ret->faultString, "\n");
+    return 1;
+  }
+
+  return;
+}
+</pre>
+</p>
+
+<p>To post:
+<ul>
+  <li>M-x load-file <path/to/use_perl.el> 
+  <li>new buffer with "id:\nsubject:\nbody:";
+  <li>add blog content to buffer
+  <li>M-x t s to publish blog to use.perl
+</ul></p>
+
+
+<hr/>
+
+
+
+<h2>Elisp</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2005-02-25T08:52:25</h3>
+I started working on the elisp for that a little while back.  I was trying to get a major mode together for browsing the journal entries.  This is what I have so far.  Unfortunately, I haven't worked on it much since, because I'm not a terribly prolific poster, so I haven't had the impetus.<blockquote><div><nobr> <wbr></nobr><tt>;;; use-perl --- interface to use.perl.org SOAP.<br> <br>;;; Commentary:<br> <br>;; Various functions for interacting with the SOAP interface on<br>;; use.perl.org.&nbsp; Additionally requires a perl script for actually<br>;; communicating with the server.<br>;;<br>;; Originally from<br>;; &lt;http://use.perl.org/article.pl?sid=02/10/25/007222&amp;tid=11&gt;.<br>;;<br>;; To use, drop this file into your site-lisp directory (or somewhere<br>;; else on your load-path) and put (require 'use-perl) in your<nobr> <wbr></nobr>.emacs<br>;; file.<br> <br>;;; History:<br> <br>;; @(#) $Id: use-perl.el,v 1.17 2004/12/20 13:49:51 dom Exp $<br> <br>(require 'goto-addr)<br> <br>;;; Code:<br> <br>(defgroup use-perl nil<br>&nbsp; "Talking to use.perl.org."<br>&nbsp;<nobr> <wbr></nobr>:group 'tools)<br> <br>(defcustom use-perl-progpath (expand-file-name "~/bin")<br>&nbsp; "*Path to use.perl soap interface."<br>&nbsp;<nobr> <wbr></nobr>:type '(string)<br>&nbsp;<nobr> <wbr></nobr>:group 'use-perl)<br> <br>(defcustom use-perl-default-uid nil<br>&nbsp; "What user id to use when talking to use.perl.org by default."<br>&nbsp;<nobr> <wbr></nobr>:type '(integer)<br>&nbsp;<nobr> <wbr></nobr>:group 'use-perl)<br> <br>(defcustom use-perl-browse-entries 20<br>&nbsp; "*How many entries to request from use.perl.org for a browse list."<br>&nbsp;<nobr> <wbr></nobr>:type '(integer)<br>&nbsp;<nobr> <wbr></nobr>:group 'use-perl)<br> <br>(defun use-perl-cmd (cmd &amp;rest args)<br>&nbsp; "Return the path to a specific CMD.&nbsp; Optionally pass in ARGS to command."<br>&nbsp; (mapconcat 'identity<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;(cons (concat use-perl-progpath "/" cmd) args)<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;" "))<br> <br>(defun use-perl-run-replace-buffer (cmd)<br>&nbsp; "Run the string CMD and replace the current buffer with the output."<br>&nbsp; (shell-command-on-region (point-min) (point-max) cmd nil 1))<br> <br>(defun use-perl-get-entry (n)<br>&nbsp; "Get journal entry N from use.perl.org."<br>&nbsp; (interactive "sJournal ID: ")<br>&nbsp; (switch-to-buffer (generate-new-buffer (concat "*use-perl-journal-" n "*")))<br>&nbsp; (use-perl-run-replace-buffer (use-perl-cmd "get_entry" n)))<br> <br>(defun use-perl-browse (uid limit)<br>&nbsp; "List use.perl journal entries for UID to a maximum of LIMIT."<br>&nbsp;<nobr> <wbr></nobr>;; If there is no prefix arg specified, then attempt to use the<br>&nbsp;<nobr> <wbr></nobr>;; values set by custom, otherwise prompt.&nbsp; Always use the custom<br>&nbsp;<nobr> <wbr></nobr>;; setting for the limit, as that's less likely to want to be<br>&nbsp;<nobr> <wbr></nobr>;; changed.<br>&nbsp; (interactive<br>&nbsp; &nbsp;(list (or (and (not current-prefix-arg)<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; (number-to-string use-perl-default-uid))<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;(read-string "User ID: "))<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;(number-to-string use-perl-browse-entries)))<br>&nbsp; (switch-to-buffer (generate-new-buffer "*use-perl-entry-list*"))<br>&nbsp; (use-perl-run-replace-buffer (use-perl-cmd "list_entries" uid limit))<br>&nbsp; (use-perl-browse-mode))<br> <br>;; ---------------------------------------------------------------------<br>;; A major mode for browsing the list of use.perl journal entries.<br>;; ---------------------------------------------------------------------<br>(defvar use-perl-browse-mode-map nil<br>&nbsp; "Map to be used in `use-perl-browse-mode'.")<br>(if use-perl-browse-mode-map<br>&nbsp; &nbsp; nil<br>&nbsp; (setq use-perl-browse-mode-map (make-sparse-keymap))<br>&nbsp; (define-key use-perl-browse-mode-map "q" 'use-perl-browse-quit)<br>&nbsp; (define-key use-perl-browse-mode-map "n" 'use-perl-browse-next-entry)<br>&nbsp; (define-key use-perl-browse-mode-map "p" 'use-perl-browse-previous-entry)<br>&nbsp; (define-key use-perl-browse-mode-map "w" 'use-perl-whois)<br>&nbsp; (define-key use-perl-browse-mode-map "\C-m" 'use-perl-browse-view-entry))<br> <br>(defun use-perl-browse-mode ()<br>&nbsp; "Major mode for browsing a list of use.perl.org journal entries."<br>&nbsp; (interactive)<br>&nbsp; (kill-all-local-variables)<br>&nbsp; (setq major-mode 'use-perl-browse-mode)<br>&nbsp; (setq mode-name "MyJournals")<br>&nbsp; (use-local-map use-perl-browse-mode-map)<br>&nbsp; (goto-address)<br>&nbsp; (goto-char (point-min)))<br> <br>(defun use-perl-browse-quit ()<br>&nbsp; "Finish looking at the list of use.perl.org journal entries."<br>&nbsp; (interactive)<br>&nbsp; (bury-buffer))<br> <br>(defun use-perl-browse-view-entry ()<br>&nbsp; "Bring up a buffer with the current entry in it."<br>&nbsp; (interactive)<br>&nbsp; (use-perl-get-entry (use-perl-browse-current-entry-id)))<br> <br>(defun use-perl-browse-current-entry-id ()<br>&nbsp; "Return the id of the entry nearest the point."<br>&nbsp; (use-perl-browse-start-of-entry)<br>&nbsp; (save-excursion<br>&nbsp; &nbsp; (re-search-forward "^id: \\([0-9]+\\)$")<br>&nbsp; &nbsp; (match-string 1)))<br> <br>(defun use-perl-browse-start-of-entry ()<br>&nbsp; "Move the point to the start of the current entry."<br>&nbsp; (if (re-search-backward "^$" nil t)<br>&nbsp; &nbsp; &nbsp; (forward-line)<br>&nbsp; &nbsp; (goto-char (point-min))))<br> <br>(defun use-perl-browse-previous-entry ()<br>&nbsp; "Move to the previous entry in the list."<br>&nbsp; (interactive)<br>&nbsp; (use-perl-browse-start-of-entry)<br>&nbsp; (forward-line -1)<br>&nbsp; (backward-paragraph)<br>&nbsp; (unless (bobp)<br>&nbsp; &nbsp; (forward-line)))<br> <br>(defun use-perl-browse-next-entry ()<br>&nbsp; "Move to the previous entry in the list."<br>&nbsp; (interactive)<br>&nbsp; (use-perl-browse-start-of-entry)<br>&nbsp; (let ((start (point)))<br>&nbsp; &nbsp; (forward-paragraph)<br>&nbsp; &nbsp; (forward-line)<br>&nbsp; &nbsp; (if (eobp)<br>&nbsp; &nbsp; &nbsp; &nbsp; (goto-char start))))<br> <br>;; ---------------------------------------------------------------------<br> <br>(defun use-perl-add-entry ()<br>&nbsp; "Add current buffer to use.perl.org as a new entry."<br>&nbsp; (interactive)<br>&nbsp; (widen)<br>&nbsp; (use-perl-run-replace-buffer (use-perl-cmd "add_entry")))<br> <br>(defun use-perl-modify-entry ()<br>&nbsp; "Modify an entry."<br>&nbsp; (interactive)<br>&nbsp; (widen)<br>&nbsp; (use-perl-run-replace-buffer (use-perl-cmd "modify_entry")))<br> <br>(defun use-perl-delete-entry (id)<br>&nbsp; "Delete use.perl journal entry ID."<br>&nbsp; (interactive "nEntry ID: ")<br>&nbsp; (use-perl-run-replace-buffer (use-perl-cmd "delete_entry" id)))<br> <br>(defun use-perl-whois (nick)<br>&nbsp; "Lookup the uid of NICK."<br>&nbsp; (interactive "sNickname: ")<br>&nbsp; (message (shell-command-to-string (use-perl-cmd "whois_nick" nick))))<br> <br>(provide 'use-perl)<br> <br>;;; use-perl.el ends here</tt> </div></blockquote> <p>-Dom</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

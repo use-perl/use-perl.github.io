@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pjf: autodie status update</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>autodie status update</h1>
+<h2><a href="/user/pjf/">pjf</a> on 2009-05-01T07:33:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><b>autodie status update</b><br/>
+I just looked through my blog history, and discovered the last release of <a href="http://search.cpan.org/perldoc?autodie">autodie</a>, I've blogged about was version 1.99!  Since then, there's been nine releases!  For those of you new to my blog, autodie is a lexical pragma that allows Perl's built-ins to throw exceptions on failure, which can take your error-handling from cumbersome to simple.
+</p><p>
+There's been a lot of changes in those nine releases, and the <a href="http://github.com/pfenwick/autodie/tree/master/Changes">Changes</a> file documents all the significant ones.  There are nicer error messages, better coverage of Perl's core functions, fewer rough edges, and lots more tests.  If you're not one to go reading Changes files, I can assure you that upgrading to 1.999 is pleasant and surprise-free.
+</p><p>
+I've had a few people tease me about the silly version number, 1.999 threatens to have 1.9991 as a next release, but this will not happen.  The next version of autodie will be 2.000, and this actually represents a significant change.  There's no backwardly incompatible changes, but there is a new feature which greatly extends autodie's ability to detect failures in non-core subroutines.
+</p><p>
+Presently, one can write:
+</p>
+<blockquote><code>
+    use File::Copy qw(copy);<br>
+    use autodie qw(copy);<br>
+    <br>
+    copy($src, $dst);<br>
+</code></blockquote>
+<p>
+If anything goes wrong, autodie spots it, throws an exception, and tells you file, line-number, source and destination files, and the error that occurred.  Brilliant.  However, one day, someone tried this:
+</p>
+<blockquote><code>
+    my @array = copy($src,$dst);
+</code></blockquote>
+<p>
+Given that <tt>copy</tt> is going to succeed or die, I don't know why one would want to examine its return value as a list, but they did.  The surprise here is that it <i>didn't</i> die on failure.  It just silently ignored them.
+</p><p>
+The problem is in how autodie 1.9x currently determines failure from a user subroutine.  In a scalar context, it considers a false value to be a failure, and in a list context it considers failure to be an empty list, or a list consisting of a single undefined value.  The problem was that <tt>copy</tt> would return a list consisting of a single zero when called in list context[1], and that looked like a perfectly normal (success) value to autodie.
+</p><p>
+This is actually symptomatic of a deeper problem, which is that except when an exception is thrown, there are too many ways people try to signal failure in Perl.  Why, just last week I saw code that did this:
+</p>
+<blockquote><code>
+    return( undef, "1.21 jigawatts needed for operation" );
+</code></blockquote>
+<p>
+Yes, errors were signalled by returning a two-element list, the first of which was always undef, and the second of which was the error message.  The function could <i>also</i> return a list of values which you were interested in, and there may only be two of those, but the first <i>wouldn't</i> be undef.  To make things more fun, I've seen almost exactly the same signalling mechanism at a <i>different</i> client a few years back.
+</p><p>
+The only thing I haven't seen is anyone try to <i>handle</i> these failures, because they're such a pain in the arse to detect, nobody ever to tries.  That means that then when things go wrong, they go <i>badly</i> wrong.
+</p><p>
+So, autodie 2.00 will have a "hinting interface", whereby you can say that <i>these</i> subroutines signal failure by doing <i>this</i>.  The idea of hints are very simple: autodie smart-matches the return value against them, and if the result is true, a failure is considered to have occurred.  Since it's possible to smart-match against subroutines, you can check for anything you want.  The hint for the failure signalling shown above would look something like this:
+</p>
+<blockquote><code>
+    sub { @_ == 2 and not defined $_[0] }
+</code></blockquote>
+<p>
+I owe <a href="http://damian.conway.org/">Damian Conway</a> a particular thank-you for spending a great deal of his time discussing hinting interfaces with me, and convincing me that there are just so many different ways people try to signal errors, that autodie really has to be ready for anything.
+</p><p>
+The other change is that when we build our exception (which doesn't need to be of the default <a href="http://search.cpan.org/perldoc?autodie::exception">autodie::exception</a> class), it will also be passed the return value from the failing subroutine, which is useful not only for creating good-looking error messages, but which may also prove useful in logging and testing.
+</p><p>
+The actual hinting interface is described in more detail in <a href="http://www.xray.mpe.mpg.de/mailing-lists/perl5-porters/2009-04/msg00482.html">my post to p5p</a> and the accompanying thread.  In brief, most end-users will <i>never</i> need to see nor worry about the hints, they'll Just Work.
+</p><p>
+All these changes will work on 5.8.x as well as 5.10.x, although there'll be a few minor limitations in 5.8.x, since I can't use a native smart-match under the hood.
+</p><p>
+The only thing I have to do now is finish writing the code, although there's a basic (but not yet final) working implementation on the <a href="http://github.com/pfenwick/autodie/tree/hints">hints branch</a> of my git repo.  The changes aren't actually that hard, I've just had lots of people throwing money at me recently to work on other projects.  Luckily, I've got four flights in the next two weeks, and for me travel time is usually coding time.
+</p><p>
+[1]<i>Actually, on Windows, File::Copy sometimes returns an empty string to signal failure, which makes things not only wrong, but inconsistently wrong!  I've written <a href="http://www.xray.mpe.mpg.de/mailing-lists/perl5-porters/2009-04/msg00471.html">a patch for this</a>, but as I suspect I'm the only person this century to have noticed or cared, it hasn't been applied.</i>
+</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

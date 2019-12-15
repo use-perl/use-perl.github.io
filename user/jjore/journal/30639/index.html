@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjore: Object::Deadly kills buggy diagnostics</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Object::Deadly kills buggy diagnostics</h1>
+<h2><a href="/user/jjore/">jjore</a> on 2006-08-15T18:53:26</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I wrote Object::Deadly because I was tired of diagnostic modules forgetting to watch for overloaded objects. It'd be nice for it to use Carp::Clan but C::Clan suffers from the same bug O::Deadly is meant to help test for!<br/><br/><a href="http://rt.cpan.org//Ticket/Display.html?id=21002> contains a patch to bring Carp::Clan 5.3 up to 5.4 which *is* smart about overloading. I also wrote some tests for C::Clan that use O::Deadly because that's exactly what it's there for.<br">http://rt.cpan.org//Ticket/Display.html?id=21002> contains a patch to bring Carp::Clan 5.3 up to 5.4 which *is* smart about overloading. I also wrote some tests for C::Clan that use O::Deadly because that's exactly what it's there for.<br</a><br/>I'm amused by this - just getting O::Deadly off the ground required patching some of it's infrastructure.<br/><br/>Oh yes, infrastructure? I have a rant coming about the evil, evil, evil UNIVERSAL::require module.</p>
+
+
+<hr/>
+
+
+
+<h2>UNIVERSAL::require</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-08-15T19:07:00</h3>
+<p>The only serious problem I see with <tt>UNIVERSAL::require</tt> is that people need to learn that if they use this module, they need to be careful if they have methods named <tt>require</tt> or <tt>use</tt>.  As a general rule, it's a bad idea to use keywords as method names (though I've done this when it was appropriate).  On the other hand, people use methods (even functions!) named <tt>isa</tt>, <tt>can</tt> and <tt>version</tt> incorrectly, so I can't expect them to play nicely with code.</p>
+
+<p>The only reason I submitted a patch to that module is that I'm seeing this showing up in code where people aren't checking the return value.  If they don't check the return value, then <tt>eval { "require $module" }</tt> is likely to suffer the same fate.  That's bad programmers, not bad programming.</p>
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL::require</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-08-15T19:18:42</h3>
+<p>Inserting things in UNVERSAL that aren't already there causes *every* object and class everywhere to have to potentially know about it. I used Devel::Symdump to get the list of all the currently known functions in UNIVERSAL so I could know that all method calls made on my object were going to be handled within my object.</p><br><br><p>This is an impossible task as long as people keep polluting UNIVERSAL. Say someone loads my module, then loads something else which pollutes. It's now possible for someone to use that inserted method on my object and that is <strong>not ok</strong>.</p> <blockquote> <div><tt>use Object::Deadly;<br>*UNIVERSAL::argh = sub { 'Ha ha!' };<br>
+&nbsp; <br>my $obj = Object::Deadly-&gt;new;<br>
+&nbsp; <br># Calls UNIVERSAL::argh, not Object::Deadly::AUTOLOAD.<br>$obj-&gt;argh;</tt></div> </blockquote> <p>So the fact that people are using UNIVERSAL::require (or anything UNIVERSALy polluting) requires me to maintain a list or something of all polluters and manually account for them.</p><br><br><p>So it's just bad. It shouldn't have been written and no one should have ever used it. I read that Jifty uses it so I suppose Jifty should be patched to *not* use it ASAP. *grumble* UNIVERSAL::require could have been written as a plain function without the pollution but I guess that just wasn't cute enough or something. I don't think there's any excuse for it.</p>
+
+
+
+<h2>Re:UNIVERSAL::require</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-08-15T19:21:46</h3>
+I suppose I'd like to add that I didn't even realize I had this problem with UNIVERSAL::require when I was complaining about it to you the other day. Yesterday it was just angst over ETOOMUCHMAGIC. Today it's a gripe that it actually breaks stuff when it loads.
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL::require</h2>
+<h3><a href="/user/kane/">kane</a> on 2006-08-16T09:07:16</h3>
+On a side note, there's also <a href="http://search.cpan.org/user/kane/Module-Load/lib/Module/Load.pm" title="cpan.org">Module::Load</a cpan.org> which fixes
+the same problem UNIVERSAL::require is addressing,
+whithout polluting UNIVERSAL::*.<p>
+
+On the upside, it's even core as of <a href="http://search.cpan.org/user/rgarcia/perl-5.9.4/pod/perl594delta.pod#New_Core_Modules" title="cpan.org">5.9.4</a cpan.org></p>
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL::require</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-08-16T13:39:31</h3>
+Cheer! Cheer! Huzzah!<br><br>"Fixing" UNIVERSAL pollution in a class means reading the source code for all the modules on CPAN that are likely to touch UNIVERSAL. Ugh. Did that yesterday. I'm considering putting up some kind of notification service to myself to watch for the next UNIVERAL polluting module.<br><br>****UGGGLLLYYY!!!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

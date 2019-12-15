@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pjf: IPC::System::Simple - Cross-platform, multi-arg backticks</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>IPC::System::Simple - Cross-platform, multi-arg backticks</h1>
+<h2><a href="/user/pjf/">pjf</a> on 2008-05-13T01:00:29</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><b><a href="http://search.cpan.org/perldoc?IPC::System::Simple">IPC::System::Simple</a> released - Cross-platform, multi-arg backticks</b><br />
+One of my greatest itches with Perl is the difficultly in doing things correctly with the <tt>system()</tt> command, which allows one to run a process and wait for it to finish, and backticks (aka <tt>qx()</tt>), which allows one to run a process and capture its output</tt>.
+</p><p>
+It's not that these commands are hard to use.  <tt>system("mount /dev/backup")</tt> and I've got my backup media mounted.  <tt>my $config = qx(ipconfig)</tt> and I've got my Windows IP configuration.  They're dead easy to use, they're just a pain to tell if they <i>worked</i>.
+</p><p>
+After running, these commands set a special variable named <tt>$?</tt>, or <tt>$CHILD_ERROR</tt> if you've told perl to <tt>use English</tt>.  This variable is designed to be "friendly" to "C programmers", who are familiar with the return value of the <tt>wait()</tt> system call.  But who on earth <i>wants</i> to be familiar with the return value of <tt>wait()</tt>?  After teaching <i>thousands</i> of people Perl over the last seven years, I've only had <i>two</i> people admit to know what the <tt>wait()</tt> return value looks like, and both of them needed therapy afterwards.  It's a packed bit-string, and is grossly unfriendly for anyone to use in any language.
+</p><p>
+So, the usual state of affairs for many developers is they go through their day using <tt>system()</tt> and backticks and completely ignoring <tt>$?</tt>, because it's too hard.  Then one day a disaster happens where they discover that all their backups are empty, or all their files are corrupted, or all their furniture has been repossessed, because their calls to <tt>system()</tt> have been failing for years, but nobody noticed because <tt>$?</tt> was too ugly to contemplate.
+</p><p>
+Those developers who have been through this process, or seen other people's lives ruined usually try to take a little more care.  They recall that <tt>$?</tt> will be exactly zero if the process ran to completion and returned a zero exit status, which usually indicates success.  Their code becomes littered with statements like <tt>$? and die $?</tt> or <tt>system(...) and die $?</tt>.  That makes them feel warm and fuzzy until they discover it doesn't work.  Their command may legitimately return a range of statuses to indicate success, and a whole bunch of things to indicate failure.  Worse still, printing the contents of <tt>$?</tt> as an error message is worse than useless.  Nobody understands what the hell it means; if you did, you wouldn't be printing it.
+</p><p>
+The end result of all this is that Perl sucks at something it's <i>supposed</i> to be good at; namely firing off system commands and being awesome for system administrators.  It is this problem that <a href="http://search.cpan.org/perldoc?IPC::System::Simple">IPC::System::Simple</a> solves.
+</p><p>
+Put simply, if you're using <tt>IPC::System::Simple</tt>, you can replace all your calls to <tt>system()</tt> with <tt>run()</tt>, and all your calls to backticks with <tt>capture()</tt>, and it will all work the same way, except that you'll get incredibly useful messages on error.  Got a funny exit status?  It'll tell you what it is, and the command that caused it.  Killed by a signal?  You'll get not just the number, but its <i>name</i>, as well a whether it dumped core.  Passed in tainted data?  You'll get told what was tainted.  And it gets better.
+</p><p>
+Let's say that you're using <a href="http://www.samba.org/rsync/">rsync</a> to backup your files from an active filesystem.  It exits with 0 for good, and 24 for "files went missing".  On an active filesystem, files disappearing can be considered normal, so we'd like both of these to be considered 'fine'.  Anything else, we'd like to get told.  Can we do this with <tt>IPC::System::Simple</tt>?  We sure can!  Just provide the list of acceptable exit statuses as the first argument:
+</p><blockquote><tt>run( [0,24], "rsync ....")</tt></blockquote>
+<p>
+<tt>IPC::System::Simple</tt>'s <tt>run</tt> command also works the way that <a href="http://search.cpan.org/perldoc?perlsec">the Perl security pages</a> say that <tt>system()</tt> should run.  That is, when called with multiple arguments, it bypasses the shell.  Perl's regular <tt>system()</tt> when called with multiple arguments will go and use the shell <i>anyway</i> when on a Windows system, which is bad if you were trying to avoid shell meta-characters.
+</p><p>
+You can get the same shell-bypassing behaviour with <tt>capture()</tt>; just pass it in multiple arguments and you're done.  This even works under Windows, which normally doesn't even support shell-bypassing pipes, let alone checking your command's return values and formatting your errors afterwards.  You even get the full 16-bit Windows exit value made available to you, which is something <tt>$?</tt> and its dark terrors will never give you.
+</p><p>
+Best of all, installing <a href="http://search.cpan.org/perldoc?IPC::System::Simple">IPC::System::Simple</a> is a breeze.  It's pure perl, with <i>no</i> dependencies on non-core modules.  Even if you have no other way of installing modules, you can just copy the <tt>.pm</tt> file into an appropriate directory and you're done.
+</p><p>
+Don't put up with the tragedies and uncertain futures that <tt>system()</tt> and backticks can bring.  Use <a href="http://search.cpan.org/perldoc?IPC::System::Simple">IPC::System::Simple</a> and make handling your system interactions correctly a painless experience.
+</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

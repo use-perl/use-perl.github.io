@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Shlomi Fish: The Feed Must Get Through!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>The Feed Must Get Through!</h1>
+<h2><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2006-11-17T20:05:25</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+After I recently upgraded my local copy of XML::RSS, I discovered that my
+aggregated feed that is generated using XML::Feed from the feeds of all my
+blogs can no longer be proccessed correctly by Akregator. And when trying
+to validate it, I encountered some problems. This meant that we introduced
+some regressions into XML::RSS that had to be fixed.
+</p>
+
+<p>
+The first problem I encountered was that I got empty 
+<tt>&lt;pubDate&gt;&lt;/pubDate&gt;</tt> code. Looking at the XML::RSS code,
+I saw that the appropriate fields were still initialised to an empty string
+instead of undef, which caused them to be outputted. And the code in general
+was in an intermediate state than my changes. After merging my "datetime" 
+local branch, I also had to fix some markup injection attacks that I found,
+since I didn't escape some of the tags' contents. Here's the 
+<a href="http://rt.cpan.org/Public/Bug/Display.html?id=23435">issue with 
+    my patch for the whole enchilada</a>.
+</p>
+
+<p>
+The next errors had to do with "guid". In XML::RSS "permaLink" holds the guid
+URL if isPermaLink is true, and "guid" holds it if it is false. However, 
+permaLink was equal to 1. As it turned out the parsing logic was out-dated,
+and had to be fixed. The fix along with testcases is in my local repository.
+</p>
+
+<p>
+Next I found out that some of the items were missing the date time stamp. I
+noticed that it happened with an RSS 1.0 feed, and as it turned out the 
+<tt>&lt;dc:date&gt;</tt> items were not handled correctly. A close inspection
+revelead that XML::Feed initialised XML::RSS with <tt>version =&gt; "2.0"</tt>
+and so the modules as a result were not defined during the parsing, due
+to changes in the modules initialisation for XML::RSS. So I added a workaround
+that when parsing the extra modules will again be defined (with a test). I
+can't see why version would be useful for anything except output.
+</p>
+
+<p>
+And afterwards, the feed validated, and Akregator could read it. I had a lot
+of other plans for today, which had to be delays because of this work on
+XML::RSS. But a hacker got to do, what a hacker got to do.
+</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>API design</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-11-18T12:30:52</h3>
+<blockquote> <div><p>In XML::RSS "permaLink" holds the guid URL if isPermaLink is true, and "guid" holds it if it is false.</p></div> </blockquote>
+
+<p>Sounds like bad API design to me. <code>permaLink</code> should always be the permalink, if there is one, and <code>guid</code> should always be the GUID, if there is one. How this is specified in the wire format is something the API should not expose.</p>
+
+<p>I don&#x2019;t know if you&#x2019;re at liberty to make such changes, though.</p>
+
+<p>(In fact, I boggle at the effort you&#x2019;re putting into a module for RSS&#x2026; Atom&#x2019;s where it&#x2019;s at, nowadays. Though I guess we need solid code for consuming the RSS that&#x2019;s sadly already around.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:API design</h2>
+<h3><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2006-11-18T16:04:15</h3>
+<blockquote>
+<div>Sounds like bad API design to me. permaLink should always be the permalink, if there is one, and guid should always be the GUID, if there is one. How this is specified in the wire format is something the API should not expose.</div>
+</blockquote>
+
+<p>
+It is bad API design in my opinion. But this was the API since <a href="http://search.cpan.org/user/kellan/XML-RSS-1.05/lib/RSS.pm" title="cpan.org">XML::RSS 1.05</a cpan.org>. BTW, in RSS 2.0 what happens is that the guid element has an isPermaLink attribute which can be "true" or "false". If it is true, then permaLink will hold the contents of the "guid" tag, and if it's false then "guid" will.
+</p>
+
+<blockquote>
+<div>I don&#8217;t know if you&#8217;re at liberty to make such changes, though.</div>
+</blockquote>
+
+<p>
+Not at the moment, no.
+</p>
+
+<blockquote>
+<div>In fact, I boggle at the effort you&#8217;re putting into a module for RSS&#8230; Atom&#8217;s where it&#8217;s at, nowadays. Though I guess we need solid code for consuming the RSS that&#8217;s sadly already around.)</div>
+</blockquote>
+
+<p>
+Indeed. I didn't take a close look at Atom yet. But I'm making use of XML::RSS personally and so do many other people who generate or parse the various versions of RSS. My work on XML::RSS started when I saw that a feed I generated did not validate, and decided to fix it. Since then it's been quite an obsession for me to work on it in my copious time.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:API design</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-11-18T17:59:14</h3>
+<p> <a href="http://rfc.net/rfc4287.html" title="rfc.net">Atom</a rfc.net>&#8217;s just RSS without <a href="http://diveintomark.org/archives/2004/02/04/incompatible-rss" title="diveintomark.org">the bugs</a diveintomark.org>.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:API design</h2>
+<h3><a href="/user/ask/">ask</a> on 2006-11-19T08:01:51</h3>
+&gt; Sounds like bad API design to me. [....]<br><br>Indeed.  XML::RSS is mostly a big messy patchwork.<br><br>&gt; I don&#8217;t know if you&#8217;re at liberty to make such changes, though.<br><br>The current focus is to slowly get the test coverage up and bugs fixed; when we have good coverage we can refactor the code and the API (while staying compatible with the old one).  As you point out, there really isn't much need for innovations in an RSS module.<br><br>I got sucked into looking after the module after finding a bug (like Shlomi) and back then finding nobody there to take my patch.<nobr> <wbr></nobr>:-)<br><br>
+&nbsp; - ask
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

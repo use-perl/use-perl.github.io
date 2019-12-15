@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: $object-can_any(@methods);</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>$object-can_any(@methods);</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-08-14T15:30:51</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Recently I found myself writing this:</p>
+
+<pre>return [
+    map { $_->can('string') ? $_->string : $_->heredoc }
+      @{ $doc->find('Token::Quote')   || [] },
+      @{ $doc->find('Token::HereDoc') || [] }
+];</pre>
+
+<p>I didn't quite like that ternary operator there, so I thought the following might be useful:</p>
+
+<pre>if ( my $method = $object->can_any(qw(string as_string)) ) {
+    $object->$method;
+}
+if ( my @method = $object->can_any(qw(string as_string)) ) {
+    $object->$_ foreach @method;
+}</pre>
+
+<p>That gives me this:</p>
+
+<pre>my @method = qw(string heredoc);
+return [
+    map { my $method = $_->can_any(@method); $_->$method }
+      @{ $doc->find('Token::Quote')   || [] },
+      @{ $doc->find('Token::HereDoc') || [] }
+];</pre>
+
+<p>I'm not sure that's much better, but with a huge list of objects offering differing stringification methods (or other conceptually similar methods), maybe it would be useful?</p></p>
+
+
+<hr/>
+
+
+
+<h2>Sure...</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2007-08-14T17:40:49</h3>
+Just add can_any() in a patch to UNIVERSAL::can, and use Test::MockObject and you're set.<nobr> <wbr></nobr>;-)
+
+
+
+<blockquote>
+
+<h2>Re:Sure...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-08-14T17:57:21</h3>
+<p>Personally, I think if anyone wants generic functionality like this they should put it in something like a <tt>My::UNIVERSAL</tt> class and have all objects inherit from that instead.  That way, you don't risk breaking CPAN classes which, by default, inherit from <tt>UNIVERSAL</tt>.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Useful? Dunno</h2>
+<h3><a href="/user/ferreira/">ferreira</a> on 2007-08-14T18:27:37</h3>
+But amusing and too easy to write down. Well, my first implementation only did the scalar context case. The second left me hanging between a do-it-all implementation which was not very clear to read and another with auxiliary methods <code>can_oneof</code> and <code>can_someof</code>. The third implementation prevented me of using <code>my @a; for ( @_ ) {<nobr> <wbr></nobr>...; push @a,<nobr> <wbr></nobr>... }; return @a</code> instead of a proper map.
+This is it.<p><blockquote> <div><tt>package USUAL;<br> <br>sub can_any {<br>&nbsp; &nbsp; return wantarray ? goto &amp;can_someof : goto &amp;can_oneof;<br>}<br> <br>sub can_oneof {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; for ( @_ ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $can = $self-&gt;can($_);<br>&nbsp; &nbsp; &nbsp; &nbsp; return $can if $can;<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; return;<br>}<br> <br>sub can_someof {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; return map { $self-&gt;can($_)<nobr> <wbr></nobr>// () } @_;<br>}<br> <br>1;</tt></div> </blockquote> Now insert <code>USUAL</code> into the <code>@ISA</code> array of the package to which belongs the object you are querying about. Yes, I resisted the sin of adding those methods into <code>UNIVERSAL</code>.
+
+<p>
+This asymmetrical implementation with a <code>for</code> for the scalar case and a <code>map</code> for the list context made me want a method which did the <code>map</code> job but got rid of the <code>undefs</code> and a scalar equivalent which returned the first defined result value. I reread the docs of <code>List::Util</code> and <code>List::MoreUtils</code> but they did not help me.
+
+</p><p>
+With such methods, the implementation above would look like:</p><p><blockquote> <div><tt>sub can_oneof {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; return first_defined_value { $self-&gt;can($_) } @_;<br>}<br> <br>sub can_someof {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; return defined_values { $self-&gt;can($_) } @_;<br>}</tt></div> </blockquote>  <p>Now that's much more functional-stylish.</p>
+
+
+
+<h2>Approaches</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-14T19:59:23</h3>
+<p>The <em>right</em> way to do this would be Replace Conditional With Polymorphism&#8230; that is, if feasible/sensible, wrap the objects in other objects which all have a <code>stringify</code> method that delegates to the right method in the wrapped object.</p>
+
+<p>But doing it for just this one instance, of course, is way too much effort.</p>
+
+<p>And I find that <code>can</code> is often the wrong tool when I&#8217;m just trying to do something, regardless of how it gets done. Usually, <code>eval</code> is better suited to that job, although in this case it is so unwieldy that I&#8217;d reach for tricks:</p> <p><blockquote> <div><tt>sub try::method {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; for my $method ( @_ ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; return sub { $self-&gt;$method( @_ ) } if $self-&gt;can( $method );<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; my $class = ref( $self ) || $self;<br>&nbsp; &nbsp; croak qq{Can't locate any of the object methods "@$methods" via package "$class"};<br>}<br> <br>return [<br>&nbsp; &nbsp; map&nbsp; { $_-&gt;try::method( qw( string heredoc ) )-&gt;() }<br>&nbsp; &nbsp; map&nbsp; { @$_ }<br>&nbsp; &nbsp; grep { defined }<br>&nbsp; &nbsp; map&nbsp; { $doc-&gt;find( $_ ) }<br>&nbsp; &nbsp; qw( Token::Quote Token::HereDoc ),<br>];</tt></div> </blockquote>  <p>But in Perl 5.10, which is going to have defined-or, I&#8217;d write that without cleverness:</p> <p><blockquote> <div><tt>return [<br>&nbsp; &nbsp; map&nbsp; { eval { $_-&gt;string }<nobr> <wbr></nobr>// eval { $_-&gt;heredoc } }<br>&nbsp; &nbsp; map&nbsp; { @$_ }<br>&nbsp; &nbsp; grep { defined }<br>&nbsp; &nbsp; map&nbsp; { $doc-&gt;find( $_ ) }<br>&nbsp; &nbsp; qw( Token::Quote Token::HereDoc ),<br>];</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Approaches</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-08-14T21:48:55</h3>
+<p>You know, that might make an interesting generic class.  Something which, given a list of classes, can automatically set up common delegate methods to allow the language to work out the logic rather than the programmer.  It reminds me of a few programmers I've spoken with who don't seem to understand the value of how many OO languages can properly dispatch on signature to identically named methods.  Pushing conditional logic into the language's hands rather than the programmer's is definitely the way to go.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Approaches</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-15T00:35:13</h3>
+<p>And matching on the signature alone is pretty rudimentary. Real magic happens when you do actual structural matching, &#224; la Haskell f.ex.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Approaches</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-19T17:36:19</h3>
+<p>Courtesy of Matt Trout here is an evil trick to enables a different kind of syntax&#8230;</p> <p><blockquote> <div><tt>sub try::method {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; for my $method ( @_ ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; return \sub { $self-&gt;$method( @_ ) } if $self-&gt;can( $method );<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; my $class = ref( $self ) || $self;<br>&nbsp; &nbsp; croak qq{Can't locate any of the object methods "@$methods" via package "$class"};<br>}<br> <br>return [<br>&nbsp; &nbsp; map&nbsp; { $_-&gt;${try::method qw(string heredoc)}() }<br>&nbsp; &nbsp; map&nbsp; { @$_ }<br>&nbsp; &nbsp; grep { defined }<br>&nbsp; &nbsp; map&nbsp; { $doc-&gt;find( $_ ) }<br>&nbsp; &nbsp; qw( Token::Quote Token::HereDoc )<br>];</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Approaches</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-08-19T19:47:29</h3>
+<p>When I wrote <tt>App::Pgrep</tt>, I chose a different route.  I have  a hash which resembles this (there are other keys in the hash which I've removed for clarity):</p> <p><blockquote> <div><tt>%HANDLER_FOR = (<br>&nbsp; &nbsp; quote&nbsp; &nbsp;=&gt; { stringify =&gt; sub { shift-&gt;string } },<br>&nbsp; &nbsp; heredoc =&gt; {<br>&nbsp; &nbsp; &nbsp; &nbsp; stringify =&gt; sub {<br> <br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # heredoc lines are terminated with newlines<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my @strings = shift-&gt;heredoc;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; return join '' =&gt; @strings;<br>&nbsp; &nbsp; &nbsp; &nbsp; },<br>&nbsp; &nbsp; },<br>&nbsp; &nbsp; pod&nbsp; &nbsp; &nbsp;=&gt; {<br>&nbsp; &nbsp; &nbsp; &nbsp; stringify =&gt; sub {<br> <br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # pod lines lines are *not* terminated with newlines<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my @strings = shift-&gt;lines;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; return join "\n" =&gt; @strings;<br>&nbsp; &nbsp; &nbsp; &nbsp; },<br>&nbsp; &nbsp; },<br>&nbsp; &nbsp; comment =&gt; { stringify =&gt; sub { shift-&gt;content } }<br>);<br> <br>sub _to_string {<br>&nbsp; &nbsp; my ( $class, $token_name, $token ) = @_;<br>&nbsp; &nbsp; if&nbsp; ( my $to_string = $class-&gt;handler_for($token_name)-&gt;{stringify} ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; return $to_string-&gt;($token);<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; $class-&gt;_croak("Cannot determine to_string method for ($token_name)");<br>}</tt></div> </blockquote>  <p>And the code which uses it:</p> <p><blockquote> <div><tt>foreach my $token ( $self-&gt;look_for ) {<br>&nbsp; &nbsp; my $class&nbsp; &nbsp; &nbsp;= $self-&gt;_class_for($token);<br>&nbsp; &nbsp; my @found = @{ $doc-&gt;find($class) || [] };<br>&nbsp; &nbsp; my @results;<br>&nbsp; &nbsp; foreach my $result (@found) {<br>&nbsp; &nbsp; &nbsp; &nbsp; $result = $self-&gt;_to_string( $token, $result );<br>&nbsp; &nbsp; &nbsp; &nbsp; next unless $result =~ $pattern;<br> <br>&nbsp; &nbsp; &nbsp; &nbsp; # a tiny optimization<br>&nbsp; &nbsp; &nbsp; &nbsp; if ( $self-&gt;filename_only ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; return $found;<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; push @results =&gt; $result;<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; $found-&gt;add_results( $token =&gt; \@results ) if @results;<br>}</tt></div> </blockquote>  <p>From there, when I want to add new things in Perl documents to search for, I just drop them in the hash and the ugliness goes away.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Approaches</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-20T00:36:38</h3>
+<p>Hmm, I seem to remember muttering something to do with polymorphism on this thread&#8230;</p> <p><blockquote> <div><tt>sub TokenHandler::quote::stringify { shift-&gt;string }<br> <br>sub TokenHandler::heredoc::stringify {<br>&nbsp; &nbsp; # heredoc lines are terminated with newlines<br>&nbsp; &nbsp; my @strings = shift-&gt;heredoc;<br>&nbsp; &nbsp; return join '' =&gt; @strings;<br>}<br> <br>sub TokenHandler::pod::stringify {<br>&nbsp; &nbsp; # pod lines lines are *not* terminated with newlines<br>&nbsp; &nbsp; my @strings = shift-&gt;lines;<br>&nbsp; &nbsp; return join "\n" =&gt; @strings;<br>}<br> <br>sub TokenHandler::comment::stringify { shift-&gt;content }<br> <br>sub _to_string {<br>&nbsp; &nbsp; my ( $class, $token_name, $token ) = @_;<br>&nbsp; &nbsp; my $handler = "TokenHandler::$token_name";<br>&nbsp; &nbsp; eval { return $handler-&gt;stringify($token) };<br>&nbsp; &nbsp; $class-&gt;_croak("Cannot determine to_string method for ($token_name)");<br>}</tt></div> </blockquote>  <p><nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+<blockquote>
+
+<h2>Re:Approaches</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-08-20T21:44:17</h3>
+<p>I was going to change the code when I remembered why I didn't go this route:  I didn't want to add code directly to the classes.  What if Adam adds a stringify method?  What if I forget one and there's some crazy AUTOLOAD method?  What if at some point in the future I wanted to swap in a class with an identical interface?  By adding just a tiny bit of infrastructure, I can sidestep these issues.  I wasn't terribly worried about them in the specific case of PPI, but in the general case, I'm extremely gun shy about reaching into classes I don't directly control.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Approaches</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-20T22:57:16</h3>
+<p><blockquote> <div><p>What if Adam adds a stringify method?</p></div> </blockquote>
+
+<p>Huh? What does that have to do with the code I wrote?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Approaches</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-08-21T06:00:42</h3>
+<p>Again, it's probably not an issue with the particular example in hand, but if I add methods directly to a class and someone else comes along and adds identically named methods, I have no guarantee that my method will behave the same way their method does.  When their other methods try to call the method and get mine, who knows what happens?</p>
+
+<p>Thus, I really don't feel comfortable reaching directly into another package (though traits are OK because you (mostly) get the compile-time safety).</p>
+
+
+
+<blockquote>
+
+<h2>Re:Approaches</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-21T06:23:44</h3>
+<p>I&#8217;m trying to follow what you are talking about. Who else than you would be adding methods to your own classes?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Approaches</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-08-21T06:54:18</h3>
+<p>Ah, sheesh.  Now I see the disconnect.  I skimmed your code (thinking that I had already seen stuff like this before) and I had read <tt>TokenHandler::pod::stringify</tt> as <tt>PPI::Token::Pod::stringify</tt>.  Just shoot me now, will you?  I <em>was</em> surprised that you had suggested this.  Now I know why<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Approaches</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-22T09:34:29</h3>
+<p>Ah, now it makes sense.</p>
+
+<p>Yeah, I definitely would <em>not</em> suggest <em>that</em>! (Considering how much I lambast the Ruby crowd for making a mindless habit of it&#8230;)</p>
+
+<p>I just thought that, well, you need a dispatch at that point, and your table is static, so why not let Perl do the job? I find the resulting code a good deal less ugly too, although that is certainly debatable.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

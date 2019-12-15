@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Test::Most::explain: need steroid advice</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Test::Most::explain: need steroid advice</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-11-24T10:32:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Summary:  my local version of <a href="http://search.cpan.org/dist/Test-Most/">Test::Most</a> can do this (note the variable names!), but I am pondering the interface:</p>
+
+<pre>use Test::Most 'no_plan';
+
+ok 1;
+my ( $foo, @bar ) = qw( this is a list );
+explain $foo, \@bar;
+__END__
+# $foo = 'this';
+# @bar = (
+#          'is',
+#          'a',
+#          'list'
+#        );</pre>
+
+<P>For years, people have struggled with tests with the following:</p>
+
+<pre>diag $foo</pre>
+
+<p>And then they've cursed when they've seen the result:</p>
+
+<pre># HASH(0x80631d0)</pre>
+
+<p>So they remember to call <tt>Data::Dumper</tt> or something similar:</p>
+
+<pre>use Data::Dumper;
+diag Dumper($foo);
+__END__
+$VAR1 = {
+          'foo' => 'bar'
+        };</pre>
+
+<p>Of course, that's ugly formatting and grunt work that the programmer doesn't want to do.  So I added the <tt>explain()</tt> function to <a href="http://search.cpan.org/dist/Test-Most/">Test::Most</a>.  If it sees a reference, it calls Dumper for you:</p>
+
+<pre>use Test::Most 'no_plan';
+explain $foo;
+__END__
+{
+    'foo' => 'bar'
+};</pre>
+
+<p>We've also done away with that annoying <tt>$VAR1</tt>, but I always thought that was ugly, so I did away with it.  Perhaps I shouldn't, but there you go.</p>
+
+<p>It's worth noting that I tried to add <tt>explain()</tt> to <a href="http://search.cpan.org/dist/Test-Simple/">Test::More</a>, but Schwern vetoed the Dumper/diag combination.  It's now the relatively broken:</p>
+
+<pre>diag explain $foo;</pre>
+
+<p>That's why I still support <tt>explain()</tt> in <tt>Test::Most</tt>.  However, this also means that I can have fun with this.  My current idea is to put the <tt>$VAR1</tt> back in there, but with a twist:  if you don't have <a href="http://search.cpan.org/dist/Data-Dumper-Names">Data::Dumper::Names</a>, you see the old <tt>explain()</tt> behavior.  However, if you <em>do</em> have it installed you can see the variable names:</p>
+
+<pre>use Test::Most 'no_plan';
+
+ok 1;
+my ( $foo, @bar ) = qw( this is a list );
+explain $foo, \@bar;
+__END__
+# $foo = 'this';
+# @bar = (
+#          'is',
+#          'a',
+#          'list'
+#        );</pre>
+
+<p>Now that, I think, is major juju coolness.  It also turned out quite handy when I was sprinkling <tt>::explain()</tt> statements in a module, trying to work out what was broken.  The variables had different names, but carried similar values, making it hard to see which was which.  This made it trivial.</p>
+
+<p>Unfortunately, this necessitates a couple of changes.  First, <tt>Data::Dumper::Names</tt> needs to be told how far up the call stack to look.  Currently it only looks up one level, the simplistic, but ugly fix is to allow something like this:</p>
+
+<pre>sub explain {
+    return unless $ENV{TEST_VERBOSE};
+    if ($DATA_DUMPER_NAMES_INSTALLED) {
+
+        # Ugly!
+        local $Data::Dumper::Names::UpLevel = 2;
+        diag(Data::Dumper::Names::Dumper(@_));
+    }
+    else {
+        # normal behavior
+    }
+}</pre>
+
+<p>The other issue is the interface to <tt>Test::Most</tt>.  Just how much magic should I pack into one function?  Maybe I should make another function, <tt>show</tt>, which has this behavior?  This is incredibly useful, but I'd like to figure out the best interface here and this could be tricky.</p>
+
+<p>Side note:  this trick wouldn't work easily with <tt>Data::Dumper::Simple</tt> as Simple uses a source filter and I shouldn't be applying that to your code unless you ask. However, <tt>Data::Dumper::Simple</tt> does a couple of tricks that <tt>Data::Dumper::Names</tt> cannot.  First, it doesn't require a backslash in front of arrays and hashes.  Second, it would correctly report the names with this:</p>
+
+<pre>print Dumper($foo[3]);</pre>
+
+<p><tt>Data::Dumper::Names</tt> can't figure out the container for that variable, so it gets reported as <tt>$VAR1</tt>.  If there's a way around that, I'd love to hear it :)</p>
+
+<p><strong>Update</strong>:  the main problem I'm finding with this approach:</p>
+
+<pre>explain "Check that users can be loaded";
+__END__
+# $VAR1 = 'Check that users can be loaded';</pre>
+
+<p>That's not what I want and could get tricky.  I think a separate <tt>show()</tt> function would be better after all (though I could get crazy and if the variable is readonly and I can't determine the variable name, I could omit the <tt>$VAR1</tt>.  Madness I tell you.  Madness!)</p></p>
+
+
+<hr/>
+
+
+
+<h2>Okay - that convinces me</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2008-11-24T11:26:26</h3>
+<p>I think Test::Most is now replacing my default use Test::More<nobr> <wbr></nobr>:-)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Okay - that convinces me</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-11-24T12:07:45</h3>
+<p>To be fair, I haven't actually added the default "show variable name" behavior yet.  I've got to get the interface issues nailed down first<nobr> <wbr></nobr>:)</p><p>And why weren't you using it beforehand?  I even bundle <a href="http://search.cpan.org/dist/Test-Exception/" title="cpan.org">one of your modules</a cpan.org> with it!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Okay - that convinces me</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2008-11-24T12:34:54</h3>
+<p>"And why weren't you using it beforehand"</p><p>Lazy - in the bad way.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Data::Dump</h2>
+<h3><a href="/user/dingo/">dingo</a> on 2008-11-24T18:57:46</h3>
+i prefer to use Data::Dump because it avoids the ugly $VAR1 cruft
+
+
+
+<h2>Yes!</h2>
+<h3><a href="/user/jeremiah/">jeremiah</a> on 2008-11-26T10:29:24</h3>
+ I like the elegance of show with the source filter.
+
+
+
+<blockquote>
+
+<h2>Re:Yes!</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-11-26T10:48:23</h3>
+<p>Surprise!  It's done without a source filter<nobr> <wbr></nobr>:)  It uses Data::Dumper::Names which, in turn, uses PadWalker to fetch the variable names.  <a href="http://search.cpan.org/dist/Test-Most/" title="cpan.org">Test::Most 0.20_01</a cpan.org> has a developer implementation.  Already I have a couple of issues.</p><p>First, since <tt>Data::Dumper::Names 0.03</tt> is only recommended and not required, one test fails sporadically.  My bad<nobr> <wbr></nobr>:)  Also, because this uses PadWalker, this shows us as $VAR1 instead of the variable name:</p><blockquote><div><p> <tt>show $@;</tt></p></div> </blockquote><p>That's because $@ is not a lexical.  I don't know how to get around that, so I need to document this as a limitation.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Yes!</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-11-28T13:42:34</h3>
+<p>I wonder if it&#8217;s possible to find your caller&#8217;s op tree and find your call site in it, then isolate the parameter expression and deparse it&#8230; that would be a rock solid approach.</p><p>But I don&#8217;t know if the Perl introspection stuff is quite up to that level at this point.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

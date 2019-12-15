@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: iTunes and ID3</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>iTunes and ID3</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2003-01-05T23:34:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>After reading <a href="">brian's</a> <a href="">experiences</a> with iTunes this morning, I decided to scratch an itch I've had for quite some time now.  I've long since gotten rid of my MP3s that I ripped on my (now defunct) FreeBSD box.  Since July, I've ripped (and re-ripped) CDs through iTunes because it's just so quick.  iTunes does a very nice job of organizing a music directory, and collects a lot of data from CDDB.
+<p>
+Unfortunately, none of this data ever winds up in ID3 tags, so copying MP3s from my Mac to my FreeBSD laptop loses information.  The trick is to mine the "iTunes Music Library.xml" file for data and populate the ID3 tags using pudge's <tt>MP3::Info</tt>.
+<p>
+The first step is to glean out the relevant fields from the XML file.  I could sit down and write an XML parser handler for the iTunes file.  Or I could be lazy and use brian's <tt>Mac::PropertyList</tt>, since this XML file is simply a property list.  But I didn't do either.  Instead, I used my favorite XML gleaning tool: XSLT.  I started by looking at the specific XML data in the iTunes file (the Tracks dictionary) and converted the information I was looking for into text.  Building this stylesheet was an iterative process, and here is the final result:
+<pre>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+version="1.0">
+
+<xsl:output method="text"/>
+
+<xsl:template match="text()"/>
+
+<xsl:template match="plist/dict/dict[preceding-sibling::key[text() = 'Tracks']]">
+ <xsl:apply-templates select="dict" mode="display"/>
+</xsl:template>
+
+<xsl:template match="dict" mode="display">
+ <xsl:apply-templates select="key[. = 'Location']" mode="display"/>
+ <xsl:apply-templates select="key[. = 'Name']" mode="display"/>
+ <xsl:apply-templates select="key[. = 'Artist']" mode="display"/>
+ <xsl:apply-templates select="key[. = 'Album']" mode="display"/>
+ <xsl:apply-templates select="key[. = 'Year']" mode="display"/>
+ <xsl:apply-templates select="key[. = 'Genre']" mode="display"/>
+ <xsl:apply-templates select="key[. = 'Track Number']" mode="display"/>
+ <xsl:text>&#xa;</xsl:text>
+</xsl:template>
+
+<xsl:template match="key" mode="display">
+ <xsl:value-of select="concat(text(), ': ', following-sibling::*/text(), '&#xa;')"/>
+</xsl:template>
+
+</xsl:stylesheet>
+</pre>
+This produces output like this:
+<pre>
+Location: file://localhost/Users/ziggy/Music/iTunes/iTunes%20Music/Louis%20Armstrong/Greatest%20Hits/01%20Sugar.mp3
+Name: Sugar
+Artist: Louis Armstrong
+Album: Greatest Hits
+Genre: Jazz
+Track Number: 1
+</pre>
+I can then easily parse this output and use <tt>set_mp3tag</tt> from <tt>MP3::Info</tt> to add the ID3 tags these files were missing.
+<p>
+Here is the full script for anyone who is interested.  Note that the XSLT stylesheet was included in the <tt>__DATA__</tt> segment to reduce an external dependency.
+<pre>
+#!/usr/bin/perl -w
+
+use strict;
+
+use MP3::Info;
+
+my @id3_fields = qw(Location Name Artist Album Year Comment Genre);
+push(@id3_fields, "Track Number");
+
+use_winamp_genres();
+
+sub read_metadata {
+	my $filename = shift;
+	use XML::LibXSLT;
+	use XML::LibXML;
+
+	$/ = undef;
+
+	my $parser = XML::LibXML->new();
+	my $xslt = XML::LibXSLT->new();
+
+	my $source = $parser->parse_file($filename);
+	my $style_doc = $parser->parse_string(<DATA>);
+	my $stylesheet = $xslt->parse_stylesheet($style_doc);
+
+	my $results = $stylesheet->transform($source);
+
+	return $stylesheet->output_string($results);
+}
+
+## Update ID3 tags
+
+print STDERR "Processing 'iTunes Music Library.xml'...";
+my $metadata = read_metadata("$ENV{HOME}/Music/iTunes/iTunes Music Library.xml");
+print STDERR "done\n";
+
+my @blocks = split("\n\n", $metadata);
+
+foreach my $block (@blocks) {
+	my (%info) = map {m/^(\w+): (.*)$/} split("\n", $block);
+
+	$info{Location} =~ s{^file://localhost}{};
+	$info{Location} =~ s{%20}{ }g;
+
+	print STDERR "$info{Artist}: $info{Album}, $info{Name}\n";
+
+	$info{Genre} = 'Dance' if $info{Genre} eq "Electronica/Dance";
+	$info{Genre} = 'Other' if $info{Genre} eq "World";
+	$info{Genre} = 'Alternative' if $info{Genre} eq "Alternative & Punk";
+
+	set_mp3tag(@info{@id3_fields});
+}
+
+__DATA__
+## stylesheet, as above
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Note</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2003-01-06T01:40:07</h3>
+This only sets the ID3v1 tag.  MP3::Info does not write ID3v2 yet.  I hope to change that at some point in the next few months.  In case you (or a reader) doesn't know, ID3v1's main disadvantage is that each field (artist, album, title) is limited to 30 characters.  MP3::Info can read ID3v2.2.0 through ID3v2.4.0 (in theory; I have some bug reports that need looking into), but cannot yet write.<br> <br>So if you writing ID3v1 is fine with you, you will either want to remove the ID3v2 tag (MP3::Info can do that for you), or make sure that when you are reading the data back, you read back the right version (get_mp3tag lets you select which one).<br> <br>Also, I don't know why the info is not getting from iTunes into the ID3 tags.  It should.  Maybe it is that you are looking for the ID3v1 tag and it is in the ID3v2 tag?  It can have both (ID3v1 is at the end of the file, ID3v2 at or near the beginning), and for most apps, the ID3v2 will override the ID3v1.  iTunes defaults to writing ID3v2.2.0, IIRC (and I believe there is no way to change that, though you can tell iTunes to convert the tags to another version, though I am almost certain iTunes is buggy in this conversion<nobr> <wbr></nobr>... something I will investigate while working on MP3::Info bug reports<nobr> <wbr></nobr>:-).<br>
+
+
+
+<blockquote>
+
+<h2>Re:Note</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2003-01-06T04:57:24</h3>
+I love the id3convert utility that comes with the <a href="http://id3lib.sourceforge.net/" title="sourceforge.net">id3lib package</a sourceforge.net>.  It solved my tagging hell (which was different from yours: ripped in RealAudio, tags buggered in iTunes).<p>
+
+<i>--Nat</i></p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>What is iTunes not updating?</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2003-01-06T06:35:28</h3>
+Can anyone elaborate on what iTunes is not updating in the file?  I checked a few of the files I updated through iTunes and everything seemed to update.
+
+
+
+<h2>pure perl .xml parsing...</h2>
+<h3><a href="/user/morbus/">morbus</a> on 2003-01-06T22:44:08</h3>
+I've done simplistic parsing of the<nobr> <wbr></nobr>.xml file in pure Perl, to generate a list of albums <a href="http://www.disobey.com/d/lists/albums.html" title="disobey.com">here</a disobey.com>. It works well enough for my needs, and I generate and curl the list every morning...
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

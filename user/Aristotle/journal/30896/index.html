@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Aristotle: Adventures in functional Perl programming: the Y combinator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Adventures in functional Perl programming: the Y combinator</h1>
+<h2><a href="/user/Aristotle/">Aristotle</a> on 2006-09-05T15:38:41</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>A while ago I read <a href="http://dangermouse.brynmawr.edu/cs245/ycomb_jim.html">several</a> <a href="http://www.ece.uc.edu/user/franco/C511/html/Scheme/ycomb.html">explanations</a> <a href="http://www.dreamsongs.com/Files/WhyOfY.pdf">of</a> the <a href="http://en.wikipedia.org/wiki/Y_combinator">Y combinator</a> in order to understand what it&#8217;s for and how it works, but recently, I found that I didn&#8217;t <em>really</em> understand it. All the examples are in Scheme, which I can read, but find difficult to grok, so I decided I needed to slog through the derivation using Perl in order to get a real grasp on what&#8217;s going on.</p>
+
+<p>The Y combinator has been called &#8220;<a href="http://www.ocf.berkeley.edu/user/abhishek/y.html">an infuriating construct</a>&#8221; and I think you&#8217;ll see after this explanation just why that isn&#8217;t entirely undeserved.</p>
+
+<p>What <em>is</em> is this Y combinator thing, anyway? It&#8217;s a combinator that you need in order to write recursive functions without giving them names.</p>
+
+<p>Let&#8217;s look at a typical example of a recursive function:</p>
+
+<pre>
+sub fac {
+	my ( $n ) = @_;
+	$n < 2 ? 1 : $n * fac( $n - 1 );
+}
+
+print fac( 10 );
+</pre>
+
+<p>Now we want to write this function as a single expression so we can inline the definition on the <tt>print</tt> line, as in <code>print sub { ... }-&gt;( 10 )</code> and get the same result.</p>
+
+<p>First, let&#8217;s make it nameless using standard Perl.</p>
+
+<pre>
+my $fac;
+$fac = sub {
+	my ( $n ) = @_;
+	$n < 2 ? 1 : $n * $fac->( $n - 1 );
+};
+
+print $fac->( 10 );
+</pre>
+
+<p>Well, that&#8217;s not <em>really</em> nameless. Instead of <tt>fac</tt> the function is now called <tt>$fac</tt>, but it still relies on a name in a (quasi-)global scope to &#8220;find&#8221; itself. And it can&#8217;t be inlined in a single expression either &#8211; a far cry from our goal. Let&#8217;s try passing it in as a parameter:</p>
+
+<pre>
+my $fac = sub {
+	my ( $f, $n ) = @_;
+	$n < 2 ? 1 : $n * $f->( $f, $n - 1 );
+};
+
+print $fac->( $fac, 10 );
+</pre>
+
+<p>That&#8217;s better, since the function can recurse on itself without the need for a global name, but we still can&#8217;t inline it. Worse, now everyone who wants to invoke the function needs to know to pass it to itself. Pay particular attention to the call <em>inside</em> the function: <code>$fac-&gt;( $n - 1 )</code> turned into <code>$f-&gt;( $f, $n - 1 )</code> to make this work.</p>
+
+<p>How to get around that? Well, we could use currying to pass the parameter once and have it remembered thereafter:</p>
+
+<pre>
+my $fac_maker = sub {
+	my ( $f ) = @_;
+	sub {
+		my ( $n ) = @_;
+		$n < 2 ? 1 : $n * $f->( $n - 1 );
+	}
+};
+
+print 'Uh, err, I dunno.';
+</pre>
+
+<p>We have a problem here. We need the closure assigned to <tt>$f</tt> so that it can recurse on itself properly, but to get it so we can pass it in we need to call the currying closure. And after we have done that, however, the curried closure has already closed over the <tt>$f</tt> variable in that scope and there&#8217;s no way to assign to it anymore. Temporal paradoxon?</p>
+
+<p>Maybe if we pass a different but identical copy of the function?</p>
+
+<pre>
+my $fac = sub {
+	my ( $f ) = @_;
+	sub {
+		my ( $n ) = @_;
+		$n < 2 ? 1 : $n * $f->( $n - 1 );
+	}
+}->( sub {
+	my ( $n ) = @_;
+	$n < 2 ? 1 : $n * $f->( $n - 1 );
+} );
+
+print 'Wait, that doesn\'t compile.';
+</pre>
+
+<p>There is a <tt>$f</tt> in the copy of the function that&#8217;s not defined in any relevant scope. What do we do about that? We supply a scope by include a copy of the currying wrapper.</p>
+
+<pre>
+print sub {
+	my ( $f1 ) = @_;
+	sub {
+		my ( $n ) = @_;
+		$n < 2 ? 1 : $n * $f1->( $f1 )->( $n - 1 );
+	}
+}->( sub {
+	my ( $f2 ) = @_;
+	sub {
+		my ( $n ) = @_;
+		$n < 2 ? 1 : $n * $f2->( $f2 )->( $n - 1 );
+	}
+} )->( 10 );
+</pre>
+
+<p>And that works &#8211; great. Oh look! There&#8217;s a recursive function there which has no name and it&#8217;s inlined with the <tt>print</tt>!</p>
+
+<p>Pay attention to the <code>$f-&gt;( $f )</code> bit. This is necessary because the copy we pass in has to be curried.</p>
+
+<p>So that&#8217;s the general approach; two exact copies of the curried closure. We just need to extract the recursion part from the factorial function. How?</p>
+
+<p>Just like good mathematicians, we will introduce a redundant term. It&#8217;s obvious that <code>$f-&gt;( $x )</code> is exactly the same as <code>sub { $f-&gt;( @_ ) }-&gt;( $x )</code>, right? We will do that for the <code>$f-&gt;( $f )</code> bit. Let&#8217;s just do it now and I&#8217;ll explain why in a bit.</p>
+
+<pre>
+print sub {
+	my ( $f1 ) = @_;
+	sub {
+		my ( $n ) = @_;
+		$n < 2 ? 1 : $n * sub { $f1->( $f1 )->( @_ ) }->( $n - 1 );
+	}
+}->( sub {
+	my ( $f2 ) = @_;
+	sub {
+		my ( $n ) = @_;
+		$n < 2 ? 1 : $n * sub { $f2->( $f2 )->( @_ ) }->( $n - 1 );
+	}
+} )->( 10 );
+</pre>
+
+<p>OK&#8230; now why would we want to do such a thing?! What&#8217;s the point of this?</p>
+
+<p>The point is that it&#8217;s <em>one</em> closure &#8211; the <code>$f-&gt;( $f )</code> bit is tucked away. And since the bit we tucked away doesn&#8217;t depend on anything in the inner scope, it can be factored out by currying and passing it in.</p>
+
+<pre>
+print sub {
+	my ( $f1 ) = @_;
+	sub {
+		my ( $rec ) = @_;
+		sub {
+			my ( $n ) = @_;
+			$n < 2 ? 1 : $n * $rec->( $n - 1 );
+		}
+	}->( sub { $f1->( $f1 )->( @_ ) } )
+}->( sub {
+	my ( $f2 ) = @_;
+	sub {
+		my ( $rec ) = @_;
+		sub {
+			my ( $n ) = @_;
+			$n < 2 ? 1 : $n * $rec->( $n - 1 );
+		}
+	}->( sub { $f2->( $f2 )->( @_ ) } )
+} )->( 10 );
+</pre>
+
+<p>Having fun yet? But take careful note of what happened here. Look at the inner scope:</p>
+
+<pre>
+sub {
+	my ( $rec ) = @_;
+	sub {
+		my ( $n ) = @_;
+		$n < 2 ? 1 : $n * $rec->( $n - 1 );
+	}
+}
+</pre>
+
+<p>That looks just like what we want! Note too that it doesn&#8217;t contain any mention of <tt>$f</tt> &#8211; that means the outer and inner layer of the big monstrosity above are completely independent of each other. So &#8211; wait for it&#8230; &#8211; we can pass the inner layer in!</p>
+
+<pre>
+print sub {
+	my ( $curried_rec ) = @_;
+	sub {
+		my ( $f1 ) = @_;
+		$curried_rec->( sub { $f1->( $f1 )->( @_ ) } )
+	}->( sub {
+		my ( $f2 ) = @_;
+		$curried_rec->( sub { $f2->( $f2 )->( @_ ) } )
+	} )
+}->( sub {
+	my ( $rec ) = @_;
+	sub {
+		my ( $n ) = @_;
+		$n < 2 ? 1 : $n * $rec->( $n - 1 );
+	}
+} )->( 10 );
+</pre>
+
+<p>And there it is: the Y-combinator. Up there in the first anonymous function. We have completely separated the recursion-handling bits from the recursive function itself. Extracting it, we get the following:</p>
+
+<pre>
+sub Y {
+	my ( $curried_rec ) = @_;
+	sub {
+		my ( $f1 ) = @_;
+		$curried_rec->( sub { $f1->( $f1 )->( @_ ) } )
+	}->( sub {
+		my ( $f2 ) = @_;
+		$curried_rec->( sub { $f2->( $f2 )->( @_ ) } )
+	} )
+}
+</pre>
+
+<p>We keep that as a utility function which lets us inline the recursive function quite straightforwardly:</p>
+
+<pre>
+print Y( sub {
+	my ( $rec ) = @_;
+	sub {
+		my ( $n ) = @_;
+		$n < 2 ? 1 : $n * $rec->( $n - 1 );
+	}
+} )->( 10 );
+</pre>
+
+<p>And we&#8217;re done.</p>
+
+<p><small>Note: this explanation is pretty much a straight Perl translation of the most excellent <a href="http://www.ece.uc.edu/user/franco/C511/html/Scheme/ycomb.html">Y-combinator derivation lecture notes of Dr. John Franco</a>. I just spent much longer than him on explaining just how the middle step (passing a clone of the currying closure) comes about.</small></p></p>
+
+
+<hr/>
+
+
+
+<h2>Ouch.  Head hurt.  Need beer.</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-09-05T15:51:15</h3>
+<p>Can you give an example of how this might make some code cleaner or more correct?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Ouch. Head hurt. Need beer.</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-05T17:42:38</h3>
+<p>I had to chuckle at your subject. I certainly know the feeling. The upshot is that you can use this to write recursive anonymous closures (avoiding all side-effects).</p>
+
+<p>I did this as an excercise. I am tiptoeing into the functional world proper lately, but my stance to it remains ambivalent. Perl isn&#x2019;t quite the most beautiful language, but I find it a <em>whoooole</em> lot easier to read than any Lisp. I doubt that will ever change, irrespective of practice &#x2013; <i>I find your lack of syntax disturbing</i>. This meant I understood the explanations, but couldn&#x2019;t grok the code samples in enough to detail for more than a superficial grasp. Hence the decision that I would need to redo this in Perl for myself.</p>
+
+<p>I don&#x2019;t really have a good example on hand where you&#x2019;d need to do this, or at least could use this to make something much easier. (Maybe I should page MJD here?) I assume that&#x2019;s because we&#x2019;re talking about Perl, where statements roam and side effects abound. A schemer could probably come up with a credible use case.</p>
+
+<p>If side effects are not an issue, you can achieve the same much easier in Perl:</p> <blockquote> <div><tt>my $fac = do {<br>&nbsp; &nbsp; my $f;<br>&nbsp; &nbsp; $f = weaken sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; my ( $n ) = @_;<br>&nbsp; &nbsp; &nbsp; &nbsp; $n &lt; 2 ? 1 : $n * $f-&gt;( $n - 1 );<br>&nbsp; &nbsp; };<br>};</tt></div> </blockquote> <p>(I think: untested. Does <tt>weaken</tt> return the reference? If not, it gets a good bit more awkward.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Ouch. Head hurt. Need beer.</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2006-09-05T19:28:53</h3>
+You would need to do:<blockquote> <div><tt>my $fac = do {<br>&nbsp; &nbsp; my $f;<br>&nbsp; &nbsp; my $tmp = $f = sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; my ( $n ) = @_;<br>&nbsp; &nbsp; &nbsp; &nbsp; $n &lt; 2 ? 1 : $n * $f-&gt;( $n - 1 );<br>&nbsp; &nbsp; };<br>&nbsp; &nbsp; weaken($f);<br>&nbsp; &nbsp; $f;<br>};</tt></div> </blockquote>If you just weaken f without the tmp variable, you lose all references to it and it goes away before you have a chance to return it.
+
+
+
+<blockquote>
+
+<h2>Re:Ouch. Head hurt. Need beer.</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-05T20:41:07</h3>
+<p>Ah yes, d&#x2019;uh.</p>
+
+<p>But didn&#x2019;t you mean your <tt>do {}</tt> block to return <tt>$tmp</tt> rather than <tt>$f</tt>? <tt>$f</tt> is the weak reference used inside the function, while <tt>$tmp</tt> is the strong reference you pass back out to the surrounding expression, no?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Ouch. Head hurt. Need beer.</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2006-09-05T20:59:03</h3>
+I don't think it matters which you return. As long as you are assigning $f to something (as above), there will still be a reference to it (from outside the scope of the do block) after $tmp goes out of scope.
+
+
+
+<blockquote>
+
+<h2>Re:Ouch. Head hurt. Need beer.</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-05T21:14:32</h3>
+<p>Ah, when you copy a weak reference, the new reference is strong. Learn something new every day&#x2026;</p>
+
+<p>In any case, the necessary code is rather unwieldy &#x2013; enough so that I&#x2019;d rather just use a Y combinator&#x2026;</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Ouch. Head hurt. Need beer.</h2>
+<h3><a href="/user/nothingmuch/">nothingmuch</a> on 2006-09-05T21:13:44</h3>
+<p>Not precisely... Weaken works on the variable, not the value. This should work:
+</p> <blockquote> <div><tt>my $f;<br>$f = sub {<nobr> <wbr></nobr>... $f<nobr> <wbr></nobr>... };<br>weaken $f;<br>return $f;</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Ouch. Head hurt. Need beer.</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2006-09-05T23:03:44</h3>
+That doesn't work. As soon as you weaken $f, the code it refers to goes away because there are no other references to it. You need to keep another reference to it (hence the temp variable in a previous reply).
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Ouch. Head hurt. Need beer.</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2006-09-05T18:43:18</h3>
+<p>
+I have used closures + fixed point combintators several times for traversal functions when a named function just was not appropriate.  I didn't know about the Y combinator at the time, but if I had, then I would have been able to clean up my code by using it to package up the closure+fixed-point combo into a single CODE ref.
+</p>
+<p>
+But aside from that fringe usage, it is not really that useful in day to day life. In languages like Scheme and Haskell where the purity is highly valued it tends to come in handy, but thats a whole different paradigm.
+</p>
+<p>
+Oh yeah and there is also the "street cred" factor too. I heard that at MIT there are roaving bands of Scheme hackers armed with sharpened copies of <a href="http://mitpress.mit.edu/sicp/full-text/book/book.html" title="mit.edu">SICP</a mit.edu> that prowl the hallways asking people if they know the Y combinator. I don't even want to think about what would happen to you if you didn't know it. *shudder*
+</p>
+<p>
+- Stevan
+</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Cycles?</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-09-05T16:42:42</h3>
+Is there a reference cycle in there? Am I leaking memory every time I use that? Normally you don't give a closure access to itself because you are permanently allocating that memory.<br><br>my $f;<br>$f = sub { $f }; # immortal!<br>
+
+
+
+<blockquote>
+
+<h2>Re:Cycles?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-09-05T19:01:27</h3>
+No, because it's never $f referring to $f - it's always a new anonymous sub.
+
+
+
+<blockquote>
+
+<h2>Re:Cycles?</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2006-09-05T19:48:55</h3>
+A new anonymous sub that is identical in form but distinct in identity? Hmm. I suppose I don't usually care about identifying functions and could live with this.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Cycles?</h2>
+<h3><a href="/user/nothingmuch/">nothingmuch</a> on 2006-09-05T21:07:30</h3>
+Test::Memory::Cycle now checks for this =)
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re: the Y Combinator</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2006-09-05T18:17:02</h3>
+<p>
+I found it was actually easier to deal with the Y combinator if you implement it in terms of the U combinator, which is just your basic fixed point combinator.
+</p> <blockquote> <div><tt>sub U {<br>&nbsp; &nbsp; my $f = shift;<br>&nbsp; &nbsp; sub { $f-&gt;($f, @_) };<br>}<br> <br>sub Y {<br>&nbsp; &nbsp; my $f = shift;<br>&nbsp; &nbsp; U(sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $h = shift;<br>&nbsp; &nbsp; &nbsp; &nbsp; sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $f-&gt;(U($h)-&gt;())-&gt;(@_)<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; })-&gt;();<br>}</tt></div> </blockquote> <p>
+I also <a href="http://use.perl.org/user/Stevan/journal/30675" title="perl.org">recently added</a perl.org> the Y and U combinators to <a href="http://search.cpan.org/user/stevan/Moose-Autobox-0.03/" title="cpan.org">Moose::Autobox</a cpan.org>, so you can just do this:.
+</p> <blockquote> <div><tt>print sub {<br>&nbsp; &nbsp; my $f = shift;<br>&nbsp; &nbsp; sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $n = shift;<br>&nbsp; &nbsp; &nbsp; &nbsp; return 1 if $n &lt; 2;<br>&nbsp; &nbsp; &nbsp; &nbsp; return $n * $f-&gt;($n - 1);<br>&nbsp; &nbsp; }<br>}-&gt;y-&gt;(10);</tt></div> </blockquote> <p>
+and get that oh so special Ruby-ish feeling in your heart.
+</p>
+<p>
+- Stevan
+</p>
+
+
+
+<blockquote>
+
+<h2>Re: the Y Combinator</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-05T21:00:55</h3>
+<p>Yes, those bits of code led to <a href="http://use.perl.org/comments.pl?sid=32768;mode=nested;cid=49724" title="perl.org">a lengthy (if anemic) discussion about Y and U a few days ago</a perl.org>.</p>
+
+<p>I&#x2019;m still trying to wrap my head around the version you present. I think I am starting to get it, but it&#x2019;s still confusing (as is any version of the Y combinator, really<nobr> <wbr></nobr><tt>:-)</tt>). With the version I posted, I at least get what&#x2019;s going on, even though the result is clearly much more complicated than the derivation of Y in terms of U.</p>
+
+
+
+<blockquote>
+
+<h2>Re: the Y Combinator</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2006-09-05T22:02:44</h3>
+<p>
+Ah, I was not aware of the previous conversation. Of course all this is made moot by Perl 6 (IIRC the syntax correctly).
+</p> <blockquote> <div><tt>sub ($n) {<br>&nbsp; &nbsp; return 1 if $n &lt; 2;<br>&nbsp; &nbsp; return $n * $?SUB.($n - 1);<br>}</tt></div> </blockquote> <p>
+- Stevan
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

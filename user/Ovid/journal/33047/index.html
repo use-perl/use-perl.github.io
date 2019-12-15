@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: MySQL Timestamp Confusion</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>MySQL Timestamp Confusion</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-04-20T15:29:40</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><P><a href="http://dev.mysql.com/doc/refman/5.1/en/timestamp-4-1.html">Straight from the docs for the latest version</a>, regarding the initialization and updating of timestamp columns (emphasis their's, snarky parentheticals mine):</p>
+
+<ul>
+  <li>If a DEFAULT value is specified for the first TIMESTAMP column in a table, it is not ignored (gosh, that's handy). The default can be CURRENT_TIMESTAMP or a constant date and time value.</li>
+  <li>DEFAULT NULL is the same as DEFAULT CURRENT_TIMESTAMP for the <em>first</em> TIMESTAMP column (huh?). For any other TIMESTAMP column, DEFAULT NULL is treated as DEFAULT 0.</li>
+  <li>... snip ...</li>
+</ul>
+
+<P>It goes on like that, with a number of curious statements which make me wonder if the developers sat in a back room drinking cheap whiskey and making up "features" to foist on people.</p>
+
+<p>The second bullet point is scary.  Why the hell would I want to have "DEFAULT NULL" treated as "DEFAULT CURRENT_TIMESTAMP"?  I want my database to do what I tell my database to do, damn it.  What's worse, they refer to the <em>first</em> timestamp column.  Ignoring the fact that the MySQL is drifting even further from the relational model (sets aren't ordered!), there's a very practical issue here.  If I drop and recreate a table, my table's behavior can change dramatically if I reorder my columns.  That should <em>not</em> be relevant.</p>
+
+<p>And for other timestamp columns, DEFAULT NULL is treated as DEFAULT 0?  Why?  This doesn't make a damned bit of sense to me.  It also worries me given <a href="http://use.perl.org/user/Adrian/journal/32627">Adrian's post on a similar MySQL issue</a>.</p>
+
+<p>Reading through the comments for those docs is also "real fun".</p>
+
+<p>MySQL:  Transactions, check.  Triggers, check.  Foreign keys, check.  Still a toy?  Check.</p></p>
+
+
+<hr/>
+
+
+
+<h2>When?  now()!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2007-04-20T18:56:21</h3>
+<p><blockquote> <div><em>Why the hell would I want to have "DEFAULT NULL" treated as "DEFAULT CURRENT_TIMESTAMP"?</em></div> </blockquote>
+
+<p>Because I certainly don't believe that all of my middleware has the exact same time, and I want a single canonical reference for the time I added a row to the database.</p>
+
+<p>Maybe I'm too lazy always to include <code>now()</code> every time I insert a row into the table, and I'm definitely too lazy to write a stored procedure to insert the row or a trigger to set those values, but the fewer magical things the middleware has to do and the more magical things the database can do consistently, I consider a good thing.</p>
+
+
+
+<blockquote>
+
+<h2>Re:When? now()!</h2>
+<h3><a href="/user/clscott/">clscott</a> on 2007-04-20T20:52:39</h3>
+I can't say you've provided a convincing argument for why a DEFAULT NULL gets current timestamp or 0 depending on it's position.<br><br>If the the designer has said they want an empty timestamp to default to NULL, the value should be NULL, not whatever the database decides to do with it.<br><br>What if my first timestamp column in a table represents the date that I shipped an order to a customer and the second represents the date it was ordered? If I haven't shipped it to the customer yet<nobr> <wbr></nobr>... ? That's one heck of an odd implementation detail to work around. Yes, it is documented but it doesn't Do What I Told it Too which is more important than Do What I Mean.<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:When? now()!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2007-04-21T01:58:53</h3>
+<p><blockquote> <div><em>I can't say you've provided a convincing argument for why a DEFAULT NULL gets current timestamp or 0 depending on it's position.</em></div> </blockquote>
+
+<p>True.  Likewise, I didn't provide a convincing argument why butterscotch is disgusting, but at least I can defend <em>that</em> position.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:When? now()!</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-04-20T21:04:41</h3>
+<p>Yes, that is a good argument showing that it makes perfect sense to use <code>DEFAULT CURRENT_TIMESTAMP</code>.</p>
+
+<p>However, am I missing something, or did you fail to even notice that the point in question is about <strong> <code>DEFAULT NULL</code> </strong> (which is being treated <em>the same as</em> <code>DEFAULT CURRENT_TIMESTAMP</code> for some bizarre reason (except when it&#8217;s not))?</p>
+
+
+
+<blockquote>
+
+<h2>Re:When? now()!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2007-04-21T01:58:09</h3>
+<p><blockquote> <div><em>However, am I missing something, or did you fail to even notice that the point in question is about <code>DEFAULT NULL</code>...</em></div> </blockquote>
+
+<p>You're right; I did fail to notice that.  Somehow I turned it around in my head so that it meant "When you insert no value into this column," which is <em>completely</em> different.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>hysterical raisins</h2>
+<h3><a href="/user/kag/">kag</a> on 2007-04-20T23:03:07</h3>
+The ability to specify a useful default for timestamp columns is newish.  The old behavior was to treat the first timestamp column with DEFAULT NULL as what can now be expressed as DEFAULT CURRENT_TIMESTAMP.  If you didn't like it, you used datetime as the column type instead of timestamp.<br>
+
+
+
+<h2>death to timestamps</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2007-04-23T14:50:17</h3>
+Yeah, I've worked with a big pile of MySQL-based software that uses timestamps instead of date times all over the place, and then does crazier things.  The first timestamp, for example, is used as a last modification time, except it's displayed to the users as something more like a created/modified-in-certain-way time, meaning that if you modify other fields, you have to modify that one to explicily<nobr> <wbr></nobr>/not/ change.<br><br>Sure, it's a sign of programmer failure, but it's yet another case where MySQL makes easy things easy and horrible things probable.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

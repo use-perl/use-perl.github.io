@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of masak: 'Et tu, bruteforce?'</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>'Et tu, bruteforce?'</h1>
+<h2><a href="/user/masak/">masak</a> on 2009-05-04T22:25:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><i>(Alternative title: "My undying love for <code>.kv</code> on lists")</i></p>
+
+<p>Knuth's <a href="http://www-cs-faculty.stanford.edu/user/knuth/taocp.html">'Facsicle 0a'</a> starts with a kind of programmer's cliffhanger:</p>
+
+<dl>
+<dd>
+Combinatorics is the study of the ways in which discrete objects can be arranged into various kinds of patterns. For example the objects might be <i>2n</i> numbers {1,1,2,2, ..., <i>n</i>, <i>n</i>}, and we might want to place them in a row so that exactly <i>k</i> numbers occur between the two appearances of each digit <i>k</i>. When <i>n</i> = 3 there is essentially only one way to arrange such "Langford pairs," namely 231213 (and its left-right reversal); similarly there's also a unique solution when <i>n</i> = 4.
+</dd>
+</dl>
+
+<p>He moves on to other things without divulging what the unique solution for <i>n</i> = 4 might be. Reading this (on a bus carrying me between cities in Sweden), I flung open a terminal window to write a one-liner to solve the problem. Don't know if Knuth intended to have that effect on the reader, but that's what happened when I read it.</p>
+
+<p>My one-liners are infamously long. Here's what I arrived at:</p>
+
+<pre>
+# Generate all possible permutations of the list @a. The list @prefix
+# assists in the recursion, adding its elements before the reordered
+# elements of @a.
+sub all-possible-orderings(@a, @prefix=[]) {
+    return [@prefix] unless @a.elems;
+    return gather for @a.kv -> $k, $v {
+        my @others = @a[0..^$k, $k^..^*];
+        take all-possible-orderings(@others, [@prefix, $v]);
+    }
+}
+
+# Returns True if and only if the list @a satisfies the
+# Langford property, i.e. each pair of numbers $n has
+# exactly $n other numbers between them.
+sub langford(@a) {
+    for 1..@a/2 -> $n {
+        for @a.kv -> $k1, $v1 {
+            if $v1 == $n {
+                for @a[$k1^..^*].kv -> $k2, $v2 {
+                    return False if $v2 == $n != $k2;
+                }
+            }
+        }
+    }
+    return True;
+}
+
+.join.say for all-possible-orderings([1,1,2,2,3,3]).grep({ langford($_) }).uniq;
+</pre>
+
+<p>This code worked well for <i>n</i> = 3, but for <i>n</i> = 4 it just sat there. Kind of fitting, since the remainder of the Facsicle was about the futility of brute force, more or less. Kind of drove the point home, my PDF reader in the foreground saying things like "A single good idea can reduce the amount of computation by many orders of magnitude", while the <code>perl6</code> process in a window behind it chewed up all my cycles and all my memory.</p>
+
+<p>So I gave it another go.</p>
+
+<pre>
+# Generates a list of all permutations of the list @candidates
+# satisfying the Langford property.
+sub langford(@candidates, @slots = [0 xx 2*@candidates]) {
+
+    return [@slots] if all @slots;
+
+    my @found;
+
+    for @candidates -> $c {
+        for @slots[0..@slots-$c-2].kv -> $k, $v {
+            if !$v {
+                if !@slots[$k+$c+1] {
+                    my @new-slots = @slots;
+                    @new-slots[$k, $k+$c+1] = $c, $c;
+                    push @found, langford( (grep { $_ != $c }, @candidates),
+                                           @new-slots );
+                }
+                last;
+            }
+        }
+    }
+
+    return @found;
+}
+
+.join.say for langford 1..4;
+</pre>
+
+<p>(moritz++ for the nice line <code>return [@slots] if all @slots;</code> where I had previously used a <code>grep</code>.)</p>
+
+<p>Notice how this solution, besides being faster, is also shorter, simpler, and more fun at parties. It does the <i>n</i> = 4 case in a jiffy, and the <i>n</i> = 7 and <i>n</i> = 8 cases with some hesitation. It could probably easily go higher than that without blowing the stack, but time starts to become the limiting factor at this point.</p>
+
+<p>Anyway, a fun afternoon experiment. It's 2009, and I'm solving combinatorics puzzles in Perl 6. Cool!</p>
+
+<p>(Oh, and it's 23421314, in case you were wondering too.)</p></p>
+
+
+<hr/>
+
+
+
+<h2>if Knuth intended to have that effect</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2009-05-05T21:35:23</h3>
+given his track record <a href="http://en.wikipedia.org/wiki/Concrete_Mathematics" title="wikipedia.org">http://en.wikipedia.org/wiki/Concrete_Mathematics</a wikipedia.org>, I suspect Knuth intended either that (brute force coding) or a search for an elegant yet constructive proof.
+
+
+
+<h2>left-to-right recursive generation is very fast</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2009-05-06T14:36:06</h3>
+<p>Use a function that takes a position and a set of as-yet-unplaced numbers.  The position is the first slot that might be free.  The function finds the first slot that really is free, and then for each unplaced number tries to place it (also trying to place its pair k+1 positions later).  If there are additional unplaced numbers recurse, else you have a solution.  (To eliminate the reversed pairs, only print the result if the first number is lower than the last.)  You have to remove the the numbers that were placed before going on to the next attempt or returning to the caller.</p><p>I implemented that on the train last night (but then didn't bring it with me today).  It found the unique solutions for 3 and 4, found that there were no solutions for 5 and 6, and found a dozen or two (I didn't count them) solutions for 7 - all of these cases came back with no noticeable delay.</p>
+
+
+
+<blockquote>
+
+<h2>Re:left-to-right recursive generation is very fast</h2>
+<h3><a href="/user/masak/">masak</a> on 2009-05-06T14:53:02</h3>
+<p><div class="quote"><p>Use a function that takes a position and a set of as-yet-unplaced numbers.  The position is the first slot that might be free.  The function finds the first slot that really is free, and then for each unplaced number tries to place it (also trying to place its pair k+1 positions later).  If there are additional unplaced numbers recurse, else you have a solution.</p></div><p>You've just described my second, non-bruteforce solution given in the post. Did you read it?</p><p><div class="quote"><p>(To eliminate the reversed pairs, only print the result if the first number is lower than the last.)</p></div><p>Nice idea. Didn't think of that.</p><p><div class="quote"><p>I implemented that on the train last night (but then didn't bring it with me today). It found the unique solutions for 3 and 4, found that there were no solutions for 5 and 6, and found a dozen or two (I didn't count them) solutions for 7 - all of these cases came back with no noticeable delay.</p></div><p>Then I conclude that your algorithm was not in Perl 6.<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:left-to-right recursive generation is very fast</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2009-05-06T15:10:47</h3>
+<p><div class="quote"><p><div class="quote"><p> [...]</p> </div><p>You've just described my second, non-bruteforce solution given in the post. Did you read it?</p></div><p>Well, I looked at it, but didn't figure out what it was doing.</p><p><div class="quote"><p><div class="quote"><p> [...] - all of these cases came back with no noticeable delay.</p></div><p>Then I conclude that your algorithm was not in Perl 6.<nobr> <wbr></nobr>:)</p></div><p>Nope Perl 5 (and that's probably why I didn't figure out what your solution was doing<nobr> <wbr></nobr>:-)</p>
+
+
+
+<blockquote>
+
+<h2>Re:left-to-right recursive generation is very fast</h2>
+<h3><a href="/user/masak/">masak</a> on 2009-05-06T15:36:15</h3>
+<p><div class="quote"><p><div class="quote"><p><div class="quote"><p> [...]</p></div><p>You've just described my second, non-bruteforce solution given in the post. Did you read it?</p></div><p>Well, I looked at it, but didn't figure out what it was doing.</p><p><div class="quote"><p><div class="quote"><p> [...] - all of these cases came back with no noticeable delay.</p></div><p>Then I conclude that your algorithm was not in Perl 6.<nobr> <wbr></nobr>:)</p></div><p>Nope Perl 5 (and that's probably why I didn't figure out what your solution was doing<nobr> <wbr></nobr>:-)</p></div><p>If you find the tuits, it would be interesting to hear what you conclude from a comparison of our two approaches.</p><p>Of course, if some particular piece of strange syntax blocks such an endeavor, I'd be very happy to explain the syntax rather than have you trawl the synopses for enlightenment.</p>
+
+
+
+<blockquote>
+
+<h2>Re:left-to-right recursive generation is very fast</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2009-05-06T15:43:32</h3>
+<p><div class="quote"><p><div class="quote"><p><div class="quote"><p><div class="quote"><p> [...]</p></div><p>You've just described my second, non-bruteforce solution given in the post. Did you read it?</p></div><p>Well, I looked at it, but didn't figure out what it was doing.</p><p><div class="quote"><p><div class="quote"><p> [...] - all of these cases came back with no noticeable delay.</p></div><p>Then I conclude that your algorithm was not in Perl 6.<nobr> <wbr></nobr>:)</p></div><p>Nope Perl 5 (and that's probably why I didn't figure out what your solution was doing<nobr> <wbr></nobr>:-)</p></div><p>If you find the tuits, it would be interesting to hear what you conclude from a comparison of our two approaches.</p><p>Of course, if some particular piece of strange syntax blocks such an endeavor, I'd be very happy to explain the syntax rather than have you trawl the synopses for enlightenment.</p></div><p>The tuits will take a couple of days.  I'll post my perl5 code then too for comparison.</p>
+
+
+
+<h2>Re:left-to-right recursive generation is very fast</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2009-05-08T14:27:39</h3>
+<tt>Your solution does a lot of array copy/filter'ing that mine avoids.&nbsp; That's not a fault with Perl6, though.<nobr> <wbr></nobr>:-)<br><br>Also, I think yours is still algorithmically slower than mine.&nbsp; You try every number in every place.&nbsp; I try every number in the first place, then trying the remaining numbers in the remaining places (not all places).<br><br>So, the comparison here is not between Perl5 and Perl6, but coding with always using array ops, and sometimes using individual elements.<br><br>I have to go to 9 and 10 to get a user-noticeable elapsed time, but then it starts to take off.&nbsp; (From the size of the numbers, it is looking like the time is somewhat less than O(n**2), but definitely greater than O(n).<br><br>$ time<nobr> <wbr></nobr>./langford.pm 9<br><br>real&nbsp; &nbsp; 0m0.203s<br>user&nbsp; &nbsp; 0m0.200s<br>sys&nbsp; &nbsp; 0m0.000s<br>$ time<nobr> <wbr></nobr>./langford.pm 10<br><br>real&nbsp; &nbsp; 0m1.091s<br>user&nbsp; &nbsp; 0m1.088s<br>sys&nbsp; &nbsp; 0m0.000s<br>$ time<nobr> <wbr></nobr>./langford.pm 11 | tail -2<br>17791&nbsp; &nbsp; 10, 8, 5, 2, 9, 6, 2, 7, 5, 11, 8, 10, 6, 4, 9, 7, 3, 1, 4, 1, 3, 11<br>17792&nbsp; &nbsp; 10, 8, 5, 3, 7, 9, 6, 3, 5, 11, 8, 10, 7, 6, 4, 9, 1, 2, 1, 4, 2, 11<br><br>real&nbsp; &nbsp; 0m7.492s<br>user&nbsp; &nbsp; 0m7.488s<br>sys&nbsp; &nbsp; 0m0.012s<br>$ time<nobr> <wbr></nobr>./langford.pm 12 | tail -2<br>108143&nbsp; &nbsp; 11, 9, 6, 4, 2, 10, 8, 2, 4, 6, 12, 9, 11, 5, 7, 8, 10, 3, 1, 5, 1, 3, 7, 12<br>108144&nbsp; &nbsp; 11, 9, 6, 4, 2, 10, 8, 2, 4, 6, 12, 9, 11, 7, 5, 8, 10, 1, 3, 1, 5, 7, 3, 12<br><br>real&nbsp; &nbsp; 0m53.187s<br>user&nbsp; &nbsp; 0m53.155s<br>sys&nbsp; &nbsp; 0m0.048s<br>$ time<nobr> <wbr></nobr>./langford.pm 13 | tail -2<br><br>real&nbsp; &nbsp; 6m39.064s<br>user&nbsp; &nbsp; 6m38.705s<br>sys&nbsp; &nbsp; 0m0.044s<br><br>It's interesting that you can get a hundred thousand solutions for k==12, and none for k==13.<br><br>And here's my Perl 5 code:<br><br>#!/usr/bin/perl<br><br>use strict;<br>use warnings;<br><br>my $n = shift;<br><br>($n =~<nobr> <wbr></nobr>/^\d+$/) &amp;&amp; $n &gt; 2<br>&nbsp; &nbsp; or die "Usage: $0 &lt;num&gt;&nbsp; &nbsp;# num &gt; 2\n";<br><br>my @result = ( 0 ) x (2*$n);<br>my $found = 0;<br>my $n2 = $n*2;<br><br>try( 0, 1..$n );<br><br>sub try {<br>&nbsp; &nbsp; my( $pos, @nums ) = @_;<br><br>&nbsp; &nbsp; while( $result[$pos] ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; return if ++$pos == $n2;<br>&nbsp; &nbsp; }<br><br>&nbsp; &nbsp; my $tries = @nums;<br><br>&nbsp; &nbsp; while( $tries-- ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $guess = shift @nums;<br>&nbsp; &nbsp; &nbsp; &nbsp; my $otherpos = $pos+$guess+1;<br>&nbsp; &nbsp; &nbsp; &nbsp; return if $otherpos &gt;= $n2;<br>&nbsp; &nbsp; &nbsp; &nbsp; unless( $result[$otherpos] ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $result[$pos] = $result[$otherpos] = $guess;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if( @nums ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; try( $pos+1, @nums );<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; elsif( $result[0] &lt; $result[-1] ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print ++$found, "\t", join( ', ', @result ), "\n";<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $result[$pos] = $result[$otherpos] = 0;<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; push @nums, $guess;<br>&nbsp; &nbsp; }<br>}<br></tt>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

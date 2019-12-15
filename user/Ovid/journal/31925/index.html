@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Returning 'false' (sometimes)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Returning 'false' (sometimes)</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-12-15T18:50:22</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>In code which sometimes returns 'false', I keep seeing code like the following:</p>
+
+<pre>sub foo {
+  return undef unless bar(@_);   # or 'return 0;'
+  return $something_else;
+}</pre>
+
+<p>That behavior needs to be documented very carefully as it has a subtle bug which people keep stumbling over.  Most of the time it works:</p>
+
+<pre>if ( my $result = foo() ) { ... }</pre>
+
+<p>But what if, for example, you want to accumulate results so you decide to use an array?</p>
+
+<pre>if ( my @results = foo() ) { ... }</pre>
+
+<p>Congrats!  If <tt>&foo</tt> return false, you now have a one-element array which, in this context, evaluates as true.  This is very likely a bug.  You can accomplish the same thing, probably bug free, if you just use a bare return:</p>
+
+<pre>sub foo {
+  return unless bar(@_);
+  return $something_else;
+}</pre>
+
+<p>From <tt>perldoc -f return</tt>:</p>
+
+<blockquote>If no EXPR is given, returns an empty list in list context, the undefined value in scalar context, and (of course) nothing at all in a void context.</blockquote>
+
+<p>In other words, if you wish to return 'false', a bare <tt>return</tt> will Do The Right Thing.</p>
+
+<p>The only significant objection this I can recall hearing is the following:</p>
+
+<pre>if ( some_func(1, foo(), 2) ) { ... }</pre>
+
+<p>Because that's in list context, if <tt>&foo</tt> has a bare return, <tt>&foo</tt> returns the empty list and <tt>&some_func</tt> receives <tt>(1, 2)</tt>.  I don't see this happening too often, but you can get around it by forcing scalar context.</p>
+
+<pre>if ( some_func(1, scalar foo(), 2) ) { ... }</pre>
+
+<p>Now <tt>&some_func</tt> will receive <tt>(1, undef, 2)</tt>.</p>
+
+<p>Also, if you're returning from a ternary operator, you can get the same behavior with this:</p>
+
+
+<pre>return $some_val ? $some_val : ();</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Opposite Bug</h2>
+<h3><a href="/user/Smylers/">Smylers</a> on 2006-12-16T00:33:50</h3>
+<p>We recently hit against a bug with this the opposite way round.  The <code> <a href="http://search.cpan.org/perldoc?JSON" title="cpan.org">JSON</a cpan.org> </code> module's <code>objToJson</code> function takes a Perl data structure and returns a Json string representation of it.  But if the input is <code>undef</code> then it uses bare <code>return</code>.</p>
+
+<p>The bug was that this return value was being used in the parameter list of another function, and the bare <code>return</code> meant there was a argument missing.</p>
+
+<p>Once we'd spotted the bug it was simple to put <code>scalar</code> before the call to <code>objToJson</code>, but it was subtle.  If a function is documented as always returning exactly one piece of data then it might be better if it always does that, even if that means returning <code>undef</code> in list context.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Opposite Bug</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-12-16T01:34:05</h3>
+<p>You know, I did cover that specific case in my post<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Perl::Critic enforcement</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-12-16T01:32:30</h3>
+Damian Conway made a similarly convincing argument in Perl Best Practices.  This practice be enforced with <a href="http://search.cpan.org/user/thaljef/Perl-Critic-0.21/lib/Perl/Critic/Policy/Subroutines/ProhibitExplicitReturnUndef.pm" title="cpan.org">Subroutines::ProhibitExplicitReturnUndef</a cpan.org>  policy in Perl::Critic.<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

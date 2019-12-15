@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of tsee: PAR evilness to make remote auto-upgrading work</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>PAR evilness to make remote auto-upgrading work</h1>
+<h2><a href="/user/tsee/">tsee</a> on 2009-01-25T22:01:42</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>When I think about telling people about PAR internals, a reply from
+a colleague readily comes to mind, when he was asked about an icky detail
+of his analysis:</p>
+
+<blockquote><i>You don't want to know how sausages are made!</i></blockquote>
+
+<p>
+But then I can't resist grossing out people with some details anyway...
+</p>
+<p>
+Two years ago, I wrote <a href="http://search.cpan.org/dist/PAR-Repository-Client">PAR::Repository::Client</a> as an interface for loading
+<a href="http://search.cpan.org/dist/PAR">PAR</a>s and thus arbitrary modules from a remote server. If the client
+is installed, all you need to do to auto-load missing modules from
+the server is:
+</p>
+
+<pre>
+  use PAR { repository => 'https://foo.com/myapp' };
+  use Foo; # will be loaded from remote if necessary
+</pre>
+
+<p>
+But since this may become expensive, and caching the binaries only
+removes part of that, the "install" option was part of the
+interface almost from the start:
+</p>
+
+<pre>
+  use PAR { repository => 'https://foo.com/myapp', install => 1 };
+  use Foo; # will be loaded AND INSTALLED if necessary
+</pre>
+
+<p>
+Back then, I also added most of the code necessary for an "upgrade"
+option.
+</p>
+
+<pre>
+  use PAR { repository => 'https://foo.com/myapp', upgrade => 1 };
+  use Foo; # will be loaded AND INSTALLED OR UPGRADED if necessary
+</pre>
+
+<p>
+Unfortunately, it was missing a few critical details until today.
+The repository client is normally only invoked when all other sources
+fail. But that's a problem if you're trying to check for upgrades.
+Thus, repositories in upgrade-mode are now checked early in the module-loading
+process.
+</p>
+
+<p>
+The real bummer was that in order to check for upgrades, the locally installed
+version has to be determined. Since this is hard to do reliably without loading
+the module, that's what PAR has to do. But that means require()ing module X from
+within an early @INC hook that ran due to a "require X;". There's so many things
+wrong with that idea, it's not even funny. It seems that creating an infinite
+recursion in an @INC hook segfaults perl 5.8.9.
+Regardless, it can be (and was) made to work:
+</p>
+
+<ul>
+<li>Before running the client's upgrade_module method, dynamically override the set of active (via PAR.pm) PAR::Repositories to be empty.</li>
+<li>Run the current repository client's upgrade_module method which
+will attempt to require the module for checking its version.</li>
+<li>Afterwards, check whether the module was loaded using %INC.</li>
+<li>If not, continue normally, probably ending up failing to load the module from anywhere or loading the freshly installed copy.</li>
+<li>If the module was loaded, prevent an additional loading with an evil trick in
+the @INC hook:</li>
+</li>
+</ul>
+
+  
+<pre>
+  my $line = 1;
+  return \*I_AM_NOT_HERE, sub { $line ? ($_="1;",$line=0,return(1)) : ($_="",return(0)) };
+</pre>
+
+<p>
+Even disregarding the slight obfuscation, can you figure out how this works?
+</p>
+
+<p>
+One obscure feature of @INC and the module loading is the return value(s) of
+a subroutine @INC hook. It normally simply returns a file handle that the
+module code is then read from. But if it returns a code ref as its second
+return value, that code ref is called repeatedly until it returns false.
+After each invocation, $_ is assumed to contain the next line of the module code.
+If the first argument was a file handle nonetheless, $_ is initialized to
+a new line from the file handle before calling the subroutine.
+</p>
+<p>
+The motivation here is mostly that we want to set the file contents to "1;".
+Unfortunately, passing undef as the file handle resulted in the subroutine not
+being called. This smells like a bug in perl to me, but I'll have to check that
+more closely with blead. Furthermore, it's not wise to load any unnecessary
+modules in PAR.pm as they would have to be included verbatim in an uncompressed
+part of PAR::Packer created executables. Therefore, instead of simply passing
+a IO::Handle->new(), I'm supplying an arbitrary GLOB ref.
+</p>
+<p>
+Finally, the subroutine itself simply sets $_ to "1;" in the first invocation
+and returns zero on the second to stop the evaluation, thus essentially
+short-circuiting require()'s loop through @INC.
+</p>
+<p>
+After going through this considerable pain, I got the auto-upgrading feature
+of PAR::Repository::Client to work. There's probably still bugs and
+testing it as part of the test suite is no fun (but still feasible).
+</p>
+<p>Stay tuned for a new release of the involved modules.</p>
+<p>
+Cheers,<br/>
+Steffen
+</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

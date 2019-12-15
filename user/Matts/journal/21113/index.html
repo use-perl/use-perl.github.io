@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Matts: Longest Common Substring</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Longest Common Substring</h1>
+<h2><a href="/user/Matts/">Matts</a> on 2004-09-29T18:35:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I need to find the longest common substring between one string and a list of others. This would be very easy to do naively - find all the substrings of the first string, then check via index() on the others. However this is O(mnk) which is bad, m'kay. So I managed to find an algorithm that uses a matrix to find the longest substring in O(nk). [ m = number of substrings in first string, n = number of strings to look in, k = avg length of strings ].<br/><br/>Unfortunately the algorithm requires looking at each individual character in the strings one by one. Sadly this is very slow in perl, despite perl being perfect for most string matching needs. I hope this is fixed in perl 6. Anyway, I decided the best way to go would be to prototype in Inline::C and then migrate to XS. It turns out I really hate programming in C. All the array indexes being dangerous and lack of being able to print datastructures easily, and the malloc/free nightmare, and ugly for() loops.<br/><br/>Despite all that, I came up with this, which appears to work pretty well:
+<pre>
+#!/usr/bin/perl -w<br/><br/>use Inline C;
+use Benchmark;
+use strict;<br/><br/>my $string = "hello";
+my @to_match = qw(aloha helen noddy);<br/><br/>timethese(1_000_000, {
+    match => sub {
+my $max_substr = do_match($string, \@to_match);
+if ($max_substr ne 'hel') { die "Bad match: $max_substr"; }
+#else { print "good match\n" }
+    },
+});<br/><br/>#print "Found: $max_substr\n";<br/><br/>__END__
+__C__<br/><br/>#define mtrx(x,y) ((x) + ((y) * match_len))<br/><br/>SV * do_match( char * fixed, AV * list )
+{
+    I32 i;
+    I32 list_len = -1;
+    SV** to_match = NULL;
+    I32 longest = 0;
+    I32 answer_end = 0;
+    const I32 fixed_len = strlen(fixed);
+    SV * result = newSV(0);<br/><br/>    if (result == NULL)
+        return NULL;<br/><br/>    /* length of the array */
+    list_len = av_len(list);<br/><br/>    if (list_len < 0)
+        return NULL;<br/><br/>    for (i = 0; i <= list_len; i++) {
+        I32 match_len;
+        char *ptr;
+        char *matrix;
+        I32 x, y;
+        int longer = 0;
+        
+        /* get the i'th entry out of the array */
+        to_match = av_fetch(list, i, 0);
+        if (!to_match)
+            break;<br/><br/>        /* get a char* out of the SV (sets match_len as side effect) */
+        ptr = SvPV(*to_match, match_len);
+        
+        /* allocate a long string, and use arithmetic to treat it like a matrix */
+        matrix = calloc(match_len * fixed_len, sizeof(char));
+        if (matrix == NULL)
+            return NULL;<br/><br/>        answer_end = 0;<br/><br/>        /* NB: using 1,1 as root of matrix so we have a zero'd border to prevent
+           segfaults when fetching matrix[x-1,y-1] */
+        for (x = 1; x <= fixed_len; x++) {
+            for (y = 1; y <= match_len; y++) {
+                if (fixed[x-1] == ptr[y-1]) {
+                    matrix[mtrx(x,y)] = 1 + matrix[mtrx(x-1,y-1)];
+                    if (matrix[mtrx(x,y)] > longest) {
+                        longest = matrix[mtrx(x,y)];
+                        answer_end = y;
+                        longer = 1;
+                    }
+                }
+            }
+        }<br/><br/>        /* if this one was longer than previous ones, we store it in the SV */
+        if (longer) {
+            /* null terminate it first! */
+            ptr[answer_end] = 0;
+            sv_setpvn(result, &ptr[answer_end - longest], longest);
+        }<br/><br/>        free(matrix);
+    }<br/><br/>    return result;
+}
+</pre>
+And results in:
+<pre>
+$ perl common_substring.pl 
+Benchmark: timing 1000000 iterations of match...
+     match: 13 wallclock secs (10.04 usr +  0.03 sys = 10.07 CPU) @ 99304.87/s (n=1000000)
+</pre>
+Now I need to run it on some real data (tens of thousands of strings) to see how well it scales!<br/><br/>The explanation of the algorithm can be found <a href="http://www.ics.uci.edu/user/dan/class/161/notes/6/Dynamic.html">here</a> if you're interested.</p>
+
+
+<hr/>
+
+
+
+<h2>And that works really well...</h2>
+<h3><a href="/user/Elian/">Elian</a> on 2004-09-29T18:56:40</h3>
+as long as you're using an 8-bit character set. Unicode kinda makes this sub-optimal<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:And that works really well...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2004-09-29T20:01:41</h3>
+s/char/wchar/<nobr> <wbr></nobr>:-) (I know this doesn't really work)
+
+
+
+<h2>Re:And that works really well...</h2>
+<h3><a href="/user/bart/">bart</a> on 2004-09-30T08:33:58</h3>
+It should do just as well on UTF8, no? Except for its probable confusion on string length vs. number of bytes..
+
+
+
+<blockquote>
+
+<h2>Re:And that works really well...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2004-09-30T09:43:27</h3>
+In a multibyte string you get potential clashes between characters with different surrogate bytes but similar character bytes, meaning invalid results.
+
+
+
+<h2>Re:And that works really well...</h2>
+<h3><a href="/user/Elian/">Elian</a> on 2004-09-30T12:22:15</h3>
+Nope. UTF-8 is particularly bad. In addition to potentially having combining characters in the match, which is a Unicode issue, you can run into lots of cases where the second (and third, and fourth, and fifth...) byte of two multibyte characters are identical but the characters aren't the same because the first byte isn't.<br> <br>This technique only works on fixed-width characters in sets with no combining characters (In which case it works really well) or in cases where you can ensure that you're only using the subset of characters that don't allow combining characters.
+
+
+
+<blockquote>
+
+<h2>Re:And that works really well...</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2004-09-30T12:56:25</h3>
+Though to be fair it would be easy to fix for UTF-8. You just need to use a NEXT() macro (or something - NEXT() is what libxml uses internally) instead of iterating through an array.
+
+
+
+<blockquote>
+
+<h2>Re:And that works really well...</h2>
+<h3><a href="/user/Elian/">Elian</a> on 2004-09-30T13:09:50</h3>
+Oh, sure -- it's not that big a deal, and you could certainly handle it straightforwardly enough. It'd be a bit of a pain, though.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:And that works really well...</h2>
+<h3><a href="/user/waitman/">waitman</a> on 2005-11-27T17:35:32</h3>
+I had an idea that seems to work on big strings. Kind of like Edward Scissor Hands cutting out the "bad stuff" in a bunch and leaving only the "good stuff". If you have two strings a and b, chop up a into pieces that have *characters* in common with b, and vice-versa. then chop up all the pieces. Like salad or a block of ice.<br/><br/>Then it is quick to find the real matches. Should work with other things besides 8 bit text.<br/><br/>I did it in Python, here-&gt;
+<a href="http://www.livejournal.com/users/bramcohen/22069.html" title="livejournal.com">http://www.livejournal.com/users/bramcohen/22069.html</a livejournal.com>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Dynamic programming? hmm!</h2>
+<h3><a href="/user/jmason/">jmason</a> on 2004-09-29T19:02:01</h3>
+I was just hearing about this technique in a great paper on bioinformatics (specifically seq analysis) for blackbox protocol reverse-engineering at Toorcon; I talked to the guy and he's very interested in applying his techniques to spam.   worth a read.<br> <br>doesn't seem to be up on the web yet though.<nobr> <wbr></nobr>:(
+
+
+
+<blockquote>
+
+<h2>Re:Dynamic programming? hmm!</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2004-09-29T20:08:40</h3>
+I'm mostly just parroting the page I read - I have no idea what's "dynamic" about this technique. Maybe that's a consequence of programming perl all the time - everything is dynamic anyway!<br> <br>However there's a number of papers out there on longest common sequence detection, that use similar techniques and algorithms (and all use GTCA in their examples). I guess you'd have to keep a corpus of spam around to determine similarity using this technique though.
+
+
+
+<blockquote>
+
+<h2>Re:Dynamic programming? hmm!</h2>
+<h3><a href="/user/jmason/">jmason</a> on 2004-09-29T20:24:02</h3>
+oh btw -- here's a good one:<br> <br>http://cbrg.inf.ethz.ch/bio-recipes/NigerianPrince/code.html<br> <br>'Phylogenetic tree of the "Nigerian Prince" email scam'<nobr> <wbr></nobr>;)
+
+
+
+
+
+</blockquote>
+
+
+<h2>protocol analysis URL</h2>
+<h3><a href="/user/jmason/">jmason</a> on 2004-09-30T19:34:25</h3>
+btw, here's the URL for that presentation:<br/><br/>http://www.baselineresearch.net/PI/PI-Toorcon.pdf
+
+
+
+
+
+</blockquote>
+
+
+<h2>a couple of speedups</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2004-09-29T20:42:12</h3>
+You can reject a word immediately if it is shorter than the current longest known match.<p>
+You can also stop scanning the tail end of a word if the length of longest match at the current point, plus the length of the rest of the word is smaller than the current longest known match.  (I think you can make that check every time you get a mismatch, since when the character matches you are extending a possible match that there was room enough for.</p><p>
+Both of these will help with the scaling - as soon as you've found a reasonable match you'll start skipping that much of the tail end of most words.</p><p>
+I have a feeling that there may be some way of extending the Boyer-Moore algorithm (see, for example, Mastering Algorithms with Perl, page 373) to provide additional speedups by letting you skip multiple characters as you scan through a word.  At the very least, you could keep a list of where characters occurs.  Then, when you are looking for a match starting at pos x, check the character at pos x+longest - it that character does not occur in the target word you can immediately discard all starting positions from x..(x+longest) as candidates for a match.  (There might be a shorter or equal match in there somewhere, but you don't care about them.)  If that character does occur in the target, you might be able to use a bitmask that lists all of the locations that it occurs.  Now work backwards, shifting the bitmask and anding it against the bitmask for the character in the previous location.  When the bitmask result goes to 0, you've eliminated (or proven) the original position as a match of length longest+1.  If it was a match, extend it as much as possible and record it as the new longest match.  If it wasn't, the position following the one that failed is the new starting position candidate (and you have a bit mask to test out with, too).  The basic Boyer-Moore algorithm doesn't work directly because it was designed to find a match for one entire string anywhere within another string.  Since this problem is accepting any sub-string of the match target, you need to modify the approach.)</p>
+
+
+
+<h2>Super Search at The Monastery....</h2>
+<h3><a href="/user/Limbic Region/">Limbic Region</a> on 2004-09-29T23:41:39</h3>
+turns up<br> <br>http://www.perlmonks.org/index.pl?node_id=249239<br>(Longest Common Substring)<br> <br>It references<br>String::LCSS<br> <br>Which when I searched CPAN also turned up Algorithm::LCSS<br> <br>There is some wheel inventing there too
+
+
+
+<h2>not surprised</h2>
+<h3><a href="/user/jhi/">jhi</a> on 2004-09-30T09:30:11</h3>
+&gt; Sadly this is very slow in perl, despite perl being perfect for most string matching needs.<br> <br>If your string matching needs happen to match Perl's  string matching capabilities.  Regular expressions are not an end-all solution to string matching in general; there is much more to "string matching", and in many cases Perl's "strings are first class" attitude gets in your way.  LCS being one of those cases.<br> <br>
+
+
+
+<h2>All common substrings</h2>
+<h3><a href="/user/jsmith/">jsmith</a> on 2004-10-06T04:00:39</h3>
+Reading the algorithm made me go back and modify it to find all common substrings.  Takes a *lot* longer to run, but for me is more useful.<br> <br>I'm doing some preliminary work with Beowulf in Old English to see if there might be anything interesting to do with such information.  With that, I need to look at all possible common substrings between pairs of lines, not just the longest.<br> <br>Since I don't know enough XS to handle creating arrays in C, I did it all in Perl<nobr> <wbr></nobr>:/  Only takes 40-50 times longer, but I have all night to run the program.
+
+
+
+<blockquote>
+
+<h2>Re:All common substrings</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2004-10-07T07:57:17</h3>
+Creating arrays in C is easy:<blockquote><div> <tt>AV * foo = newAV();<br>av_push(foo, newSVpv(thestring, 0));</tt> </div></blockquote>You can just return the AV * and the builtin perl typemap will turn it into a list for you.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of chromatic: Multi-Primitive Dispatch Autoboxing Obsession</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Multi-Primitive Dispatch Autoboxing Obsession</h1>
+<h2><a href="/user/chromatic/">chromatic</a> on 2008-10-28T03:37:37</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>When is an integer not an integer?  When it's an int!</p>
+
+<p><a href="http://www.parrotcode.org/">Parrot</a> has four types of
+primitives: integers, floats, strings, and PMCs.  Parrot also has four types of
+registers: I, N (for Numeric), S, and P.  (Parrot would have an Artisan
+personality if we used F for float, but that's a bad pun for psychology
+students.)  Many people have explained PMCs elsewhere, but think of them as
+"everything else that isn't just an integer, float, or a string." That's not
+entirely true, for reasons that will become obvious in a few paragraphs, but
+computer programming, unlike computer science, is all about finding the most
+appropriate lies to tell.</p>
+
+<p>Parrot's calling conventions govern how you pass parameters to and receive
+values from Parrot functions.  In particular, they dictate which registers you
+use.  For example, you may pass two integers into a division function and get a
+float back.  The two incoming registers may be <code>I0</code> and
+<code>I1</code>, and the outgoing register may be <code>N0</code> (I don't
+believe they are, but it's all documented, and if you write at the level of PIR
+or a higher-level language, you don't have to worry about that).  That's all
+well and good for single dispatch.</p>
+
+<p>Multi dispatch makes life much more complicated, and programming much easier.</p>
+
+<p>Suppose you have a function called <code>divide</code>, which takes two
+arguments and returns one value.  If you're used to Perl 5, you know that the
+division operator is already polymorphic; you can give it two SVs and get back
+one SV and treat the arguments as numeric or integral or however they are.
+Imagine that you have to worry about the <em>type</em> of the argument,
+however.  If that mattered, you'd have to check the argument types as they came
+in and perform different kinds of comparisons based on the results of that
+check.  If you've written much Perl, you've written this kind of code.  That's
+one drawback of a single dispatch system.</p>
+
+<p>In a multi dispatch system, you can define multiple functions with the same
+name but different signatures.  (If that sounds like signature-based function
+overloading in Java or C++, it should -- but static manifest typing means that
+the compiler does its best to resolve those dispatches at the point of the call
+at compile time.  If it can't do that, C++ will give you horrible error
+messages and Java will vomit stack traces.  At least, I recall that Java has a
+weak stomach full of stack traces and loves to read while someone else drives
+it fast down narrow mountain roads full of hairpin turns.)  At
+<em>runtime</em>, the types of the parameters passed to the call determine
+which variant function to call.</p>
+
+<p>That is, you can define <code>divide :multi(Integer, _)</code> and
+<code>divide :multi(Float, _)</code>, and Parrot's MMD system will call the
+first one when you write <code>divide( 10, 2 )</code> and the second when you
+write <code>divide( 5.0, 2.0 )</code>.  (You may ask "What about dispatching
+based on the expected return <em>value</em>?", but that's a much bigger
+flophouse full of monkeys.)</p>
+
+<p>I mean, you can say that in Parrot <em>now</em>, as of a few minutes ago.</p>
+
+<p>I mentioned primitives before.  In PIR (Parrot's native language), the
+numbers I used as parameters before are actually integer and float constants.
+Parrot's PIR compiler stores them in I and N registers, respectively.  I
+haven't yet explained that the type signatures on the PIR functions are tuples,
+nor that uppercase names represent <em>PMC</em> types and the underscore is the
+Prolog/Haskell placeholder, which means any type will do.</p>
+
+<p>If you've read closely, you have realized that the arguments get passed in
+completely different registers than Parrot expects.  Fortunately, Parrot's
+calling conventions account for this.  We have PMC types which represent the
+other primitives: Integer, Float, and String.  It's easy to convert from an
+integer primitive into an Integer PMC and so on.  (The opposite isn't as easy,
+but that's again a different story.)  This process is <em>autoboxing</em>, and
+Parrot's calling conventions handle it already automatically -- at least they
+do, in the single dispatch case.</p>
+
+<p>The multiple dispatch case is more complex.  It's not as easy as looking up
+a symbol in a namespace, checking to see if it's invokable, stuffing the
+parameters into the proper registers, and calling it.  In between the "Alright,
+time for parameter passing!" and "Go ahead and call it!" steps, something has
+to say "Wow, there are a lot of variants!  Which one is best, if any?"</p>
+
+<p>There are several algorithms for finding the best match between multi
+variants and the passed parameters.  Parrot uses a <a
+href="http://mathworld.wolfram.com/TaxicabMetric.html">Manhattan distance</a>,
+which calculates the number of steps between the actual parameter and the
+expected parameter for each possible parameter and each possible variant.  How
+far is it to the store from my house?  It's one block north, one block east,
+one block north, eight blocks east, and one block north.  (As usual, this is a
+tiny lie, but pedagogical lies are acceptable in computer programming.)  The
+multi variant tuple with the smallest distance for the given parameter tuple is
+the best fit.</p>
+
+<p>Autoboxing isn't a problem for Parrot's calling conventions, but Parrot's
+Manhattan distance algorithm knew nothing about it until <a
+href="http://www.parrotvm.org/svn/parrot/revision?rev=32211">Parrot r32211</a>.
+As far as it cared, the distance between an I register and a PMC register
+containing an Integer was way too far ever to think about walking.  My change
+refines the algorithm to say "If the parameter is a primitive type -- integer,
+float, or string -- and if the expected argument is the corresponding PMC type,
+add one point of distance to account for the conversion, then continue looking
+at the rest of the tuple."</p>
+
+<p>For as simple as that code looks, it almost had a bug where it preferred to
+autobox primitives to meet a variant such as <code>foo :multi( Integer )</code>
+even when a variant <code>foo :multi( int )</code> existed.  This depended on
+the order of evaluation of compilation.  I had forgotten to increase the
+distance of this parameter to account for autoboxing.  Any variant which
+accepts the primitive as it is should take priority over one which requires
+autoboxing.</p>
+
+<p>As with many of these patches I've explained, writing the explanation took longer than writing the patch -- even with that bugfix.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>nice writeup</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-10-28T05:35:41</h3>
+<p>Thank you for this peek into the parrot development world.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

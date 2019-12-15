@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: On teaching testing to co-workers</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>On teaching testing to co-workers</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2007-03-23T01:01:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Josh Heumann asked me for some help teaching testing to his co-workers.  So here's another essay-in-an-email I'm just going to paste-archive.<br/><br/>
+Josh Heumann wrote:
+> > I alluded to this briefly yesterday, but I'd been meaning to write you
+> > an email on it, anyway.  I need some good advice on introducing testing
+> > in a way that will make everyone want to do it.  My immediate reaction
+> > is to start testing everything, which is a daunting task.  It would be a
+> > lot nicer if I could get people testing all at once, even if it's just
+> > the new code that comes in.<br/><br/>Well, introducing testing to an existing, large, badly designed project and a
+team of programmers who don't know how to test is pretty much the worst way to
+do it.  Trying to write the tests reveals all sorts of inadequacies and
+brittleness in the design of the system that make testing (and everything else)
+really hard and then people think testing itself is hard and not worth the
+trouble.<br/><br/>Unfortunately its also the most common way to do it.<br/><br/>
+> > Some complicating factors:
+> > - we have no test db, so creating objects and having them disappear
+> >   later is difficult, to say the least.  Someone write a purgable object
+> >   hingy that kind of mocks up transactions, but it doesn't really do it
+> >   all the way.<br/><br/>SQLite is your friend.  If you're tied to a particular database, let me
+guess... MySQL, then you can make "sandbox" databases where you load up the
+schema into a fresh database and go.  You can even have test data living in a
+static test dump.<br/><br/>The alternative is to have one test database instance populated with the
+schema and test data and have everything go in a transaction.  That's what
+our last workplace did and its not ideal.<br/><br/>Also that you say you can "kind of mock up transactions" is worrisome.  You're
+not using transactions?!  Forget the implications for testing, a database
+without transactions is... just stupid.<br/><br/>
+> > - we have a lot of code in non-module form.  *I* know how to test this,
+> >   but it's not really the easiest place to start testing if you've never
+> >   done testing before.<br/><br/>Get them into to modules.  There's a cheap trick to turn a single file program
+into a callable library:<br/><br/>    main() if $0 eq __FILE__;<br/><br/>    sub main {
+        ...code that was originally outside a subroutine...
+    }<br/><br/>If you run the file as a program it will run main() and act like a program.
+If you "require" the file it will not run main().  Then you can make
+subroutines and test them.<br/><br/>Things like Test::Output are handy since programs like to print.<br/><br/>
+> > - There are a few who like to say things like, "why test small methods?
+> >   why not just test the main methods, and if some smaller part of the
+> >   code isn't being called, it shouldn't be tested anyway?"  which is not
+> >   impossible to counter, just tiring when Skud and I are the only ones
+> >   countering it.<br/><br/>Let's say you have price_scraper() which, given a URL, scrapes interesting
+prices off the resulting web page.  It calls C<$html = get_page($url)> and
+C<@prices = find_prices($html)>.<br/><br/>price_scraper() isn't working.  Is the problem in get_page()?  Is it in
+find_prices()?  Or is it in price_scraper()?  If get_page() and find_prices()
+aren't tested you don't know.  You can't be sure if any of your dependent
+routines work right.<br/><br/>price_scraper() returns the prices as formatted HTML.  In order to test that
+you got the right prices you now have to scrape the prices out of the HTML.
+This is annoying.  Testing at a lower level means you can avoid having to wade
+through formatting and test just the functionality.  You can easily do a pile
+of intensive tests on find_prices() and then do some cursory tests in
+price_scraper() to show that the results from find_prices() are being
+displayed properly.<br/><br/>Small methods are easy to test.  Their functionality is narrow and well
+defined.  Big, user facing methods are hard to test.  They tend to do a lot of
+things and have lots of weird business rules and lots of formatting.<br/><br/>Small methods get reused.  Testing them makes them more robust and thus makes
+every place they're used more robust.<br/><br/>The desire to test small methods acts like an enzyme to break down large
+routines into smaller ones which are easier to test.  Thus improving the
+design, understandability and promoting opportunistic reuse.<br/><br/>
+> > - When there are methods, many of them are 100+ lines.  I can refactor
+> >   them no problem, but teaching people how to go about it isn't that
+> >   easy.<br/><br/>Start them on two things.<br/><br/>1) Routines are for logical structure first, reuse second.
+2) The Extract Method refactoring.<br/><br/>With just that one realization and one refactoring tool you can do a lot of good.<br/><br/>
+> > I feel that if I was left alone, I could refactor everything and test it
+> > no problem, but I'm also having to teach everyone around me at the same
+> > time.
+> > 
+> > Do you have any guiding words of wisdom, or can you at least recommend a
+> > good gauge of hammer for hitting them?<br/><br/></p>
+
+
+<hr/>
+
+
+
+<h2>Enzymatic</h2>
+<h3><a href="/user/Skud/">Skud</a> on 2007-03-23T03:31:38</h3>
+"Enzyme" is an excellent analogy.  Thanks for that.  *files it away*<br/><br/>K.
+
+
+
+<h2>Adding Testing To A Conversion</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2007-03-23T14:48:14</h3>
+It's no secret that I'm a <a href="http://search.cpan.org/src/CLACO/Handel-0.99_17/t/" title="cpan.org">fan of tests</a cpan.org> <a href="http://search.cpan.org/src/CLACO/Handel-Storage-RDBO-0.01_02/t/" title="cpan.org">and testing</a cpan.org>. Without tests, the big refactor and also the additiona RDBO layer would not be sane, workable, or stable. I drank the kool-aide long ago.<br><br>For better or worse, I'm the group lead for a conversion to<nobr> <wbr></nobr>.NET at work along with a big fat site redesign. The first thing we are doing once we have the class files laid out are writing tests. They've all heard my speech and seen the demos about testing, coverage, proactively ensuring things "work today just like they did yesterday in so much as we've described in tests".<br><br>There's no doubt that TDD/Unit testing is overwhelming at first glance. We've decided to take the incremental approach to tests.<br><br>Round 1: Just test the method/property signatures. If you expect X, but get Y and are supposed to throw and error/exception, test that. If you call method Foo and should throw an error if Bar is not set, test that. That's easy to follow without much confusion.<br><br>Round 2: Test code coverage only to see which methods/properties you havn't tested at all in the previous step. Don't obsess about the % number, just look for methods you haven't called.<br><br>Round 3: Test positive functionality. If you call Y and should get X back, write a test for it.<br><br>Round 4: When you fix a bug, write a test.<br><br>Round 5: When people are finally comfortable with it all, game on. Try to fill in the test coverage gaps.<br><br>It seems to be going well so far. I guess time will tell.
+
+
+
+<blockquote>
+
+<h2>Re:Adding Testing To A Conversion</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2007-03-23T14:53:44</h3>
+And Round 1-2 are at a point in the project where we're not writing the bulk of the code, just shelling out the structure. Rounds 3-5 are when we start actually making the classes work later.<br/><br/>I also blame Petdance for the Test Your Environment mantra. I've also started exposing people to writing test when things god wrong, outside of code problems. Something stops working on a server? Write a test to make sure it's working correctly [when it does]. Spending time inspecting a database to pinpoint some data problem? Write a test when the problem is fixed so you can monitor that it stays fixed.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

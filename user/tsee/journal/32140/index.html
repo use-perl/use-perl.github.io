@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of tsee: Evil PAR tricks, issue 0: Binary including a binary</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Evil PAR tricks, issue 0: Binary including a binary</h1>
+<h2><a href="/user/tsee/">tsee</a> on 2007-01-14T15:50:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>In my journal entry from December 22, 2006, I said I'd used a few hacks to package <i>parinstallppdgui</i> into an executable binary using PAR::Packer. I'll explore that further here:</p>
+<p><i>parinstallppdgui</i> is mostly a GUI front-end to <i>parinstallppd</i>. It doesn't use <i>PAR::Dist::InstallPPD</i> internally, but uses the system to run <i>parinstallppd</i> so if the child process bombs out, the GUI process can show a friendly warning to the user (comprised of the STDERR and STDOUT of the child process) instead of crashing. That's all very simple if you have perl on your system, of course.</p>
+<p>Now, if you want to package <i>parinstallppdgui</i> or any other Perl script that uses another Perl script into an .exe, you'll quickly find out that without a perl on the target system, these two scripts cannot share the same interpreter. The obvious "solution" is to package both of them up into an .exe separately and ship them both. This has several problems. First, you need to ship two executables instead of one. Second, the first executable won't necessarily know where to look for the second if the user doesn't put them in PATH. Adding a couple of FindBin hacks isn't great at solving this, either! Third, these two executables will have a lot in common - starting with all the core Perl modules.</p>
+<p>So I took a slightly better, yet more complicated route. The process is as follows:</p>
+<ol>
+<li>Add a <b>special case</b> to the parent's source code for execution from inside a PAR binary:
+<code>
+if (defined $ENV{PAR_TEMP}) {
+	require Config;
+	require File::Spec;
+	$ENV{PATH} .= (defined $ENV{PATH} ? $Config::Config{path_sep} : '')
+                    . File::Spec->catdir($ENV{PAR_TEMP}, 'inc');
+	$ENV{PAR_GLOBAL_TEMP} = $ENV{PAR_TEMP};
+}
+</code>
+This forces all PAR'd executables that are started by this process to use the same cache area as this process. This might be a dangerous thing to do if both binaries contain different, incompatible versions of some files. But we control everything here, so it should be okay.
+</li>
+
+<li><b>Package</b> <i>parinstallppdgui</i>, the parent script:
+<code>pp -o parinstallppdgui.exe parinstallppdgui</code> 
+</li>
+<li><b>Package</b> <i>parinstallppd</i>, the child script:
+<code>pp -o parinstallppd.exe -l expat parinstallppd</code>
+(We include the expat library.)
+</li>
+<li>Remove all files from the child script that are also available from the parent. This makes the child <b>dependent</b> on the parent. Use the <i>pare</i> utility from the PAR::Packer distribution's contrib/ directory for this:
+<code>pare -u parinstallppdgui.exe parinstallppd.exe</code>
+</li>
+<li><b>Package</b> the parent script again, but this time include the child script as an extra file into the executable:
+<code>pp -o parinstallppdgui.exe -a parinstallppd.exe -l expat parinstallppdgui</code>
+</li>
+<li><b>Ship</b> the combined binary only.</li>
+</ol>
+<p>Cheers,<br/>
+Steffen</p>
+<p>P.S.: A third and even better solution might be to package both of the scripts into the same binary and symlink or copy that binary to <i>parinstallppd.exe</i> and <i>parinstallppdgui.exe</i> and let PAR figure out what to run. This is cool if you have symlinks and sucks if you don't.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

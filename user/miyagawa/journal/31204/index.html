@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of miyagawa: Screen scraping w/ XPath and CSS Selector in Action</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Screen scraping w/ XPath and CSS Selector in Action</h1>
+<h2><a href="/user/miyagawa/">miyagawa</a> on 2006-10-03T09:56:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Here is more example code that demonstrates how to use XPath and <a href="http://use.perl.org/user/miyagawa/journal/31195">CSS Selector</a> to do screen scraping without using nasty regular expressions.<br/><br/>The task is "Access <a href="http://search.cpan.org/search?query=XML&mode=all">search.cpan.org for XML</a> and extract 1) how many modules are there and 2) link to the PODs with module names"<br/><br/>There you go:<br/><br/><pre>
+#!/usr/bin/perl
+use strict;
+use warnings;
+use utf8;
+use Encode;
+use HTML::Selector::XPath;
+use HTML::TreeBuilder::XPath;
+use WWW::Mechanize;<br/><br/>binmode STDOUT, ":utf8";<br/><br/>my $mech = WWW::Mechanize->new;
+$mech->get("http://search.cpan.org/search?query=XML&mode=all");<br/><br/>my $count = $mech->xpath(q|//div[@class='t4']/small/b[3]|);
+print "Count: ", $count->content->[0], "\n";<br/><br/>my @links = $mech->selector("p > a:first-child");
+for (@links) {
+    print "Module: ", $_->content->[0]->content->[0], "\n";
+    print "Link: ", $_->attr('href'), "\n";
+}<br/><br/>
+sub WWW::Mechanize::selector {
+    my($mech, $selector) = @_;
+    $mech->xpath(HTML::Selector::XPath->new($selector)->to_xpath);
+}<br/><br/>sub WWW::Mechanize::xpath {
+    my($mech, $xpath) = @_;<br/><br/>    my @ct = $mech->response->header('Content-Type');<br/><br/>    my $content;
+    if ($ct[0] && $ct[0] =~ /charset=([\w\-]+)/) {
+        $content = decode($1, $mech->content);
+    } else {
+        $content = decode_utf8($mech->content);
+    }<br/><br/>    my $tree = HTML::TreeBuilder::XPath->new;
+    $tree->parse($content);
+    $tree->eof;<br/><br/>    my @nodes = $tree->findnodes($xpath);
+    return wantarray ? @nodes : $nodes[0];
+}
+</pre><br/><br/>Pretty simple and maintainable, but a couple of things:<br/><br/>1) WWW::Mechanize::selector and ::xpath would be pretty useful. The code is doing the monkey pathc but sounds like it's better to create a WWW::Mechanize plugin to hook HTML::TreeBuilder(::XPath) -- <b>UPDATE</b>: it's now impemented as WWW::Mechanize::TreeBuider on CPAN<br/><br/>2) Using CSS selector from HTML::TreeBuilder::XPath would be a win even if you don't use WWW::Mechanize. Probably 2 lines of code for a new module?<br/><br/>3) Guessing charset from HTTP response header could be separated out to a separate module (HTTP::Response::GuessCharset?). This can be more robust using what we use in <a href="http://plagger.org/trac/browser/trunk/plagger/lib/Plagger/Util.pm#L50">Plagger::Util::decode_content</a>, which detects charset code even from meta tag, XML declaration and using Encode::Detect.<br/><br/>4) I hate HTML::Element's content->[0] and content_list stuff. All I want is just "content of the children as HTML (or text)" and "attributes as a hash reference" ($elem->all_external_attr does this).
+</p>
+
+
+<hr/>
+
+
+
+<h2>Excellent idea</h2>
+<h3><a href="/user/mir/">mir</a> on 2006-10-03T10:06:12</h3>
+<p>If that's possible, I would be totally happy to include CSS selectors in HTML::TreeBuilder::XPath (and actually even in XML::XPathEngine). I would love the module to auto-detect which query language is used, but I don't think that's possible, as the syntax overlap.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Excellent idea</h2>
+<h3><a href="/user/ripplesearch/">ripplesearch</a> on 2006-10-04T00:06:28</h3>
+Where does CSS::SAC fit into this discussion?<br/><br/>Thanks,<br/><br/>Christopher
+
+
+
+<blockquote>
+
+<h2>Re:Excellent idea</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2006-10-04T02:32:13</h3>
+Hm, I haven't looked at CSS::SAC. Looks like it's a SAX parser for CSS? My code does use CSS Selector as just a replacdement of XPath and the code can probably make use of CSS Selector Parser to be complete.
+
+
+
+<h2>Re:Excellent idea</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2006-10-05T06:05:07</h3>
+Uh, I used Google Code Search to find the <a href="http://www.google.com/codesearch?q=+lang:perl+Selector+XPath+show:1rHs3q_u9CM:fzhJGugZM28:kv4G2jpGPt4&amp;sa=N&amp;cd=4&amp;ct=rc&amp;cs_p=:pserver:anonymous%40perl-css.cvs.sourceforge.net:/cvsroot/perl-css+CSS-SAC&amp;cs_f=lib/CSS/SAC/Selector/ToXPath.pm#a0" title="google.com">probably duplicated work done in CSS::SAC</a google.com>, in January 2005.<br><br>Looks like CSS::SAC on CPAN is not updated for a long time (the last update is September 2004) and it's not a bad thing to have a separate, pure perl (and independent of any CPAN module) would not be a bad thing, though.
+
+
+
+<blockquote>
+
+<h2>Re:Excellent idea</h2>
+<h3><a href="/user/ripplesearch/">ripplesearch</a> on 2006-10-05T06:30:59</h3>
+Indeed, I just thought I'd point it out as I have been looking for something in perl as good as ScrAPI as I don't have the cycles to write one and haven't yet (with CSS::SAC) the closest.  However if we can build something better I am happy.<nobr> <wbr></nobr>:-)<br/><br/>Christopher
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Excellent idea</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2006-10-04T02:29:36</h3>
+That's totally possible with just a few lines of code, and yeah, auto-detecting selectors from xpath would be impossible. I'm not sure including the feature into H::TB::XPath is the right thing to do. Maybe it is.
+
+
+
+<blockquote>
+
+<h2>Re:Excellent idea</h2>
+<h3><a href="/user/mir/">mir</a> on 2006-10-04T09:05:43</h3>
+<p>I hadn't looked at this at all, but I see that your HTML::Selector::XPath is indeed most of what's needed. Nice job.</p>
+<p>I have to thing about it, but at the very least I will add something in the docs about using HTML::Selector::XPath in order to use CSS selectors on XML/HTML modules.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>amazing</h2>
+<h3><a href="/user/jmason/">jmason</a> on 2006-10-05T10:38:26</h3>
+This is very nice!  Thanks!<br><br>I've been scraping HTML for a while (since sitescooper), and XPath is definitely the right way to do it, I think.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

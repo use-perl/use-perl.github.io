@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of osfameron: Some sort benchmarks</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Some sort benchmarks</h1>
+<h2><a href="/user/osfameron/">osfameron</a> on 2005-09-05T17:17:42</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+Perl's builtin sort function allows you to pass in any function using the magic
+variables $a and $b, the reason for this is, apparently, that because sorting
+is so intensive, it was too much overhead to pass in normal arguments, and the
+magic variables made it faster.  Sadly, this hackery meant that it's also
+impossible to pass in a sorting subroutine from another package, because $a and
+$b are magically global within the declaring package only.
+</p>
+
+<p>
+perldoc perlsort advises that you can prototype a function ($$) in which case
+sort will allow you to use standard arguments e.g. <code>{ $_[0] &lt;=&gt; $_[1] }</code> rather
+than <code>{ $a &lt;=&gt; $b }</code>.  This will let you generate sort subs in external packages
+and pass them in.  Woot!  Only problem is, it's apparently much much slower.
+
+<p>
+I played around with this and created some benchmarks which sorted an 10,000
+element array of random numbers.  Comparing these two with Benchmark
+
+<pre>
+  sub sort_arg {
+    return sort _sort_arg @array;
+  }
+  sub sort_ab  {
+    return sort _sort_ab @array;
+  }
+
+  sub _sort_arg ($$) { $_[0] &lt;=&gt; $_[1] }
+  sub _sort_ab       {    $a &lt;=&gt; $b    }
+</pre>
+
+gives me:
+
+<pre>
+   sort_ab: 16 wallclock secs (15.84 usr +  0.01 sys = 15.85 CPU) @ 31545.74/s (n=500000)
+  sort_arg: 16 wallclock secs (16.11 usr +  0.00 sys = 16.11 CPU) @ 31036.62/s (n=500000)
+</pre>
+
+<p>
+Making $a and $b slightly faster, but not massively.  Of course, the benefit of
+using arguments would be to be able to pass in a sort sub.  In which case you
+can simply dispatch $a and $b to the sort sub (which means that you don't even
+need to prototype the sub <code>($$)</code>) like so:
+</p>
+<pre>
+  sub sort_arg_indirect  {
+    my $coderef = \&amp;_sort_arg;
+    return sort { $coderef-&gt;($a,$b) } @array;
+  }
+</pre>
+
+We'll just compare that with an inline sort sub:
+
+<pre>
+  sub sort_ab_inline {
+    return sort { $a &lt;=&gt; $b } @array;
+  }
+</pre>
+
+The result of which is
+
+<pre>
+     sort_ab_inline:  7 wallclock secs ( 7.96 usr +  0.01 sys =  7.97 CPU) @ 62735.26/s (n=500000)
+  sort_arg_indirect:  9 wallclock secs ( 8.14 usr +  0.01 sys =  8.15 CPU) @ 61349.69/s (n=500000)
+</pre>
+
+<p>
+Again $a and $b are faster, but the interesting thing to me is how much faster
+this inline sub style is for both than using the (actually rather bizarre)
+named sub syntax as above.  This pair is ~100% faster than the first pair.  But
+the difference between the two isn't so big.
+</p>
+<pre>
+                       Rate   sort_arg    sort_ab sort_arg_indirect sort_ab_inline
+  sort_arg          31037/s         --        -2%              -49%           -51%
+  sort_ab           31546/s         2%         --              -49%           -50%
+  sort_arg_indirect 61350/s        98%        94%                --            -2%
+  sort_ab_inline    62735/s       102%        99%                2%             --
+</pre>
+
+<p>
+(These results are for v5.8.4 built for i386-linux-thread-multi, I previously
+had similar results on Win32).
+</p>
+<p>
+If these results are sound, I'd draw the conclusion that if you're writing a
+module that would benefit from allowing callback sort subs, then there may not
+be a compelling reason to ignore sort subs working on @_ purely for historical
+speed reasons.
+</p></p>
+
+
+<hr/>
+
+
+
+<h2>Trustworthy benchmarks</h2>
+<h3><a href="/user/bart/">bart</a> on 2005-09-30T07:30:28</h3>
+Be very careful,<blockquote> <div><tt>sort {$a &lt;=&gt; $b } LIST</tt></div> </blockquote>gets recognized by the perl parser as a pattern, and gets optimized away. In other words: the block is <em>not actually used at all</em>, but simply gets replaced by a native numerical sort. As a result, the above code is about as fast as plain <tt>sort</tt> without any block, which does string comparison.<br><br>If you want to compare speed between use of $a and $b vs @_, you should pick a less simple example, one that doesn't get optimized away.<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of samtregar: .netrc and SSH</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>.netrc and SSH</h1>
+<h2><a href="/user/samtregar/">samtregar</a> on 2003-01-17T23:20:29</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I admit it, I use a <a href="http://www.die.net/doc/linux/man/man5/netrc.5.html">.netrc</a> file.  If you're not familiar with obsolete UNIX technology, a .netrc file contains machine names, usernames and passwords that programs can use to automate logins.  Traditionally ftp has supported .netrc and so does fetchmail.  From a security point of view it's pure madness since it means a breakin into one account turns into a breakin on all accounts listed in the .netrc.
+<p>
+I got started using .netrc via Emacs' <a href="http://hplbwww.hpl.hp.com/people/ange/ange-ftp/">ange-ftp mode</a>.  The ange-ftp mode allows you to edit files via FTP as though they were local.  This is all just great, except that every time I open a file with ange-ftp for the first time it prompts for a password.  I quickly got tired of that and started looking around for a solution.
+<p>
+Then it hit me that if I was bold enough to store my account passwords in a plaintext on my hard drive, then why shouldn't I get the maximum benefit from the mistake?  Why should I type my passwords on those machines at all?
+<p>
+Thus was born my .netrc patch for <a href="http://www.openssh.com/">OpenSSH</a>.  I just ported it to <a href="ftp://ftp.src.uchicago.edu/pub/OpenBSD/OpenSSH/portable/openssh-3.5p1.tar.gz">OpenSSH 3.5p1</a> and it occured to me that I might not be the only person that could benefit from it.  Just apply it with "patch -p1" inside the 3.5p1 sources, compile it and put a line like this in your ~/.ssh/config:
+<p>
+<pre>netrcfile /home/sam/.netrc</pre>
+<p>
+Now whenever you ssh to a machine in your .netrc you won't even see a login prompt.  Goodbye security and hello slack!
+<p>
+(BTW: I do realize that SSH supports some crazy public key system for automatic logins.  I must be too dumb to use it though, because I've tried to set it up a couple times with no success.)
+<p>
+-sam
+<p>
+<pre>
+diff -ru openssh-3.5p1/readconf.c openssh-3.5p1.new/readconf.c
+--- openssh-3.5p1/readconf.c	Tue Jul  9 10:06:40 2002
++++ openssh-3.5p1.new/readconf.c	Fri Jan 17 14:57:43 2003
+@@ -114,7 +114,7 @@
+ 	oDynamicForward, oPreferredAuthentications, oHostbasedAuthentication,
+ 	oHostKeyAlgorithms, oBindAddress, oSmartcardDevice,
+ 	oClearAllForwardings, oNoHostAuthenticationForLocalhost,
+-	oDeprecated
++	oDeprecated, oNetrcFile
+ } OpCodes;
+ 
+ /* Textual representations of the tokens. */
+@@ -186,6 +186,7 @@
+ 	{ "smartcarddevice", oSmartcardDevice },
+ 	{ "clearallforwardings", oClearAllForwardings },
+ 	{ "nohostauthenticationforlocalhost", oNoHostAuthenticationForLocalhost },
++        { "netrcfile", oNetrcFile },
+ 	{ NULL, oBadOption }
+ };
+ 
+@@ -448,6 +449,10 @@
+ 			*charptr = xstrdup(arg);
+ 		break;
+ 
++        case oNetrcFile:
++                charptr = &options->netrcfile;
++                goto parse_string; 
++
+ 	case oGlobalKnownHostsFile:
+ 		charptr = &options->system_hostfile;
+ 		goto parse_string;
+@@ -790,6 +795,7 @@
+ 	options->clear_forwardings = -1;
+ 	options->log_level = SYSLOG_LEVEL_NOT_SET;
+ 	options->preferred_authentications = NULL;
++        options->netrcfile = NULL;
+ 	options->bind_address = NULL;
+ 	options->smartcard_device = NULL;
+ 	options->no_host_authentication_for_localhost = - 1;
+diff -ru openssh-3.5p1/readconf.h openssh-3.5p1.new/readconf.h
+--- openssh-3.5p1/readconf.h	Sun Jun  9 16:04:03 2002
++++ openssh-3.5p1.new/readconf.h	Fri Jan 17 14:58:29 2003
+@@ -100,6 +100,10 @@
+ 	Forward remote_forwards[SSH_MAX_FORWARDS_PER_DIRECTION];
+ 	int	clear_forwardings;
+ 	int	no_host_authentication_for_localhost;
++
++        /* Netrc File */
++        char   *netrcfile;
++
+ }       Options;
+ 
+ 
+diff -ru openssh-3.5p1/sshconnect1.c openssh-3.5p1.new/sshconnect1.c
+--- openssh-3.5p1/sshconnect1.c	Tue Aug 20 14:41:16 2002
++++ openssh-3.5p1.new/sshconnect1.c	Fri Jan 17 15:00:56 2003
+@@ -918,18 +918,47 @@
+  * Tries to authenticate with plain passwd authentication.
+  */
+ static int
+-try_password_authentication(char *prompt)
++try_password_authentication(char *prompt, const char *server_user, const char *host)
+ {
+ 	int type, i;
+-	char *password;
++	char *password = NULL;
+ 
++        // try netrc if available
++        if (options.netrcfile) {
++          FILE *file;
++          char line[256];
++          char *machine, *login;
++
++          file = fopen(options.netrcfile, "r");
++          if (!file) error("Unable to open netrc file.");
++
++          // parse through file line-by-line
++          while(!feof(file)) {
++            fgets(line, 254, file);
++            if (!line) break;
++
++            // get line
++            if (sscanf(line, "machine %as login %as password %as", &machine, &login, &password)) {
++              if (!strcmp(host, machine) &&
++                  !strcmp(server_user, login)) {
++                break;
++              } else {
++                password = NULL;
++              }
++            }
++          }
++          fclose(file);
++        }
++
++ 
+ 	debug("Doing password authentication.");
+ 	if (options.cipher == SSH_CIPHER_NONE)
+ 		log("WARNING: Encryption is disabled! Password will be transmitted in clear text.");
+ 	for (i = 0; i < options.number_of_password_prompts; i++) {
+ 		if (i != 0)
+ 			error("Permission denied, please try again.");
+-		password = read_passphrase(prompt, 0);
++                if (password == NULL)
++                  password = read_passphrase(prompt, 0);
+ 		packet_start(SSH_CMSG_AUTH_PASSWORD);
+ 		ssh_put_password(password);
+ 		memset(password, 0, strlen(password));
+@@ -1263,7 +1292,7 @@
+ 
+ 		snprintf(prompt, sizeof(prompt), "%.30s@%.128s's password: ",
+ 		    server_user, host);
+-		if (try_password_authentication(prompt))
++		if (try_password_authentication(prompt, server_user, host))
+ 			goto success;
+ 	}
+ 	/* All authentication methods have failed.  Exit with an error message. */
+diff -ru openssh-3.5p1/sshconnect2.c openssh-3.5p1.new/sshconnect2.c
+--- openssh-3.5p1/sshconnect2.c	Thu Oct  3 01:45:55 2002
++++ openssh-3.5p1.new/sshconnect2.c	Fri Jan 17 15:07:49 2003
+@@ -445,7 +445,7 @@
+ {
+ 	static int attempt = 0;
+ 	char prompt[150];
+-	char *password;
++	char *password = NULL;
+ 
+ 	if (attempt++ >= options.number_of_password_prompts)
+ 		return 0;
+@@ -455,7 +455,40 @@
+ 
+ 	snprintf(prompt, sizeof(prompt), "%.30s@%.128s's password: ",
+ 	    authctxt->server_user, authctxt->host);
+-	password = read_passphrase(prompt, 0);
++
++        // try netrc if available
++        if (options.netrcfile) {
++          FILE *file;
++          char line[256];
++          char *machine, *login;
++
++          file = fopen(options.netrcfile, "r");
++          if (!file) error("Unable to open netrc file.");
++
++          // parse through file line-by-line
++          while(!feof(file)) {
++            fgets(line, 254, file);
++            if (!line) break;
++
++            // get line
++            if (sscanf(line, "machine %as login %as password %as", &machine, &login, &password)) {
++              if (!strcmp(authctxt->host, machine) &&
++                  !strcmp(authctxt->server_user, login)) {
++                break;
++              } else {
++                password = NULL;
++              }
++            }
++          }
++          fclose(file);
++        }
++
++        if (password == NULL) {
++          snprintf(prompt, sizeof(prompt), "%.30s@%.128s's password: ",
++                   authctxt->server_user, authctxt->host);
++          password = read_passphrase(prompt, 0);
++        }
++
+ 	packet_start(SSH2_MSG_USERAUTH_REQUEST);
+ 	packet_put_cstring(authctxt->server_user);
+ 	packet_put_cstring(authctxt->service);
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Good SSH Key Management Intoduction</h2>
+<h3><a href="/user/zengargoyle/">zengargoyle</a> on 2003-03-22T04:12:05</h3>
+http://www-106.ibm.com/developerworks/library/l-keyc.html<br> <br>the whole series is worth the free registration.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

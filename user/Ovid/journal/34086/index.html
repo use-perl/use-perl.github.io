@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Devel::Recreate</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Devel::Recreate</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-08-12T14:17:33</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>There are plenty of ways in Perl for the source code of a package to not match the "in memory" version of that code.  Usually this is not a problem, but when it causes bugs, it can be very frustrating to debug.  Here's one time where it caused me to waste over an hour of debugging:</p>
+
+<pre>use Test::More 'no_plan';
+
+BEGIN {
+    use_ok 'Some::Package';
+}
+# many tests
+ok foo($x), '... and foo($x) should return true';</pre>
+
+<p>What happened was that the use_ok failed, but since I forgot to put an <tt>or die</tt> modifier after it, I didn't notice that the use statement failed.  Many tests scrolled past and I couldn't figure out why my final test was failing.</p>
+
+<p>This can fail when you try to do something like this:</p>
+
+<pre>eval "use Some::Package";
+my $object = Some::Package->new;</pre>
+
+<p>If we forget to check whether or not the <tt>eval</tt> succeeded, Perl attempts to compile the code and gives up when it can't.  This can leave you with what is effectively a <em>partially</em> compiled namespace and strange bugs abound (I was getting a segfault).</p>
+
+<p>To find out if what's in memory matches what you think it should be, I'm writing <tt>Devel::Recreate</tt>:</p>
+
+<pre>use Devel::Recreate 'recreate';
+print recreate('Some::Package');</pre>
+
+<p>Due to the dynamic nature of Perl, this is very tough to do.  Also, strange bugs have been cropping up (some of which I know are fixed in 5.9).  Currently, I have it listing the variables defined and the subroutines defined.  Now I'm working on the <tt>use</tt> and <tt>require</tt> statements.  It should probably <em>always</em> be considered experimental as there are too many corner cases I don't know how to work out.  I haven't figured out how to capture code outside of subroutines. BEGIN, END, INIT and CHECK blocks don't seem to be coverable (they're not really subroutines), and I can't distinguish between fully qualified package variables and variables declared with <tt>our</tt>.</p>
+
+<p>All things considered, I'm not sure if this code will be useful or not, but it's an interesting tour of strange bits of Perl.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Perl_(begin|check|init|end)av[]</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2007-08-12T15:55:29</h3>
+Your BEGIN, CHECK, INIT, and END blocks are present in the arrays Perl_(begin|check|init|end)av[]. You will need to set some variable like Perl_savebegin or somesuch to have anything to look at in Perl_beginav[].<br><br>There might not be an array for UNITCHECK.<br><br>Manip::END lets you muck with END blocks from perl-space. There's another one which does other blocks but I forget its name.
+
+
+
+<blockquote>
+
+<h2>Re:Perl_(begin|check|init|end)av[]</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-08-13T07:45:01</h3>
+<p>Aw, crap.  My XS skills are week.  However, the code itself doesn't look too difficult.  I'll play with it.  Right now it appears to work, but the code itself isn't too useful because of the 'naked' code reference:</p> <p><blockquote> <div><tt>#!/usr/bin/perl -l<br> <br>use strict;<br>use warnings;<br> <br>use Data::Dumper;<br>use Manip::END;<br>use Sub::Information;<br> <br>{<br>&nbsp; &nbsp; package Foo;<br> <br>&nbsp; &nbsp; END { print 'end!' }<br>}<br> <br>my $ends = Manip::END-&gt;new;<br>print Dumper($ends);<br>print $ends-&gt;[0]-&gt;();<br>print inspect( $ends-&gt;[0] )-&gt;code;</tt></div> </blockquote>  <p>That produces:</p> <p><blockquote> <div><tt>$VAR1 = bless( [<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;undef<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;], 'Manip::END' );<br> <br>end!<br>1<br>Use of uninitialized value in string eq at<nobr> <wbr></nobr>/usr/local/share/perl/5.8.8/Sub/Information.pm line 246.<br>Bizarre copy of CODE in sassign at<nobr> <wbr></nobr>/usr/share/perl/5.8/Carp/Heavy.pm line 39.<br>end!</tt></div> </blockquote>  <p>(Where does that '1' come from?)</p>
+
+<p>You can't assign the code ref to anything and it's virtually useless for my needs.  If I were to somehow store this in a scalar and return an array of scalars, it sounds like it would be more useful.  I think what I really need is something like this pseudo-code:</p> <p><blockquote> <div><tt>AV *get_end_array() {<br>&nbsp; &nbsp; int i;<br>&nbsp; &nbsp; AV *end_array;<br>&nbsp; &nbsp; SV **elem;<br>&nbsp; &nbsp; SV *scalar_with_code_ref;<br> <br>&nbsp; &nbsp; if (!PL_endav) {<br>&nbsp; &nbsp; &nbsp; &nbsp; PL_endav = newAV();<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; av_extend( end_array, av_len(PL_endav) );<br>&nbsp; &nbsp; for ( i = 0; i &lt; av_len(PL_endav); i++ ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; elem = av_fetch(PL_endav, i, 0);<br> <br>&nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>// store elem in scalar_with_code_ref<br>&nbsp; &nbsp; &nbsp; &nbsp; av_store( end_array, i, scalar_with_code_ref );<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; return end_array;<br>}</tt></div> </blockquote>  <p>Unfortunately, my knowledge of perlguts is even worse than my knowledge of C.  I'm sure the above is broken (well, I know it is because of the comment)<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Perl_(begin|check|init|end)av[]</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2007-08-13T17:51:05</h3>
+<p><blockquote> <div><em>(Where does that '1' come from?)</em></div> </blockquote>
+
+<p>It's the return value of the <code>print</code> in the <code>END</code> block, isn't it?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Perl_(begin|check|init|end)av[]</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-08-13T18:06:23</h3>
+<p>D'oh!</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Naming</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-12T17:11:38</h3>
+<p>What&#8217;s next? Devel::KickBack? Devel::R&#8217;and&#8217;R?</p>
+
+<p><nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+<blockquote>
+
+<h2>Re:Naming</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-08-13T07:03:29</h3>
+<p>Next is Devel::Procreate<nobr> <wbr></nobr>:)</p>
+
+<p>For the record, I hate the Devel::Recreate namespace.  Suggestions welcome.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Hmmm...</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2007-08-13T06:00:31</h3>
+Sounds like the wrong solution.  There are lots of valid reasons that the module in memory might not match the one on disk.  For instance someone could have created new functions by assigning to a typeglob or calling eval.<p>
+
+For most cases, a module similar to Apache::Reload is right.  Put in a check for which modules have changed on disk since you loaded them, then reload them.</p><p>
+
+That doesn't help you in the case you have.  But it is easy to create a module that redefines use and require.  If you try to use or require another module after that, and the use or require exits with an exception, then before rethrowing the exception you replace all functions in that package with functions that will throw an exception explaining that use failed.  If you want to be clever, you can also look through the exports (assuming use of Exporter) and replace exported functions and variables with similarly unusable stubs.  In the situation that you describe, the failed use will then be impossible to ignore.</p><p>
+
+Or you could just take that use out of its eval.  What is the eval buying you?  Done right, a clearer error message upon failure.  But a fatal error there is still pretty easy to debug.  So just let the natural exception speak for itself!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Hmmm...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-08-13T07:02:32</h3>
+<p>The above example is only one of many.  If a module is not behaving the way I expect it to, particularly if "deep magic" is involved, than it's quite reasonable for me to want to see what's <em>actually</em> loaded in memory instead of what I <em>think</em> was loaded. Just a few areas where this would be helpful:</p>
+
+<ul>
+  <li>Auto-generated classes (such as the many auto-generated classes that ORM folks are fond of)</li>
+  <li>Method generators (Class::Delegator, Class::BuildMethods)</li>
+  <li>Moose!</li>
+  <li>Source filters (right now, debugging them is a pain in the ass)</li>
+</ul>
+
+<p>Basically, any area where code is dynamically generated means that what's loaded in memory has a good chance of not matching the developer's expectations.  When this happens and you're debugging, you <em>want</em> to see what that code looks like.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Hmmm...</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2007-08-13T08:09:58</h3>
+I misunderstood.  I thought you were proposing this module as a solution to help make sure that what was loaded is the same as the module on disk.  You're not.  What you're actually proposing doesn't have a simple solution.<p>
+
+Carry on.<nobr> <wbr></nobr>:-)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Hmmm...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-08-13T08:20:19</h3>
+<p>Yes, I'm convinced that my module could only be used as a rough debugging guide.  There are too many limitations that I cannot figure out how to get around, so it should probably only be a tool that developers can use if they read the docs carefully and <em>really</em> understand what its limitations are.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Hmmm...</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-13T08:34:32</h3>
+<p>Actually I don&#8217;t think it is a bad idea at all. You are right that this is not applicable in all cases in Perl because Perl was not designed to facilitate such usage. However, think Smalltalk, where a lot of &#8220;magic&#8221; is no problem because what you are browsing is the live in-memory representation of the program and so you see what it looks like <em>after</em> the meta-program parts have taken place.</p>
+
+<p>This is just the same thing for Perl. Of course it&#8217;s not going to work nearly as well in Perl&#8230; but it&#8217;s worth a try anyway.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

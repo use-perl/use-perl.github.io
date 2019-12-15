@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of merlyn: back to blocking IPs again</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>back to blocking IPs again</h1>
+<h2><a href="/user/merlyn/">merlyn</a> on 2004-04-24T16:21:39</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>So, having been fed up with spam and virus mail again, pushing my monthly bandwidth up and over my 30GB/month purchased limit (which is supposed to be for web, not email!), I reenabled my dynamic rolling block.
+<p>
+I block mail at various levels.  Postfix lets me block mail during the SMTP handshake for hosts that don't have an A or MX record, and for delivery to addresses that are known spamtraps within the @stonehenge.com mail domain.  Then, the mail goes to amavis, which uses SpamAssassin to block mail that looks very spammy (I have this set fairly high to avoid false positives).  Then, $user@stonehenge.com mail gets delivered to my procmailrc for sorting, and I do further checks for simple mydoom and sobig patterns, and finally I call clamscan looking for known virus payloads.  Altogether, I've got about 10 log files being written in two different formats (/var/log/maillog vs rfc822 headers).
+<p>
+But, POE to the rescue.  I set up tail watchers on all the various log files, extract the offending IPs of the hop prior to my box, and then issue simple <tt>pfctl</tt> commands to add and delete those from a block list in my OpenBSD pf firewall.  The address goes in, and 2 hours later, comes back out.
+<p>
+At the moment, I have nearly 2000 addresses in my list that have assaulted me within the last two hours, and get about 300 attempts a minute to reconnect.  Using <tt>tcpdump</tt> with openbsd's passive fingerprinting, I can see that most of the block reattempts are repeated hits from windows boxes on cable or DSL, very likely worm-infected machines that would be much better recycled than online.
+<p>
+The result is that my loadaverage has now returned to sensible values, and my total bandwidth due to mail is back down to a reasonable 5GB/month average.  Yeay!</p>
+
+
+<hr/>
+
+
+
+<h2>Bandwidth...</h2>
+<h3><a href="/user/Purdy/">Purdy</a> on 2004-04-26T17:22:38</h3>
+If your focus in on saving the bandwidth (man, that's a lotta e-mail!), then you need to do as much upfront testing as possible (before the client gets to the "data" section of their e-mail).  You may also not want to REJECT, which would double the bandwidth with bouncebacks (not sure if the original message is bounced back, too).<br> <br>I love Postfix -- they have some <a href="http://www.porcupine.org/postfix/doc/uce.html" title="porcupine.org">really great UCE</a porcupine.org> measures.  I had some problems with "A or MX record" thing (reject_unknown_client?) -- that would block things like stories that were e-mailed to our users off of a Web site (you know -- that "E-mail this Story" link), e-newsletters or from my friend's <a href="http://tennisladder.org/" title="tennisladder.org">Tennis Ladder</a tennisladder.org> site, who's hostname wasn't configured properly.  When you see those type of examples, you could hand-add them to<nobr> <wbr></nobr>/etc/hosts and then remember to cp that file into Postfix's chroot jail (/var/spool/postfix in my case).  I ended up just taking it out all together, it was so annoying.  But you prolly don't have the number or type of users I have to support.<nobr> <wbr></nobr>:)<br> <br>Peace,<br> <br>Jason
+
+
+
+<blockquote>
+
+<h2>Re:Bandwidth...</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2004-04-26T17:46:53</h3>
+For Postfix, I reject during the SMTP handshake, not bouncing it with checks later.  Amavis doesn't bounce it either... we just swallow the spam.  And I don't bounce anything from my procmail tests or clamscan tests.  The only bounces I generate are $baduser@stonehenge.com (provided they aren't a spammed-to-death address).
+
+
+
+
+
+</blockquote>
+
+
+<h2>Now available via RBL and HTTP-pull</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2004-04-27T04:06:10</h3>
+If you want an rbl feed of this list, or a URL to a private text file containing the IPs (both updated once a minute), please let me know (merlyn@stonehenge.com).
+<p>
+The caveat is that there might be false positives.  It's useful as an outright smtp block, or at a place where you can return "try again later" to an incoming SMTP connection, but not at a point where you've already accepted the mail.  You want a legit mailer to retry, but the bad guys mailers will not.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

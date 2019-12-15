@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of gnat: ApacheCon: reinvigorating</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>ApacheCon: reinvigorating</h1>
+<h2><a href="/user/gnat/">gnat</a> on 2003-11-19T07:05:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'd forgotten how much fun it is to code.  Somehow, hanging around the PHP folks, as they sit around and casually program while chatting, reawakens the dormant hacker in me. I don't know why, but the same thing happened last year.<p>
+
+So this evening, while those who had money were off seeing Zumanity (Cirque du Soleil, n3kk1d), I started hacking again.  I have about 1/3 of a POP3 server written in Perl.  I got sidetracked halfway through and started playing with Apple's AddressBook API in C.<p>
+
+What I learned is that I really like Perl.  Perl hides a lot of stuff that you really shouldn't have to think about.  Like strings, for example.  I can't believe how amazingly painful it is to just print a list of the names of people in your address book.  This is, I suspect, a byproduct of using the CoreFoundation classes for strings, but I'm forced to because that's what AddressBook does.<p>
+
+Check it out:<p>
+
+<pre>
+
+  for (i=0; i < count; i++) {
+    ABPersonRef thisPerson;
+    CFStringRef firstNameCF, lastNameCF;
+    CFDataRef   firstNameDR, lastNameDR;
+    CFIndex     firstNameLength, lastNameLength;
+
+    thisPerson = (ABPersonRef) CFArrayGetValueAtIndex(array, i);
+    firstNameCF = ABRecordCopyValue(thisPerson, kABFirstNameProperty);
+    if (firstNameCF) {
+      firstNameLength = CFStringGetLength(firstNameCF);
+      firstNameDR = CFStringCreateExternalRepresentation(NULL, firstNameCF, CFStringGetSystemEncoding(), '?');
+      printf("%.*s ",
+             (int)CFDataGetLength(firstNameDR), CFDataGetBytePtr(firstNameDR));
+      CFRelease(firstNameDR);
+      CFRelease(firstNameCF);
+    }
+
+    lastNameCF = ABRecordCopyValue(thisPerson, kABLastNameProperty);
+    if (lastNameCF) {
+      lastNameLength = CFStringGetLength(lastNameCF);
+      lastNameDR = CFStringCreateExternalRepresentation(NULL, lastNameCF, CFStringGetSystemEncoding(), '?');
+      printf("%.*s", 
+             (int)CFDataGetLength(lastNameDR), CFDataGetBytePtr(lastNameDR));
+      CFRelease(lastNameDR);
+      CFRelease(lastNameCF);
+    }
+    printf("\n");
+  }
+</pre>
+
+All that, just to do the equivalent of:
+
+<pre>
+  foreach my $thisPerson (@array) {
+    $firstName = $thisPerson->{firstName} || "";
+    $lastName = $thisPerson->{lastName} || "";
+    print "$firstName $lastName\n";
+  }
+</pre>
+
+How can anyone program in this ridiculous quagmire of strings, C strings, data references, ... ?  I seriously hope there's an easier way that I'm missing.<p>
+
+<i>--Nat</i></p>
+
+
+<hr/>
+
+
+
+<h2>Avoid the CoreFoundation</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2003-11-19T23:33:50</h3>
+Why would you <i>ever</i> code against the CF* APIs?  It's for masochists, foot-draggers, and hackers working at a low level.  For anything serious, you really should be using the ObjC frameworks.  If you're into that much pain, go buy the new Brittany album instead.
+<p>
+Here's the same code using the AddressBook framework.  Note how it's almost Perl-like in a perverse kind of way:</p><blockquote><div> <tt>#import &lt;Foundation/Foundation.h&gt;<br>#import &lt;AddressBook/AddressBook.h&gt;<br> <br>void dump_ab_people() {<br>&nbsp; &nbsp; NSArray *people = [[ABAddressBook sharedAddressBook] people];<br>&nbsp; &nbsp; NSEnumerator *iter = [people objectEnumerator];<br>&nbsp; &nbsp; ABPerson *person;<br> <br>&nbsp; &nbsp; while (person = [iter nextObject]) {<br>&nbsp; &nbsp; &nbsp; &nbsp; NSLog(@"%@ %@\n",[person valueForProperty:kABFirstNameProperty],<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;[person valueForProperty:kABLastNameProperty]);<br>&nbsp; &nbsp; }<br>}<br> <br>int main (int argc, const char * argv[]) {<br>&nbsp; &nbsp; NSAutoreleasePool * pool = [[NSAutoreleasePool alloc] init];<br> <br>&nbsp; &nbsp;<nobr> <wbr></nobr>// insert code here...<br>&nbsp; &nbsp; dump_ab_people();<br> <br>&nbsp; &nbsp; [pool release];<br>&nbsp; &nbsp; return 0;<br>}</tt> </div></blockquote>Not as easy as Perl, but not as fugly as the CF* version.  Throw this into a "Foundation Tool", add the framework, and you're good to go.
+
+
+
+<blockquote>
+
+<h2>Re:Avoid the CoreFoundation</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2003-11-20T01:15:23</h3>
+I was thinking about turning it into a Perl XS module, and I was trying to start with what I know (C) instead of taking the risk of discovering problems with XS and Objective C.<p>
+
+So the CoreFoundation is just a cunning plot to make Objective C seem attractive?  Got it.<nobr> <wbr></nobr>:-)</p><p>
+
+<i>--Nat</i></p>
+
+
+
+<blockquote>
+
+<h2>Re:Avoid the CoreFoundation</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2003-11-20T02:08:45</h3>
+No, CoreFoundation does have its uses.  IBM's SWT is a high level abstraction of a modern GUI.  It translates to CoreFoundation on the MacOSX side and the Win32 C API on the Windows side.  But apps like that are rare.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Building...</h2>
+<h3><a href="/user/jonasbn/">jonasbn</a> on 2004-01-15T10:17:40</h3>
+I was looking at your very nice example, can you guide me on getting started building?<br> <br>I have followed some guidelines from the 'OS X for Unix Geeks' and ADC documentation, but without any luck.<br> <br>I am on 10.3 and I have the developer tools installed.
+
+
+
+<blockquote>
+
+<h2>Re:Building...</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2004-01-15T13:49:27</h3>
+If you've got the developer tools installed, take a spin around<nobr> <wbr></nobr><tt>/Developer/Documentation</tt>.  Apple has lots of reference documentation and tutorials to get you started.  They really <i>want</i> to help you write Cocoa apps.  Most of the topics in the references contain overviews and introductions to get you started.
+<p>
+You may want to get a copy of one of the Cocoa programming books from O'Reilly.  I've got Simson Garfinkel's (mostly because he wrote the NeXTSTEP version, from which the O'Reilly title is derived).  I looked at the TOC for James Duncan Davidson's book, and I'd probably buy that one today if I were looking for my first book.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>pop3 server</h2>
+<h3><a href="/user/jcavanaugh/">jcavanaugh</a> on 2003-11-20T07:50:24</h3>
+Is this from the ground up, or is it leveraging any of the previous perl pop3 server attempts??<br/><br/>I hope your little coding hack takes off, frankly I would love to see a basic pop3 &amp; imap server implementation in perl.  Extending a basic framework like that to create dynamic virtual folders etc, could be wicked cool.<br/><br/>--
+John Cavanaugh
+
+
+
+<blockquote>
+
+<h2>Re:pop3 server</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2003-11-20T15:19:35</h3>
+It's from the ground up, just proving to myself that it can be done without a zillion CPAN modules.  I was excited about dynamic virtual folders, but when Casey asked me what I'd use it for, I struggled to come up with much more than "uh, turn your mail client into an RSS aggregator?".  Either I'm not thinking hard enough about what I could do with it, or I thought the idea was cooler than it actually is<nobr> <wbr></nobr>...<p>
+
+<i>--Nat</i></p>
+
+
+
+<blockquote>
+
+<h2>Re:pop3 server</h2>
+<h3><a href="/user/stas/">stas</a> on 2003-11-20T19:04:52</h3>
+Nat, why don't you write the first practical
+mod_perl 2.0 protocol module. It should be a trivial thing once you have the basic code working by itself. On my mod_perl 2.0 I keep on saying that you can now implement protocols in mod_perl, like imap, pop3, etc.  But it'd be much better if I could say. Nat implemented an imap protocol for mod_perl 2.0 in N hours, here is the URL.
+
+
+
+<h2>Re:pop3 server</h2>
+<h3><a href="/user/jimw/">jimw</a> on 2003-11-21T17:33:46</h3>
+<p>like <a href="http://develooper.com/code/qpsmtpd/" title="develooper.com">qpsmtpd</a develooper.com>, i think a pop3/imap server written in perl would simply be accessible for hacking and experimentation.</p>
+
+<p> <a href="http://cvs.trainedmonkey.com/viewcvs.cgi/mandrill/" title="trainedmonkey.com">mandrill</a trainedmonkey.com> was my start at writing something like an imap server. (not really a true server, but something meant to be run using mutt's tunnel feature.)</p>
+
+<p>but the imap spec bites. you really don't want to write an imap server.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

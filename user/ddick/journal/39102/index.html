@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ddick: UTF-8, perl and Microsoft SQL Server</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>UTF-8, perl and Microsoft SQL Server</h1>
+<h2><a href="/user/ddick/">ddick</a> on 2009-06-09T00:49:22</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Attempting to note things without going insane with frustration.  SQL Server cannot handle UTF-8.  It can however handle UCS-2 (great for windows or java programmers), but in a bizarre fashion.</p>
+<ul>
+<li>First, char, varchar and text fields do not hold UCS-2 data.  nvarchar, nchar and ntext do.<\li>
+<li>Secondly, quoting of data is somewhat different.  Instead of quoting data like so 'foo', it becomes N'foo'.</li>
+<li>Now finally, when connecting with DBD::Sybase with underlying freetds libraries, you need to define "Client Charset = UTF-8" AND use the Encode module to encode your statement as 'UTF-8' before passing it to DBI->prepare.</li>
+</ul>
+<p>Salutations to the DBD::Sybase and freetds team for their excellent work in allowing perl to talk UTF-8 (at least the UCS-2 compat portion of it) to a database that doesn't even support it.</p>
+<p>As a side note, i think that when constructing a test suite for a program that uses a database for a backend, it's essential to test the database itself for edge case conditions, such as in this case, making sure that you can fill a varchar(10) with ten three byte unicode characters AND retrieve it AND the retrieved value matches your expected result.  Cos maybe your definitions are behaving slightly differently than you thought.</p> </p>
+
+
+<hr/>
+
+
+
+<h2>Help :)</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2009-06-09T15:15:52</h3>
+<p>I've been having some difficulties with this.  In my case, I have trouble pulling data out of the database when it uses Windows special characters.  Any idea how to go the opposite direction?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Help :)</h2>
+<h3><a href="/user/ddick/">ddick</a> on 2009-06-09T23:38:32</h3>
+What sort of trouble are you having? In my case, I Encode::encode the statement before calling $dbh-&gt;prepare and when retrieving $row = $sth-&gt;fetchrow_hashref() i run Encode::decode on each field in $row.
+
+
+
+<blockquote>
+
+<h2>Re:Help :)</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2009-06-10T13:36:36</h3>
+<p>It appears to blow up for me on fetchrow_arrayref.  I'm not sure I get a chance to use Encode on what came back.  I might be able to hack into DBD::Sybase and do it in there.</p><p>I haven't had a need to do anything to the statement; everything I'm passing is straight ASCII.  The only problems I face are when I deal with records where people have inserted Windows charset members.  Then I get this message:</p><blockquote><div><p> <tt>DBD::Sybase::st fetchrow_arrayref failed: OpenClient message: LAYER = (0) ORIGIN = (0) SEVERITY = (9) NUMBER = (99)<br> <br>Server , database<br> <br>Message String: WARNING! Some character(s) could not be converted into client's character set. Unconverted bytes were changed to question marks ('?').</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Help :)</h2>
+<h3><a href="/user/ddick/">ddick</a> on 2009-06-10T18:51:52</h3>
+<p>the client charset is set in freetds.conf and defaults to ISO-8859-1 (i think) which would die if windows characters are used.  set "Client Charset" to "UTF-8" and see what happens.  also, check the TDSDUMP file.  Mine has the following lines at the start</p><blockquote><div><p> <tt>log.c:190:Starting log file for FreeTDS 0.82<br>&nbsp; &nbsp; &nbsp; &nbsp; on 2009-06-11 04:50:38 with debug flags 0x4fff.<br>iconv.c:363:iconv to convert client-side data to the "UTF-8" character set<br>iconv.c:516:tds_iconv_info_init: converting "UTF-8"-&gt;"UCS-2LE"<br>iconv.c:516:tds_iconv_info_init: converting "ISO-8859-1"-&gt;"UCS-2LE"<br>net.c:210:Connecting to 192.168.122.35 port 1433 (TDS version 8.0)<br>net.c:264:tds_open_socket: connect(2) returned "Operation now in progress"<br>net.c:303:tds_open_socket() succeeded<br>util.c:162:Changed query state from DEAD to IDLE<br>net.c:779:Sending packet</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Help :)</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2010-05-06T21:11:52</h3>
+<p>A year later, I'm still struggling with this issue.  Basically when I add client charset = UTF-8 to my freetds.conf file, I get "Out of memory!" thrown at me, with no apparent reason.</p><p>And strangely enough, my query runs just fine from the tsql freetds command-line program.</p><p>Do you happen to have any ideas?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Help :)</h2>
+<h3><a href="/user/ddick/">ddick</a> on 2010-05-06T23:25:06</h3>
+<p>First off, if you are hitting memory issues, are you trying to retrieve a text (as distinct from a<nobr> <wbr></nobr>/(?:var)?char/ field?</p><p>Secondly, can you set the TDSDUMP environment variable and post the output? checkout <a href="http://www.freetds.org/userguide/logging.htm" title="freetds.org">http://www.freetds.org/userguide/logging.htm</a freetds.org> </p>
+
+
+
+<blockquote>
+
+<h2>Re:Help :)</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2010-05-11T21:47:46</h3>
+<p>Found my answer.  It was a text field, and the default length was massively too long.  Apparently SQLServer defaults to something huge.  I could change it in freetds.conf, and that fixed the problem.</p>
+
+
+
+<h2>Re:Help :)</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2010-05-11T21:48:17</h3>
+<p>Also, TDSDUMP is really helping me<nobr> <wbr></nobr>... thanks!</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Help :)</h2>
+<h3><a href="/user/ddick/">ddick</a> on 2010-05-06T23:28:51</h3>
+<p>Even better, use the TDSDUMP variable when running against DBD::Sybase (the failure) and tsql (the success) and compare the debug logs to find the difference.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Help :)</h2>
+<h3><a href="/user/ddick/">ddick</a> on 2009-06-09T23:42:34</h3>
+<p>also, i found setting</p><p>
+<code>
+export TDSDUMP=/tmp/freetds.log
+</code>
+</p><p>to be a huge help, as you can then see what your data is encoded as it travels over the network.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

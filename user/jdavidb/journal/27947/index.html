@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jdavidb: Oracle transaction serialization</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Oracle transaction serialization</h1>
+<h2><a href="/user/jdavidb/">jdavidb</a> on 2005-12-12T16:50:29</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I studied all this in school, but it was a while ago, and I don't think I truly understood it.</p>
+
+<p>I have many programs that execute once per $TIMEPERIOD, pick up any new files in a destination that have yet to be marked as loaded, then parses and loads their contents into an Oracle database.  If anything goes wrong, I get an email.  If not, I get nothing.</p>
+
+<p>Occasionally (more frequently, nowadays), a program will take longer than $TIMEPERIOD and a situation will occur where more than one instance of the same program are executing simultaneously.  When this happens, occasionally both instances will attempt to load the same file simultaneously, and usually this means that one program terminates with an error like "ORA-00001: unique constraint (SYS_C0010331) violated."</p>
+
+<p>(I have ideas in mind for fixing it so that this will not occur.  For the moment, it's not a big deal.)</p>
+
+<p>I decided today to indulge my curiosity by doing some SQL*Plus experiments to watch Oracle handle such situations.  I started two simultaneous SQL*Plus sessions.  In one, I created a table:</p>
+
+<pre>CREATE TABLE sync
+(value1 NUMBER PRIMARY KEY);</pre>
+
+<p>Now, in session 1, I populated that with a value:</p>
+
+<pre>SQL> INSERT INTO sync
+(value1)
+VALUES
+(365);</pre>
+
+<p>Now, I have not executed a <tt>COMMIT</tt> statement.  Technically, this value has not yet entered the database.  If and when I execute <tt>COMMIT</tt>, it will go into the database along with the effects of any other actions I take between now and then.  All such actions will take place in one atomic (indivisible) step, in the order that I executed them.  The database will see to it that, technically, absolutely nothing occurs in between those.  That means that if I, say, insert the values 365 and 1024 and then <tt>COMMIT</tt>, it will not be possible for some other process to insert a 1024 in between my 365 and 1024 and thus foul things up.  Either the other process will get in first and my 365 and 1024 will fail, or the other process will come in second and it will fail because my 1024 already got there.  Thus, my 365 and 1024 will go in together, or not at all.</p>
+
+<p>On the other hand, if I execute the <tt>ROLLBACK</tt> statement instead of <tt>COMMIT</tt>, my 365 will never make it into the database.  Right now, between my <tt>INSERT</tt> and a possible <tt>COMMIT</tt> or <tt>ROLLBACK</tt>, it is as if Oracle is just "thinking about" whether or not to put my value of 365 into the SYNC table or not.  And, in fact, it is asking me if I really want to put the value in or not, and I have not responded.</p>
+
+<p>So, over in session 2, I execute the same <tt>INSERT</tt> statement, putting in exactly the same value.  Here we see an interesting effect.  SQL*Plus in session 2 appears to hang.  No prompt is returned.  What is happening is that, since Oracle is "thinking about" whether or not to insert a value of 365 into the table from process 1, it doesn't yet know if that value is going into the database or not.  Thus, it doesn't yet know how to handle the attempt to insert a value of 365 from process 2.  All it can do is wait and see if process 1 decides it really wants to insert that value or not.</p>
+
+<p>So I go back to process 1 and execute <tt>COMMIT</tt>.  My 365 is saved in the database, and almost immediately process 2 gets an exception of "ORA-00001: unique constraint (SYS_C0010331) violated" and I am returned to the prompt.  The value of 365 from process 2 cannot go into the database, because only one of each value is allowed in my SYNC table.</p>
+
+<p>On the other hand, I can again go try to <tt>INSERT</tt> identical values from both processes and, instead of executing a <tt>COMMIT</tt>, execute a <tt>ROLLBACK</tt> in process 1.  In this case, process 2's hang will be almost immediately resolved by the value going into the database successfully, and I will get my prompt back.  Of course, since process 2 has not executed a <tt>COMMIT</tt>, the <tt>INSERT</tt>ed value is still pending, and attempting to <tt>INSERT</tt> it again over in process 1 will result in a hang for process 1.</p>
+
+<p>Now let's try a more interesting variant.  I <tt>INSERT</tt>ed a value of 1189 from process 2, and a value of 1024 from process 1.  Moving back to process 2, I <tt>INSERT</tt> a value of 1024.  Of course, this hangs: process 2 is waiting on process 1 to see if the first 1024 is really going in there or not, so it can find out if process 2's value of 3 is a unique constraint violation or not.</p>
+
+<p>The question: what would happen if I try to go <tt>INSERT</tt> a value of 1189 from process 1?  It seemed to me that would result in a situation where process 2 is waiting on process 1, and process 1 is waiting on process 2 in the same way.  I assumed that both would hang, waiting for each other, until I hit control-C in one process and resolved it in some other way.  The technical term for this (for anyone following along who didn't know) is "deadlock."  When you're dealing with multiple threads of execution, either through multiple processes or through actual multi-threaded programming (which I rarely do), it's wise to think about things carefully to avoid deadlock.  (It's also wise to notice situations like mine, where I did not actually plan for multiple instances of a program to run simultaneously, can unexpectedly turn into situations that involve multiple processes running on top of each other.  Be smart and always ask, "What would happen if two people ran this program at the same time, or it otherwise somehow got run twice?"  If your immediate answer to that is, "That will never happen," you're not being very smart, and you should immediately chastize yourself and ask, "Okay, smarty: what would happen if an <i>accident</i> occurred and this program somehow got run twice at the same time."  It will happen.)</p>
+
+<p>So anyway, I tried the experiment, attempting to put processes 1 and 2 into deadlock.  It turns out that I got this interesting response from Oracle: "ORA-00060: deadlock detected while waiting for resource."  Brilliant!  Oracle is smart enough to realize I established a deadlock situation, and refuse to enter it.  That's good news, because it means that if my programs somehow did this that they will not run "forever" (otherwise known as "until system shutdown") but that one will be stopped by this exception.</p>
+
+<p>Now my interest is piqued and I'd like to try an experiment with many more than two processes to see if I can establish a more complicated deadlock scenario that Oracle cannot detect.  But I'm guessing that the Oracle programmers are smarter than me and anything I can come up with.  Also, I'm sure that that will Never Happen.</p></p>
+
+
+<hr/>
+
+
+
+<h2>another approach</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2005-12-12T17:54:06</h3>
+...whenever I use the filesystem as a message queue, the first step of my process is always 'copy the file to a working directory, then delete the original' to prevent two instances from gobbling up the same file.
+
+
+
+<blockquote>
+
+<h2>Re:another approach</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2005-12-12T20:50:26</h3>
+Surely that should be "move" rather than "copy", because move is atomic?
+
+<p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:another approach</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2005-12-12T22:58:54</h3>
+Yep, you understood what I meant.
+
+
+
+<blockquote>
+
+<h2>Re:another approach</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2005-12-13T01:03:46</h3>
+You also have to make sure that each process uses a different working directory, generally thatwould be one that includes the process ID as part of the name.
+
+
+
+<blockquote>
+
+<h2>Re:another approach</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2005-12-13T01:12:17</h3>
+Not really -- since you're ensuring that only one process has access to the file you shouldn't need separate working directories. Additionally, you can either ensure the original filename is unique across time or move the file to a unique name. (What 'unique' means depends on your process -- if you know you're only running a process every five minutes then using time() or pid + time() as a filename should be ok.)
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:another approach</h2>
+<h3><a href="/user/malte/">malte</a> on 2005-12-13T06:47:00</h3>
+<p>So what do you do if the process, for some reason, is unable to finish it's work. There is no simple way to start working on the fil again.</p>
+
+<p>We usually use file-locking on per-job lock files to ensure that there are no simultaneous runs of the same job.</p>
+
+
+
+<blockquote>
+
+<h2>Re:another approach</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2005-12-13T07:30:24</h3>
+I hope you don't use NFS anywhere near these lock files.<nobr> <wbr></nobr>:-)
+
+<p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:another approach</h2>
+<h3><a href="/user/malte/">malte</a> on 2005-12-13T18:10:58</h3>
+Thats right. Our application tries to make sure only one of the app servers feels obliged to run the cron jobs at any given time<nobr> <wbr></nobr>:)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

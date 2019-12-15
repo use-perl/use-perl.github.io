@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjohn: XML::Parser::ExpatNB example</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>XML::Parser::ExpatNB example</h1>
+<h2><a href="/user/jjohn/">jjohn</a> on 2002-03-29T03:20:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Let's all say it together: XML::Parser Sucks! There, that was cleansing.
+
+<p>After a much prodding of my XML buddies (hi jmac!) and an evil notion of using goto (thankfully Perl doesn't let you jump into the middle of a function), I came across a seemingly little used XML::Parser function <code>parse_start</code> which returns a new XML::Parser::ExpatNB object (with oh so little documentation) that does EXACTLY WHAT I NEED! I need a parser that parses a stream in increments.
+Consider how useful this is for dealing with XML messages coming across the network that might f'ing HUGE! This parsing method will at least give me an opportunity to chunk the data into smaller bits (save for the pathological 45TB between a single &lt;tag> [even then, there may be options]). Anyway, this is a BEAUTIFUL, LOVERLY THING!!!!
+
+<p>So, here's a very goofy example of how to work with this bod boy. I'll be looking to shove this into Frontier::RPC2 in a most Eee-VEIL way. ;-)
+
+<pre>
+use strict;
+use warnings;
+use XML::Parser;
+
+my $p = XML::Parser->new(
+			 Style => 'My::Pkg',
+			);
+
+print "Reading from __DATA__\n";
+my $data; # A place for my text data
+
+# Don't be fooled: it's an object constructor
+my $nb_p = $p->parse_start(data => \$data);
+	
+while(my $l = <DATA>){
+  chomp($l);
+  $nb_p->parse_more($l);
+  if(my $s = ${$nb_p->{data}}){
+    print "Back at the range, I got $s\n";
+  }
+}
+$nb_p->parse_done; # shut this mother down
+
+package My::Pkg;
+
+sub Init {
+  my($expat) = @_;
+
+  print "Hello!\n";
+}
+
+sub Start {
+  my($expat, $tag, %attrs) = @_;
+  ${$expat->{data}} = undef;
+  print "Start: $tag\n";
+}
+
+sub Char {
+  my($expat, $text) = @_;
+  ${$expat->{data}} = undef;
+  return if $text =~ /^\s*$/;
+
+  $expat->{char_bag} = $text;
+}
+
+sub End {
+  my($expat, $tag) = @_;
+  print "End: $tag\n";
+  ${$expat->{data}} = $expat->{char_bag};
+
+  # clean up
+  $expat->{char_bag} = '';
+  return;
+}
+
+
+__END__
+<?xml version="1.0" ?>
+<a>
+  <b>
+    <c>
+         <d>fiddlesticks</d>
+    </c>
+  </b>
+</a>
+
+</pre>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Would it dehave somewhat like this?</h2>
+<h3><a href="/user/mirod/">mirod</a> on 2002-03-31T12:09:30</h3>
+Oh, and I did I mention I hate XML::Parser too? Especially the fact that it comes in 2 incompatible versions? <br> <br>Sorry for the formating, the lameness filter sucks!<br> <br>#!/usr/bin/perl -w<br>use strict;<br>use XML::Twig;<br> <br>my $p = XML::Twig-&gt;new(<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; twig_handlers =&gt; <br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; { a =&gt; sub { my( $p, $a)= @_;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print "I got ", $a-&gt;text, "\n";<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $p-&gt;purge; # frees-up memory<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }},);<br> <br>print "Reading from __DATA__\n";<br>$p-&gt;parse( \*DATA);<br>__END__<br> <br> <br>
+&nbsp; &nbsp; <b> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; <br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; fiddlesticks<br>
+&nbsp; &nbsp; &nbsp; &nbsp; <br>
+&nbsp; &nbsp; </b> <br>
+
+
+
+<blockquote>
+
+<h2>Re:Would it dehave somewhat like this?</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-04-15T16:17:42</h3>
+Use the ECODE tag, it does better with code and formatting.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

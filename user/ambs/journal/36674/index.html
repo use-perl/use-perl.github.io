@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ambs: Storing word-grams</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Storing word-grams</h1>
+<h2><a href="/user/ambs/">ambs</a> on 2008-06-12T16:57:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I am in the way of storing word-grams for big texts (read big = more than 3GB text files). I want 2-word, 3-word and 4-word tuples, and respective occurrence count.</p>
+<p>When processing these texts (on a cluster) I do not have access to any RDBM system. Well, I have SQLite, Berkeley DB, GDBM and probably other similars that I am forgeting about.</p>
+<p>As you might guess, the main problem with this is populating the database. For each word on the corpus I need to check if it (together with the neighbourhood) exists or not in the database. If it does, I increment the counter. If not, I add a new entry.</p>
+<p>Given that I am working on a Cluster I can easily split the job in different chunks, so that each node process a different part of the text. At the end I just need to glue the final databases.</p>
+<p>In my experiences SQLite seems to be faster tool for this task. But I may be wrong. </p>
+<p>So, what would you use for that?</p>
+<p>(I know that for questions PerlMonks might be better, but I just think that site is completly unusable :( )</p></p>
+
+
+<hr/>
+
+
+
+<h2>Here are some possibilities for you</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-06-13T01:20:54</h3>
+How big do you expect the final corpus to be?  If it will be able to fit in memory, it is honestly fastest to just implement an internal hash, build that, and dump it.  If it won't fit in memory with Perl using it, then an in memory database (SQLite can do this) is your best bet.<br><br>If it is much bigger than will fit in memory, though, then you should go for a radically different approach.  What you should try to do is do a mergesort on disk.  Odds are you won't even need to write this yourself - create a dataset where each line is a tuple.  Then run the Unix utility sort on it, then postprocess that dataset in memory.  See how fast it is.  Odds are with your dataset that this approach will be fast enough on a single PC for the work you are doing.<br><br>If you need to write it yourself, you can beat sort, but only by cheating and taking heavy use of the fact that whenever 2 entries match you can merge them and add the counts.  This will reduce your dataset size considerably.  I've done it, and even been smart about when I had to write to disk and when I didn't.  I wouldn't recommend going that way unless you have to.<br><br>If you need it to wind up in a database which supports quick lookups, then you can create a btree with BerkeleyDB and put it in there after you have the sorted dataset.  The rule here is that putting sorted data into a btree is fast.  Putting unsorted data in is slow, and a hash backed by disk is slow.<br><br>If you want to dig deeper and understand why, you need to consider a hypothetical drive that goes at 5000 RPM which supports a sustained throughput of, say, 20 MB per second.  For a random seek to disk the drive, on average, has to spin half-way round.  It is spinning 5000 times per minute so it will do about 10,000 seeks per minute.  With a naive algorithm you try to fetch each record, then you update it and try to insert each record.  So that's about 5000 records per second that you're processing.<br><br>Suppose your records (which in your case are 2-4 words long) average, say, 40 bytes.  The disk can pass over 20 MB/s * 60 s = 1200 MB of data in a minute.  That's 30 million records.  Admittedly merge sorts need multiple passes to finish sorting.  To make the numbers work out, let's say that multiple in this case is 30 (that's 15 reading passes, and 15 writing passes.  Which with datasets of this size probably means a poorly implemented merge sort).  Using merge sort meant you handle a million records a minute versus 5000.<br><br>The moral?  Once data lives on disk, you do <b>not</b> want to randomly seek to it.  You really, really, really do not want to do that.
+
+
+
+<h2>another approach</h2>
+<h3><a href="/user/salva/">salva</a> on 2008-06-13T09:38:58</h3>
+<p>1) create a dictionary for the words in the file assigning an integer to every different word
+
+</p><p>2) map the text file into an array (@word) where every word is replaced by its index.
+
+</p><p>3) create another array (@offset) containing 0..$#words
+
+</p><p>4) sort @offset as follows:
+<br>
+@offset = sort {<br>
+          for (my $i = 0;;$i++) {<br>
+            return -1 if $a + $i &gt;= @word;<br>
+            return 1 if $b + $i &gt;= @word;<br>
+            return ($word[$a+$i]  $word[$b+$i] or next)<br>
+          } } @offset;<br>
+</p><p>5) now the offsets into @word contained inside @offset are sorted so that similar sequences appear consecutively. You only have to scan @offset and count the consecutive word repetitions
+
+</p><p>For instance:
+
+</p><p>1)<nobr> <wbr></nobr>...
+</p><p>2) @words = (a b b c d a b c)<br>
+</p><p>3) @offset = (0 1 2 3 4 5 6 7)<br>
+</p><p>4) @offset = (<br>
+0 # =&gt; a b b c d a b c<br>
+5 # =&gt; a b c<br>
+1 # =&gt; b b c d a b c<br>
+6 # =&gt; b c<br>
+2 # =&gt; b c d a b c<br>
+7 # =&gt; c<br>
+3 # =&gt; c d a b c<br>
+4 # =&gt; d a b c<br>
+)<br>
+
+</p><p>5)<br>
+a b b c d a b c<br>
+a b c<br>
+=&gt; a b = 2<br>
+b b c d a b c<br>
+=&gt; b b = 1<br>
+b c<br>
+b c d a b c<br>
+=&gt; b c = 2<br>
+c<br>
+=&gt; c   = 1<br>
+c d a b c<br>
+=&gt; c d = 1<br>
+d a b c<br>
+=&gt; d a = 1<br></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

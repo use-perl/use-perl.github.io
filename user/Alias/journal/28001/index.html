@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Day 1473: PPI now line-noise compatible and going into pugs!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Day 1473: PPI now line-noise compatible and going into pugs!</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2005-12-15T05:17:28</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a href="http://search.cpan.org/perldoc?PPI">PPI</a> was always intended to parse into a document object anything that <b>looked like</b> Perl.<br/><br/>But in the theoretical universe of all possible Perl programs there are a great many things that don't look like Perl at all, such as s&lt;foo&gt;'bar';<br/><br/>If this is a replace regex, you can't have unbalanced seperators for the second half, and you have to have both halves before any more tokens like a single quote...<br/><br/>So I was never very confident about being able to parse absolutely everything, just those that looked like Perl.<br/><br/>As it turns out, and as the other language communities have been telling us for years, Perl can look an awful lot like line-noise.<br/><br/>One of the main things that came out of my hosting Audrey (formerly Autrijus) Tang at my place for 3 days was that she wants to use PPI to parse Perl 5 into a "well formed" tree, and then convert that PDOM tree to PIL, and from there to allow execution of the Perl 5 code directly on the Perl 6 infrastructure, without having to bundle the Perl 5 interpreter.<br/><br/>This is quite a good deal harsher than anything I'd planned for PPI, and so we added the 20_tokenizer_regression.t and 21_exhaustive.t test scripts. Now I can run PPI against hundreds of thousands of completely random line noise strings.<br/><br/>Because Perl can already look like line noise, it turns out it was much easier than I ever expected to make PPI handle <b>actual</b> line noise! Only about 30 hours of coding to purge the dozen or so problems, mostly relating to broken regexs and bad (<b><i>DIE DIE DIE!!!</i></b>) here-docs.<br/><br/>Here's a quick look at the output of 21_exhaustive.t.
+<code>
+ok 1303 - String parses ok "&lt;f\$t=Vf[?X/y\t\\`\"\@t?/9+w_1,:}\ts~~\\{\n 8W({`1:=-+'&wx_|%W+x,wW\@c\#\\]%~_&lt;!}^0q!s?&lt;9`9WX\$'|bX.q:m}!*;;q1c8_V-\"1'_f c/?\n]&lt;=![\tq'}&lt;WV9\\X\"y\"w x\nx!%0[>}f\#[%~ Vr:1{/10,)\\|:%:=yX^g%-'\tqr`&g,X)t*\$1-]\#\tmg"
+ok 1304 - %PARENT is clean after destruction
+</code><br/><br/>Even though it might parse some of the line-noise wrong, it now at least can turn it into a tree and round-trip it ok. The crash rate has fallen to 1 per 200,000 120-character documents, and now the corner cases are so obscure I don't think you could hit them unless you were actually trying.<br/><br/>It also follows the parsing rules Audrey explained to me, which is that even if it is illegal, it should make it past the tokenizer OK, and the parser should only die at the lexing (deriving meaning) stage.<br/><br/>So as of 1.107 PPI is ready for full-blown use both in Perl editors and in pugs as some form of a front-end to PIL. Which brings up the internesting concept of parsing into PIL and back out to Perl 5 again, to "normalise" (in code terms, not document terms) and optimise your Perl 5 code. eep!<br/><br/>Which just goes to show (<a href="http://use.perl.org/user/Alias/journal/27078">again</a>) that most of the time it's the ways you <b>don't</b> expect your code to be used that often turn out to be the most significant and why it's important to have your APIs clean and neutral before you start releasing.<br/><br/>1473 days ago when I started what would become PPI I certainly never imagined real-time in-editor parsing and running Perl 5 code inside alternative virtual machines. I just wanted a way to morph already-valid Perl 5 inside a code-generation pipeline.<br/><br/>In other news, while in the process of chasing down the parser bugs I though I might as well also try to track down my personal bug-bear in the code, that is holding back CPAN::Metrics and thus sexy new CPAN-analysis things. Namely, PPI leaks somewhere... and it adds up to quite a bit when you are parsing 100,000 documents at a time. Until now I had suspected leaked circulars not being cleaned up in the %PPI::Element::PARENT hash that maintains child-parent weakrefs, but only when a document parsing crashed.<br/><br/>The testing for these problems are the "ok 1304 - %PARENT is clean after destruction" bit in the testing output.<br/><br/>But after having the PPI parser crash several thousand times now during the exhaustive testing process, I haven't seen a single leaked circular reference.<br/><br/>So my suspicion has shifted to an as-yet-undiscovered leak in one of the XS-based support libraries I use, <a href="http://search.cpan.org/perldoc?Scalar::Util">Scalar::Util</a>, <a href="http://search.cpan.org/perldoc?List::Util">List::Util</a>, <a href="http://search.cpan.org/perldoc?List::MoreUtils">List::MoreUtil</a>, or possibly a leak in a closure (of which I have 1 total).<br/><br/>Since they already found leaks in List::Util::first and the MoreUtils functions that copied it, I find it a lot more likely.<br/><br/>It seems to amount to a leak of 1.1k per document, although I don't have any hard numbers yet on whether this varies according to the size of the documents.<br/><br/>Are there any hardcore leak-ninjas out there? I'm out of my depth now and could use some help finding this bastard. If anyone wants to try, go into the t/21_exhaustive.t in the PPI tarball, change $ITERATIONS = 1000; to 1000000 and then run the test and watch what happens...<br/><br/>I'm getting so frustrated, I'm now tempted to throw up another vertical-metre-of-beer award if it hangs around for any further releases...<br/><br/><i><b>Update:</b> It would appear it isn't PPI leaking after all! If I run the processing but disable the actual tests memory isn't leaking.<br/><br/>So rather than PPI, I blame the testing infrastructure. Something is leaking somewhere in <a href="http://search.cpan.org/perldoc?Test::More">Test::More</a>, <a href="http://search.cpan.org/perldoc?Test::Builder">Test::Builder</a> or <a href="http://search.cpan.org/perldoc?Test::Harness">Test::Harness</a>...
+</i></p>
+
+
+<hr/>
+
+
+
+<h2>EPIC Developers say PPI is too slow for an editor</h2>
+<h3><a href="/user/clscott/">clscott</a> on 2005-12-15T17:59:15</h3>
+EPIC Developers say PPI is too slow for an editor to use.<br><br><a href="http://sourceforge.net/forum/forum.php?thread_id=1386755&amp;forum_id=258687" title="sourceforge.net">http://sourceforge.net/forum/forum.php?thread_id=1386755&amp;forum_id=258687</a sourceforge.net>
+
+
+
+<blockquote>
+
+<h2>Re:EPIC Developers say PPI is too slow for an edit</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2005-12-16T01:11:50</h3>
+Nope, he says it's too slow to do syntax highlighting in real-time with.<br><br>And he'd be right. I've said that from the start, although there are some potential techniques for windowing that might help.<br><br>PPI would be used in background mode. Parsing and analyzing in a background process and feeding event and feedback objects back into the editor.<br><br>The speed problem won't go away until PPI gets 4 times faster than it is now. But the "can accept any old shit" problem is solved now.<br><br>Which means we are go for background use in an editor.<br><br>Adam K
+
+
+
+
+
+</blockquote>
+
+
+<h2>Not a leak, a feature of Test::Builder ;-)</h2>
+<h3><a href="/user/oneiron/">oneiron</a> on 2005-12-16T15:25:25</h3>
+<p>
+I don't believe there's a serious leak anywhere in your 21_exhaustive.t (with or without Test::More), at least that's what valgrind tells me.
+</p>
+
+<p>
+I suspect the primary cause of the memory growth you're seeing is a feature (not a leak) of Test::Builder. If you peek at the implementation of Test-&gt;ok() in Builder.pm, you'll see it stores information about each test executed, so that it can do its reporting at the end. Storing this information seems to consume around 500 bytes per test.
+</p>
+
+<p>
+I stumbled across a <a href="http://www.perlmonks.org/?node_id=385572" title="perlmonks.org">similar problem</a perlmonks.org> a while back.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

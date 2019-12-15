@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: Abuse of state machines</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Abuse of state machines</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2003-10-10T01:18:01</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a href="http://www.cincomsmalltalk.com/userblogs/avi/blogView">Avi Bryant</a> is big on using <a href="http://www.cincomsmalltalk.com/userblogs/avi/blogView?searchCategory=continuations">continuations</a> for implementing web applications.  (He's working on a <a href="http://beta4.com/seaside2">framework</a> to do this with Squeak.)
+<p>
+Avi <a href="http://www.cincomsmalltalk.com/userblogs/avi/blogView?showComments=true&entry=3243120610">postulated</a> the other day that a well designed app using continuations is <i>much</i> easier than imperative programming.  Today, an enterprising PHP programmmer <a href="http://www.cincomsmalltalk.com/userblogs/avi/blogView?showComments=true&entry=3243178657">tried to disprove</a> Avi's postulate by using a simple state machine:
+<pre>
+$amount = $_REQUEST['amount'];
+$rate = $_REQUEST['rate'];
+
+if( $amount != "" && $rate !=""){
+    if(! $amount > 0){
+        $t->assign("message", "Amount must be greater than zero");
+        $t->display("interestForm.html");
+    }else if(! $rate > 0){
+        $t->assign("message", "Rate must be greater than zero");
+        $t->display("interestForm.html");
+    }else{
+        $result = $amount * rate;
+        $t->assign("result", $result);
+        $t->display("interestResult.html");
+    }
+}else{
+    $t->display("interestForm.html")
+}
+</pre>
+To which Avi responded:
+<blockquote><i>
+With all due respect: this is spaghetti code, and in any context but web development you wouldn't stand for it either.  
+</i></blockquote>
+Yep.  How many overly complex if/elsif/else cascades are in production code today?  And what's a better (er, less complex)  way to write this kind of simple code?</p>
+
+
+<hr/>
+
+
+
+<h2>AxKit, Cocoon</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-10-10T08:02:02</h3>
+AxKit has a nice forms library called PerForm that works a bit like ASP.NET forms - where you can assign callbacks for each widget. The flow between pages is controlled on a page by page basis (which admittedly isn't as clean as a continuations style system).<br> <br>Cocoon has a nice sub-language called the "flow", which is continuations based. It's an implementation of Avi's original ideas using Javascript as the underlying language, which is probably the best possible language to choose (given that Perl doesn't do continuations, of course).
+
+
+
+<h2>I can see where he's coming from though</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2003-10-19T22:24:41</h3>
+As the constraints associated with a form increase, that set of if/else statements is going to get out of hand, and you're going to have to write custom form handlers for each form on the site. Far better to be able to write, say:<br> <code> <br>sub Form::handle_request {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my($self, $request) = @_;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; $self-&gt;validate_request;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return $self-&gt;generate_response;<br>}<br>sub Form::validate_request {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my($self, $request) = @_;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; $constraint-&gt;validate_request($request);<br>}<br>sub Form::generate_response {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; throw Exception::SubclassResponsibility;<br>}<br> </code> <br>Now, because your constraints are responding to a simple interface, you can develop various different types of more or less useful contraint types. The beauty of Avi's continuation based system is that resolving those constraints can simply look like function calls from the calling context but which <em>could</em> look like an n step wizard to the user (and changing what it looks like doesn't require any changes in *any* calling contexts that use the same wizard).<br> <br>Note that I'm expecting 'handle_request' to be wrapped in a <blockquote><div> <tt>$response = eval {...} || $@; $response-&gt;display</tt> </div></blockquote> type handler. (Admittedly, relying on everything to throw an exception that has a display method is possibly a little courageous...)<br> <br>I don't claim that this is simpler for the subcase presented, but I do claim that, as a site grows, moving towards a design where behaviour can be pushed out to metadata is a good thing.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

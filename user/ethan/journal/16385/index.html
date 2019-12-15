@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: magical insanity</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>magical insanity</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2003-12-17T09:02:11</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>The recent discussions on the porters-list about tieing in general and in particular some mumblings about its deficiencies made me play around a little with it. In essence, some people regretted that tied variables weren't implemented on top of a full virtual table. The virtual table is a C-structure holding pointers to C functions. When a variable is tied, eventually two different virtual tables are involved. The one of <code>PERL_MAGIC_tied</code> refers to two functions, whereas <code>PERL_MAGIC_tiedelem</code> refers to three other functions.<br/><br/>When you have a tied hash and do a <code>print $hash{key}</code> unexpected things happen. Perl creates a dummy scalar variable and flags it as <code>PERL_MAGIC_tiedelem</code> and puts the virtual table <code>PL_vtbl_packelem</code> into it. After that, perl would do a copy of this element (which happens in <code>sv_mortalcopy</code> which triggers (eventually) <code>sv_setsv_flags</code>. It's at this point that perl figures out that the dummy scalar has magic attached to it and triggers <code>mg_get</code>. So perl does it sort of backwards: when you would expect <code>FETCH</code> to be triggered (namely when the lookup of the key happens in the hash) it returns a magic scalar variable. The lookup happens when this scalar is copied. <br/><br/>The problem with this approach is that perl needs to stuff an incredible amount of information into the dummy scalar, because the <code>FETCH</code> method is invoked on the object backing up the tied hash. So this object needs to be stored in the dummy as well plus the key to be looked up.<br/><br/>It gets even more insance when you do a <code>$hash{key} = "val"</code>. The same sort of deferred lookup happens here, only this time followed by storing <code>"val"</code>. Now you need even more information: the dummy needs the object, the key and the value. This is all crammed into one dummy scalar. This scalar of course still has the virtual table so it's a really huge scalar.<br/><br/>All the above is just a tiny picture of the real problems. Many of the methods of tied variables aren't even looked up in a virtual table, such as <code>SPLICE</code> and many more. In this case, the OP checks whether the variable is magic and then triggers the respective method from the tieing class. There is no virtual table involved here. In short, the whole thing is a mess.<br/><br/>Initially I thought it would be rather easy to make a proper virtual table with maybe 15 or even more pointers to functions so that every tieing method could be looked up in this table. The above should make clear this that this is not so easy. So far I managed to make <code>EXISTS</code>, <code>FETCH</code> and <code>STORE</code> work for hashes. My impression however is that it doesn't address the problem of this odd dummy variable that is packed with information. A normal <code>STORE</code> operation has all its required information (<code>($self, $key, $val)</code>) still packed in one scalar, which looks quite impressive when dumping it. The below shows the innards when doing <code>$hash{test} = "bla"</code>:<br/><br/><pre><code>
+SV = PVLV(0x8176030) at 0x817834c
+  REFCNT = 1
+  FLAGS = (TEMP,POK,pPOK)
+  IV = 0
+  NV = 0
+  PV = 0x81763f8 "bla"\0
+  CUR = 3
+  LEN = 4
+  MAGIC = 0x8175fd0
+    MG_VIRTUAL = 0x81629e0
+    MG_TYPE = PERL_MAGIC_tied(P)
+    MG_FLAGS = 0x02
+      REFCOUNTED
+    MG_OBJ = 0x816615c
+        SV = RV(0x8175934) at 0x816615c
+          REFCNT = 2
+          FLAGS = (ROK)
+          RV = 0x8166120
+    MG_LEN = -2
+    MG_PTR = 0x8178358 =&gt; HEf_SVKEY
+        SV = PVIV(0x8166760) at 0x8178358
+          REFCNT = 2
+          FLAGS = (POK,pPOK)
+          IV = 0
+          PV = 0x8175fc0 "test"\0
+          CUR = 4
+          LEN = 5
+  TYPE = T
+  TARGOFF = 0
+  TARGLEN = 0
+  TARG = 0x8173838
+</code></pre><br/><br/><code>MG_OBJ = 0x816615c</code> becomes <code>$self</code>, <code>MG_PTR = 0x8178358 =&gt; HEf_SVKEY</code> becomes <code>$key</code> and the whole thing is <code>$val</code> when invoking <code>STORE</code>. The above also shows that I no longer distinguish between <code>PERL_MAGIC_tied</code> and <code>PERL_MAGIC_tiedelem</code>. Current perl would show <code>MG_TYPE = PERL_MAGIC_tiedelem(p)</code> in a dump like the above. I had to change it because the virtual table of a tied element is too small.<br/><br/>Sorry that this day's journal was sort of technical. I am really just storing the things I found out during the past three days for later look-up. Christmas is coming closer and I wont be sitting before a computer for about two weeks. Hence there is a realistic danger that I'll have forgotten all my discoveries after that.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Virtual insanity</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2003-12-17T10:18:39</h3>
+Duh. And I thought this was a post about Jamiroquai.
+<p>Hey, want to take over the p5p summaries ? *ducks*</p>
+
+
+
+<blockquote>
+
+<h2>Re:Virtual insanity</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2003-12-17T11:39:56</h3>
+<i>Duh. And I thought this was a post about Jamiroquai.</i> <br> <br>Sorry for being misleading. I just realized that "virtual insanity" would have been an equally fitting subject.<br> <br> <i>Hey, want to take over the p5p summaries ? *ducks*</i> <br> <br>No chance. You need to be a spindoctor to write those summaries. But I only understand a tenth of all the discussion on p5p. And half of this tenth I get wrong.<br> <br>You're doing a far too good job on the summaries, Rafael, so I wont raise my hands.<nobr> <wbr></nobr>:-)
+
+
+
+<blockquote>
+
+<h2>Re:Virtual insanity</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2003-12-17T13:10:10</h3>
+I just have to point out that when I began the summaries I wasn't understanding much discussion on P5P either. Writing summaries was a great way to learn. But learning is time-consuming<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Virtual insanity</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2003-12-17T15:24:33</h3>
+I guess it must be very time-consuming. I often catch myself in the act of skipping one or the other thread because I either find it less intriguing or incomprehensible right from the start. I suspect skipping whole threads isn't affordable once you are responsible for the weekly summaries.<br> <br>On the other hand you could probably talk me into this although I am aware of how much I'll regret it later.<nobr> <wbr></nobr>:-] Remind me again a week after new year's eve when I'll have returned from my parents. Meanwhile, I'll try to follow the traffic more thoroughly.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

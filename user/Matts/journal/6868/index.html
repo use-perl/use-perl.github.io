@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Matts: Combining libs on OSX</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Combining libs on OSX</h1>
+<h2><a href="/user/Matts/">Matts</a> on 2002-08-02T16:43:11</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>In XML::LibXML and XML::LibXSLT we share memory allocation code by simply copying the perl-mm.c files between the two projects (yes this is naive, but it works). This works fine on all OSes except Mac OSX, apparently, where it complains about multiple definitions.<br/><br/>So I tried making the memory allocation code external (this'll work no problem I thought to myself!). But it doesn't like that either because it can't find the code now. Gah!<br/><br/>So has anyone got any idea how I might fix this?</p>
+
+
+<hr/>
+
+
+
+<h2>That sounds like what I ran into yesterday</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-08-02T17:02:08</h3>
+For the Mac:: stuff, I defined the same function names and variables in multiple shared libraries, and dyld complained mightily.  I put the functions in a single XS file, and access them from the others.  So, for example, Foo.xs defines Foo(), and Bar.xs calls Foo() freely, and I put use Foo; at the top of Bar.pm, Baz.pm, etc.  And, of course, Bar.xs has to include "../Foo/Foo.h" to get the definition<nobr> <wbr></nobr>...<br> <br>Does that sound like what you were running into?  And does my approach seem Wrong?  I don't do a lot of C or XS<nobr> <wbr></nobr>... I just look for something that works, and this seems to.<br>
+
+
+
+<blockquote>
+
+<h2>Re:That sounds like what I ran into yesterday</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-08-02T19:25:07</h3>
+That sounds like it might work. I'll give it a try.
+
+
+
+<h2>Re:That sounds like what I ran into yesterday</h2>
+<h3><a href="/user/sky/">sky</a> on 2002-08-02T22:33:43</h3>
+Not really wrong, however if you are porting alot of code that might not be possible, a good trick then is to disable -flat-namespace
+
+
+
+<blockquote>
+
+<h2>Re:That sounds like what I ran into yesterday</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-08-03T03:23:18</h3>
+Ahhh.  Hm.  But I wonder if I can even compile the rest of it without -flat-namespace, as my code is relying on Carbon's flat headers.  Bah.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Kill, kill them all</h2>
+<h3><a href="/user/richardc/">richardc</a> on 2002-08-03T00:01:44</h3>
+I bounced off this the other day, I eventually realised I could use the linker against itself and deleted the<nobr> <wbr></nobr>.c file from the XML::LibXSLT tree. <p> The symbol leaks over when LibXSLT.pm uses LibXML and it just magically works out.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Kill, kill them all</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-08-03T09:07:00</h3>
+That totally doesn't work for me - I get:<br> <br>dyld:<nobr> <wbr></nobr>/usr/bin/perl Undefined symbols:<br>_PmmSvNode<br> <br>Which is one of the functions.<br> <br>(and yes, XML::LibXML is loaded before XML::LibXSLT is bootstrapped).
+
+
+
+<blockquote>
+
+<h2>Re:Kill, kill them all</h2>
+<h3><a href="/user/richardc/">richardc</a> on 2002-08-03T11:39:05</h3>
+Hmm,  I guess this is probably that I'm building against a locally-built 5.8.0 rather than the supplied 5.6.0. <p> Looking at the output of perl -V for both perls their linker flags do differ, which could explain it: </p><p><nobr> <wbr></nobr>/usr/bin/perl (5.6.0) <br> Linker and Libraries:
+    ld='cc', ldflags ='' </p><p> perl5.8.0 <br>  </p><blockquote><div> <tt> Linker and Libraries: <br> &nbsp; &nbsp; ld='cc', ldflags =' -flat_namespace'</tt> </div></blockquote>  <p> The Dynamic Linking linker options <code>lddlflagsall</code> are the same for both perls, so I suspect it's the differing <code>ldflags</code> that are letting it work for me.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Kill, kill them all</h2>
+<h3><a href="/user/richardc/">richardc</a> on 2002-08-03T11:41:20</h3>
+doh, hit save rather than preview.  I mean lddlflags not lddlflagsall
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

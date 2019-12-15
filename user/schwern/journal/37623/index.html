@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: New Method::Signatures:  named parameters!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>New Method::Signatures:  named parameters!</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2008-10-08T14:28:27</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>The <a href="http://schwern.org/src/Method-Signatures-20081008.tar.gz">next version of Method::Signatures</a> on its way to <a href="http://search.cpan.org/dist/Method-Signatures">CPAN</a> now has named parameters.<br/><br/><pre>
+method display( $text is ro, :$justify = 'left', :$enchef = 0 ) {
+    ...
+}<br/><br/># $text = "some stuff", $justify = 'left', $enchef = 0
+$obj->display( "some stuff" );<br/><br/># $text = "Things and stuff\n", $justify = 'left', enchef = 1
+$obj->display( <<'TEXT', enchef => 1 );
+Things and stuff
+TEXT
+</pre><br/><br/>Because Perl 5 lacks the extra syntax that Perl 6 has to disambiguate named from
+positional arguments, and frankly I don't think it's worth it, there's some restrictions on their use to avoid ambiguous situations.  They always have to come at the end of the signature.<br/><br/><pre>
+method foo( :$this, :$that, $foo?, $bar? )     # illegal<br/><br/># $foo = "this", $bar = 42 or $this = 42 ?
+$obj->foo( this => 42 );
+</pre><br/><br/>Technically, one could allow *required* named params to
+come first.  I could also probably get away with allowing optional named params coming before required positionals by defining a precedence... but it rapidly gets shaky and I'd rather not open up that complexity unless there's
+some great need.<br/><br/>You can't mix optional positional params with named params.<br/><br/><pre>
+method bar( $a, $b?, :$c )  # illegal, ambiguous<br/><br/># $a = 'c', $b = 42 or is it $c = 42?
+$obj->bar( c => 42 );
+</pre><br/><br/>Again, I could resolve this ambiguity by saying that positional
+parameters take precedence over named params.  Then the above becomes
+$a = 'c' and $b = 42, but again I don't feel a pressing need to open
+up that bit of complexity.<br/><br/>Anyhow, I'm pooped.  That's the last of the major features for this
+sprint before presenting at PPW and I think it's pretty darn useful.<br/><br/>Next is a lot of refactoring work.  The signature parser has gotten
+messy, named parameters in particular proved more complicated than
+they should be.  There's almost no error checking and I found when I
+tried to add some that I don't have enough information to report on
+compile time errors.  There's no way for a user to introspect the
+signature, though there is an internal signature structure which will
+be pretty easy to adapt to the task.  All the sugar syntax has to be
+turned into equivalent traits (ie. '?$foo' and '$foo is optional' are
+equivalent) to make introspection easier.  And errors should be thrown
+as proper error objects instead of just strings.<br/><br/>And Florian and I have to consolidate the guts of our modules into a
+more generic "add block syntax to Perl" module.
+</p>
+
+
+<hr/>
+
+
+
+<h2>two more common uses</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2008-10-13T14:03:26</h3>
+<p>It's be keen to see two more things supported.</p><p>First, it'd be nice to say, "Yes, I just want named arguments, but they're all in $_[1] as a hashref.  The rest is empty."</p><blockquote><div><p> <tt>&nbsp; $obj-&gt;method({ named =&gt; 'arguments' });</tt></p></div> </blockquote><p>Secondly, "Yeah, I have positional and named arguments, with all the named arguments in a hashref at the end."</p><blockquote><div><p> <tt>&nbsp; $obj-&gt;method($arg1, $arg2, { named =&gt; 'args' });</tt></p></div> </blockquote><p>This would cover nearly all my code's methods.</p><p>(Maybe I should STFU and WSFC.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:two more common uses</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2008-10-13T18:32:37</h3>
+<p>To the hash ref, I don't deny it's common, but I ask why do we do that?  One reason is to try and save a copy, if the hash happens to be huge.  But they aren't, and if they are do you really want to enumerate all the names?  And anyway, breaking the hash ref down into a bunch of scalars wastes all that memory savings anyway.</p><p>Another reason is to leave open the possibility of passing in more arguments.</p><blockquote><div><p> <tt>$obj-&gt;method({ this =&gt; 'that' }, 42);</tt></p></div> </blockquote><p>in which case you're not really passing in named arguments else that new positional argument could just be a named one.</p><blockquote><div><p> <tt>$obj-&gt;method({ this =&gt; 'that', stuff =&gt; 42 });</tt></p></div> </blockquote><p>And you no longer need the hash ref, just make it a hash.</p><p>Otherwise, what you're really passing in that hash ref is not named arguments but a lump of data.  For example...</p><blockquote><div><p> <tt>method new ($class: \%data, $something_else) {<br>&nbsp; &nbsp; my $self = bless {%data}, $class;<br>
+&nbsp; <br>&nbsp; &nbsp; $self-&gt;wibble($something_else);<br>}</tt></p></div> </blockquote><p>To chop up %data into a bunch of scalars makes no sense.</p><p>As for the hash-ref at end, unless you have optional positional params its no longer necessary.</p><blockquote><div><p> <tt>method foo ($this, $that,<nobr> <wbr></nobr>:$named) {<br>&nbsp; &nbsp;<nobr> <wbr></nobr>...<br>}<br>
+&nbsp; <br>$obj-&gt;method($arg1, $arg2, named =&gt; 'args');</tt></p></div> </blockquote><p>Of course, I'm sure I'm missing something important and TMTOWTDI reigns.  And there's no real reason it can't handle named arguments as hash refs.  The real block is always deciding what the syntax should be.  Since it's a good idea to make the signature look like how it's called...</p><blockquote><div><p> <tt>method foo( $this, $that, {:$foo,<nobr> <wbr></nobr>:$bar} );</tt></p></div> </blockquote><p>Which opens up the possibility of allowing the named hash-ref params coming first.</p><blockquote><div><p> <tt>method foo( {:$foo,<nobr> <wbr></nobr>:$bar}, $this, $that );</tt></p></div> </blockquote><p>Or even the special case "slurp the hash ref off the end, then resolve the possibly optional positionals".</p><blockquote><div><p> <tt>method foo( $this?, $that?, {:$foo,<nobr> <wbr></nobr>:$bar} );</tt></p></div> </blockquote><p>In order for any of this to work and remain unambiguous, the hash ref would be required by default.</p>
+
+
+
+<blockquote>
+
+<h2>Re:two more common uses</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2008-10-14T19:56:53</h3>
+<p>Apart from anything else, the biggest argument is:</p><p>If I don't have to change the calling semantics, I can actually use this in old code.  If I have to update every caller to pass a list rather than a hashref, I am not going to do it.  If I can't update my old codebase to use this, I am not likely to start using it for new code, either.</p>
+
+
+
+<h2>Re:two more common uses</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-10-19T22:59:49</h3>
+<blockquote><div><p>One reason is to try and save a copy</p></div>
+</blockquote><p>The only good reason is that it forces an &#8220;Odd number of elements&#8221; warning to be emitted from the calling site without having to add any code to the callee. Obviously this does not apply in your module&#8217;s case.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

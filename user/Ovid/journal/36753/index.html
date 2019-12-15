@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Data::Dumper::Overload</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Data::Dumper::Overload</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-06-23T16:16:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Dear Lazyweb:  tell me that there's a Data::Dumper (or better yet, Data::Dump::Streamer) alternative that allows me to respect string overloading.  Specifically, I need to have a Data::Dumper-like module which accepts a hashref of which overloaded modules to respect for string overloading (sometimes I want all, sometimes I want none).  Or better still, a callback system whereby I can specify how a particular data structure gets represented when dumped.  I hack together the following, but it was for a very specific, internal need.  Thus, it's probably useless for your purposes, but it suits mine perfectly (and it's a one-shot deal and not designed to live beyond a few hours).</p>
+
+<pre>package PrettyDumper;
+
+use strict;
+use warnings;
+use Scalar::Util qw(blessed reftype);
+use Clone 'clone';
+use Sub::Information as => 'inspect';
+use Carp 'croak';
+require overload;
+
+use Exporter::NoWork;
+my %dispatch = (
+    ''      => sub { shift || '<undef>' },
+    'ARRAY' => \&_array,
+    'HASH'  => \&_hash,
+    'CODE'  => sub { inspect(shift)->code },
+);
+
+sub pretty_dump {
+    my $thing = clone(shift);
+    require Data::Dumper;
+    local $Data::Dumper::Terse = 1;
+    chomp( my $dump =  Data::Dumper::Dumper(_pretty_dump($thing)) );
+    return $dump;
+}
+
+sub _pretty_dump {
+    my $thing = shift;
+    my $ref = reftype($thing) || '';
+    if ( my $dispatch = $dispatch{$ref} ) {
+        return $dispatch->($thing);
+    }
+    return Data::Dumper::Dumper($thing);
+}
+
+sub _array {
+    my $array = shift;
+    if ( overload::Overloaded($array) ) {
+        if ( my $method = overload::Method( $array, '""' ) ) {
+            return $array->$method;
+        }
+    }
+    else {
+        foreach (@$array) {
+            $_ = _pretty_dump($_);
+        }
+    }
+    return $array;
+}
+
+sub _hash {
+    my $hash = shift;
+    if ( overload::Overloaded($hash) ) {
+        if ( my $method = overload::Method( $hash, '""' ) ) {
+            return $hash->$method;
+        }
+    }
+    else {
+        foreach (keys %$hash) {
+            $hash->{$_} = _pretty_dump($hash->{$_});
+        }
+    }
+    return $hash;
+}
+
+1;</pre>
+
+<p>It doesn't offer me the 'per package' control that I want, but it's close enough for what I need.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Data::Dump::Streamer has a hook for this</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-06-23T18:06:53</h3>
+<p>Here is a demonstration.<br><code><br>use Data::Dump::Streamer;<br>my $obj = bless {}, "Foo";<br>Dump($obj)-&gt;Out;<br>Dump($obj)-&gt;Freezer(<br>
+&nbsp; &nbsp; &nbsp; &nbsp; "Foo", sub {my $self = shift; "$self"}<br>
+&nbsp; &nbsp; )-&gt;Out;<br></code><br>Now obviously in this case Foo does not have a useful stringify method.  But if it did, it would be used.</p>
+
+
+
+<h2>Shooting off on a tangent...</h2>
+<h3><a href="/user/pjm/">pjm</a> on 2008-06-24T06:23:01</h3>
+<p>Hearing you in the vicinity of the Data::Dumper namespace just reminded me that I'm long overdue in sending thanks for creating Data::Dumper::Simple. It's one of those modules that just happily motors into place when required, does its job without any fuss, and produces exactly what I want to see.</p><p>So... thanks,</p><p>Paul</p>
+
+
+
+<blockquote>
+
+<h2>Re:Shooting off on a tangent...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-06-24T08:54:23</h3>
+<p>Thanks you!  It's always good to get feedback about what people do and don't like about my code (especially the "do like" bits).   Since it's based on a source filter, I was given a bit of grief over its creation, but I'm pleasantly surprised by people's reactions to it.  My favorite is woman back in the States who tells me that she can never hate me because she uses Data::Dumper::Simple so much that it would make her mad every time she programs<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Shooting off on a tangent...</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-06-24T09:28:29</h3>
+<p>Ovid and the women&#8230;<nobr> <wbr></nobr><tt>;-)</tt> </p>
+
+
+
+<blockquote>
+
+<h2>Re:Shooting off on a tangent...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-06-24T09:36:26</h3>
+<p>Regrettably, any woman with even the remotest interest in me seems to be doomed to live in a different country.  I want to find this "Fate" guy and put the boot in a few times.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

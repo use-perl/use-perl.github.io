@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: How do I write an sql union without a union clause?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>How do I write an sql union without a union clause?</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2004-10-15T19:26:18</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>For movies, we have an <tt>original_language_id</tt>.  We also have a table that lists all of the languages the movie has been translated into.  Naturally, we have a "languages" table, too.  Buried in a massive SQL generator is a snippet of code that allows us to search  for movies based upon all languages they're available in.  Unfortunately, this means I need to search two tables, but I only get one bind parameter.  The following bad SQL snippet demonstrates what I want to do, but the <tt>DISTINCT title_no</tt> is ambiguously defined:</p>
+
+<pre> ti_titles.title_no IN
+  ( SELECT DISTINCT title_no
+      FROM  ti_title_languages ttl,
+            ti_titles tt,
+            (SELECT language_id FROM ti_languages WHERE language_id = ?) tl
+     WHERE  ttl.language_id = tl.language_id
+       AND  tt.original_language_id  = tl.language_id)</pre>
+
+<p>Because this is in a huge code generator, I only get the parameter once and, because other search terms are in there, I can't guarantee which bind param I'm using, so I also can't use <tt>:1</tt> twice.  This is Oracle 9i.  Any thoughts?</p></p>
+
+
+<hr/>
+
+
+
+<h2>With MySQL...</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2004-10-15T19:47:10</h3>
+I've only used MySQL and Postgres with most my DB work done in MySQL so... if I were to do it, it'd look something like this:<blockquote><div> <tt>SELECT DISTINCT tt.title_no<br>&nbsp; &nbsp;FROM ti_title_languages AS ttl,<br>&nbsp; &nbsp; &nbsp; &nbsp; ti_titles AS tt,<br>&nbsp; &nbsp; &nbsp; &nbsp; ti_languages AS tl<br>&nbsp; WHERE tl.language_id = ?<br>&nbsp; &nbsp; AND ttl.language_id = tl.language_id<br>&nbsp; &nbsp; AND tt.original_language_id = tl.language_id;</tt> </div></blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:With MySQL...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-10-15T23:11:11</h3>
+<p>Er, am I missing something?  Does the <tt>DISTINCT tt.title_no</tt> skip everything in <tt>ti_title_languages</tt>?</p>
+
+
+
+<blockquote>
+
+<h2>Re:With MySQL...</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2004-10-16T07:37:50</h3>
+I don't remember what I was thinking at the time but looking at it now I think I meant DISTINCT ttl.title_no.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Too many joins</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2004-10-15T23:02:55</h3>
+If the ti_title_languages has the language_id and the title_no, why join to anything:<blockquote><div> <tt>where title_no in<br>(select distinct title_no<br>from ti_title_languages<br>where language_id = ?)</tt> </div></blockquote> <p>Primary and foreign keys should make sure that any language_id in ti_title_languages is in ti_languages, or any title_no in ti_title_languages is in ti_titles, so there should be no need to explicitly join the tables. But then again, maybe I read too fast and didn't get the finer details of the schema<nobr> <wbr></nobr>:-)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Too many joins</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2004-10-15T23:05:16</h3>
+...and unless the 'distinct' cuts down on alot of duplicates, then it is unnecessary also.
+
+
+
+<h2>Re:Too many joins</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-10-15T23:06:28</h3>
+<p>That's what I had originally.  The <tt>ti_titles</tt> table has the original language id and that was not guaranteed to be in the <tt>ti_title_languages</tt> table because that table appeared handled the languages that the title had been translated into.  Because the original language id was not a translation, it was skipped in the second table.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>wrong question?</h2>
+<h3><a href="/user/wickline/">wickline</a> on 2004-10-15T23:19:57</h3>
+Maybe instead of writing a union without a union clause, you could use a union clause?<blockquote><div> <tt>&nbsp; &nbsp; ti_titles.title_no in (<br>&nbsp; &nbsp; &nbsp; &nbsp;select distinct title_no<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;from (<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; select title_no, language_id<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; from ti_title_languages<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; union all<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; select title_no, original_language_id as language_id<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; from ti_titles<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; )<br>&nbsp; &nbsp; &nbsp; &nbsp; where lower(language_id) = lower(?)<br>&nbsp; &nbsp; )</tt> </div></blockquote>I believe that you can use the above with either 'en' or 'bn' as your bind param and get results which include the title_no for Mr. 3000<br> <br>-matt
+
+
+
+<blockquote>
+
+<h2>Re:wrong question?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-10-15T23:33:20</h3>
+<p>D'oh!  I forgot about union all.  Thanks!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

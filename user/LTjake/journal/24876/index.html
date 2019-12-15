@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of LTjake: Class::DBI &quot;self-referencial&quot; join</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Class::DBI &quot;self-referencial&quot; join</h1>
+<h2><a href="/user/LTjake/">LTjake</a> on 2005-05-25T13:28:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've come across an interesting scenario with Class::DBI. Let's say you have a list of authors, but those authors can also have any number of aliases.</p>
+<p>You might think to set things up like so: (Note: if I want author 2 to be an alias for author 1 and vice versa i need to have two rows in the alias table)</p>
+<pre>
+package My::Author;
+
+use base qw( My::DBI );
+
+__PACKAGE__->table( 'my_authors' );
+
+__PACKAGE__->columns( Primary   => qw( author_id ) );
+__PACKAGE__->columns( Essential => qw( first_name last_name ) );
+
+__PACKAGE__->has_many( aliases => [ 'My::AuthorAlias' => 'alias' ] );
+
+package My::AuthorAlias;
+
+use base qw( My::DBI );
+
+__PACKAGE__->table( 'my_author_alias' );
+
+__PACKAGE__->columns( Primary   => qw( alias_id ) );
+__PACKAGE__->columns( Essential => qw( author alias ) );
+		
+__PACKAGE__->has_a( author => 'My::Author' );
+__PACKAGE__->has_a( alias  => 'My::Author' );
+
+1;
+</pre>
+<p>But, it seems that <code>Class::DBI</code> gets confused with two <code>has_a</code> relationships pointing to the same table. So, the <code>aliases</code> relationship doesn't work.</p>
+<p>My current work-around is to use <code>might_have</code> on the non-primary column:</p>
+<pre>
+package My::AuthorAlias;
+
+use base qw( My::DBI );
+
+__PACKAGE__->table( 'my_author_alias' );
+
+__PACKAGE__->columns( Primary   => qw( alias_id ) );
+__PACKAGE__->columns( Essential => qw( author ) );
+		
+__PACKAGE__->has_a( author => 'My::Author' );
+
+__PACKAGE__->might_have( alias => 'My::Author' );
+
+1;
+</pre>
+<p>From a simple test, it seems okay. Am I missing an easier alternative?</p></p>
+
+
+<hr/>
+
+
+
+<h2>What about table_alias?</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2005-05-25T14:27:40</h3>
+<p>Had you tried using the <a href="http://search.cpan.org/user/tmtm/Class-DBI-0.96/lib/Class/DBI.pm#table_alias" title="cpan.org">table_alias() </a cpan.org> (or also the second param to table()) on the AuthorAlias class?
+</p>
+<p>
+I would summize that using table_alis on the second package would un-confuse CDBI.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:What about table_alias?</h2>
+<h3><a href="/user/LTjake/">LTjake</a> on 2005-05-26T11:33:58</h3>
+<p>I'm failing to see how <code>table_alias()</code> will help in this situation, but, perhaps I'm being dense. Could you explain it further?</p>
+<p>Thanks!</p>
+
+
+
+<blockquote>
+
+<h2>Re:What about table_alias?</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2005-05-26T12:37:47</h3>
+It doesn't.<nobr> <wbr></nobr>:-) I misread the post the first time. I thought that it was an alias field in the authors table pointing right back to the authors table, instead of using the 2nd pivot table.<br> <br>Could you post your schema for those two tables as well as a couple rows of sample data? I'd like to tinker.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Cross-memories</h2>
+<h3><a href="/user/cog/">cog</a> on 2005-05-25T16:15:21</h3>
+Funny... read your journal entry and thought "hey, I think somebody on IRC was looking for something like this, this morning..."
+
+<p>So I went to see the logs...
+
+</p> <p>It was you<nobr> <wbr></nobr>:-)</p>
+
+
+
+<h2>thanks</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2005-05-26T14:44:58</h3>
+Thanks for posting this -- I haven't had this problem yet, but the schema I'm expecting to put into Class::DBI / Maypole / Catalyst later this year has exactly this structure. Forewarned is forarmed.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

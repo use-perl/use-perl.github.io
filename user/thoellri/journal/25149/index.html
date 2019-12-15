@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of thoellri: Foundation vs. Mac::Propertylist</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Foundation vs. Mac::Propertylist</h1>
+<h2><a href="/user/thoellri/">thoellri</a> on 2005-06-11T12:20:35</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I needed to access iPhoto's AlbumData.xml file in order to read my iPhoto database. <br/><br/>Mac::iPhoto did not work for me it always failed loading the xml-file (now I know why). <br/><br/>Mac::PropertyList would work after massaging the XML data before handing it of to plist_parse. However the solution was painfully slow. My 600KB AlbumData.xml file took more than 30 secs to load and parse on a Mac Mini. <br/><br/>So I looked into other ways to load the data from AlbumData.xml. Via PerlObjCBridge I implemented some code using NSPropertyListSerialization. I'm happy to report that the 30 secs have turned into 3 secs. That's better ...<br/><br/>The data returned from plistToHash and loadiPhotoDB are different! There are some data types missing in the plistTraverse() sub!<br/><br/>
+--------------------------------------------------
+use strict;
+use Foundation;
+use Mac::PropertyList;
+use Time::HiRes qw{gettimeofday tv_interval};<br/><br/>use constant XML => qq{$ENV{HOME}/Pictures/iPhoto Library/AlbumData.xml};<br/><br/>my $t0 = [gettimeofday];
+my $hash=plistToHash(XML);
+my $elapsed = tv_interval($t0);
+print "using plistToHash = $elapsed\n";
+$t0 = [gettimeofday];
+$hash=loadiPhotoDB(XML);
+$elapsed = tv_interval($t0);
+print "using Mac::PropertyList = $elapsed\n";<br/><br/>sub plistToHash {
+    my($filename)=@_;
+    my $data=NSData->dataWithContentsOfFile_($filename);
+    return undef unless($data);
+    my $plist=NSPropertyListSerialization->propertyListFromData_mutabilityOption_format_errorDescription_($data,0,undef,undef);
+    return undef unless($plist);
+    my %dict=();
+    return plistTraverse(\%dict,$plist,'dict',0);
+}<br/><br/>sub plistTraverse {
+    my($dest,$src,$type,$depth)=@_;
+    my $e=($type eq 'dict')?$src->keyEnumerator():$src->objectEnumerator;
+    while(my $next = $e->nextObject()) {
+	last unless($$next);
+	my $obj=($type eq 'dict')?$src->objectForKey_($next):$next;
+	my $class=$obj->className->cString();
+	my $keyString=($type eq 'dict')?$next->cString:"";
+	if($class =~ /dictionary$/i){
+	    my %dict=();
+	    my $sub=plistTraverse(\%dict,$obj,'dict',$depth+1);
+	    if($type eq 'dict') {
+		$dest->{$keyString}=$sub;
+	    }else{
+		push(@$dest,$sub);
+	    }
+	}elsif($class =~ /array$/i){
+	    my @array=();
+	    my $sub=plistTraverse(\@array,$obj,'array',$depth+1);
+	    if($type eq 'dict') {
+		$dest->{$keyString}=$sub;
+	    }else{
+		push(@$dest,$sub);
+	    }
+	}elsif($class =~ /string$/i){
+	    if($type eq 'dict') {
+		$dest->{$keyString}=$obj->cString;
+	    } else {
+		push(@$dest,$obj->cString);
+	    }
+	}elsif($class =~ /number$/i){
+	    if($type eq 'dict') {
+		$dest->{$keyString}=$obj->doubleValue;
+	    } else {
+		push(@$dest,$obj->doubleValue);
+	    }
+	}elsif($class =~ /boolean$/i){
+	    if($type eq 'dict') {
+		$dest->{$keyString}=($obj->boolValue eq 'YES')?1:0;
+	    } else {
+		push(@$dest,($obj->boolValue eq 'YES')?1:0);
+	    }
+	} else {
+	    print STDERR "**** unhandled class: $class\n";
+	}
+    }
+    return $dest;
+}<br/><br/>sub loadiPhotoDB {
+    my($catalogPath)=@_;
+    my $xml;
+    open(CATALOG, $catalogPath) || return undef;
+    {local $/=undef;$xml=<CATALOG>;}
+    close(CATALOG);<br/><br/>    # Mac::PropertyList is pretty strict about what it expects to
+    # see in the XML file. We are trimming the file before handing
+    # it off to parse_plist
+    $xml =~ s{^.*<plist\s*.*?>\s*}{}s;
+    $xml =~ s{\s*</plist\s*.*?>\s*\z}{}s;<br/><br/>    my $dict=Mac::PropertyList::parse_plist($xml);
+    return $dict;
+}<br/><br/></p>
+
+
+<hr/>
+
+
+
+<h2>Seems odd, partly...</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2005-06-11T12:43:54</h3>
+I'm sure the Mac::PropertyList is slower than hooking into Foundation, but the times you see surprise me.  I tried it with my own Album.xml (860kb) and it parsed it in 0.2 seconds. I'm curious hwo long the timed tests (in t/time.t) take for you.<br> <br>Also, what else is in the file besides the plist stuff? The only thing I've ever seen above &lt;plist&gt; is the XML declaration, and nothing below &lt;/plist&gt;<br> <br>A future release of Mac::PropertyList will have the hooks to the foundation stuff so it's faster if that stuff is there. Mind if I steal a bit of code?<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Seems odd, partly...</h2>
+<h3><a href="/user/thoellri/">thoellri</a> on 2005-06-14T17:35:39</h3>
+Brian - i just ran t/time.t and I see this:
+<br> <br> <code>
+t/time.........Elapsed time is 0.021996<br>
+t/time.........ok<br>
+</code> <br>
+Pretty consistently at that value.<br>
+I also ran the sample through Devel::DProf and her's what I see:<br> <br>
+<code>
+macbox:~/tmp thoellri$ perl -d:DProf plist2.pl<br>
+using Mac::PropertyList = 32.427314<br>
+macbox:~/tmp thoellri$ dprofpp<br>
+Total Elapsed Time = 31.58248 Seconds<br>
+  User+System Time = 31.01248 Seconds<br>
+Exclusive Times<br>
+%Time ExclSec CumulS #Calls sec/call Csec/c  Name<br>
+ 61.6   19.12 31.044  11456   0.0017 0.0027  Mac::PropertyList::read_next<br>
+ 34.3   10.65 31.044    708   0.0151 0.0438  Mac::PropertyList::read_dict<br>
+ 2.20   0.682  0.883  10729   0.0001 0.0001  Mac::PropertyList::Scalar::new<br>
+ 0.65   0.201  0.201  10729   0.0000 0.0000  Mac::PropertyList::Item::new<br>
+ 0.64   0.198  0.761   6510   0.0000 0.0001  Mac::PropertyList::read_string<br>
+ 0.40   0.123  8.925     13   0.0095 0.6866  Mac::PropertyList::read_array<br>
+ 0.32   0.100 31.154      1   0.1000 31.153  main::loadiPhotoDB<br>
+ 0.13   0.039  0.233   2797   0.0000 0.0001  Mac::PropertyList::read_real<br>
+ 0.08   0.024  0.151   1422   0.0000 0.0001  Mac::PropertyList::read_integer<br>
+ 0.03   0.010 31.054      1   0.0100 31.053  Mac::PropertyList::parse_plist<br>
+ 0.03   0.010  0.010      2   0.0050 0.0050  DynaLoader::BEGIN<br>
+ 0.03   0.010  0.010      3   0.0033 0.0033  vars::BEGIN<br>
+ 0.03   0.010  0.029      4   0.0024 0.0072  main::BEGIN<br>
+ 0.00       - -0.000      1        -      -  DynaLoader::dl_install_xsub<br>
+ 0.00       - -0.000      1        -      -  Time::HiRes::bootstrap<br>
+macbox:~/tmp thoellri$ perl -MMac::PropertyList -e 'print $Mac::PropertyList::VERSION,qq{\n};'<br>
+1.21<br> <br>
+</code>
+I see you released 1.23 a few days ago - is it worth testing it with the newer release?<br> <br><br/><br/>Looking at this code in Mac::PropertyList::parse_plist<br>
+<code><nobr> <wbr></nobr>...<br>
+        # we can handle either 0.9 or 1.0<br>
+        $text =~ s|^&lt;\?xml.*?&gt;\s*&lt;!DOC.*&gt;\s*&lt;plist.*?&gt;\s*||;<br>
+        $text =~ s|\s*&lt;/plist&gt;\s*$||;<br><nobr> <wbr></nobr>...<br>
+</code><br/><br/>you can see that the parser will fail to remove the plist-wrapper in case there is no "DOCTYPE" declaration. Well, my AlbumData.xml file (written by iPhoto) does not have a "DOCTYPE" declaration, which means that the first "read_next" will fail because it does not see what it expects to see.<br>
+By removing the wrapper before calling plist_parse I can avoid that problem.<br>
+<br>
+Fell free to steal as much code as you want - that's why I posted it here<nobr> <wbr></nobr>;-)
+
+
+
+<blockquote>
+
+<h2>Re:Seems odd, partly...</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2005-06-14T18:30:12</h3>
+Okay, good to know. I'll fix up the parser.<br> <br>The newest version is a fix by Mike Ciul that made things a little bit faster for very large files. It might help.<br> <br>What I really need to do is fix up Mike's enhancement so it can deal with files without reading them all in at once. That should be easy, but it's in line after all the other easy things.<nobr> <wbr></nobr>:)<br> <br>After that, I need to add the Foundation stuff (or something similar) so the Mac users don't have to suffer the portability penalty.<br> <br>Thanks again<nobr> <wbr></nobr>:)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

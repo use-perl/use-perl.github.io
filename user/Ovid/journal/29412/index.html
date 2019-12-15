@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Class::CGI::DateTime</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Class::CGI::DateTime</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-04-23T00:35:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I should have <tt>Class::CGI::DateTime</tt> uploaded tomorrow.  It was really simple to write.  Here's the bulk of it:</p>
+
+<pre>package Class::CGI::DateTime;
+
+use strict;
+use warnings;
+use DateTime;
+
+sub new {
+    my ( $class, $cgi, $param ) = @_;
+
+    my $args = $cgi->args($param);
+    my @params = $args ? @$args : qw(day month year);
+    if ( 'date' ne $param ) {
+        @params = map {"$param.$_"} @params;
+    }
+
+    # original param name and param value (yuck)
+    my %args = map { /([[:word:]]+)$/; $1, $cgi->raw_param($_) } @params;
+
+    # untaint them puppies
+    while ( my ( $arg, $value ) = each %args ) {
+        if ( 'time_zone' eq $arg ) {
+            $value =~ /^(floating|local|\+\d+|[[:word:]]+\/[[:word:]]+)$/;
+            $args{$arg} = $1;
+        }
+        else {
+            $value =~ /^(\d+)$/;
+            $args{$arg} = $1;
+        }
+    }
+    return DateTime->new(%args);
+}
+
+1;</pre>
+
+<p>How many times do you see folks writing date handling code where they don't bother to untaint it?  I see it quite a bit.  The validation, by the way, is left to <tt>DateTime</tt>.  It appears to return error messages more suitable for programmers than end users, though.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Data::FormValidator::Constraints::DateTime</h2>
+<h3><a href="/user/jonasbn/">jonasbn</a> on 2006-04-24T07:25:12</h3>
+Have you checked out:<br><br><a href="http://search.cpan.org/user/wonko/Data-FormValidator-Constraints-DateTime-1.09/" title="cpan.org">Data::FormValidator::Constraints::DateTime</a cpan.org>?
+
+
+
+<blockquote>
+
+<h2>Re:Data::FormValidator::Constraints::DateTime</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-04-24T18:10:30</h3>
+<p>I am familiar with that.  The intent of <tt>Class::CGI</tt> is to provide a mediator pattern which make the code easier to use and, as a nice side benefit, tends to impose a certain uniformity on form parameters while still providing flexibility.  The basic use of the above could be:</p> <blockquote> <div><tt>use Class::CGI<br>&nbsp; handlers =&gt; {<br>&nbsp; &nbsp; customer&nbsp; &nbsp;=&gt; 'My::Customer::Handler',<br>&nbsp; &nbsp; date&nbsp; &nbsp; &nbsp; &nbsp;=&gt; 'Class::CGI::DateTime',<br>&nbsp; &nbsp; order_date =&gt; 'Class::CGI::DateTime',<br>&nbsp; };<br> <br>my $cgi = Class::CGI-&gt;new;<br>my $customer&nbsp; &nbsp;= $cgi-&gt;param('customer');<br>my $date&nbsp; &nbsp; &nbsp; &nbsp;= $cgi-&gt;param('date');<br>my $order_date = $cgi-&gt;param('order_date');<br>my $email&nbsp; &nbsp; &nbsp; = $cgi-&gt;param('email');&nbsp; &nbsp; &nbsp; # not an object<br> <br>if ( my $errors = $cgi-&gt;errors ) {<nobr> <wbr></nobr>... }</tt></div> </blockquote> <p>Note how clean that is.  By handling the untainting, validating and object construction to handler (mediator) classes, the end code that users write  can focus more on the specific problem they want to solve rather than a bunch of grunt-work which, while required, is secondary in nature.  More specifically, the grunt-work is readily available to look at, but it doesn't clutter the main code.</p>
+
+<p>In the above, just as <tt>Data::FormValidator::Constraints::DateTime</tt> allows, there are no "date" or "order_date" form parameters.  Instead, we have "day", "month", "year", "order_date.day", "order_date.month", and "order_date.year" parameters.  It's easy to specify that you also have, for example, an "hour" parameter:</p> <blockquote> <div><tt># must be called before param()<br>$cgi-&gt;args( date =&gt; [ qw/ day month year hour / ] );</tt></div> </blockquote> <p>One thing about <tt>Data::FormValidator::Constraints::DateTime</tt> which <tt>Class::CGI</tt> does not do is have a bunch of extra built-in validation methods which handle conditions such as "before today", "after datetime", and so on.  I may alter the interface (since I haven't released it yet) to allow that as an optional callback interface, but the decision to separate object validation and business validation was deliberate.  For <tt>Class::CGI</tt>, I recommend that the handler classes only concern themselves with what objects can <em>always</em> be legally created and the primary code deals with its specific problem domain.  The first is universal and the second is task specific.</p>
+
+<p>It's not that I think there's anything wrong with <tt>Data::FormValidator</tt>, I just have a different design philosophy which its interface doesn't support.  I like simple code which doesn't do too much, offers the flexibility to get the "extra" stuff done and is easy to learn.  With <tt>Class::CGI</tt>, if you write one or two handlers, you'll pretty much never need to consult the docs again.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of agent: use HTTP::Proxy to log my web accessing history</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>use HTTP::Proxy to log my web accessing history</h1>
+<h2><a href="/user/agent/">agent</a> on 2006-01-20T14:03:52</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Yeah, I visit many websites everyday. what I'm wanting and what I'm always looking for is a facility to automagically keep a record of the URLs and page titles I've just accessed, so that I can analyse the history some time later to find out the focus of my interest in a particular period of time, for example. And it's very likely that I can come up with even more interesting statistical consequences.<br/><br/>The Mozilla browser doubtlessly gives builtin support for accessing history, but unfortunately exporting that history info is not trivial. what I want is not only the URLs, but also the corresponding page titles (if any!) and the visiting time stamp.<br/><br/>Several weeks ago, I happily found that the CPAN module HTTP::Proxy can come to the rescue. What I need to do is just writing several lines of Perl code using that module, running this script at the background as a local HTTP proxy server, and setting my web browser to simply use that. By doing this, my local proxy has a chance to monitor all the HTTP traffic between my browser and the Internet.<br/><br/>It's fun to see that my local proxy server can also use a remote proxy. so my local one then becomes a secondary proxy, no? ;D<br/><br/>The HTTP::Proxy module also supports logging internally, thus my code is even simpler:
+<CODE>
+use HTTP::Proxy ':log';
+my $logfile = ">>$home/myproxy.log";
+open my $log, $logfile or
+    die "Can't open $logfile for reading: $!";
+my $proxy = HTTP::Proxy->new(
+    logmask => STATUS,
+    logfh => $log,
+);
+</CODE>
+The logmask parameter here controls what kind of things the proxy should record. the STATUS constant indicates only basic URL and response code will be logged. What I get in the log file is something like this:
+<CODE>
+[Fri Jan 13 17:25:42 2006] (1888) REQUEST: GET http://www.perl.com/
+[Fri Jan 13 17:25:53 2006] (1888) RESPONSE: 200 OK
+[Fri Jan 13 17:25:53 2006] (1888) REQUEST: HEAD http://www.google.com/mozilla/google.src
+[Fri Jan 13 17:25:54 2006] (1888) RESPONSE: 200 OK
+[Fri Jan 13 17:25:54 2006] (1888) REQUEST: GET http://www.perl.com/styles/main.css
+[Fri Jan 13 17:25:55 2006] (1888) RESPONSE: 304 Not Modified
+...
+</CODE>
+Hmm...very cute! However, HTTP::Proxy's builtin logging mechanism doesn't respect HTML titles. Thus I need to provide a user agent of my own:
+<CODE>
+package MyUA;
+use HTTP::Proxy ':log';
+use base 'LWP::UserAgent';
+sub send_request {
+    my ($self, $request) = @_;
+    my $response;
+    eval {
+        $response = $self->SUPER::send_request( $request );
+    };
+    if ($@ and not $response) {
+        return HTTP::Response->new(500, $@);
+    }
+    if ($response->is_success) {
+        my $type = $response->header('content-type');
+        if ($type and $type =~ m[text/html]i) {
+            if ($response->content =~ m[<title>\s*(.*\S)\s*</title>]si) {
+                $proxy->log( STATUS, 'TITLE', $1);
+            }
+        }
+    }
+    return $response;
+}
+</CODE>
+Now we have HTML titles recorded down as well, as witnessed in my log file:
+<CODE>
+[Tue Jan 17 20:33:47 2006] (2484) REQUEST: GET http://perladvent.org/2004/20th/
+[Tue Jan 17 20:33:50 2006] (2484) TITLE: Perl 2004 Advent Calendar: Filesys::Virtual
+[Tue Jan 17 20:33:50 2006] (2484) RESPONSE: 200 OK
+</CODE>
+Then feed the customized user agent to my HTTP::Proxy instance I created earlier:
+<CODE>
+my $agent = MyUA->new(
+    env_proxy  => 1,
+    timeout => 100,
+);
+$proxy->agent( $agent );
+</CODE>
+At last, we enter an infinite loop as every http proxy server:
+<CODE>
+while (1) {
+    eval { $proxy->start(); };
+    warn $@ if $@;
+}
+</CODE>
+That's it!<br/><br/>It already works for me, but there're still several pitfalls in this solution:
+<ul>
+<li>Images won't display in MS Internet Explorer (Mozilla works fine, however)</li>
+<li>It seems to me that HTTP::Proxy doesn't support forking by default so it leads to poor performance if I request multiple URLs simultaneously. (BTW, Is there a way to switch to a forking engine? I can't find a word in its POD docs.)</li>
+<li>SSL connection doesn't work on my box.</li>
+</ul>
+Have fun!
+</p>
+
+
+<hr/>
+
+
+
+<h2>Using your own agent...</h2>
+<h3><a href="/user/BooK/">BooK</a> on 2006-01-22T15:53:23</h3>
+<p>Hi! I'm the author of HTTP::Proxy.<nobr> <wbr></nobr><tt>:-)</tt> Glad you like it.</p>
+<p>I don't think you need to define your own agent to log information. In fact, I think I should never have opened the opportunity to set your own agent.
+You could simply use a response filter that catches the title tag and print it in you log file.</p>
+
+<p>I also don't understand your <tt>while(1)</tt> loop. The <tt>$proxy-&gt;start()</tt> is already a <tt>while(1)</tt> loop.</p>
+
+<p>And you say that the proxy doesn't fork? That probably means you're running it under Win32, don't you? Alas, the forking code doesn't work very well under Windows. Also, maybe the documentation doesn't state this clearly,
+but you can change the engine (HTTP::Proxy::Engine subclass) by passing the <tt>engine</tt> parameter to the constructor. On Unix, I use the <tt>ScoreBoard</tt> engine. This way: <tt>my $proxy = HTTP::Proxy-&gt;new( engine =&gt; 'ScoreBoard' );</tt> </p>
+<p>Regarding images in Internet Explorer, I'm not sure what's going on. I know for sure that HTTP::Proxy doesn't support pipelined requests (because that's what <tt>apt-get</tt> does, and it fails for the moment).</p>
+<p>As for SSL connections, HTTP::Proxy supports the CONNECT method, but cannot look inside.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Using your own agent...</h2>
+<h3><a href="/user/agent/">agent</a> on 2006-01-26T15:45:52</h3>
+Thank you very much for your comments! Yeah, it's odd not to use the filter mechanism. Filters make things simpler.<br><br>I'm so glad to receive feedback from you, the very author of HTTP::Proxy.<nobr> <wbr></nobr>:=)
+
+
+
+<h2>Re:Using your own agent...</h2>
+<h3><a href="/user/Vegetable/">Vegetable</a> on 2006-12-23T17:19:16</h3>
+Heeeeeeeello,<br/><br/>I'm new to HTTP::Proxy and I was wondering if anyone if anyone could debug the following code for me...<br/><br/>The script is written to display all actions performed while I'm browsing on the Cmd Prompt of Windows (since logfh is default to be *STDERR).<br/><br/>use HTTP::Proxy;
+use HTTP::Recorder;<br/><br/>my $proxy = HTTP::Proxy-&gt;new(logmask =&gt; ALL);
+$proxy-&gt;start();<br/><br/>For some reason, no messages are displayed even though I'm browsing like crazy. Is there anything I missed?<br/><br/>Thanks
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

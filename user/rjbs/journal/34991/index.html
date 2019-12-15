@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: email::folder woes (part n)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>email::folder woes (part n)</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2007-11-27T23:44:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><html><p>I mumbled something about Email::Folder hating me, today, but I was too busy to
+explain, and I promised that I&#39;d write down my annoyances later.  I&#39;d love to
+fix these problems soon, but for now it&#39;s easier to just grumble about them,
+and it will make me feel better.</p><p>To print all threads in a maildir, <em>very</em> naively, I might write something like
+this:</p><pre>my $maildir = Email::Folder->new('./Maildir/');
+
+while (my $email = $maildir->next_message) {
+  my $subject = $email->header('subject');
+  next if $subject =~ /^re:/i;
+  print "$subject\n";
+}
+</pre><p>Great!  There are all the non-reply subjects, more or less.  They&#39;re not in
+order, though, and I want to see them in order.  Email::Folder&#39;s iterator is
+not ordered, and there is no uniform way to request that it be ordered.  To get
+messages in order, we&#39;ll need to get them all and then sort.  That&#39;s not such a
+bad obstacle, really.</p><pre>my $maildir = Email::Folder->new('./Maildir/');
+
+# the sort isn't interesting
+my @emails = sort { ... } $maildir->message;
+
+for my $email (@emails) {
+  my $subject = $email->header('subject');
+  next if $subject =~ /^re:/i;
+  print "$subject\n";
+}
+</pre><p>Now, the problem here is that we&#39;ve now loaded every email at once.  They&#39;re
+loaded as Email::Simple objects, which means the entire message content is
+loaded into memory at once, so if I had a huge maildir, I now have a huge perl
+process.</p><p>Email::Folder provides a <code>bless_message</code> method, which is used to create the
+Email::Simple objects.  Each time the Email::Folder object&#39;s <code>next_message</code>
+method is called, the Email::Folder::Reader (subclassed for the storage medium)
+gets the message content from the underlying storage and returns it as a
+string.  Email::Folder then passes it to <code>bless_message</code>, which by default
+passes it to Email::Simple.  It&#39;s being passed around as a string, meaning that
+we&#39;re copying the full text of each (possibly huge) message a few times before
+returning the object and throwing away the raw string.</p><p>It would be easy to make the Maildir reader return filehandles, but
+<code>bless_message</code> also needs to be replaced to handle them.  Then the problem is
+that if you try to do this:</p><pre>my $folder = Email::Folder::MessagesFromFH->new('mbox');
+</pre><p>...you will be hosed, because you will get a Email::Folder::Mbox, which reads
+messages out as strings.  You need to either write a <code>bless_message</code> that
+handles strings and filehandles, or you need to override <code>new</code> to prevent
+anything that won&#39;t use the right reader.</p><p>All I wanted to do was implement a cooler version of <code>frm</code>!</p><p>Hopefully I will wake up fresh in the morning and feel energized to actually do
+something constructive, rather than just whine.</p></html>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Dude...</h2>
+<h3><a href="/user/educated_foo/">educated_foo</a> on 2007-11-28T02:02:18</h3>
+Other than the sorting, wouldn't this be pretty much trivial with a bit of grep?  Something like:<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; grep '^Subject: ' $(find Maildir -type f) | grep -v '^Subject: re:'<br><br>Yeah, continuation lines would take a bit more, but mail's easy as long as you don't touch MIME.
+
+
+
+<blockquote>
+
+<h2>Re:Dude...</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2007-11-28T02:14:44</h3>
+My example was *radically* simplified for the point of demonstrating the headache, it was not the entire program I wanted to produce.
+
+
+
+<blockquote>
+
+<h2>Re:Dude...</h2>
+<h3><a href="/user/educated_foo/">educated_foo</a> on 2007-11-28T02:34:08</h3>
+Sorry, I was just guessing from what you posted and your description of a "better 'frm'."  But still, so long as you only care about headers, it seems like Email::Foo would be more trouble than it's worth.
+
+
+
+<blockquote>
+
+<h2>Re:Dude...</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2007-11-28T03:22:47</h3>
+You are wrong.<br><br>I don't want to match header-like content in bodies, or in the headers of subparts.  I need to match wrapped headers.  I will need to decode MIME-encoded headers.  I will need to parse RFC822 date fields.<br><br>Email isn't simple.
+
+
+
+<blockquote>
+
+<h2>Re:Dude...</h2>
+<h3><a href="/user/dug/">dug</a> on 2007-11-28T04:29:24</h3>
+<p><blockquote> <div><em>Email isn't simple.</em></div>
+</blockquote>
+<p>
+That said, I just today had to install some code that used your helpful modules in order to make it more simple.  Thanks a whole bunch.  You make email easier.
+</p>
+-- Douglas
+
+
+
+<blockquote>
+
+<h2>Re:Dude...</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2007-11-28T12:19:39</h3>
+Thanks! While I am more a maintainer than an author on many or most of the email modules under my name on the CPAN, knowing that they save people work is a nice motivator to keep doing my own work on them.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Dude...</h2>
+<h3><a href="/user/educated_foo/">educated_foo</a> on 2007-11-29T04:46:11</h3>
+Just trying to make a helpful suggestion, not question your intelligence or piss in your oatmeal.  Ah, well...
+
+
+
+<blockquote>
+
+<h2>Re:Dude...</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2007-11-29T11:41:14</h3>
+I'm sorry, I don't mean to come off crabby, but "<a href="http://www.oreillynet.com/onlamp/blog/2003/08/cant_you_just_redux.html" title="oreillynet.com">Can't You Just?</a oreillynet.com>" is a common refrain around email programming, and basically always leads to horrible problems due to the mistaken belief that email is just some headers and maybe a body.  I have grown bitter and grumpy whenever someone says to use something non-email-specific to do email stuff.<br><br>Maybe this is my brain's way of telling me that I'm done with email and should move on to something that's always fun, like the web.
+
+
+
+<blockquote>
+
+<h2>Re:Dude...</h2>
+<h3><a href="/user/educated_foo/">educated_foo</a> on 2007-11-30T02:42:00</h3>
+My bad.  I've spent a bit of time with email (but obviously not as much as you have), which probably made me overconfident.  Plus, for personal projects like this, I have a strong bias toward 80% or 90% solutions.
+
+<p>Anyways, enjoy that always-fun web.  (X|HT)ML seems just the thing to make email look simple.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

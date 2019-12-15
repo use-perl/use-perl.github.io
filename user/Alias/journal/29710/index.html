@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Task::Weaken - Install-time questions are bad bad bad!!!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Task::Weaken - Install-time questions are bad bad bad!!!</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2006-05-25T14:59:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>"Would you like to install PEM support?"<br/><br/>Bonus points if anyone knows what that the hell that means, before I tell you that it is a question you get when installing <a href="http://search.cpan.org/perldoc?Bundle::CPAN">Bundle::CPAN</a> on Windows.<br/><br/>In general, install-time questions in your <i>Makefile.PL</i> are almost always bad if you can possibly avoid them. Specifically, you want to avoid <b>any</b> questions where the resulting installation is different based on the answer.<br/><br/>What you want to strive for is that every installation is identical. If Module::Foo on one platform is different to another platform, you can no longer just list that module as a dependency and be absolutely sure of what will be there.<br/><br/>Every option doubles the locations for bugs and incompatibilities to hide.<br/><br/>In an ideal testing world, this is the most disasterous. Every install-time yes or no question should be tested for <b>both</b> the yes and no case, doubling the required test vectors.<br/><br/>If your module needs 40 (recursive) dependencies, which contain only 12 boolean questions in total (think "feature" questions), then ideally you need to run 2**12 test iterations (which is a LOT) in order to fully cover the module.<br/><br/>The questions seem appropriate when your module is new, but get more and more troublesome over time. The <a href="http://search.cpan.org/perldoc?Catalyst">Catalyst</a> guys have just realised this as well, and so you can expect that some time really soon all options will be removed from the main Catalyst distribution as part of their new risk management activities.<br/><br/>They realised it because most people (certainly the developers) always said yes, and then they hit a bug report from someone that said no. None of the developers could replicate the problem, and quite a bit of time was wasted.<br/><br/>But there's another reason that you should not need to ask certain types of questions.<br/><br/>Let's look at the PEM question earlier. I have no idea what PEM means, but the safe option seems to be to just install it.<br/><br/>But what about "Would you like to modify the abbc.csv file? If you answer wrong, this could break your abbc configuration."<br/><br/>Now what?<br/><br/>In almost every situation, the answer is not to provide a better description. People inherently do not read the details. The answer is to make educated guesses for them.<br/><br/>If a dependency is not needed for all users, but is for more than 50%, then just install it. If you can install without it, but need another module for a small percentage of users, default to no, and consider splitting your module into a seperate Module::Foo::PAR (for example) distribution.<br/><br/>But the REALLY good reason is that for every module on CPAN, a dozen or more people at various operating system distributions are eventually going to have to turn your CPAN package into an operating system package.<br/><br/>Which means there's no chance for per-user answers. Every RedHat user is going to get the same configuration. Every FreeBSD user won't have PAR support, and every Mandrake user will end up having to install half of Gnome because someone said yes to optional Gnome support.<br/><br/>Or to really boil it down to something catchy, since they have a long history of breaking modules for reasons I don't understand (sorry guys)...<br/><br/>"Every question your module asks is one that RedHat will answer wrong"<br/><br/>Along similar lines, Scalar::Util provides an option in a different way. It lets you install it with only a pure-perl version.<br/><br/>But that pure-perl version doesn't support the weaken and isweak functions, and the test scripts will still pass! So for anything with a Scalar::Util dependency you have two state test dimension. You need to test your module with a normal Scalar::Util, and you need to test it with a version that doesn't have weaken.<br/><br/>And people, including me, keep getting caught by this problem because we assume Scalar::Util has weaken, except that from time to time the distribution packager for some OS will take the easy option and just use the pure-Perl version.<br/><br/><a href="http://search.cpan.org/perldoc?Task::Weaken">Task::Weaken</a> is a distribution that aggressively negotiates (via integrated light sabre) with the user (or rather, downstream packager) to make sure they have a version of <a href="http://search.cpan.org/perldoc?Scalar::Util">Scalar::Util</a> that has "weaken" (and weak reference support generally).<br/><br/>If your module needs to use weaken, then as well as the normal Scalar::Util dependency in your (Makefile|Build.PL) you can also add Task::Weaken as a dependency and be certain that you will have an install with weaken support.<br/><br/>The alternative is to write your own weaken tests, but for some reason, people (Hello Redhat and Debian) keep forcing install on minor failed tests (like testing for weaken) or doing something to mean that they don't have weaken in any case.<br/><br/>And Task::Weaken should mean that can go in your Makefile.PL with the other dependencies, where you are actually thinking about the issue.</p>
+
+
+<hr/>
+
+
+
+<h2>About PAR not being available on FreeBSD</h2>
+<h3><a href="/user/parv/">parv</a> on 2006-05-26T04:36:05</h3>
+Could you please elaborate on PAR not being available on FreeBSD?  I can certainly create and use a PAR file.  Did you mean something else?
+
+
+
+<blockquote>
+
+<h2>Re:About PAR not being available on FreeBSD</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2006-05-27T16:47:32</h3>
+Other than the weaken problem itself, they were entirely notional examples with no grounding in reality whatsoever, and merely serve as examples.
+
+
+
+<blockquote>
+
+<h2>Re:About PAR not being available on FreeBSD</h2>
+<h3><a href="/user/parv/">parv</a> on 2006-05-28T03:22:16</h3>
+Ah, ok then.  You had me worried there as a regular user of both FreeBSD &amp; Perl.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

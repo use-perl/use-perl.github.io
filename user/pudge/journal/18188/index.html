@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: Wake Up</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Wake Up</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2004-04-04T01:17:28</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I don't know if there exists something better, but I couldn't find it, and I was curious anyway, and so I wrote my own.<br/><br/>I need to wake my computer at 3 a.m. to run nightly backups (using Backup.app from mac.com), but if the computer is asleep, it doesn't work.  IOPMSchedulePowerEvent() can wake the computer at a given time, but I had no existing Perl interface to it.  I could have added it to a Mac:: module, but in this case, I didn't have the time, and I currently have no use for it other than this one script.  Therefore, Inline.<br/><br/>One especially interesting thing about the code -- to me -- is that it uses the CFAbsoluteTime data type, which -- for reasons unknown to me -- is in seconds since January 1, 2001, GMT.  So the C code keeps a constant to calculate the difference from perl's time().<br/><br/><ECODE>#!/usr/local/bin/perl
+# i use this to make sure my computer wakes up by 3 a.m. every morning,
+# so my backups can run
+# i run it from cron every 15 minutes (the computer is set to sleep
+# after 15 minutes of inactivity)
+# */15 * * * * /Users/pudge/bin/wake.plx
+# pudge@pobox.com 2004-04-01<br/><br/>use strict;
+use warnings;
+use Time::Local;<br/><br/>use Inline  C => 'DATA',
+    LDDLFLAGS => '-bundle -flat_namespace -undefined suppress -framework Carbon',
+    INC       => '-I/Developer/Headers/FlatCarbon';<br/><br/>my $now = time();
+my @today = localtime($now);<br/><br/>@today[0, 1, 2] = (0, 55, 2);<br/><br/>my $then = timelocal(@today);
+$then += 86400 if $now > $then;<br/><br/>schedule_event($then, 'wake');<br/><br/>__END__
+__C__
+#undef Move
+#undef I_POLL
+#undef DEBUG
+#include <Carbon.h>
+#include <mach/error.h><br/><br/>// "type" defines here
+// can be sleep, wake, shutdown, poweron, and wakepoweron
+//#include <IOKit/pwr_mgt/IOPMKeys.h><br/><br/>// difference between Unix epoch and CFAbsoluteTime epoch
+#define EPOCH_DIFF 978307200 <br/><br/>long schedule_event(long seconds_time_to_wake, const char * event_name)
+{
+	CFDateRef time_to_wake;
+	CFStringRef type;
+	IOReturn io_error;<br/><br/>	seconds_time_to_wake -= EPOCH_DIFF;
+	time_to_wake = CFDateCreate(kCFAllocatorDefault, (CFAbsoluteTime)seconds_time_to_wake);<br/><br/>	type = CFStringCreateWithCString(kCFAllocatorDefault, event_name, NULL);<br/><br/>	io_error = IOPMSchedulePowerEvent(time_to_wake, NULL, type);<br/><br/>	CFRelease(time_to_wake);
+	CFRelease(type);<br/><br/>	if (io_error != 0) {
+		printf("system: 0x%x, subsystem: 0x%x, code: 0x%x\n",
+			err_get_system(io_error),
+			err_get_sub(io_error),
+			err_get_code(io_error)
+		);
+	}<br/><br/>	return io_error;
+}
+</ECODE>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Missing something?</h2>
+<h3><a href="/user/melopt/">melopt</a> on 2004-04-05T11:43:37</h3>
+Maybe I'm missing something, but have you checked System Preferences &gt; Energy Saver &gt; Schedule  does what you need?<br> <br>You can ask your computer to wakeup at 3:00 am and cron Backup.app to run at 3:15...<br> <br>Best regards,
+
+
+
+<blockquote>
+
+<h2>Re:Missing something?</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-05T21:09:03</h3>
+No<nobr> <wbr></nobr>... there's no way to tell it to wake up, only to startup, sleep, or shut down.  In theory, the start up does a "wakepoweron", which should both wake and turn power on, but it doesn't work for me in practice.  Go figure.
+
+
+
+
+
+</blockquote>
+
+
+<h2>You should have looked harder :)</h2>
+<h3><a href="/user/GrayFox/">GrayFox</a> on 2004-04-27T20:18:07</h3>
+Hey I had the same problem, I built a Cocoa solution using
+the IOPowerManager interface, dailyWakeup. When periodic
+daily then runs I have it requeue a request for the next day.<br/><br/>I also wrote a GUI interface to the timer queue ( Cocoa
+based).<br/><br/>My main problem is that when I wake the box up, it won't
+stay awake very long, just three or four minutes even though
+the energy saver panel is set for 15 minutes.<br/><br/>Details at: http://homepage.mac.com/levanj/Cocoa<br/><br/>
+--Jerry
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-27T22:35:29</h3>
+Yes, I just saw that yesterday.  I was going to ask you if you know why I would have something scheduled for wakeup, that sometimes it won't wake up at all.
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/GrayFox/">GrayFox</a> on 2004-04-27T22:48:38</h3>
+If you look at the system log, I bet it will show the wakeup
+did take place, it probably went back to sleep before the
+task fired. I find that I have to fiddle a bit to get the wakeup
+close enought to task time. Cron only checks one a minute...<br/><br/>Jerry
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-27T23:30:33</h3>
+No, I had the wakeup scheduled hours before it went to sleep, then it went to sleep, and it never woke up hours later, when it was scheduled to.
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/GrayFox/">GrayFox</a> on 2004-04-28T00:11:34</h3>
+This morning I had a wakeup scheduled for about 3:13:45 am<br>this was in my system log.<br>Apr 27 03:15:02 macjerry syslogd: restart<br>Apr 27 03:15:03 macjerry kernel: ApplePMUUserClient::setProperties AutoWake 0x00000000<br>Apr 27 03:15:03 macjerry kernel: ApplePMUUserClient::setProperties AutoPower 0x00000000<br>Apr 27 03:15:03 macjerry kernel: ApplePMUUserClient::setProperties AutoWake 0x00015123<br>Apr 27 03:15:03 macjerry osascript: LaunchApplication(/System/Library/CoreServices/System Events.app)<br>Apr 27 03:15:59 macjerry<nobr> <wbr></nobr>/usr/libexec/fix_prebinding: fix_prebinding quitting for now.<br>Apr 27 03:17:23 macjerry mDNSResponder[147]: mDNSResponder Sleeping at 567782354<br>Apr 27 03:17:24 macjerry kernel: ApplePMUUserClient::setProperties AutoWake 0x00015096<br>Apr 27 03:17:28 macjerry kernel: AppleNMI mask NMI<br>Apr 27 03:17:28 macjerry configd[92]: AppleTalk shutdown<br>Apr 27 03:17:28 macjerry configd[92]: AppleTalk shutdown complete<br>Apr 27 07:38:29 macjerry kernel: System Sleep<br> <br>Note it went back to sleep after only four minutes even though<br>the Energy saver is set for 15 minutes.  The autowake setting<br>referred to above is about 24 hours and is emplaced by my<br>cron job calling "dailyWakeup". Did you check the system log?<br>I think the Power Manager might still be a bit flakey.<br> <br>My PMQueueManager shows the queue....<br> <br>Jerry
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-28T02:37:02</h3>
+I'll get back to you hopefully tomorrow<nobr> <wbr></nobr>... I am setting it to wake up at 2:55 a.m. tomorrow.  My cron job runs every 15 minutes to set it.<blockquote><div> <tt>[pudge@thornton pudge]$ date; pmset -g sched<br>Tue Apr 27 19:27:03 PDT 2004<br>No scheduled events.<br>[pudge@thornton pudge]$ date; pmset -g sched<br>Tue Apr 27 19:35:39 PDT 2004<br>Scheduled power events:<br>&nbsp; wake at 4/28/2004 2:55:00AM by wake.plx</tt> </div></blockquote>
+
+
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-28T14:41:49</h3>
+<blockquote><div> <tt>Apr 28 02:55:08 localhost kernel: System Sleep<br>Apr 28 02:55:08 localhost kernel: System Wake<br>Apr 28 02:55:08 localhost kernel: Wake event 0040<br>Apr 28 02:55:09 localhost kernel: AppleNMI unmask NMI<br>Apr 28 02:55:09 localhost kernel: ^PAirPort:&nbsp; Link UP:&nbsp; "PudgeLAN" - xxxxxxx - chan 10<br>Apr 28 02:55:12 localhost mDNSResponder[174]: mDNSResponder Waking at 3704028<br>Apr 28 02:55:12 localhost kernel: ApplePMUUserClient::setProperties AutoWake 0x00000000<br>Apr 28 02:55:12 localhost kernel: ApplePMUUserClient::setProperties AutoPower 0x00000000<br>Apr 28 02:55:44 localhost<nobr> <wbr></nobr>/usr/libexec/fix_prebinding: fix_prebinding quitting for now.<br>Apr 28 02:56:57 localhost mDNSResponder[174]: mDNSResponder Sleeping at 3809175<br>Apr 28 02:57:01 localhost kernel: AppleNMI mask NMI<br>Apr 28 07:28:20 localhost kernel: ^PAirPort:&nbsp; Link DOWN<br>Apr 28 07:28:20 localhost kernel: System Sleep<br>Apr 28 07:28:20 localhost kernel: System Wake</tt> </div></blockquote>The clock in the menu bar read 2:56 when I woke it up this morning at about 7:28 a.m.  (I deleted log entries relating to my audio device drivers, the rest is there).<br> <br>I am still not convinced that this has been the problem all along; there is no system log at all for April 24 (when it should have woken up), for example.  But here, man, it stayed awake for two minutes?  Jeez.<br> <br>Did you file a bug report yet?
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/GrayFox/">GrayFox</a> on 2004-04-28T15:02:19</h3>
+Nope, I never thought about it<nobr> <wbr></nobr>:) I suspect each keydown, mousemotion probably sets a watchdog timer, since nothing
+gets moved/pressed it is not clear to me what would happen...<br/><br/>Jerry
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-28T16:24:53</h3>
+Yeah, if I get some time, I may try to see if I can't reset that timer.
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/GrayFox/">GrayFox</a> on 2004-04-28T16:30:49</h3>
+Hmm,<br>Let's try a photosensor looking at the screen, when activated<br>by the wakeup, cut current to electromagnet holding weight<br>above keyboard, yeah that ought to do the trick<nobr> <wbr></nobr>:)<br> <br>I have not tried (at any time) system events, do you think<br>simulating a key press would do the trick?<br> <br>Jerry
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-28T17:20:35</h3>
+I dunno.  My first attempt was going to be to look for the timer itself, to reset it.  My next was going to be to try simulating it as you mentioned.
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/GrayFox/">GrayFox</a> on 2004-04-29T13:56:16</h3>
+Got this from someone at apple...<nobr> <wbr></nobr>// cc -o keypress keypress.c -framework Carbon<br>#include <br>main() {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; UpdateSystemActivity(OverallAct);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return 0;<br>}<br> <br>He said it "might" work.<br> <br>I got my full fifteen minutes last night...<br> <br>Jerry
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/GrayFox/">GrayFox</a> on 2004-04-29T13:59:26</h3>
+<tt>Whoops, the include did not include...<br> <br>// cc -o keypress keypress.c -framework Carbon<br>#include &lt;Carbon/Carbon.h&gt;<br>main() {<br>&nbsp; &nbsp; UpdateSystemActivity(OverallAct);<br>&nbsp; &nbsp; return 0;<br>}<br> <br>Jerry</tt>
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-29T21:08:19</h3>
+I just added this to my perl script instead of making it a separate program, fwiw.  And I tried it, and it woke the screen up after it had gone to sleep, so that's a good sign.<nobr> <wbr></nobr>:-)
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/GrayFox/">GrayFox</a> on 2004-04-30T16:44:53</h3>
+<tt>I created 400.keypress containing:<br>#!/bin/sh<br>/usr/local/bin/keypress<br> <br>and dumped it into<br>/etc/periodic/{daily | weekly | daily} ( and made sure it is executable )<br> <br>It fired first when cron started and I got my 15 minutes of fame.<br> <br>http://homepage.mac.com/Cocoa for the whole story/package<br> <br>Jerry</tt>
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-30T17:15:13</h3>
+Last night the machine stayed awake for awhile, but then Backup.app didn't run at 3 a.m. like it was supposed to.  Grrrr!  Maybe I'll try waking it up earlier than 2:55 a.m.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-29T14:33:07</h3>
+This is with using it, you got your full 15?  Excellent.  Last night I got nothing:<blockquote><div> <tt>Apr 29 02:55:09 localhost kernel: AppleNMI mask NMI<br>Apr 29 02:55:09 localhost kernel: AirPort:&nbsp; Link DOWN<br>Apr 29 02:55:10 localhost kernel: System Sleep<br>Apr 29 02:55:10 localhost kernel: System Wake<br>Apr 29 02:55:10 localhost kernel: Wake event 0040<br>Apr 29 02:55:10 localhost kernel: AppleNMI unmask NMI<br>Apr 29 02:55:10 localhost kernel: ^PAirPort:&nbsp; Link UP:&nbsp; "PudgeLAN" - xxxxxxx - chan 10<br>Apr 29 02:55:13 localhost kernel: AFPSleepWakeHandler:&nbsp; waking up<br>Apr 29 02:55:13 localhost mDNSResponder[174]: mDNSResponder Waking at 9197583<br>Apr 29 02:55:13 localhost kernel: ApplePMUUserClient::setProperties AutoWake 0x00000000<br>Apr 29 02:55:13 localhost kernel: ApplePMUUserClient::setProperties AutoPower 0x00000000<br>Apr 29 02:57:24 localhost kernel: AFPSleepWakeHandler:&nbsp; going to sleep<br>Apr 29 02:57:24 localhost mDNSResponder[174]: mDNSResponder Sleeping at 9328729<br>Apr 29 02:57:28 localhost kernel: AppleNMI mask NMI</tt> </div></blockquote>This time, when I woke up this morning, my clock still said 6 p.m. from the previous night.<br> <br>So the question I have is: how do you set it so this "keypress" happens before it goes back to sleep?<br>
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/GrayFox/">GrayFox</a> on 2004-04-29T14:59:20</h3>
+He also told me that there was a problem if you use a password<br>protected screensaver, if a password is not entered in 90 seconds, the machine will go back to sleep.<br> <br>Jerry
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-29T15:17:08</h3>
+I don't use a screen saver.<br> <br>But how do I get that entered when the machine wakes up?
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/GrayFox/">GrayFox</a> on 2004-04-29T15:34:51</h3>
+<tt>You can have cron execute it<nobr> <wbr></nobr>:) Last night I added one line<br>to my<nobr> <wbr></nobr>/etc/daily.local file. This gets executed by<nobr> <wbr></nobr>/etc/daily<br>which is in turn executed by periodic<nobr> <wbr></nobr>.<br>/usr/bin/mail -s Crontab jerry &lt;&lt;DOC<br>Cron ran at `date`<br>`/usr/local/bin/dailyWakeup`<br>`/usr/local/bin/keypress`<br>DOC<br> <br>dailyWak eup queues a request for the following night, the<br>keypress code evidently extends the session.<br> <br>Tonight I am going to create a 400.mystuff file that simply<br>executes the<nobr> <wbr></nobr>/usr/local/bin/keypress command and dump<br>it into<nobr> <wbr></nobr>/etc/periodic/daily. I believe that periodic will execute<br>the files in this directory in "ls" order.<br> <br>Jerry</tt>
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-29T15:53:05</h3>
+Putting it in<nobr> <wbr></nobr>/etc/daily.local will guarantee it is run before the computer goes back to sleep?  It looks to me (from looking at daily.out) that stuff from daily won't run unless the computer is awake at the time.
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/GrayFox/">GrayFox</a> on 2004-04-29T16:08:00</h3>
+<tt>On my system, daily.local always fires, I guess that I don't<br>have that much extra to do...<br> <br>However I am starting to do weekly backups of some big<br>folders and that is why I am going to have a seperate file<br>containing code that will execute the keypress function and<br>have periodic execute this file just before any of the longer<br>jobs...Are we on the same page?<br> <br>dailyWakeup queues an event that causes the system to wake<br>a little before cron fires.<br> <br>cron fires and executes a script that contains the keypress function. ( stashed in<nobr> <wbr></nobr>/etc/periodic/daily[weekly}{monthly})<br> <br>the keypress function extends the wake time until the energy<br>panel limit<br> <br>If more time is needed I might have to increase the time to sleep<br>or execute another "keypress".<br> <br>Jerry</tt>
+
+
+
+<blockquote>
+
+<h2>Re:You should have looked harder :)</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2004-04-29T16:15:30</h3>
+<em>dailyWakeup queues an event that causes the system to wake a little before cron fires.</em> <br> <br>That's the part that concerns me.  Last night, the machine wasn't even awake long enough for the clock in the GUI to update.  I guess I can try setting them a minute apart and see what happens.<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

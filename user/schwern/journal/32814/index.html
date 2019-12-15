@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: The problem with homogeny (in testing)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>The problem with homogeny (in testing)</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2007-03-28T06:01:29</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Another paste-archive of a mini-essay.  This one from a reply to Skud's post on perl-qa.  I've seen many variations on this theme.
+-------------------------------------------------------------------------------<br/><br/>Kirrily Robert wrote:
+> We've got a situation where we have a suite of tests for a web app.  It
+> starts of testing the lib/ and whatnot, but eventually gets to the point
+> where it uses Test::WWW::Mechanize to go fetch stuff from the
+> developer's sandbox website and do a sanity check on the web application
+> itself.
+> 
+> The problem is that all the developer sandbox websites run on one server
+> that's groaning under the strain.  It's in the process of being replaced
+> but we're not there yet.  The upshot of this is that on a good day, the
+> web tests take ages to run, and on a bad day they time out.  
+> 
+> It's got to the point where the developers just kind of mentally tune
+> out failures in the web tests, and I'm worried about the "broken window"
+> effect.
+> 
+> Any suggestions for how to work around this?  All I've got so far is the
+> idea of splitting out the web tests into another directory, and treating
+> them as "functional tests" that developers would typically run less
+> often than the unit tests.<br/><br/>Ahh, the "one test server" problem.  Each developer has a perfectly fine and highly overpowered computer sitting on their desk which is relegated to be, essentially, a dumb terminal.  Maybe you run ssh into the dev box, a web browser and maybe an editor.  What a tragic waste of resources.<br/><br/>Instead, each developer's machine should be capable of running a complete copy of the sandbox website.  Then the tests fire up the sandbox on the local machine and run against that.  No strained single test server to worry about.  Individual devs can work isolated from other devs.  They can futz around with the sandbox as much as they like without worrying about breaking everybody else.<br/><br/>This requires that <br/><br/>A) the setup of the web site be automated
+B) the code not contain all sorts of hard-coded absolute paths
+C) the dev machines contain the software necessary to run the site<br/><br/>A and B themselves have many other benefits outside testing.  In general you'll want to move any hard-coded values out of the code and into a config file.  Incidentally they also allow a single dev to run multiple sandboxes for multiple branches of code they're working on.<br/><br/>C is a little trickier.  If the devs are using the same basic OS as the servers then its not so bad.  Just install the appropriate packages and go.  You can even make your project a package and declare all its dependencies.<br/><br/>But if the developers are using Operating System A (just for example, Windows) and the servers are using Operating System B (let's say Linux) then life gets a little tricker, but not impossible.  If its just a few hold outs, then they can use the now not-so-heavily loaded central testing machine and everyone else can use their dev machines.<br/><br/>If most of your software is platform agnostic (Apache, a SQL database, Perl...) then your devs can install it.  You can even go so far as to include all dependent source and the means to automatically build it in your repository.<br/><br/>Another route is to go the "lite" software route.  Instead of testing with Apache and PostgreSQL, test with HTTP::Server::Simple and SQLite.  Easier to install and configure.  The downside is you're not testing against your real production environment so something still should test against a staging server.<br/><br/>If your software isn't platform agnostic, consider something like VMWare images.  At this point I wave my hands like so and throw a ninja flash bomb *POOF!*<br/><br/>
+One major difference is that you're going from a homogeneous testing environment -- one server, one install, one version of the dependent software, one environment -- to a heterogeneous one.  Many different environments, versions, operating systems, etc.<br/><br/>The homogeneous environment is a seductive one.  Its simple and easy to maintain.  You don't have to worry about different developers getting different results because they're using different versions of the software.  You know that the machine the code was tested on and the production server match because they're built the same way and there's only one to worry about.<br/><br/>But it is an inflexible and all-or-nothing approach.  For an example let's look the great buggaboo of the homogeneous testing system: upgrades.<br/><br/>Let's say you're using Perl 5.6.2.  This means EVERYONE is using 5.6.2.  Every developer, every system one a single version of Perl.  This means everyone is coding for the same bugs, quirks and undocumented features of that particular version of Perl.  As long as it all works on that one version nobody is thinking there's anything wrong.  So everyone continues to write code with subtle mistakes that are more and more specific to that version of Perl.<br/><br/>Now you want to upgrade to 5.8.8.  With just one test server there's nothing to do but upgrade it and see what happens, effecting everyone at once.  With great dread and trepidation the upgrade is done and KERBLAM!  Failures everywhere.  All that code that was slightly wrong but just happened to work on 5.6 no longer works on 5.8.  New warnings, fixes to bugs you were depending on, module upgrades, undocumented features revealed to be bugs and fixed, experimental features gone.  Now what?  Your test server is broken.  Nobody can test anything.  How do you fix the code to do the upgrade without breaking the test server?<br/><br/>The answer is you don't.  You rapidly downgrade so people can get work done.  Then maybe, if you're really dedicated, you come in after work, upgrade the test server and fix as much as you can then downgrade again before anyone comes into work the next day.  More likely you just never upgrade.  And than you wake up one day to find yourself running Perl 5.5.4, MySQL 3.22 and Apache 1.3 all on a Redhat 7.2 box.  Deep at the bottom of a steep pit of upgrades.<br/><br/>Another, similar, example is what happens when someone wants to do an experiment?  Maybe they want to try a new database, Postgres instead of MySQL.  Maybe they want try Perl compiled differently.  Maybe they want to try a different web server.  Sorry, can't do it.  It would require changing the test server.  And anyway your code is so tied to a single environment, a single set of dependencies and a single version of them that it will be very difficult to code flexibility back in.<br/><br/>
+The heterogeneous environment avoids all this.  Different developers can freely use different versions of dependent software and different environments.  Inflexibility is immediately spotted and destroyed.  A dev can experiment on their own box as they like.  Individuals are using slightly different versions and incrementally discovering what breaks from version to version rather than all in one big upgrade leap.  The version ball keeps getting moved forward.<br/><br/>The danger is too much flexibility.  Its great that your software works on Oracle, MySQL, SQL Server, SQLite, PostgreSQL and DB2 but if its an in-house app and all you ever use in production is Postgres then all that extra work might have been a waste.  Maintaining portability to 2 distinct systems, maybe 3, is enough.<br/><br/>The other danger is in never testing on the same environment as the production server.  This is why you need a staging server, a server configured just like the production server where the software is installed and tested before it moves onto the production server.<br/><br/>
+That's the Big Upgrade Plan.  There's all sorts of social and technical things to overcome.  Meanwhile, here's a cheap hack: Run the full test suite only on commit.  Store and display the results with something like Test::TAP::HTMLMatrix.  Here's an example:
+http://smoke.pugscode.org/<br/><br/>This is not ideal, but each commit is tested.  The results are saved and displayed.  A new failure can be easily tracked back to the commit and the developer who did it so they can immediately fix it.
+</p>
+
+
+<hr/>
+
+
+
+<h2>An excellent essay...</h2>
+<h3><a href="/user/Skud/">Skud</a> on 2007-03-28T09:49:35</h3>
+... but completely bloody useless in my particular case.  I mean, yes, the solution you mention is the right one.  We're getting there *slowly*.  There's a decade of cruft to clean out.  Meanwhile, I don't want people thinking that testing is worthless because "they never pass anyway".
+
+
+
+<blockquote>
+
+<h2>Re:An excellent essay...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-03-28T14:54:39</h3>
+Frankly, this is part of the reason I try to keep all my web apps as CGIs and not using server-integrated web stuff like mod_perl until absolutely necesary.<br><br>It makes testing a hell of a lot simpler.<br><br>But back to Skud's case. Personally, I'm finding I'm using environment variables a hell of a lot more for giant testing sets (in my case, say 27000 tests in 80 scripts).<br><br>That way I can factor out problems.<br><br>For example, I want to be able to test as much of my app as possible, even without a working database setup.<br><br>So I have a TEST_DB that isolates various parts of the scripts in SKIPs, and skips some scripts altogether, and a TEST_WWW variable that (if defined) specifies to do the web testing, and where the URL of the web location of the current testing context is.<br><br>It bulks out the tests a little with all those extra SKIP blocks and stuff, but it's been worth it.<br><br>On any new environment, first I run the tests without any flags to pick up dependency and syntax/logic/etc problems, then I turn on the web tests and run again, then when all that is fixed, I turn on the web tests and run again.<br><br>And for full testing, the AUTOMATED_TESTING flag turns all of it on.<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:An excellent essay...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-03-28T15:07:35</h3>
+"then I turn on the web tests and run again, then when all that is fixed, I turn on the web tests and run again."<br><br>That should read "then I turn on the database tests and run again, then when all that is fixed, I turn on the web tests and run again."
+
+
+
+<h2>Re:An excellent essay...</h2>
+<h3><a href="/user/Skud/">Skud</a> on 2007-03-28T21:56:18</h3>
+I guess my concern with this is that nobody would ever set TEST_WEB to true.<br><br>*sigh*, it's a hard problem.  And I recognise that Schwern's comments do indicate the Right Thing -- and certainly what we had at the last job where I got to dictate such things -- but unfortunately my current team didn't have such a thing in place before I started there and was getting away with it because the team was small.  Suddenly the team doubles, the server starts groaning, and there's such a legacy of centralised development that moving to desktop development is a very very difficult process.<br><br>Which we're starting on.  But meanwhile I need to do something about these broken windows.  Sigh.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Not for all environments</h2>
+<h3><a href="/user/cbrandtbuffalo/">cbrandtbuffalo</a> on 2007-04-18T17:29:08</h3>
+For me, the biggest factor leaning toward the central dev server is having a whole bunch of developers admining many different resources on their own machines. For advanced users familiar with, say, Apache, perl and mod_perl admin experience, this might not be a big deal. But there are places where many of the developers work in just one slice of the stack, Perl coding for example. For those folks, the additional cost of having them keep their personal environment up-to-date and running properly isn't worth the benefits.
+<br> <br><br/><br/>With regard to the upgrade problem, there are other ways to better manage the big bang. First, don't let yourself get too far out of date. If you find yourself there, install all the new stuff in a separate area and symlink to it. Then you can quickly try a new version and flip back or have some folks play games with their personal paths and test. We also keep perl in version control so we can do builds quickly and revert if need be.
+<br> <br>
+We've also done things to make it possible to run personal dev servers from the shared httpd binary, so we've mitigated some of the short-comings of the shared server environment there.<br/><br/><br> <br>
+I guess my point is, on this topic, I don't think there is one way to always do it. I've often considered trying to convert us to individual dev workstations, but for us, I believe the cost in time futzing around with broken environments would outweigh the benefits. So we put time into developing workarounds for the problems you correctly point out.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

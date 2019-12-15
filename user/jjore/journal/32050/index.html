@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjore: Thinking about embedding constraints in perl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Thinking about embedding constraints in perl</h1>
+<h2><a href="/user/jjore/">jjore</a> on 2007-01-02T20:24:35</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'd like to integrate a logic engine into normal imperative perl with some reasonable ergonomics. This is all sugar for getting to AI::Prolog. It's just an experiment with myself about how to allow normal code to use the benefits of logic programming.<br/><br/>The primary benefits I'm interested in are abstracting away the search code, parameterizing the search strategy, and simplicity of maintenance.<br/><br/>A package may have a database of rules, variables, bindings, whatever. It's just a package variable or something like that.<br/><br/>Logic variables get tied because they were tagged with an attribute like :Logic or something. Interacting with the variables means assertions get stored or tested in the database.<br/><br/>I'm in the middle of learning Mozart which does this kind of thing and then I probably ought to go learn how Mercury parameterizes its search strategies.<br/><br/><pre>
+package Somewhere;
+# Hoist 'RULES' block to be executed like BEGIN or similar
+RULES {
+    # RULES GO HERE
+    $bar == $foo;
+}<br/><br/>sub foo {
+    $bar = 42;<br/><br/>    RULES {
+        # These rules are present for this scope?
+        $baz == $quux;
+    }<br/><br/>    return $foo; # returns 42
+}
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Rethinking Prolog</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-01-02T22:35:01</h3>
+<p>Part of the reason I'm glad that they didn't try to shoehorn logic programming into Perl 6 is the following:</p> <p><blockquote> <div><tt>father(jim,bob).<br>father(bob,sean).<br>mother(alice,bob).<br>mother(alice,mary).<br>m<nobr>o<wbr></nobr>  ther(mary,sally).<br>parent(P,C)<nobr> <wbr></nobr>:-<br>&nbsp; &nbsp; father(P,C);<br>&nbsp; &nbsp; mother(P,C).<br>siblings(S1,S2)<nobr> <wbr></nobr>:-<br>&nbsp; &nbsp; parent(P,S1),<br>&nbsp; &nbsp; parent(P,S2),<br>&nbsp; &nbsp; S1 \= S2.<br>cousin(X,Y)<nobr> <wbr></nobr>:-<br>&nbsp; &nbsp; parent(P1,X),<br>&nbsp; &nbsp; parent(P2,Y),<br>&nbsp; &nbsp; siblings(P1,P2).</tt></div> </blockquote>  <p>Now ask any version of Prolog who cousins are:</p> <p><blockquote> <div><tt>?- consult('family.pro').<br>% family.pro compiled 0.00 sec, 1,816 bytes<br> <br>Yes<br>?- cousin(X,Y).<br> <br>X = sean<br>Y = sally<nobr> <wbr></nobr>;<br> <br>X = sally<br>Y = sean<br> <br>Yes<br>?- </tt></div> </blockquote>  <p>Whee!  We have the same logical problem that we routinely get with SQL:  results are bags, not sets, and thus can cause all sorts of difficulties for programmers.  In fact, if you troll through Prolog posts on message boards, read through homework assignments, or just check <tt>comp.lang.prolog</tt>, the question which keeps popping up time and time again is "why am I getting duplicates?"  Of course, once you understand how Prolog's search strategy works, the duplicates are obvious, but the problem is, they're useless.  They're just telling you the same thing more than once.  I fear Perl 6 would suffer the same problems.</p>
+
+<p>Of course, you can write routines (as Prolog programmers often do) to cull the duplicates, but they often suffer bugs because, as you can see from the above example, we even have the correct data bound to different variables in the duplicates.  That makes culling duplicates a serious problem, even though this would be a non-issue if Prolog returned sets instead of bags.  In SQL this is avoided via "SELECT DISTINCT", so at least it's easy to work around, but bags shouldn't be returned in the first place because it's terribly easy to return bags and get incorrect answers (like when you're counting how many results satisfy a certain rule).</p>
+
+<p>I love Prolog because it's so frickin' easy and it makes some hard problems really simple to deal with, but like most declarative programming implementations I've stumbled across, it doesn't return <em>logically</em> correct answers, it returns <em>algorithmically</em> correct answers which, when reduced to sets, are logically correct.</p>
+
+<p>Side note:  if you want a pure Perl version of this problem using regular expressions, tell me an "easy" way of getting rid of duplicates with the following (thing of Prolog's <tt>append/3</tt>)<nobr> <wbr></nobr>:)</p> <p><blockquote> <div><tt>use re 'eval';<br>my $string = "abc";<br>my $length = length $string;<br>my $regex&nbsp; = qr/(\G[$string]{0,$length}(?{print "# [$&amp;][$'][$string]\n"}))/ x 2;<br>$string =~ $regex;</tt></div> </blockquote>  <p>(Caching and filtering results is cheating because you're still doing all of the work up front and just hacking the results rather than correcting the underlying flaw).</p>
+
+<p>Also, Prolog math is not logical.  You can't simply use this the way you might think:</p> <p><blockquote> <div><tt>convert(Celsius, Fahrenheit)<nobr> <wbr></nobr>:-<br>&nbsp; &nbsp; Celsius is (Fahrenheit - 32) * 5 / 9.</tt></div> </blockquote>  <p>You can solve <tt>convert(C, 50)</tt>, but not <tt>convert(50, F)</tt>, because Prolog can't solve the RHS without Fahrenheit being bound.  I do understand that there are work-arounds to many of these problems and if you stumble across a logic programming system which handles these natively with a clean algorithm, I've love to see it.</p>
+
+
+
+<h2>Oops!</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-01-02T22:36:50</h3>
+<p>I forgot to mention that, ignoring everything I wrote above, I'd still love to see this!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

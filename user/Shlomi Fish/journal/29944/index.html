@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Shlomi Fish: Bugzilla and srand()</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Bugzilla and srand()</h1>
+<h2><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2006-06-18T17:48:29</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+We didn't have a bugtracker at work, and since we needed it pretty badly, I
+volunteered to install <a href="http://www.bugzilla.org/">bugzilla</a>. After
+I got the root password, I was able to start the installation.
+</p>
+
+<p>
+I downloaded the bugzilla 2.22 which is the latest stable version. And read
+the QUICKSTART guide. I ran checksetup.pl repeatedly to look for uninstalled
+CPAN modules, and installed them using <a href="http://search.cpan.org/dist/Ovid/">Ovid (the CPAN-to-RPM gateway, not Curtis "Ovid" Poe)</a> and rpm. Then
+I set up a database.
+</p>
+
+<p>
+I encountered a problem where Apache just displayed the code of the CGI scripts
+instead of running them. This was resolved by uncommenting an Apache
+directive from httpd.conf (it was pointed at the QUICKSTART guide by I
+assumed it was OK on our server). Then I tried to login with the password
+of the admin account. It did not work.
+</p>
+
+<p>
+I changed the password, it did not work again. So I had to investigate. Turns
+out that the code for crypting the password is the following:
+</p>
+
+<pre>
+my @saltchars = (0..9, 'A'..'Z', 'a'..'z', '.', '/');
+my $salt = '';
+for ( my $i=0 ; $i &lt; 8 ; ++$i ) {
+    $salt .= $saltchars[rand(64)];
+}
+my $cryptedpassword = crypt($password, $salt);
+</pre>
+
+<p>
+Now the rand() call is interesting. If we want it to be determinstic, than 
+either srand() should be called previously or we can assume it will yield
+the same values on each invocation of Perl.
+</p>
+
+<p>
+However, this happens:
+</p>
+
+<pre>
+$ perl -le 'print int(rand(10))'
+8
+$ perl -le 'print int(rand(10))'
+5
+</pre>
+
+<p>
+And a grep for <tt>srand()</tt> on the bugzilla code yielded no result.
+</p>
+
+<p>
+I added a call to srand() at the beginning of the module with a number I chose,
+and then it worked.
+</p>
+
+<p>
+I wonder why the call to srand() is absent, and its need is not documented
+anywhere. There are also other possible problems with the portability of
+<tt>rand()</tt> and <tt>crypt()</tt>. In order to not completely slander 
+bugzilla here, I'd like to add that except for the <tt>srand()</tt> issue,
+setting up bugzilla was very straightforward, and starting to administrate
+the bugs database was also a very pleasant experience. It truly is a fine,
+powerful and easy to use and setup product.
+</p>
+
+<p>
+I recall that in the early DOS and XT-ROM versions of BASIC, the random number
+generator generated the same numbers on every invocation. Maybe that was
+also the case for perl5, but it obviously no longer is, so I wonder how
+come Bugzilla was not adapted yet.
+</p>
+
+<p>
+And BTW, in case you're not monitoring Gabor Szabo's journal or the perl-qa 
+mailing, you should check out 
+<a href="http://use.perl.org/user/gabor/journal/29937">this entry in his journal
+    about slides for software testing with Perl</a>.
+</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>rand() is supposed to call srand()</h2>
+<h3><a href="/user/rhesa/">rhesa</a> on 2006-06-18T21:09:23</h3>
+On modern perls at least, rand() will call srand() if it hasn't been called before.<br><br>My <code>perldoc -f srand</code> says:<br><blockquote><div>If srand() is not called explicitly, it is called implicitly at the first use of the "rand" operator.  However, this was not the case in versions of Perl before 5.004, so if your script will run under older Perl versions, it should call "srand".</div></blockquote>
+
+
+
+<h2>Bugzilla is evil</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-06-19T22:05:54</h3>
+<p>Bugzilla is a hole-ridden hackfest that gives Perl a bad name. Try <a href="http://www.bestpractical.com/rt/" title="bestpractical.com">RT</a bestpractical.com> instead; if non-Perl systems aren&#8217;t a problem, be sure to check out <a href="http://www.edgewall.com/trac/" title="edgewall.com">Trac</a edgewall.com>.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: Is there a problem with smart matching, when(), and &amp;amp;&amp;amp;?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Is there a problem with smart matching, when(), and &amp;amp;&amp;amp;?</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2008-02-18T06:19:39</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+I <a
+href="http://www.nntp.perl.org/group/perl.perl5.porters/2008/01/
+msg133748.html">posted this to perl5porters</a> without response, and
+also filed a <a
+href="http://www.nntp.perl.org/group/perl.perl5.porters/2008/02/
+msg133962.html">bug report</a> without a response. I figure it's
+either a bug no one has time to think about or I'm just an idiot (and
+I figure it might be a coin flip between those two). I'm trying to
+figure out <code>when()</code> using smart-matching combined with
+logical operators for the next edition of <i>Learning Perl</i>.
+</p>
+<p>
+For a little background: <a href="http://perldoc.perl.org/perlsyn.html">perlsyn</a> notes that there are exceptions
+to smart matching in <code>when()</code>:
+</p>
+
+<ul>
+<li>a subroutine call
+<li>a regex using $_ by default (which is a smart match, btw)
+<li>a regex expliclty bound to a variable (negated, even)
+<li>an explicit comparison
+<li>defined(), exists(), or eof()
+<li>a negated expression (!, not)
+<li>an xor
+</ul>
+
+<p>
+Right after that bit in <a href="http://perldoc.perl.org/perlsyn.html">perlsyn</a>, it talks about <code>&&</code>.
+</p>
+
+<blockquote><i>
+If EXPR is ... && ... or ... and ... , the test is applied
+recursively to both arguments. If both arguments pass the
+test, then the argument is treated as boolean.
+</i></blockquote>
+
+<p>
+That last sentence is weird. If both arguments pass the test,
+it's treated as boolean. What does that imply if one or both
+don't pass the test? And, is "test" just "one of the previously
+listed exceptions".
+</p>
+<p>
+So, the example I was playing with wanted to check if a value was
+in an array and also the key of a hash:
+</p>
+
+<pre>
+given( $foo ) {
+	when( @n && %n ) { ... }
+	}
+</pre>		
+
+<p>
+Since neither of the arguments are one of the exceptions, I
+expected both arguments to be treated as a smart match:
+</p>
+
+<pre>
+given( $foo ) {
+	when( $_ ~~ @n && $_ ~~ %n ) { ... }
+	}
+</pre>		
+
+<p>
+Now, nothing in the docs say that should be the case, so before I
+do too much work in going through the other odd situations I
+found, I figure I'll check if it's a doc problem first or if I'm
+being a lunkhead.
+</p>
+<p>
+Here's what I think the docs are trying to say, and once we get
+this right (which might mean correcting my thinking and
+documenting it better) I can think about the rest of it:
+</p>
+
+<blockquote><i>
+If EXPR is ... && ... or ... and ..., and both of the
+arguments are one of the listed exceptions, Perl treats both
+arguments as booleans and performs no smart matching. If only
+one of the arguments is one of the exceptions, Perl treats
+that argument as a boolean and performs a smart match with
+the other argument. If neither argument is one of the
+exceptions, Perl performs a separate smart match with each
+argument.
+</i></blockquote>
+
+<p>
+However, I don't know how to square the statement with a test in
+<i>t/op/switch.t</i>. I think the test comment might be wrong. Should
+there be a smart match that fails in the first <code>when()</code>, which is
+why it moves onto the second? If so, the comment should say
+something like <code>"((1 == 1) && \"bar\")</code> used smart match and fails
+like it should".
+</p>
+
+<pre>
+# t/op/switch.t
+{
+	my $ok = 1;
+	given("foo") {
+	when((1 == 1) && "bar") {
+		$ok = 0;
+	}
+	when((1 == 1) && $_ eq "foo") {
+		$ok = 2;
+	}
+	}
+	is($ok, 2, "((1 == 1) && \"bar\") not smartmatched");
+}
+</pre>
+
+<p>
+I'll happily add some more tests once I know what the answers should
+be. :)
+</p>
+
+<p>
+Here's a program I was playing with, and the output I got that led me
+to all of this. 
+</p>
+
+<pre>		
+use 5.010;
+
+my @n = qw(0 Barney Wilma);
+my %n = map { $_, 1 } @n;
+
+
+$\ = "\n\t";
+
+for( '', qw(0 1 Barney) )
+	{
+	my $n  = $_;
+
+	say "\nProcessing [$n]...";
+	
+	when( %n  )      
+		{ say "1. In \%n";   continue } # $_ ~~ %n
+	when( @n  )      
+		{ say "2. In \@n";   continue } # $_ ~~ @n
+	when( @n && %n ) 
+		{ say "3. @n && %n"           } # $_ ~~ @n && $_ ~~ %n ???
+	}
+	
+__DATA__
+
+Processing []...
+
+Processing [0]...
+1. In %n
+2. In @n
+
+Processing [1]...
+
+Processing [Barney]...
+1. In %n
+2. In @n
+</pre>		
+
+
+<p>
+Here's my machine and perl info:
+</p>
+
+<pre>
+macbookpro_brian[2845]$ perl5.10.0 -V
+Summary of my perl5 (revision 5 version 10 subversion 0) configuration:
+  Platform:
+    osname=darwin, osvers=8.10.1, archname=darwin-2level
+    uname='darwin alexandria2-10.nyc.access.net 8.10.1 darwin kernel version 8.10.1: wed may 23 16:33:00 pdt 2007; root:xnu-792.22.5~1release_i386 i386 i386 '
+    config_args=''
+    hint=recommended, useposix=true, d_sigaction=define
+    useithreads=undef, usemultiplicity=undef
+    useperlio=define, d_sfio=undef, uselargefiles=define, usesocks=undef
+    use64bitint=undef, use64bitall=undef, uselongdouble=undef
+    usemymalloc=n, bincompat5005=undef
+  Compiler:
+    cc='cc', ccflags ='-fno-common -DPERL_DARWIN -no-cpp-precomp -fno-strict-aliasing -pipe -I/usr/local/include -I/opt/local/include',
+    optimize='-O3',
+    cppflags='-no-cpp-precomp -fno-common -DPERL_DARWIN -no-cpp-precomp -fno-strict-aliasing -pipe -I/usr/local/include -I/opt/local/include'
+    ccversion='', gccversion='4.0.1 (Apple Computer, Inc. build 5363)', gccosandvers=''
+    intsize=4, longsize=4, ptrsize=4, doublesize=8, byteorder=1234
+    d_longlong=define, longlongsize=8, d_longdbl=define, longdblsize=16
+    ivtype='long', ivsize=4, nvtype='double', nvsize=8, Off_t='off_t', lseeksize=8
+    alignbytes=8, prototype=define
+  Linker and Libraries:
+    ld='env MACOSX_DEPLOYMENT_TARGET=10.3 cc', ldflags =' -L/usr/local/lib -L/opt/local/lib'
+    libpth=/usr/local/lib /opt/local/lib /usr/lib
+    libs=-ldbm -ldl -lm -lc
+    perllibs=-ldl -lm -lc
+    libc=/usr/lib/libc.dylib, so=dylib, useshrplib=false, libperl=libperl.a
+    gnulibc_version=''
+  Dynamic Linking:
+    dlsrc=dl_dlopen.xs, dlext=bundle, d_dlsymun=undef, ccdlflags=' '
+    cccdlflags=' ', lddlflags=' -bundle -undefined dynamic_lookup -L/usr/local/lib -L/opt/local/lib'
+
+
+Characteristics of this binary (from libperl): 
+  Compile-time options: PERL_DONT_CREATE_GVSV PERL_MALLOC_WRAP
+                        USE_LARGE_FILES USE_PERLIO
+  Locally applied patches:
+        RC2
+  Built under darwin
+  Compiled at Dec  2 2007 12:18:58
+  @INC:
+    /usr/local/perls/perl-5.10.0-rc2/lib/5.10.0/darwin-2level
+    /usr/local/perls/perl-5.10.0-rc2/lib/5.10.0
+    /usr/local/perls/perl-5.10.0-rc2/lib/site_perl/5.10.0/darwin-2level
+    /usr/local/perls/perl-5.10.0-rc2/lib/site_perl/5.10.0
+    .
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>It's broken</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2008-02-18T07:48:06</h3>
+The actual code executing is pretty horrible.<p><blockquote> <div><tt>( scalar( @n ) and scalar( %n ) )<br>&nbsp; ~~ 'Barney'</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:It's broken</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2008-02-18T08:25:42</h3>
+That is:<p><blockquote> <div><tt>( 3 and '2/8' ) ~~ 'Barney'</tt></div> </blockquote>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Perlmonks?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-02-18T18:57:29</h3>
+<p>I know the quality of answers can vary quite a bit, but Perlmonks still can be a good resource for answers.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

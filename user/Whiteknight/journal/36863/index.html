@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Whiteknight: Roadblock</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Roadblock</h1>
+<h2><a href="/user/Whiteknight/">Whiteknight</a> on 2008-07-07T15:52:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I picked up work this morning, coming back from the nice three-day weekend. Unfortunately, I have hit a bit of a roadblock and cannot seem to figure out where the problem lies. <br/><br/>What I am trying to do now is to get the build process to complete. At the moment, building fails at the following step, in compilers/pge:<br/><br/>../../parrot ../../runtime/parrot/library/PGE/Perl6Grammar.pir --output=PGE/builtins_gen.pir PGE/builtins.pg<br/><br/>Most of the build steps up to this point that require parrot are very short and simple, and none of them that I can see trigger a full GC run. I've added a series of diagnostic messages to trace the execution path of this step, and the answers that I find are quite perplexing. The GC finishes a complete run in batch mode. After the GC run completes, the program segfaults.<br/><br/>My initial assumption is that somewhere I am freeing an object that should not be freed, attempting to reuse a pointer from a freed object, and segfaulting that way. So, I comment out the function calls to the sweep code, and try to build again. Same result. I think that maybe a call to gc_it_add_free_object is freeing an object that should not be freed, so I comment that function out. Same result. The GC at this point is simply not freeing any objects. We perform the normal allocation functions and the mark phase, but we do not sweep or recycle any usused objects after they have been marked dead.<br/><br/>So I fire up GDB and run that step in the debugger. GDB tells me that the error is occurring in a memcpy call from src/strings.c:Parrot_unmake_COW. So, I go into that function, add a few PARROT_ASSERT() calls and diagnostic messages and...Same Result. I mean, the result was exactly the same, no diagnostic messages printed out (even though it should be printing a few things before any pointers are dereferenced), no assertions fail, nothing. If it weren't for the debugger telling me that the error is occuring here, I wouldn't believe that this function is being called anywhere near the segfault.<br/><br/>However, if it is a problem with strings (and I don't doubt necessarily that it could be), I figure I'll poke around with them a little bit more. I go to src/headers.c:get_string_header and make extra certain to initialize all fields in the new string header, especially all pointers. Again, nothing changes.<br/><br/>I'm going to play around with my allocators now, to ensure they are returning proper pointers. after that, I'm diving back into GDB to single-step my way through the entire program (or, the important parts of it anyway). Hopefully, I can get this particular problem solved and soon.</p>
+
+
+<hr/>
+
+
+
+<h2>STRING Problems</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-07-07T17:35:31</h3>
+<p>That reminds me a little bit of <a href="http://rt.perl.org/rt3/Ticket/Display.html?id=56152" title="perl.org">Parrot RT #51652</a perl.org>.  I'm not sure it's the same problem, but that part of Parrot can be a little fragile.</p>
+
+
+
+<blockquote>
+
+<h2>Re:STRING Problems</h2>
+<h3><a href="/user/Whiteknight/">Whiteknight</a> on 2008-07-07T23:19:12</h3>
+<p>Good call. The ticket number is right even though the link is wrong.</p><p>I added in a few statements to test for the basic isomorphisms that I've been relying on:</p><p>
+&nbsp; &nbsp; &nbsp; &nbsp; PARROT_ASSERT(offsetof(Buffer, flags) == offsetof(PObj, flags));<br>
+&nbsp; &nbsp; &nbsp; &nbsp; PARROT_ASSERT(offsetof(Buffer, flags) == offsetof(PMC, flags));<br>
+&nbsp; &nbsp; &nbsp; &nbsp; PARROT_ASSERT(offsetof(Buffer, flags) == offsetof(STRING, flags));<br>
+&nbsp; &nbsp; &nbsp; &nbsp; PARROT_ASSERT(offsetof(Buffer, flags) == offsetof(Stack_Chunk_t, flags));</p><p>All these assertions appear to be passing. I'll dig through src/headers.c and some of my allocators again, and make sure that I am not relying on any other relationships besides these.</p><p>I do know that I could probably do better in aligning data in memory. I currently pack things together tightly in the arenas, and this throws off object alignment. On the off-chance that poor alignment could cause a segfault, I'll go back and redo this.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

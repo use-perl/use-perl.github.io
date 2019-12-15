@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of chromatic: It's Cheaper at Compile Time</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>It's Cheaper at Compile Time</h1>
+<h2><a href="/user/chromatic/">chromatic</a> on 2008-04-21T07:09:01</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've long used part of the Rakudo-building process as my benchmark for
+Parrot optimizations.  It doesn't exercise all of Parrot by any means, but it
+pushes the garbage collector, the string system, and the object system pretty
+hard.  It's also the longest part of the build process anywhere, so improving
+performance there has a dramatic effect on productivity.</p>
+
+<p>I've long known that it appends to and concatenates strings very frequently.
+The corresponding Parrot functions always show up near the top of the cost list
+from Callgrind.  I've spent a few hours here and there trying to speed them up,
+but short of rethinking them entirely, I've never found a good solution.</p>
+
+<p>We don't (yet) have a PIR-level profiler like Callgrind (but I'm working on
+it).  Sometimes I can read through the code and see things that might be
+expensive, knowing what eventually gets called and where.  On a whim, I browsed
+through the generated code for Rakudo to find concatenation.  One idiom jumped
+out at me:</p>
+
+<pre>$S0 = concat "PIR", ':"'</pre>
+
+<p>This line of code catenates two constant strings into one, and assigns the result to the virtual string register <code>$S0</code>.  It's not terribly inefficient; the two constant strings are in the constant table in the bytecode, so they don't get recreated on execution.  However, the result is always going to be a constant string.</p>
+
+<p>There's no reason the optimizer couldn't rewrite that line of code into:</p>
+
+<pre>$S0 = 'PIR:"'</pre>
+
+<p>It didn't.  Now it does.</p>
+
+<p>The optimizer already knew how to optimize away constant addition,
+subtraction, and other math operations.  All I had to do was tell the opcode
+generator not to generate the <code>concat_s_sc_sc</code> op (concatenate two
+string constants and put the results in a string register -- the destination
+register always comes first in the argument list for an opcode), add the
+<code>concat</code> operator to the list of rewritable three-register opcodes,
+and add a case to the rewriter where the destination register is a string
+register.</p>
+
+<p>The result is a modest 5.5% speedup in my benchmark.  Part of the gain is
+avoiding run-time concatenation, but part of it is also using fewer GCable
+entities.  The less garbage you create, the less garbage you have to collect
+and the less frequently you have to collect it.  5.5% isn't a huge gain, but
+it's a step in the right direction.  Every second we shave off of the
+hack-compile-test cycle is an improvement, and these optimizations help all
+Parrot programs as well.</p>
+
+<p>(Are these entries interesting?  I seem to get more feedback when I complain about various Technology Distortion Fields.)</p></p>
+
+
+<hr/>
+
+
+
+<h2>interesting</h2>
+<h3><a href="/user/steph/">steph</a> on 2008-04-21T07:23:48</h3>
+Yes. These entries are interesting, at least for me.
+So far my only parrot "thing" is building it every month on cygwin and "complaining" when I cannot. Lack of time so far for more...but thanks to your posts (and the posts of others here) the day I can really join the effort seems closer.<br/><br/>
+Thanks for your work. Cheers.
+--stephan
+
+
+
+<h2>Are these entries interesting?</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2008-04-21T07:45:33</h3>
+<p>Yes.</p>
+<p>And the longer answer - thanks for plugging away at the code, and thanks for describing your findings.</p>
+
+
+
+<h2>Keep 'em coming</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-04-21T08:37:34</h3>
+<p>Here's another ++ from me.</p>
+
+<p>And didn't you say something to me on a mailing list that instead of searching for micro-optimizations that I should be looking at algorithmic improvements<nobr> <wbr></nobr>;)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Keep 'em coming</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-04-21T16:45:14</h3>
+<p>True... but I haven't found any algorithmic improvements in the past week, and I still believe I can get it faster.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Way more interesting than the math stuff :)</h2>
+<h3><a href="/user/tlbdk/">tlbdk</a> on 2008-04-21T08:40:01</h3>
+For me at least this is very interesting. You could skip the math stuff for my sake, but I guess other people find that interesting.
+
+
+
+<h2>Keep up the good work</h2>
+<h3><a href="/user/Tim Bunce/">Tim Bunce</a> on 2008-04-21T09:04:17</h3>
+It's appreciated.
+
+
+
+<h2>Yes Yes</h2>
+<h3><a href="/user/lestrrat/">lestrrat</a> on 2008-04-21T10:39:57</h3>
+I'm still not up to par yet, but I'm slowly trying to figure out what you are doing, may be send in a patch or two one of these days
+
+
+
+<h2>No comment!</h2>
+<h3><a href="/user/kaare/">kaare</a> on 2008-04-21T11:08:09</h3>
+I guess the missing comments are because most people don't have a lot to add to Perl 6, Parrot and Rakudo entries.<br><br>Ranting, on the other hand...<br><br>(And I, for one, think that 5.5% is a huge gain for one simple optimization).
+
+
+
+<h2>More interesting then your technology rants</h2>
+<h3><a href="/user/Limbic Region/">Limbic Region</a> on 2008-04-21T12:30:51</h3>
+There was a time when I read every journal entry - just as I read every post on PerlMonks.  I don't have the time any more.  Your parrot posts pass the filter test for my time so please, keep them up.
+
+
+
+<h2>Yup, interesting</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2008-04-21T12:59:54</h3>
+I like your technology rants too though.<br><br>And I agree with the above poster - an overall 5.5% speedup is HUGE. If that were on our infrastructure you'd have saved us over a million dollars.
+
+
+
+<h2>Absolutely</h2>
+<h3><a href="/user/amahabal/">amahabal</a> on 2008-04-21T13:21:22</h3>
+As I try to finish my dissertation  your blogs (and  other P6  blogs) keep things bearable...
+
+
+
+<h2>What he said ...</h2>
+<h3><a href="/user/duff/">duff</a> on 2008-04-21T13:39:32</h3>
+Limbic_Region said almost exactly what I wanted to say.  I read selected journal entries and yours always pass muster.  Keep up the good work.
+
+
+
+<h2>extra concats</h2>
+<h3><a href="/user/pmichaud/">pmichaud</a> on 2008-04-21T13:53:00</h3>
+<p><blockquote><div>...One idiom jumped out at me:<br>
+&nbsp; &nbsp; &nbsp; &nbsp; $S0 = concat "PIR", ':"'<br></div></blockquote><br>Interesting -- apparently PGE is generating these concat statements whenever there is PIR embedded in a rule.  For example:<p><blockquote> <div><code><br>token MARK_STATEMENT_END {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; {{  $P0 = match.'to'()<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $P0 = clone $P0<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; set_global '$!endstmt', $P0<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }}<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &lt;.ws&gt;<br>}<br></code></div> </blockquote><br><br>It's good that imcc is now optimizing the concat_s_sc_sc opcode, but PGE and the other compiler tools should probably also be smart enough to generate the concatenated constant in the first place.  I'll probably fix that as well.<br><br>-----<br><br>Also, as others have commented, I really appreciate these insights into Parrot internals.<br><br>Pm
+
+
+
+<blockquote>
+
+<h2>Re:extra concats</h2>
+<h3><a href="/user/pmichaud/">pmichaud</a> on 2008-04-21T15:11:55</h3>
+Based on chromatic's analysis I re-examined the section of PGE that was responsible for generating the concats in the first place, and nearly all of the concatenations it was performing at runtime were constants that could be done at compile-time.  I must've been asleep when writing that code.<br><br>So, I refactored the code to avoid the concats altogether, and building rakudo's actions.pl file is now 1.6% faster than it was before (44.363 versus 45.095 seconds on my box).  Not a huge speedup, but I'm still happier knowing that we aren't doing a lot of unnecessary and repeated concat operations -- especially since they were in code that gets called a lot (such as when scanning over whitespace and comments).<br><br>Thanks for the analysis and updates.<br><br>Pm<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:extra concats</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-04-22T02:22:51</h3>
+<p>Suggestion: more people will see this if you post it to your own journal.<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>post moar parrot</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2008-04-21T14:14:04</h3>
+I, too, enjoy reading these notes.  If it would help, I would reply, "Interesting!" to each one in the future.  I just usually have nothing much to add.
+
+
+
+<h2>interesting</h2>
+<h3><a href="/user/matt.fowles/">matt.fowles</a> on 2008-04-21T14:22:01</h3>
+chromatic~<br>
+<br>
+I strongly prefer these posts to your posts complaining.<br>
+<br>
+Matt
+
+
+
+<h2>c++</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2008-04-21T15:46:17</h3>
+also enjoy them.  Would be nice to have in rakudo.org as well.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

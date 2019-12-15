@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of bart: &quot;avoid grep in boolean context&quot; is premature optimization</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>&quot;avoid grep in boolean context&quot; is premature optimization</h1>
+<h2><a href="/user/bart/">bart</a> on 2009-02-13T22:23:16</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><em>(Note: a first draft of this post has been lying on my shelf for over a year. Now, I finally got around to finishing it.)</em></p>
+
+<p>Now and then in Perl forums, the discussion comes up about how bad it is
+to use grep in boolean context.
+And now it's even been poured into a <a href="http://search.cpan.org/perldoc?Perl::Critic::Policy::BuiltinFunctions::ProhibitBooleanGrep">Perl::Critic rule</a>, based on Damian Conway's PBP book, and the
+argument they bring up is always the same (see the POD for the module):</p>
+
+<blockquote>
+  <p>Using <code>grep</code> in boolean context is a common idiom for checking if any
+  elements in a list match a condition.  This works because boolean context is a
+  subset of scalar context, and grep returns the number of matches in scalar
+  context.  A non-zero number of matches means a match.</p>
+  
+  <p>But consider the case of a long array where the first element is a match.
+  Boolean <code>grep</code> still checks all of the rest of the elements needlessly.
+  Instead, a better solution is to use the <code>any</code> function from
+  <a href="http://search.cpan.org/perldoc?List::MoreUtils">List::MoreUtils</a>,
+  which short-circuits after the first successful match to save time.</p>
+</blockquote>
+
+<p>Now, <em>why</em> would you expect the item you're looking for to be the first one in the array? I see no reason for such an assumption, at all. On average, you still have to look through about half of the array items, <em>if</em> the item is even in the array. If it isn't, you still have to look through all items, anyway.</p>
+
+<p>So, depending on the likelihood that an item is in the array, you might save between 0% and 50% of execution time by leaving the loop early. Personally, I don't find that overly impressive... As O(n) is still O(n).</p>
+
+<p>The implied assumption is that the overhead of <code>grep</code> and <code>any</code> is ignorable, or at least, that it is the same for both, somebody that nobody actually bothered to verify. Well, I bothered. I decided to benchmark <code>grep</code> vs. <code>any</code>.</p>
+
+<p>The kind of code that I benchmarked is the simple common problem of testing for the presence of a string in an array, just like <code>IN</code> in (some dialects of) SQL, and <code>in_array</code> of PHP.
+Here are the prerequisites and the functions I tested:</p>
+
+<pre>my @letters = 'A' .. 'Z';
+my %letter; $letter{$_} = 1 foreach @letters;
+
+# List::MoreUtils' any
+any =&gt; sub { my $x = any { $_ eq $search } @letters },
+# grep with expression
+grepE =&gt; sub { my $x = grep $_ eq $search, @letters },
+# grep with block
+grepB =&gt; sub { my $x = grep { $_ eq $search } @letters },
+# explicitly written code with foreach and last
+foreach =&gt; sub { my $x=0; $_ eq $search and $x=1, last foreach @letters; },
+# the expected overall winner: prefilled hash
+hash =&gt; sub { my $x = exists $letter{$search} },
+# hash on the fly, rebuilt on every test
+temphash =&gt; sub { my %h; @h{@letters}=(); my $x = exists $h{$search} },
+</pre>
+
+<p>I searched for 'Z' (last item), 'M' (center item), 'C' (pretty up front), 'A' (first item), and 'banana' (not in the list). And here are the results (ActivePerl 5.8.8, Windows XP, 2.4GHz):</p>
+
+<pre>Search for Z
+               Rate     Time   any temphash foreach grepB grepE hash
+any         50172/s  19.93ÃÂµs    --     -60%    -65%  -69%  -71% -98%
+temphash   125555/s  7.965ÃÂµs  150%       --    -12%  -22%  -27% -96%
+foreach    142037/s   7.04ÃÂµs  183%      13%      --  -11%  -18% -95%
+grepB      160313/s  6.238ÃÂµs  220%      28%     13%    --   -7% -94%
+grepE      172645/s  5.792ÃÂµs  244%      38%     22%    8%    -- -94%
+hash      2828893/s 0.3535ÃÂµs 5538%    2153%   1892% 1665% 1539%   --
+
+Search for M
+               Rate     Time   any temphash grepB grepE foreach hash
+any         65938/s  15.17ÃÂµs    --     -47%  -59%  -62%    -74% -98%
+temphash   124203/s  8.051ÃÂµs   88%       --  -22%  -29%    -51% -95%
+grepB      160049/s  6.248ÃÂµs  143%      29%    --   -8%    -36% -94%
+grepE      174201/s   5.74ÃÂµs  164%      40%    9%    --    -31% -94%
+foreach    251362/s  3.978ÃÂµs  281%     102%   57%   44%      -- -91%
+hash      2733577/s 0.3658ÃÂµs 4046%    2101% 1608% 1469%    988%   --
+
+Search for C
+               Rate     Time   any temphash grepB grepE foreach hash
+any         87975/s  11.37ÃÂµs    --     -29%  -45%  -50%    -85% -97%
+temphash   124136/s  8.056ÃÂµs   41%       --  -22%  -29%    -78% -96%
+grepB      158854/s  6.295ÃÂµs   81%      28%    --   -9%    -72% -95%
+grepE      175068/s  5.712ÃÂµs   99%      41%   10%    --    -69% -94%
+foreach    571092/s  1.751ÃÂµs  549%     360%  260%  226%      -- -80%
+hash      2926393/s 0.3417ÃÂµs 3226%    2257% 1742% 1572%    412%   --
+
+Search for A
+               Rate     Time   any temphash grepB grepE foreach hash
+any         94486/s  10.58ÃÂµs    --     -23%  -40%  -47%    -90% -96%
+temphash   123096/s  8.124ÃÂµs   30%       --  -22%  -30%    -87% -95%
+grepB      158407/s  6.313ÃÂµs   68%      29%    --  -10%    -84% -94%
+grepE      176637/s  5.661ÃÂµs   87%      43%   12%    --    -82% -93%
+foreach    978762/s  1.022ÃÂµs  936%     695%  518%  454%      -- -64%
+hash      2687559/s 0.3721ÃÂµs 2744%    2083% 1597% 1422%    175%   --
+
+Search for banana
+               Rate     Time   any temphash foreach grepB grepE hash
+any         51867/s  19.28ÃÂµs    --     -58%    -62%  -69%  -72% -98%
+temphash   123717/s  8.083ÃÂµs  139%       --     -9%  -25%  -34% -95%
+foreach    136015/s  7.352ÃÂµs  162%      10%      --  -18%  -28% -95%
+grepB      165077/s  6.058ÃÂµs  218%      33%     21%    --  -12% -94%
+grepE      187691/s  5.328ÃÂµs  262%      52%     38%   14%    -- -93%
+hash      2670255/s 0.3745ÃÂµs 5048%    2058%   1863% 1518% 1323%   --
+</pre>
+
+<p>Well, that is looking bad for <code>any</code>: it is the worst performer in all cases. In the average case ('M'), it is almost 3 times slower than <code>grep</code> (grep with expression is, as I expected, a bit better than grep with a block, as the latter has an overhead of entering/exiting a lexical block). Even <em>in its best case</em>, <code>any</code> is <em>still</em> almost twice as slow as <code>grep</code>. So much for saving. The manually written loop is, in the average case, about a third faster than <code>grep</code>. But, if the item isn't found, it is actually slower.</p>
+
+<p>No surprise that, if you <em>really</em> want a high speed test, and you need to test against the same array often, it is best to prepare a hash and simply test if the item is in the hash.</p>
+
+<p>What I found rather surprising, is that populating a hash and using it once ('temphash'), isn't such a bad performer.</p>
+
+<p>For completeness' sake, here's the same benchmark on Strawberry Perl 5.10.</p>
+
+<pre>Search for Z
+               Rate     Time   any temphash foreach grepE grepB hash
+any         46995/s  21.28ÃÂµs    --     -60%    -62%  -65%  -67% -98%
+temphash   117471/s  8.513ÃÂµs  150%       --     -6%  -13%  -19% -96%
+foreach    125313/s   7.98ÃÂµs  167%       7%      --   -7%  -13% -95%
+grepE      135294/s  7.391ÃÂµs  188%      15%      8%    --   -6% -95%
+grepB      144589/s  6.916ÃÂµs  208%      23%     15%    7%    -- -95%
+hash      2740628/s 0.3649ÃÂµs 5732%    2233%   2087% 1926% 1795%   --
+
+Search for M
+               Rate     Time   any temphash grepE grepB foreach hash
+any         63959/s  15.64ÃÂµs    --     -46%  -54%  -55%    -71% -97%
+temphash   118040/s  8.472ÃÂµs   85%       --  -15%  -18%    -46% -95%
+grepE      138646/s  7.213ÃÂµs  117%      17%    --   -3%    -36% -94%
+grepB      143388/s  6.974ÃÂµs  124%      21%    3%    --    -34% -94%
+foreach    218040/s  4.586ÃÂµs  241%      85%   57%   52%      -- -91%
+hash      2516377/s 0.3974ÃÂµs 3834%    2032% 1715% 1655%   1054%   --
+
+Search for C
+               Rate     Time   any temphash grepE grepB foreach hash
+any         86710/s  11.53ÃÂµs    --     -25%  -36%  -39%    -85% -96%
+temphash   115756/s  8.639ÃÂµs   33%       --  -15%  -19%    -79% -95%
+grepE      135977/s  7.354ÃÂµs   57%      17%    --   -5%    -76% -94%
+grepB      142657/s   7.01ÃÂµs   65%      23%    5%    --    -75% -94%
+foreach    559639/s  1.787ÃÂµs  545%     383%  312%  292%      -- -76%
+hash      2315599/s 0.4319ÃÂµs 2571%    1900% 1603% 1523%    314%   --
+
+Search for A
+               Rate     Time   any temphash grepE grepB foreach hash
+any         85902/s  11.64ÃÂµs    --     -26%  -36%  -41%    -90% -96%
+temphash   115752/s  8.639ÃÂµs   35%       --  -14%  -21%    -87% -95%
+grepE      134479/s  7.436ÃÂµs   57%      16%    --   -8%    -85% -94%
+grepB      146193/s   6.84ÃÂµs   70%      26%    9%    --    -84% -94%
+foreach    902933/s  1.108ÃÂµs  951%     680%  571%  518%      -- -62%
+hash      2405894/s 0.4156ÃÂµs 2701%    1978% 1689% 1546%    166%   --
+
+Search for banana
+               Rate     Time   any temphash foreach grepE grepB hash
+any         51088/s  19.57ÃÂµs    --     -56%    -61%  -69%  -71% -98%
+temphash   116528/s  8.582ÃÂµs  128%       --    -12%  -29%  -33% -96%
+foreach    132626/s   7.54ÃÂµs  160%      14%      --  -19%  -24% -95%
+grepE      164236/s  6.089ÃÂµs  221%      41%     24%    --   -6% -94%
+grepB      175040/s  5.713ÃÂµs  243%      50%     32%    7%    -- -93%
+hash      2655952/s 0.3765ÃÂµs 5099%    2179%   1903% 1517% 1417%   --
+</pre>
+
+<p>As an aside: I've got the distinct impression that overall, Strawberry Perl 5.10 is slower than ActivePerl 5.10, by about 5-10%. The biggest surprise to me, however, is that <code>grep BLOCK</code> is no longer <em>faster</em> than <code>grep EXPRESSION</code>. So weird.</p>
+
+<p>Now, the thing you would test for must not always be that simple. If it is very slow or otherwise expensive, you might still, and rightfully so, want to leave the testing loop early. But, although elegant as a solution, you should not blindly assume that <code>any</code> is the best solution for every such problem... Though I wish that <code>grep</code> would be made smarter, and that it either <em>knows</em> to leave the test loop early, or that you could manually do so, for example, with <code>last</code>.</p>
+
+<p>p.s. The code to convert Rate to Time was kindly supplied by GrandFather on Perlmonks.</p>
+
+<p>p.p.s. I'm sorry about the formatting problem, that "&amp;#181;" should look like "ÃÂµ", but even though it is a "ÃÂµ" character in the text I posted, the journaling system shows it as "&amp;#181;". It's a bug, I'm sure.</p>
+
+
+<hr/>
+
+
+
+<h2>Who cares about the sppeed?</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2009-02-14T00:10:22</h3>
+<p>They are all damn fast, and using <code>any</code> <em>reads</em> much better.</p>
+
+
+
+<h2>Your reasoning is flawed</h2>
+<h3><a href="/user/Arador/">Arador</a> on 2009-02-14T01:26:42</h3>
+<p>Your reasoning is flawed. You are assuming that there is one positive match in the set, and that the set is small. On such a small set you're right any isn't any faster, but superior algorithms rarely show up on small datasets.</p><p>If you would test this with a larger dataset, any would come out much better. On my computer, using the list <code>1..1000</code> and a needle of 500, it is in fact faster. The advantage only gets bigger when the haystack gets bigger.</p><p>You're right it's not always better, but it is when it matters the most.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Your reasoning is flawed</h2>
+<h3><a href="/user/Smylers/">Smylers</a> on 2009-02-14T08:51:56</h3>
+<p>I agree.  With such a small set no method is going to take an irritatingly long time.  Since you have the program handy could you give it a quick tweak to use a bigger array and re-post the results?</p><p>I also agree with autarch that <code>any</code> reads better, as a way of signalling programmer intent.  I'd probably use the <code>any</code> from <code>Perl6::Junction</code> rather than <code>List::MoreUtils</code>; any chance you could add that to your testing as well?  Thanks!</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>List::Util::first</h2>
+<h3><a href="/user/srezic/">srezic</a> on 2009-02-14T20:18:23</h3>
+<p>Can you test how good would perform List::Util::first()?</p>
+
+
+
+<blockquote>
+
+<h2>Re:List::Util::first</h2>
+<h3><a href="/user/bart/">bart</a> on 2009-02-15T14:03:44</h3>
+Well, you won't like it... Using the code:<blockquote><div><p> <tt>first =&gt; sub { my $x = defined first { $_ eq $search } @letters },</tt></p></div> </blockquote><p> <code>first</code> is always close to 20% slower than <code>any</code>...</p><blockquote><div><p> <tt>Search for Z<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Rate&nbsp; &nbsp; Time first&nbsp; any<br>first&nbsp; 38653/s 25.87us&nbsp; &nbsp; -- -21%<br>any&nbsp; &nbsp; 48955/s 20.43us&nbsp; &nbsp;27%&nbsp; &nbsp;--<br> <br>Search for M<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Rate&nbsp; &nbsp; Time first&nbsp; any<br>first&nbsp; 49484/s 20.21us&nbsp; &nbsp; -- -22%<br>any&nbsp; &nbsp; 63620/s 15.72us&nbsp; &nbsp;29%&nbsp; &nbsp;--<br> <br>Search for C<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Rate&nbsp; &nbsp; Time first&nbsp; any<br>first&nbsp; 67151/s 14.89us&nbsp; &nbsp; -- -18%<br>any&nbsp; &nbsp; 81812/s 12.22us&nbsp; &nbsp;22%&nbsp; &nbsp;--<br> <br>Search for A<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Rate&nbsp; &nbsp; Time first&nbsp; any<br>first&nbsp; 73125/s 13.68us&nbsp; &nbsp; -- -21%<br>any&nbsp; &nbsp; 92772/s 10.78us&nbsp; &nbsp;27%&nbsp; &nbsp;--<br> <br>Search for banana<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Rate&nbsp; &nbsp; Time first&nbsp; any<br>first&nbsp; 40513/s 24.68us&nbsp; &nbsp; -- -19%<br>any&nbsp; &nbsp; 50019/s 19.99us&nbsp; &nbsp;23%&nbsp; &nbsp;--</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:List::Util::first</h2>
+<h3><a href="/user/srezic/">srezic</a> on 2009-02-15T19:44:42</h3>
+Your observation seems to be only true for small arrays. In this
+<a href="http://bbbike.radzeit.de/user/slaven/tmp/grep-vs-first.png" title="radzeit.de">plot</a radzeit.de> you can see how first() gets better with larger arrays.
+<p>
+In this <a href="http://srezic.cvs.sourceforge.net/viewvc/*checkout*/srezic/perl-bench/grep-vs-first.pl" title="sourceforge.net">benchmark </a sourceforge.net> grep and first were searching for the middle element in the array.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

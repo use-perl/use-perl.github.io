@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: My new .bash_profile</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>My new .bash_profile</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-03-05T14:21:37</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>When I ssh into our development server, I automatically CD into a work directory, do a 'cvs up -d' (-d picks up new directories) and then run all of the tests.  However, I almost always ssh into dev <em>twice</em> because one window is for my code and another window is for my tests and I'm tired of hitting <tt>&lt;ctrl-c&gt;</tt> all the time on the second window.  With the help of smylers explaining some odd  (to me) bits of bash syntax, I now use something like this:</p>
+
+<pre>#!/usr/local/bin/bash
+
+if [ -f ~/.bashrc ]; then source ~/.bashrc; fi
+
+cd /home/cpoe/work/main/
+timestamp='.login_time'
+
+if [ -e $timestamp ]; then
+    last_time=`cat $timestamp`
+else
+    last_time=0
+fi
+
+curr_time=`date +%s`
+let elapsed="$curr_time - $last_time"
+if [ $elapsed -gt 600 ]   # five minutes
+then
+    `perl -e 'print time' > $timestamp`
+    /usr/bin/cvs up -d
+    /usr/local/bin/runtests -lr
+fi</pre>
+
+<p>With that, if I've ssh'd into the dev server and run the tests within the last five minutes, the next ssh will not do the cvs up or run the tests.  It could probably be cleaned up more since I'm not much of a bash programmer, but it's pretty handy.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Various improvements</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-03-06T03:37:53</h3>
+<p>Unlike sh, bash has arithmetic evaluation that would make your script much simpler. I also wouldn&#8217;t check for the dotfile&#8217;s existence, just read it with error messages suppressed. It&#8217;s also bizarre that you&#8217;re using <code>date +%s</code> to get the timestamp in one place and <code>perl -e 'print time'</code> in another &#8211; and the backticks around that second place are even more so. All in all here&#8217;s how I&#8217;d write that:</p> <p><blockquote> <div><tt>#!/usr/local/bin/bash<br> <br>[ -r ~/.bashrc ] &amp;&amp; source ~/.bashrc<br> <br>timestamp=.login_time<br> <br>cd<nobr> <wbr></nobr>/home/cpoe/work/main/<br> <br>last_time=$( cat "$timestamp" 2&gt;&amp;- )<br>curr_time=$( date +%s )<br> <br>if (( curr_time - last_time &gt; 600 ))&nbsp; # five (???) minutes<br>then<br>&nbsp; &nbsp; echo "$curr_time" &gt; "$timestamp"<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/bin/cvs up -d<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/local/bin/runtests -lr<br>fi</tt></div> </blockquote>  <p>But actually, &#8220;run the tests if it&#8217;s been 5 minutes since my last login&#8221; strikes me as a hack. I think what you rather want to say is &#8220;skip the tests if <code>cvs up</code> didn&#8217;t find any updates to pull.&#8221; That would look something like this:</p> <p><blockquote> <div><tt>#!/usr/local/bin/bash<br> <br>[ -r ~/.bashrc ] &amp;&amp; source ~/.bashrc<br> <br>timestamp=.login_time<br> <br>cd<nobr> <wbr></nobr>/home/cpoe/work/main/<br> <br>tmp=$( mktemp ) &amp;&amp; {<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/bin/cvs up -d | tee "$tmp"<br>&nbsp; &nbsp; [ -s "$tmp" ] &amp;&amp;<nobr> <wbr></nobr>/usr/local/bin/runtests -lr<br>&nbsp; &nbsp; rm -f "$tmp"<br>}</tt></div> </blockquote>  <p>This is based on the fact that <code>cvs</code> prints its <code>U foo/bar.c</code> lines to stdin, but its chatter to stderr. So it copies <code>cvs</code>&#8217;s stdout to a temporary file whose size will be nonzero only if <code>cvs</code> actually did any updates. The tests run only if that&#8217;s the case.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Various improvements</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-03-26T10:47:58</h3>
+<p>By the way, I did implement many of your suggestions, thank you.  However, I deliberately didn't want to go with the 'don't run tests if there are no updates to CVS'.  There are plenty of other ways -- admittedly less common -- that tests can fail even without CVS updates.  When those failures occur, I'd like to catch them!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Various improvements</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-03-26T11:45:06</h3>
+<p>Ah. Btw, a much more direct way to do this just occured to me: use the file&#8217;s mtime.</p> <p><blockquote> <div><tt>#!/usr/local/bin/bash<br> <br>[ -r ~/.bashrc ] &amp;&amp; source ~/.bashrc<br> <br>timestamp=.login_time<br> <br>cd<nobr> <wbr></nobr>/home/cpoe/work/main/<br> <br>if [[ `find "$timestamp" -mmin +5 -print` ]] ; then<br>&nbsp; &nbsp; touch "$timestamp"<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/bin/cvs up -d<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/local/bin/runtests -lr<br>fi</tt></div> </blockquote>  <p>The idiomatic bit here is using <code>find</code> to check the file&#8217;s age. The <code>-mmin +5</code> predicate means &#8220;if the mtime of the file under consideration is equal to or greater than 5 minutes.&#8221; Since <code>file</code> is given only a single filename to check, its output will be empty if that one file was last touched less than 5 minutes ago. The condition is then false, so nothing happens.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

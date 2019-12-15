@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of samtregar: Class::XPath?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Class::XPath?</h1>
+<h2><a href="/user/samtregar/">samtregar</a> on 2003-02-27T06:03:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I really like <a href="http://use.perl.org/user/samtregar/journal/10517">my XPath for object trees idea</a>.  I like it so much that I want other people to use it too.  The question is, what is the most effective way to make that happen?
+<p>
+I've been thinking I could make it into a module.  It could be used like:
+<p>
+<pre>
+  package Some::Node;
+  use Class::XPath
+     get_parent => 'parent',
+     get_root   => 
+        sub { local $_ = shift;
+              while($_->parent) { 
+                $_ = $_->parent
+              }
+              return $_; 
+            },
+     get_name   => 'name',
+     get_kids   => 'children',
+     get_attr   => 'attr';
+</pre>
+<p>
+Then clients of Some::Node can do:
+<p>
+<pre>
+  @nodes = Some::Node->match('/foo/bar[1]/*');
+</pre>
+<p>
+The idea being that you give Class::XPath some instructions on how to perform various operations - either in the form of method names or as subroutines.  Then Class::XPath creates customized versions of xpath() and match() that work with your class.
+<p>
+The value-add here is the XPath parser and executor.  At start it would be a straight port of the simple parser I've written already.  Later it could grow to include support for more of XPath and learn to optimize match() requests using caches and such.  Then others can enjoy the benefits of having full XPath support for their trees without much work at all.
+<p>
+Feedback would be appreciated.  Would you use such a module?
+<p>
+-sam
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>Tree Matching?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2003-02-27T07:11:47</h3>
+<p>
+I just wrote B::SAX yesterday (yes, it fires SAX events based on traversing a compiled Perl optree).  Is it possible to run XPath over SAX events?
+</p>
+<p>
+Otherwise, I'll have to write a little state machine to find the subtree I'm seeking.  That doesn't sound too awful, but the less work, the better.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Tree Matching?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-02-27T07:26:07</h3>
+Yes, see Barrie Slaymaker's XML::Filter::Dispatcher.<br> <br>Either that or build a DOM (using something like XML::LibXML::SAX::Builder) and go from there.
+
+
+
+
+
+</blockquote>
+
+
+<h2>yup</h2>
+<h3><a href="/user/wickline/">wickline</a> on 2003-02-27T12:12:11</h3>
+&gt; Would you use such a module?<br> <br>I'd love to<nobr> <wbr></nobr>:)<br> <br>I can also imagine that it would also be handy to have the module work without having Some::Node's author build in support. This could allow your code to work with modules which were written before your release, and modules that didn't feel like adding yet another feature.<blockquote><div> <tt>#!/usr/bin/perl<br>use HTML::TreeBuilder;<br>use HTML::Element;<br>use Class::XPath (<br>&nbsp; &nbsp; &nbsp;install_in =&gt; 'HTML::Element',<br>&nbsp; &nbsp; &nbsp;%the_get_foo_mappings,<br>);</tt> </div></blockquote>or maybe<blockquote><div> <tt>#!/usr/bin/perl<br>use HTML::TreeBuilder;<br>use Class::XPath;<br>my $tree = HTML::TreeBuilder-&gt;new();<br>my $xp_tree = Class::XPath (<br>&nbsp; &nbsp; &nbsp;use_object =&gt; $tree,<br>&nbsp; &nbsp; &nbsp;%the_get_foo_mappings,<br>);</tt> </div></blockquote>If <tt>get_attr</tt> is supposed to return a list of attributes, then you'll probably need a <tt>get_attr_value</tt> or something too.<br> <br>On the other hand, if <tt>get_attr</tt> is expected to take an attribute name and return a value (or undefined if the attribute does not exist) then there may be a problem in situations where the underlying object may allow for <tt>undef</tt> to be a reasonable value for an attribute. For example, if someone wanted to use Class::XPath to traverse a messy perl data structure, some of the values might well be <tt>undef</tt>.<nobr> <wbr></nobr>...or maybe <tt>get_attr</tt> could work like <tt>CGI::param</tt> in the sense of returning a list of attributes when called without any args, and returning the value for a given attribute when passed that attribute.<br> <br>I'm curious: how does XPATH handle meta-character escapes? I'm imagining the case of applying it to some representation of a CSS document. A selector's value may well contain a whole host of XPATH-looking syntax. You may want to expose an escape method, or alternate versions of each method (one which escapes the path/attr, one which does not).<br> <br>In any case, I think the module is a great idea. It seems like a very sensible abstraction that lets XPATH work happen in one place and allows everyone the option of bolting XPATH support onto their project.<br> <br>-matt
+
+
+
+<blockquote>
+
+<h2>Re:yup</h2>
+<h3><a href="/user/dlc/">dlc</a> on 2003-03-21T19:45:47</h3>
+<p>How about maybe:</p> <blockquote><div> <tt>&nbsp; package Foo;<br>&nbsp; use base qw(Class::XPath);</tt> </div></blockquote> <p> <code>Class::XPath</code> can be designed to be mixed-in to
+any arbitrary class, and simply provide a <code>match</code>
+method.  Seems much simpler.</p>
+
+
+
+<blockquote>
+
+<h2>Re:yup</h2>
+<h3><a href="/user/samtregar/">samtregar</a> on 2003-03-21T19:53:23</h3>
+How does Class::XPath magically know how to operate on the nodes of your tree unless you tell it?  Sure, inheritence is an option but I doubt the end result would require any less configuration.
+<p>
+-sam</p>
+
+
+
+<blockquote>
+
+<h2>Re:yup</h2>
+<h3><a href="/user/dlc/">dlc</a> on 2003-03-21T20:04:46</h3>
+<p>I wasn't disgreeing with the need for configuration, just the need usage examples.  I was suggesting something more like:</p> <blockquote><div> <tt>&nbsp; use base qw(Class::XPath);<br> <br>&nbsp; sub new {<br>&nbsp; &nbsp; &nbsp; my $class = shift;<br>&nbsp; &nbsp; &nbsp; my $self = bless { } =&gt; $class;<br> <br>&nbsp; &nbsp; &nbsp; $self-&gt;create_matcher(%xpath_stuff);<br> <br>&nbsp; &nbsp; &nbsp; return $self;<br>&nbsp; }</tt> </div></blockquote> <p>Though I would suggest that a good default
+<code>match</code> method would be one that
+could automatically walk a data structure (i.e.,
+didn't use methods, but did stuff based on the
+underlying data).  This default matcher would
+probably be limited to non-attribute XPath
+operations, e.g.:</p> <blockquote><div><nobr> <wbr></nobr><tt>/root/foo[2]</tt> </div></blockquote> <p>which would find:</p> <blockquote><div> <tt>&nbsp; &nbsp;$var-&gt;{'root'}-&gt;{'foo'}-&gt;[1]</tt> </div></blockquote> <p>(XPath is 1-based, right?)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Pitfalls in Converting Base Classes to Roles</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Pitfalls in Converting Base Classes to Roles</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-12-04T13:32:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I should have responded to this a while ago, but didn't.  Basically, nothingmuch <a href="http://blog.woobling.org/2009/10/roles-and-delegates-and-refactoring.html">has a blog post responding to some of my comments about roles</a> and it's worth reading.  However, there's one problematic bit:</p>
+
+<quote>If you take a working multiple inheritance based design and change every base class into a role, it will still work. Roles will produce errors for ambiguities, but if the design makes sense there shouldn't be many of those to begin with. The fundamental structure of the code hasn't actually changed with the migration to roles.</quote>
+
+<p>For the majority of code bases I see, this is doubtless true.  However, I tend to get jobs where I work on large code bases.  For example, just looking at our lib/ directory:</p>
+
+<pre>$ find lib/ -name '*.pm' | wc -l
+652</pre>
+
+<p>That's not huge, but it's not particularly small, either.  And it doesn't count our various scripts, tests, schemas, etc.  So let's say I want to add a boolean attribute to an object and said attribute must be persisted in the database and must be readable/writeable via our API.  That's a single attribute.  Just one.  I need to:</p>
+
+<ul>
+  <li>Write the database migration level</li>
+  <li>Update our RelaxNG schemas</li>
+  <li>Update our data extractors (extracts data from XML docs)</li>
+  <li>Add the column to our domain objects</li>
+  <li>Add the column to our resultsource classes</li>
+  <li>Possibly add the column to resultset classes</li>
+  <li>Update our XML builders</li>
+  <li>Write tests</li>
+  <li>And possibly more, depending on why we're adding the attribute</li>
+</ul>
+
+<p>That's a lot of work, but adding a single boolean attribute can take me an hour or two if I'm not interrupted.  And, believe it or not, this is easier than it used to be.  And, believe it or not, much of that isn't the silly grunt work that it appears to be because there's a lot of stuff that is hard to automate away safely (my unreleased <a href="http://www.google.co.uk/search?hl=en&ei=ZAcZS4HHC8-24Qbtu4nmAg&sa=X&oi=spell&resnum=0&ct=result&cd=1&ved=0CAYQBSgA&q=site%3Ause.perl.org+inurl%3AOvid+Bermuda&spell=1">Bermuda</a> project was an attempt to do this).  Some can and we've managed some of it, but not all.</p>
+
+<p>In short, we have a complicated code base that has decades of programmer hours in it.  We used to rely a lot on multiple inheritance, despite the well-known issues with MI.  Now let's revisit the key sentence in nothingmuch's post:  "If you take a working multiple inheritance based design and change every base class into a role, it will still work."</p>
+
+<p>To nothingmuch's credit, he does point out that ambiguities will cause errors, but there's a lot more to it than that.  As projects grow organically, things often get put into incorrect spots.  We had all sorts of code shoved into base classes that our derived classes shouldn't inherit from, but did.  Since tests tend to be written against expectations, it's easy to not write tests for things you don't expect.</p>
+
+<p>The reason classes sometimes have inappropriate behavior is because abusing inheritance tends to mean that you're having classes manage both responsibilities and cross-cutting concerns.  I've found that base classes often had to be broken up into two or more roles (nothingmuch has a great example of Test::Builder doing the same thing and that's a <em>small</em> code base).  That can get really annoying when you find that each role requires the same private method and you're trying to figure out where to put it.  As you juggle things like this, behaviors <em>will</em> change and you had better have a good test suite to catch them.</p>
+
+<p>There's another, more subtle problem.  Imagine that you have the following (it gets much worse when MI is involved):</p>
+
+<pre>AbstractParent
+     ^
+     |
+AbstractChild
+     ^
+     |
+ConcreteClass</pre>
+
+<p>In ConcreteClass we have this:</p>
+
+<pre>sub clean_the_kitchen {
+    my $self = shift;
+    $self->SUPER::clean_the_kitchen;
+    $self->mop_the_floor;
+    return $self;
+}</pre>
+
+<p>What happens with that <tt>SUPER::</tt> call?  If it's only in AbstractParent, you're fine, but if it's also in AbstractChild, converting AbstractChild into a role will break your code.  Further, it might break your code in very subtle ways that are hard to detect.  This might seem uncommon, but we actually had this happen quite a bit when we were converting over to roles.  This means that our concrete class methods needed to be written as:</p>
+
+<pre>after 'clean_the_kitchen' => sub {
+    my $self = shift;
+    $self->mop_the_floor;
+    return $self;
+};</pre>
+
+<p>That's easy to get wrong and, frankly, method modifiers such as <tt>before</tt>, <tt>after</tt> and <tt>around</tt> generally make me feel uncomfortable.  Like role method aliasing and excluding, they're code smells suggesting your design needs work.  However, as we were trying for "the simplest thing that could possibly work", we went with this with the intent of revisiting it later.  We still haven't revisited it.  We have work to do.</p>
+
+<p>In short, converting bases classes to roles and resolving composition errors is often enough for small code bases, but as code bases get large and complex, it's much harder.  There are plenty of pitfalls and they're not always obvious.  Plus, despite having excellent code coverage for tests, you probably don't have great path coverage (few do).  This means that switching from base classes to roles can easily introduce behavioral changes that you haven't been expecting.</p>
+
+<p>See also <a href="http://use.perl.org/user/Ovid/journal/38880">Tips For Converting Base Classes Into Roles</a>. <small>(gosh, tags would be useful)</small></p></p>
+
+
+<hr/>
+
+
+
+<h2>Agreed</h2>
+<h3><a href="/user/nothingmuch/">nothingmuch</a> on 2009-12-04T14:40:37</h3>
+<p>Though that wasn't the main point of the post, which was that if you just go about converting base classes to roles where you have recurrence of god objects, you will get god objects implemented with roles<nobr> <wbr></nobr>;-)</p><p>As you showed, in real life lots of stuff that happens to be working probably shouldn't be. Many a time i find myself reading through old code and saying to myself something along the lines of "OH F*ET!$%*Y HOW THE H*U$!(&amp;Y DID THIS PIECE OF &amp;$!(&amp;!Y% EVER WORK TO BEGIN WITH?!!". Something like that would not be easy to transform and my statement doesn't really apply. Unfortunately real code has parts like this and that's just life.</p><p>The real thing I was getting at was that roles, though more reusable and generally safer, are still not a fundamental departure from a class like code reuse hierarchy. They provide saner defaults, but you can still make design mistakes that roles can't catch.</p><p>Personally I think delegates are a better solution for many of the things people use roles on a single object for. What I like about roles in this context is that they are much easier to move around and consume in different classes than base classes, so refactoring a single object into a delegate hierarchy is much easier and safer when you use them.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Agreed</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-12-04T16:52:09</h3>
+<p>I certainly hope, though, that it didn't sound like I was being too critical of your reasoning.  You had a great post.</p><p>I'm concerned about the God Object comments, though.  I think it's easy to create God Objects with roles and to fundamentally misunderstand OO, but God Objects are less of a concern (I think) with roles.  For example, with Test::Builder generating TAP and providing the ability to share the TAP generator, you suggest that these are behaviors which can be separated by delegating to a TAP generator.  That's really interesting because, from the point of view of the consumer, you present the same interface.  So does T::B do too much?  For the programmers in the "let's have a class for every possible thing we can ever think of doing" camp, then yes, it does too much.  However, it's really easy to use and the convenience of conflating these behaviors seems to outweigh the drawbacks of "doing too much".</p><p>A more concrete example would be the ill-fated Pixie project:</p><blockquote><div><p> <tt>use Pixie;<br>use Customer;<br> <br>my $customer = Customer-&gt;new({<br>&nbsp; name&nbsp; &nbsp; &nbsp;=&gt; 'Bob',<br>&nbsp; salesman =&gt; $some_salesman,<br>});<br> <br>my $pixie = Pixie-&gt;new-&gt;connect(<br>&nbsp; 'dbi:mysql:dbname=test',<br>&nbsp; user =&gt; $user,<br>&nbsp; pass =&gt; $pass<br>);<br> <br># Save an object<br>my $cookie = $pixie-&gt;insert($some_object);</tt></p></div> </blockquote><p>Why am I creating two objects and writing this boilerplate code just to persist something?  Sure, we get separation of concerns, but what I want to do is this:</p><blockquote><div><p> <tt>use Customer;<br> <br>my $customer = Customer-&gt;new({<br>&nbsp; name&nbsp; &nbsp; &nbsp;=&gt; 'Bob',<br>&nbsp; salesman =&gt; $some_salesman,<br>});<br> <br>$customer-&gt;save;</tt></p></div> </blockquote><p>Sure, I'm putting a cross-cutting concern on the Customer object, but the convenience is worth it.  But how many cross-cutting concerns should I bake into an object (via delegation or otherwise?) before the convenience is overwhelmed by the complexity?  Roles, at least, can mitigate this, while still making objects easier to use <em>and</em> maintain.  When you drive a car, it's not a car object with four wheel objects and an engine object and a steering wheel object.  It's just a car.</p><p>What I would like to see, and what I don't think anyone has ever done, is define God Objects in anything even remotely close to a quantifiable manner.  What does "does too much" mean?  That's where much of the "God Object" debate fails for me<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Agreed</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-12-04T16:56:34</h3>
+<p>And to illustrate the point, consider the opposite of the god object:  <a href="http://c2.com/cgi-bin/wiki?RavioliCode" title="c2.com">ravioli code</a c2.com>.  It can be equally unmaintainable.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Agreed</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2009-12-04T20:20:26</h3>
+<p>Attempting a definition of a "God Object"</p><blockquote><div><p>Any object that implements a model for more than one concept simultaneously.</p></div></blockquote><p>To take your "car" analogy for a second, you don't drive just a car. The interface presented to you delegates the actions you make to other components you don't have to think about yes, but at no point are the Engine Block, Steering Assembly, Chassis or Wheels wholly consumed by the "car". There are even those of us who prefer cars that make you *more* aware of this (manual transmission for example) rather than less.</p><p>Roles aren't really re-usable components, they're more like an alloying material. Adding carbon to iron provides you with a new stronger material steel. Steel is a new basic block to build components out of. Carbon and iron are useful in other alloys (and individually<nobr> <wbr></nobr>... the analogy and Perl5/Moose's object model break down here), and can be reused<nobr> <wbr></nobr>... but they're not the same as steel.</p><p>So yes Roles make building God objects easier. I can't see that they fundamentally affect the problems with God objects. Those problems stem from the fact that your single Class/Object is trying to model more than one concept. I think nothingmuch's point is delegation provides a cleaner way to compose two different concepts than either Roles or Inheritance.</p><p>Finally using this definition the problem with Ravioli Code is that the concepts are modeled across more than one class, making it difficult to understand how the model is composed at all.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Agreed</h2>
+<h3><a href="/user/nothingmuch/">nothingmuch</a> on 2009-12-04T19:24:14</h3>
+<p>Because you can always implement <tt>$customer-&gt;save</tt> in terms of a well factored interface, but going the other way is much harder.</p><p>The interface that T::B would present is just one facet (albeit a very important one). It used to be that the tradeoff was too much java style boilerplate or a god object, but Moose's handles feature lets you have a nice interface on the outside and flexibility without needing combinatorial explosion on the inside.</p><p>The point is that for 99% of the usage you can still use T::B because that "too much" is handy, but when you want to output a differfent test format or output TAP without T::B.</p><p>But note that I'm also not saying that the remaining 1% of the use cases justify another API. That's just an added bonus. The real benefit is that a clean separation is forced that makes such code generally last much longer, which would mean that developing a better T::B would be a much smaller effort than developing a full stack.</p><p>Isn't that pretty much the same reason for TAP::Parser's design?</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Agreed</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-12-04T18:19:55</h3>
+<blockquote><div><p> <em>Personally I think delegates are a better solution for many of the things people use roles on a single object for.</em></p></div> </blockquote><p>Don't forget that one of the primary purposes of roles is to encourage type-safe delegation.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

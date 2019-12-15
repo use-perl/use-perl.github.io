@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autrijus: Day 141: Hackathon day #2 (continued)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Day 141: Hackathon day #2 (continued)</h1>
+<h2><a href="/user/autrijus/">autrijus</a> on 2005-06-25T06:00:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This single Perl 5 expression:
+<pre>
+print "1..2\n";
+</pre>
+has been translated by lwall's PERL5_MADSKILLS (also known as PPD) into a XML
+dump of the OP tree that looks like this (abridged):
+<pre>
+<op_leave seq="1 -> DONE" targ="1" flags="VOID,KIDS,PARENS" private="REFCOUNTED" <op_leave seq="1 -> DONE" targ="1" flags="VOID,KIDS,PARENS" private="REFCOUNTED" refcnt="1">
+<op_enter seq="2 -> 3" />
+<op_nextstate seq="3 -> 4" flags="VOID" line="5" package="main" />
+<op_print seq="6 -> 7" flags="VOID,KIDS">
+<madprops>
+<mad_pv key="o" val="print"/> </madprops>
+<op_pushmark seq="4 -> 5" flags="SCALAR" />
+<op_const seq="5 -> 6" flags="SCALAR" PV="1..2&#10;">
+<madprops> <mad_op key="F">
+<op_stringify seq="39 -> DONE" targ="1" flags="SCALAR,KIDS"> <op_null seq="0 -> (40)" was="pushmark" flags="SCALAR" /> <op_const seq="40 -> 39" flags="SCALAR" PV="1..2&#10;">
+<madprops><mad_pv key="X" val="1..2\n"/></madprops>
+</op_const>
+</op_stringify>
+</mad_op>
+<mad_pv key="o" val="&#34;1..2\n&#34;"/> <mad_pv key="_" val=" "/>
+<mad_pv key="(" val=""/>
+<mad_pv key=")" val=""/> </madprops>
+</op_const> </op_print>
+</op_leave>
+</pre>
+This, in turn, goes through a xml2pl program in Perl 5 that turns it into a P5AST object.  After that, the object is dumped into Haskell expression:
+<pre>
+P5AST [ OpLeave [ OpPrint [Items [ ] , Items [ Bare " " , OpConst [Bare "\"" , OpStringify [Bare "" , OpConst [Bare "1..2\\n" ] , Bare "" ] , Bare "\"" ] ] ] ] ] ...
+</pre>
+Pugs's new Pugs.Frontend.P5AST module takes that expression, then compile to a Pugs parser tree of the Exp type:
+<pre>
+Stmts (App (Var "&print") Nothing [Val (VStr "1..2\n")]) Noop
+</pre>
+After that, the Pugs.Compile module takes over and turn it into a PIL intermediate code expression:
+<pre>
+PStmts PNoop (PStmts (PExp (PApp TTailCall TCxtVoid (PExp (PVar "&print")) [PLit (PVal VStr "1..2\n"])) PNil))
+</pre>
+Which can emit this very much unoptimised PIR code:
+<pre>
+.sub "main" @ANON
+    .local pmc P1263_lex
+    P1263_lex = new .PerlUndef
+    P1263_lex = find_name "&print"
+    .local pmc P1264_lit
+    P1264_lit = new .PerlUndef
+    P1264_lit = assign "1..2\n"
+    .local pmc P1265_app
+    P1265_app = new .PerlUndef
+    set_args '(16)', P1264_lit
+    get_results "(0)", P1265_app
+    invokecc P1263_lex
+.end
+</pre>
+...and Parrot happily runs it and prints the string.  Pretty cool, no?  Especially cool is that we are getting the P5AST in its desugared (post-source filter) form, so it's indeed using perl to parse Perl.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Historic, no?</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2005-06-25T11:36:33</h3>
+So this is the first native Perl5 program translated running on Parrot, correct?  Hooray!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: set-ssh-agent for Mac OS X</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>set-ssh-agent for Mac OS X</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2002-09-12T17:09:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>
+This is a little script to start an ssh-agent for use globally under Mac OS X.  I had been using SSHAgentServices, a login plugin, but it stopped working in 10.2.  I think perhaps Apple disabled third-part login plugins.  Maybe not.  Anyway, so I wanted a workaround, and here it is.<br/><br/>The caveat is that it needs to be run before your login session begins, so that the environment can propogate down to all your various apps.  So what I do is log in first as user ">console", which gives me a console, where I log in as pudge and run the script.  Then I log out, get the login window back, and log in normally.<br/><br/>Along with <A HREF="http://www.codefab.com/unsupported/SSHPassKey_v1.1-1-README.html">SSHPasKey</A>, this is used to create an ssh-agent and add an ssh key that I can use universally with all my login sessions.<br/><br/>It uses <A HREF="http://search.cpan.org/dist/Mac-PropertyList/">Mac::PropertyList</A> by brian d foy.<br/><br/><ECODE>#!/usr/bin/perl
+# set-ssh-agent.plx
+# pudge@pobox.com 2002.09.12<br/><br/># Run this script before your login session begins, either by logging in via >console
+# or logging in and logging back out normally.<br/><br/># It is meant to be used in conjunction with SSHPassKey, and this little startup 
+# AppleScript, which executes SSHPassKey to add your ssh key to the agent:<br/><br/># try
+#	do shell script "/usr/bin/ssh-add"
+# end try<br/><br/># Note that I also add the environment to .bashenv, which is then source'd 
+# from .bash_profile, so that I can get the ssh-agent from all my login sessions.<br/><br/>use strict;
+use File::Spec::Functions;
+use Mac::PropertyList;<br/><br/>my $env = `/usr/bin/ssh-agent -s | grep -v echo`;
+die "No ssh-agent: $?" unless $env;<br/><br/>my $file1 = catfile($ENV{HOME}, '.MacOSX', 'environment.plist');
+my $file2 = catfile($ENV{HOME}, '.bashenv');<br/><br/>my $plist = Mac::PropertyList::parse_plist(do {
+	local $/;
+	open my $fh, $file1 or die "Can't read $file1: $!";
+	<$fh>
+});
+die "No plist at $file1" unless $plist;  # file must already exist<br/><br/>for (qw(SSH_AUTH_SOCK SSH_AGENT_PID)) {
+	$env =~ /^$_=([^;]+);/m;
+	$plist->{value}{$_} = {
+		value	=> $1,
+		type	=> 'string'
+	};
+}<br/><br/>open my $fh1, "> $file1" or die "Can't write to $file1: $!";
+print $fh1 Mac::PropertyList::plist_as_string($plist);
+close $fh1;<br/><br/>open my $fh2, "> $file2" or die "Can't write to $file2: $!";
+print $fh2 $env;
+close $fh2;<br/><br/>exit(0);<br/><br/>__END__<br/><br/>`ssh-agent -s` format:
+SSH_AUTH_SOCK=/tmp/ssh-XBkE5WTV/agent.24107; export SSH_AUTH_SOCK;
+SSH_AGENT_PID=24109; export SSH_AGENT_PID;
+</ECODE>
+</p>
+
+
+<hr/>
+
+
+
+<h2>An alternative</h2>
+<h3><a href="/user/pjm/">pjm</a> on 2002-09-13T02:19:29</h3>
+For those who don't want to go the &gt;console route all the time there's SSH Agent, which is a small free GUI app that does similar things. It replaced SSHAgentServices for me and is travelling fine. Source is available.<br> <br>http://www.versiontracker.com/moreinfo.fcgi?id=16051&amp;db=mac<br> <br>This is from the readme file:<br>-------------------------------------<br>The Global Agent<br> <br>The key to making the agent accessible is the SSH_AUTH_SOCK environment variable. The tools in the SSH suite communicate with the agent over a socket whose location is given in the environment variable. If some tool can't read the environment variable, it can't find the socket which means it can't use the agent. <br> <br>The best way to set an enviroment variable globally is documented in Apple's Technical Q &amp; A 1067. Unfortunately, ssh-agent uses a different socket each time it is launched. So it seems we can't use this method. <br> <br>The trick is this: we specify a unique file location in the global environment (using the Environment tab in SSH Agent's Preferences pane) and then link that file to the socket ssh-agent uses. <br> <br>There are a number of rules to follow when using this trick. The most important one is that both ends of a link should reside on the same filesystem. Since ssh-agent creates its sockets in<nobr> <wbr></nobr>/tmp the default value for SSH_AUTH_SOCK is also a file on<nobr> <wbr></nobr>/tmp. If you want to customize this variable, make sure the file you specify in is on the same filesystem as the socket by using the df command. (For more ways for link to fail, see it's man page.) <br>
+
+
+
+<blockquote>
+
+<h2>Re:An alternative</h2>
+<h3><a href="/user/Theory/">Theory</a> on 2002-09-21T00:27:56</h3>
+<p>I'm glad to see this, as I've really missed SSHAgentServices. But neither of these solutions is as optimal as SSHAgentServices was, IMO. The "&gt;console" login stuff is a PITA, and I hate the idea that I have to have the SSH Agent application running whenever I want to use SSH (which is to say, all day long!).</p>
+
+<p>I wrote to Kevin Van Vechten, the creator of SSHAgentServices, to see if he'd be willing to update it for Jaguar, but I've not heard back from him. I tried to write him once before, several months ago, and din't hear back then, either. But I expect that something really simply needs to be changed to get it to work -- I just don't know what it is!</p>
+
+<p>Anyway, thanks for the link. I'll be talking about this in my <a href="http://conferences.oreillynet.com/cs/macosx2002/view/e_sess/3155" title="oreillynet.com">OSXConn Presentation</a oreillynet.com>.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

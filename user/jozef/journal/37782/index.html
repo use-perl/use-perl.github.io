@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jozef: CGI for sending emails</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>CGI for sending emails</h1>
+<h2><a href="/user/jozef/">jozef</a> on 2008-11-01T22:41:37</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Today I've created a CGI (below) to send feedback emails from submitted form.<br/><br/>I would like to use (that's why I've created it of course) but also to give it as an example.<br/><br/>Now I'm wondering 1. is it a good example and 2. if it's "secure" enough.<br/><br/>Any suggestions?<br/><br/>---cut---<br/><br/>#!/usr/bin/perl -T<br/><br/>=head1 NAME<br/><br/>send-feedback.cgi - CGI that sends email from posted feedback form<br/><br/>=head1 SYNOPSIS<br/><br/>in html:<br/><br/>	<form action="/cgi-bin/send-feedback.cgi" id="feedback_form" method="post">
+		<fieldset>
+			<span class="text label">
+				<label for="name">Your name</label>
+				<input name="name" type="text" id="name" size="25" />
+			</span>
+			<span class="text label">
+				<label for="email">Tour email</label>
+				<input name="email" type="text" id="email" size="25" />
+			</span>
+			<span class="text label">
+				<label for="subject">Subject</label>
+				<input name="subject" type="text" id="subject" size="25" />
+			</span>
+			<span class="textarea label">
+				<label for="message">Message</label>
+				<textarea name="message" cols="40" id="message" rows="5"></textarea>
+			</span>
+			<span class="submit">
+				<input name="submit" type="submit" value="Submit" />
+			</span>
+		</fieldset>
+	</form><br/><br/>in Apache virtualhost:<br/><br/>	AddHandler cgi-script .cgi
+	<Location "/cgi-bin/send-feedback.cgi">
+		Options +ExecCGI
+	</Location><br/><br/>test from commandline:<br/><br/>	send-feedback.cgi message=test name=jozef subject=subj email=devnull@ba.pm.org<br/><br/>=head1 DESCRIPTION<br/><br/>=cut<br/><br/>
+use strict;
+use warnings;<br/><br/>use CGI;
+use MIME::Lite;
+use Email::Address;<br/><br/>my $EMAIL_TO        = 'feedback@bratislava.pm.org';
+my $REDIRECT_OK     = '/cgi/email-ok.html';
+my $REDIRECT_FAILED = '/cgi/email-fail.html';<br/><br/>my $EMAIL_ADDRESS_RE = $Email::Address::mailbox;<br/><br/>exit main();<br/><br/>sub main {
+	my $q = CGI->new();
+	
+	# default redirection is to _FAILED
+	my $REDIRECT = $REDIRECT_FAILED;
+	
+	# get parameters
+	my $name    = $q->param('name')    || '';
+	my $from    = $q->param('email')    || 'devnull@ba.pm.org';
+	my $subject = $q->param('subject') || '';
+	my $message = $q->param('message');
+	
+	$from = "$name <$from>"
+		if ($name);<br/><br/>	# input check
+	my $input_ok = 1;
+	$input_ok = 0
+		if ($from =~ m/\r|\n/m);
+	$input_ok = 0
+		if ($subject =~ m/\r|\n/m);
+	$input_ok = 0
+		if ($from !~ m/^$EMAIL_ADDRESS_RE$/xms);
+	
+	# only message paramter is mandatory
+	if ($message and $input_ok) {
+		# create message
+		my $msg = MIME::Lite->new(
+			From     => $from,
+			To       => $EMAIL_TO,
+			Subject  => $subject,
+			Type     => 'text/plain; charset=UTF-8',
+			Encoding => '8bit',
+			Data     => $message,
+		);
+		
+		# send email and redirect to _OK if sucessfull
+		$REDIRECT = $REDIRECT_OK
+			if eval { $msg->send('smtp', 'localhost'); };
+	}
+	
+	# redirect
+	print $q->redirect(
+		-uri    => 'http://'.$q->virtual_host.$REDIRECT,
+		-status => 302
+	);
+    
+    return 0;
+}
+</p>
+
+
+<hr/>
+
+
+
+<h2>Seems secure</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2008-11-01T23:01:05</h3>
+<p>At first glance, it seems secure. The biggest issue with a script that sends mail from web input is if you allow the "To" address to be controlled by the form submission. Obviously, allowing that is a recipe for spam.</p><p>You're generating the email using a module, rather than by hand, so that should help rule out other vulnerabilities that could come if you built the email by hand.</p><p>There might be an issue with the message body, because you're not restricting it to 7-bit ASCII. I'm not sure if MIME::Lite will do encoding if needed.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Seems secure</h2>
+<h3><a href="/user/jozef/">jozef</a> on 2008-11-02T07:19:14</h3>
+<tt>the "To:" is fixed to one address, the purpose is just to collect feedback, so that people can leave notes for us.<br><br>the encoding was a good point. The page is in utf-8, so I changed:<br><br>&nbsp; &nbsp; &nbsp; &nbsp; my $msg = MIME::Lite-&gt;new(<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; From&nbsp; &nbsp; &nbsp;=&gt; $from,<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; To&nbsp; &nbsp; &nbsp; &nbsp;=&gt; $EMAIL_TO,<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Subject&nbsp; =&gt; $subject,<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Type&nbsp; &nbsp; &nbsp;=&gt; 'text/plain; charset=UTF-8',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Encoding =&gt; '8bit',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; Data&nbsp; &nbsp; &nbsp;=&gt; $message,<br>&nbsp; &nbsp; &nbsp; &nbsp; );<br></tt>
+
+
+
+
+
+</blockquote>
+
+
+<h2>The HTML</h2>
+<h3><a href="/user/dorward/">dorward</a> on 2008-11-02T09:27:30</h3>
+<p>Other people have already commented on the Perl, so I'll mention the HTML.</p><p>If it is trying to be HTML, then its invalid. If it is trying to be XHTML, then it is probably flawed in ways you don't want. I'm going to assume the latter.</p><p>It's "post" not "POST"</p><p>You have no block level container between the form element and its inline content. This means you can't be using valid XHTML 1.0 Strict (or anything based on it). Strict is the modern approach, it is generally wise to avoid Transitional.</p><p>You don't have  elements for your label text.</p><p>You are missing spaces before / characters when you use self-closing element syntax. This violates the recommendations of Appendix C.</p><p>For your content-less textarea element, you use empty element syntax, but the element is not defined as being empty. This is another violation of Appendix C. I've never checked with textarea, but when you make that mistake with script, Internet Explorer doesn't do what you want.</p><p>You have no submit button.</p>
+
+
+
+<blockquote>
+
+<h2>Re:The HTML</h2>
+<h3><a href="/user/jozef/">jozef</a> on 2008-11-02T10:09:50</h3>
+<tt>You are right! The SYNOPSIS is bad<nobr> <wbr></nobr>:-(<br><br>&nbsp; &nbsp; &lt;form action="/cgi-bin/send-feedback.cgi" method="POST"&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; Your Name:&nbsp; &lt;input type="text" name="name" size="20"<nobr> <wbr></nobr>/&gt;&lt;br/&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; Your Email: &lt;input type="text" name="from" size="20"<nobr> <wbr></nobr>/&gt;&lt;br/&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; Subject: &lt;input type="text" name="subject" size="20"<nobr> <wbr></nobr>/&gt;&lt;br/&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; Message: &lt;textarea name="message" cols="80" rows="20"<nobr> <wbr></nobr>/&gt;<br>&nbsp; &nbsp; &lt;/form&gt;<br><br>For the real page I generate it by FormFu and it looks like this:<br><br>&lt;form action="/cgi/send-feedback.cgi" id="feedback_form" method="post"&gt;<br>&nbsp; &nbsp; &lt;fieldset&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &lt;span class="text label"&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;label for="name"&gt;Your name&lt;/label&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;input name="name" type="text" id="name" size="25"<nobr> <wbr></nobr>/&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &lt;/span&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &lt;span class="text label"&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;label for="email"&gt;Tour email&lt;/label&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;input name="email" type="text" id="email" size="25"<nobr> <wbr></nobr>/&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &lt;/span&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &lt;span class="text label"&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;label for="subject"&gt;Subject&lt;/label&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;input name="subject" type="text" id="subject" size="25"<nobr> <wbr></nobr>/&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &lt;/span&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &lt;span class="textarea label"&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;label for="message"&gt;Message&lt;/label&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;textarea name="message" cols="40" id="message" rows="5"&gt;&lt;/textarea&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &lt;/span&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &lt;span class="submit"&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;input name="submit" type="submit" value="Submit"<nobr> <wbr></nobr>/&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; &lt;/span&gt;<br>&nbsp; &nbsp; &lt;/fieldset&gt;<br>&lt;/form&gt;<br><br>Much better, I'll put that one instead. Thank you!</tt>
+
+
+
+<blockquote>
+
+<h2>Re:The HTML</h2>
+<h3><a href="/user/andy.sh/">andy.sh</a> on 2008-11-11T10:21:12</h3>
+<p>It's still weird: placing textarea inside span element is not an option you should use<nobr> <wbr></nobr>:-)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

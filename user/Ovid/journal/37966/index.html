@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Vim:  source control diffs</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Vim:  source control diffs</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-11-28T15:51:56</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Quite often I want to get a diff of the file I'm working on, but as usual, I hate leaving my editor for something I script.  So I first wrote this simple Perl program (adjust to taste):</p>
+
+<pre>#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+my $file = shift || die "You must supply a filename to $0";
+
+unless ( -f $file ) {
+    die "File ($file) does not exist";
+}
+
+my @log = qx(svn log "$file" --stop-on-copy);
+my $branch_name = branch_name();
+
+my $pipe = qr/[[:space:]]+\|[[:space:]]+/;
+
+splice @log, 0, 3;   # discard first revision
+while (local $_ = shift @log) {
+    next unless /\Ar([[:digit:]]+)$pipe([[:word:]]+)$pipe(\S+)\s+\S+/;
+    my ( $revision, $user, $datetime ) = ( $1, $2, $3 );
+    print "$revision - $user - $datetime - ";
+    shift @log;
+    my $message = shift @log;
+
+    # we often prefix commit messages with "$branch_name: "
+    $message =~ s/^\s*$branch_name(?::\s*)?//;  # trim it if it's there
+    print $message;
+}
+
+sub branch_name {
+    chomp(my @svn_info = qx(svn info .));
+    my ($branch_name) = $svn_info[1] =~ m{/([^/]+)\z};
+    return $branch_name;
+}</pre>
+
+<p>That produces a summarized output of the subversion log history:</p>
+
+<pre>13015 - ovid - 2008-11-28 - Made changes to the fixture and test file
+13014 - jplindstom - 2008-11-28 - Made a change to the Assert Result Test
+13012 - danquayle - 2008-11-28 - Fixed misspeeling</pre>
+
+<P>And this vim function:</p>
+
+<pre>function! SourceDiff()
+    let filename = bufname("%")
+    let command  = 'perl script/svn_revisions.pl "'.filename.'"'
+    let result   = split( system(command), "\n" )
+
+    if empty(result)
+        echomsg("No past revisions for " . filename)
+        return
+    endif
+
+    " get the list of files
+    let revision = PickFromList('revision', result)
+
+    if strlen(revision)
+        let items = split(revision, " ")
+        execute '!svn diff -r' . items[0] . ' "' . filename .'" | less'
+    endif
+endfunction</pre>
+
+<p>(Note that this relies on my <a href="http://use.perl.org/user/Ovid/journal/36929">PickFromList</a> function)</p>
+
+<p>When I bind that to a key (or keystroke), it gives me output like this:</p>
+
+<pre>Choose a revision:
+1: 13015 - ovid - 2008-11-28 - Made changes to the fixture and test file
+2: 13014 - jplindstom - 2008-11-28 - Made a change to the Assert Result Test
+3: 13012 - danquayle - 2008-11-28 - Fixed misspeeling</pre>
+
+<p>I hit the appropriate number of the revision I want to diff against, and <em>voila</em>, a quick subversion diff in my vim session.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Make it work at any directory.</h2>
+<h3><a href="/user/motoster/">motoster</a> on 2008-12-22T20:17:28</h3>
+<tt>Hello, Ovid.<br><br>The fact that your script only works if the cwd is file's directory kind of frustate me, as I normally work on the root dir of the project.<br><br>Here is a patch to make it work wherever the cwd is.<br><br>--- svn_revisions.pl.ovid&nbsp; &nbsp; 2008-12-22 10:59:09.000000000 -0400<br>+++ svn_revisions.pl&nbsp; &nbsp; 2008-12-22 11:12:55.000000000 -0400<br>@@ -2,6 +2,7 @@<br><br> use strict;<br> use warnings;<br>+use File::Basename qw(dirname);<br><br> my $file = shift || die "You must supply a filename to $0";<br><br>@@ -28,7 +29,8 @@<br> }<br><br> sub branch_name {<br>-&nbsp; &nbsp; chomp(my @svn_info = qx(svn info<nobr> <wbr></nobr>.));<br>+&nbsp; &nbsp; my $dir = dirname($file);<br>+&nbsp; &nbsp; chomp(my @svn_info = qx(svn info $dir));<br>&nbsp; &nbsp; &nbsp;my ($branch_name) = $svn_info[1] =~ m{/([^/]+)\z};<br>&nbsp; &nbsp; &nbsp;return $branch_name;<br> }</tt>
+
+
+
+<blockquote>
+
+<h2>Re:Make it work at any directory.</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-12-23T12:07:31</h3>
+<p>Ah, sweet.  I've a nasty habit of coding stuff for my working habits.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

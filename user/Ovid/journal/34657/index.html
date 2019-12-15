@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Where's the Bug?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Where's the Bug?</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-10-12T07:43:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>You know, there are plenty of modules out there which expect you to inherit from them to gain their functionality.  Perhaps the worst offender is <tt>Exporter</tt>.  Your non-OO modules are expected to inherit?  Sheesh.</p>
+
+<p>If you're writing an abstract base class, it makes perfect sense to use inheritance, but please stop and ask yourself if there's any other way you can provide the desired functionality.  Particularly with multiple inheritance (MI), Perl's default method resolution order is awful  (<a href="http://search.cpan.org/dist/Class-C3/">C3 method resolution</a> allieves the pain but doesn't make it go away).</p>
+
+<p>Of course, anything which forces MI should be viewed with great suspicion (I'm lookin' at you, Catalyst).  MI is so well known to be problematic that many languages with OO facilities simply forbid it.</p>
+
+<p>So, let's say I need a factory class, with class data, don't want to worry about missing methods (like Smalltalk and Sqeak) and want handy method generation.</p>
+
+<p>Where's the bug?</p>
+
+<pre>  package Hate;
+
+  # Hmm, better sort these so they're easy to read ...
+
+  use base qw(
+    Class::Accessor
+    Class::BlackHole
+    Class::Data::Inheritable
+    Class::Factory
+  );</pre>
+
+<p>Now how much of that behavior could you duplicate without forcing inheritance on people?</p></p>
+
+
+<hr/>
+
+
+
+<h2>Exporter and inheriting</h2>
+<h3><a href="/user/arc/">arc</a> on 2007-10-12T12:21:06</h3>
+It&#8217;s certainly common for non-OO modules to inherit from <code>Exporter</code>, and it matches the first example in the <code>Exporter</code> synopsis.  But the second example shows an alternative:<p><blockquote> <div><tt>package MyModule;<br>use Exporter qw&lt;import&gt;;<br>our @EXPORT_OK = qw&lt;...&gt;;</tt></div> </blockquote> I recently changed a large codebase to use that approach instead of inheritance.
+
+
+
+<h2>use Moose</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2007-10-12T14:09:29</h3>
+<p>
+Well, you could duplicate all of this functionality and require no MI at all using Moose and the Class::MOP meta level (the only forced inheritance being Moose::Object, but even that is optional). This all too common abuse of inheritance was one of the main reasons I wrote Moose the way I did. Having the meta layer allows you to add behavior to classes which belong with the class and not with any object instances created by the class (your classic OO "seperation of concerns"). Some of this behavior could easily be implemented with Roles as well (or in a non-Moose world using Class::Trait).
+</p>
+<p>
+As for the question<nobr> <wbr></nobr>...
+</p><blockquote><div><i>Wheres the bug?</i></div>
+</blockquote> 
+Well, the first thing that I saw was this line from the Class::Blackhole docs.<p><blockquote><div>Be sure to have Class::BlackHole be the absolute last item in your class's ISA list.</div>
+</blockquote>
+Which is then immeditely followed by this line:<p><blockquote><div>This class will almost definitely not work right as part of any ISA tree that has multiple inheritance.</div>
+</blockquote>
+I hate to say it, but I think your "bug" is less a case for the evils of MI, and more a case of not RTFM.
+
+<p>
+- Stevan
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:use Moose</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-10-12T14:39:50</h3>
+<p>Heh.  Point taken<nobr> <wbr></nobr>:)</p>
+
+<p>It's also worth noting that two of those classes provide their own constructor.  Hmm, which should I use?  Can I use both?  Must I use both?  All the more reason to provide that functionality without inheritance.</p>
+
+<p>Speaking of Moose (which I really like, though I've yet to have used it in a production environment, how's it's performance coming along?</p>
+
+
+
+<blockquote>
+
+<h2>Re:use Moose</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2007-10-13T05:25:23</h3>
+<blockquote><div><i>Speaking of Moose (which I really like, though I've yet to have used it in a production environment), how's it's performance coming along?</i></div>
+</blockquote> 
+Well, the startup cost is still kind of high because we do so much in the compile phase, but if you are in a persistent environment that is a moot point. The runtime speed is basically "fast enough" for most people and making your class immutable only increases that.
+
+<p>
+The most basic accessors are actually <i>faster</i> than Class::Accessor, of course if you add type constraints and such it will slow it down some. Object construction can be a little expensive, but if you make your class's immutable then the constructor is inlined and that cost is greatly reduced.
+</p>
+<p>
+- Stevan
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

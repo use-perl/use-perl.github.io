@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of heusserm: Exception Handling ... hmm</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Exception Handling ... hmm</h1>
+<h2><a href="/user/heusserm/">heusserm</a> on 2003-09-17T11:33:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Right now, I'm running into a lot of legacy code like this:<br/><br/>#------------------------#
+sub GetValues
+#------------------------#
+{
+    my $dbh = get_connection('databasename');
+    my $sth = $dbh->prepare('Select * from table_name');
+    $sth->execute();
+    my $r;
+    my @a;
+    while ($r = $sth->fetchrow_hashref) {
+        push @a, $r;
+    }
+    return (\@a);
+}<br/><br/>my "Improved" version would look more like this:<br/><br/>#------------------------#
+sub GetValues
+#------------------------#
+{
+    my $dbh = get_connection('databasename');
+    my $ok = 1;
+    my $msg = "Success";
+    my $sth;
+    if (!$dbh) {
+        $ok = 0;
+        $msg = "Failed to get connection to databasename in GetValues";
+    } else {
+        $sth = $dbh->prepare('Select * from table_name');
+    }<br/><br/>    if ($ok && (!$sth)) {
+        $ok = 0;
+        $msg = "Call to prepare failed in GetValues";
+    }<br/><br/>    my $r;
+    my @a;
+    if ($ok) {
+       $ok = $sth->execute();
+       if (!$ok) {
+           $msg = "Call to excecute failed in GetValues";
+       } else {
+           my $r;
+           my @a;
+           while ($r = $sth->fetchrow_hashref) {
+               push @a, $r;
+       }
+    }
+    return ($ok, $msg, \@a);
+}
+#------------------------#<br/><br/>  Note that my new code is literally TWICE as long as the old code.  Often, it's longer.<br/><br/>  Is this really advantageous?  In the long run, it feels like I'm trying the same things over and over again.  I actually made a module to abstract out the if-ish ness of the this routine, but the functions got to the point where they were taking 6+ paramters, some of which were optional.  It was just ugly.  So I've stopped using it until I can do it over again with anonymous hashrefs and "named params."<br/><br/>  The net result is that plenty of folks are saying "error checking is over-rated", and I can see where they are coming from.  What's the "right" answer?<br/><br/></p>
+
+
+<hr/>
+
+
+
+<h2>why not just set RaiseError?</h2>
+<h3><a href="/user/derby/">derby</a> on 2003-09-17T15:36:16</h3>
+If the get_connection method returns a handle<br>on which RaiseError, was set, just wrap in<br>an eval:<br> <br>sub GetValues {<br>
+&nbsp; &nbsp; &nbsp; my $a;<br> <br>
+&nbsp; &nbsp; &nbsp; eval {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $dbh = get_connection('databasename');<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $sth = $dbh-&gt;prepare('Select * from table_name');<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $sth-&gt;execute();<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $r;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; while ($r = $sth-&gt;fetchrow_hashref) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; push @$a, $r;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; };<br> <br>
+&nbsp; &nbsp; &nbsp; print STDERR $@ if $@;<br>
+&nbsp; &nbsp; &nbsp; return $@ ? undef : $a;<br>}
+
+
+
+<h2>bail out on error</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2003-09-17T16:03:59</h3>
+A lot of the extra code space is the constant testing whether you need to skip the next step because you've already hit an error.  Just bail out when the error happens.  I also changed it to either return 0, $msg (when an error happened) or else to return 1,@list (when everything worked).<blockquote><div> <tt>#------------------------#<br>sub GetValues<br>#------------------------#<br>{<br>&nbsp; &nbsp; my $dbh = get_connection('databasename')<br>&nbsp; &nbsp; &nbsp; or return( 0, "Failed to get connection to databasename in GetValues" );<br>&nbsp; &nbsp; my $sth = $dbh-&gt;prepare('Select * from table_name')<br>&nbsp; &nbsp; &nbsp; or return( 0, "Call to prepare failed in GetValues" );<br>&nbsp; &nbsp; my @a = $sth-&gt;execute()<br>&nbsp; &nbsp; &nbsp; or return( 0, "Call to excecute failed in GetValues" );<br>&nbsp; &nbsp; my $r;<br>&nbsp; &nbsp; my @a;<br>&nbsp; &nbsp; push @a, $r<br>&nbsp; &nbsp; &nbsp; &nbsp; while $r = $sth-&gt;fetchrow_hashref;<br>&nbsp; &nbsp; return (1, \@a);<br>}<br>#------------------------#</tt> </div></blockquote>
+
+
+
+<h2>My style -- is this wrong?</h2>
+<h3><a href="/user/Sifmole/">Sifmole</a> on 2003-09-17T16:04:04</h3>
+I don't understand why people keep all kinds of status flags and hold off until the end of a routine to "return".  If you know that you will do nothing after a failure at:<br> <br>
+&nbsp; &nbsp; &nbsp; if (!$dbh) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $ok = 0;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $msg = "Failed to get connection to databasename in GetValues";<br>
+&nbsp; &nbsp; &nbsp; &nbsp; } else {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $sth = $dbh-&gt;prepare('Select * from table_name');<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br> <br>Why not just return instead of checking $ok over and over again later?  I would do...<br> <br>
+&nbsp; &nbsp; &nbsp; if (!$dbh) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; return (0, "Failed to get connection to databasename in GetValues", \@a);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br> <br>$sth = $dbh-&gt;prepare('Select * from table_name');<br> <br>
+
+
+
+<h2>ick</h2>
+<h3><a href="/user/gav/">gav</a> on 2003-09-17T17:00:08</h3>
+<p>I find code like this pretty cringe-worthy. If you set RaiseError and HandleError, you can have something this simple:</p> <blockquote><div> <tt>sub get_values {<br>&nbsp; &nbsp; my $dbh = get_connection('databasename');<br>&nbsp; &nbsp; return $dbh-&gt;selectall_arrayref(<br>&nbsp; &nbsp; &nbsp; &nbsp; 'SELECT * FROM table_name', { Slice =&gt; {} }<br>&nbsp; &nbsp; );<br>}</tt> </div></blockquote> <p>Isn't that much nicer than 25 lines of code? I'm also not keen on returning flags for errors, you'll just have to write lots of code to check, just die if something bad happened and trap it with eval.</p>
+
+
+
+<blockquote>
+
+<h2>Re:ick</h2>
+<h3><a href="/user/htoug/">htoug</a> on 2003-09-17T19:46:34</h3>
+Yes, and most of the time, the correct reaction to something bad happening is to die, so you can even drop the eval.
+
+
+
+
+
+</blockquote>
+
+
+<h2>{ RaiseError = 1 }</h2>
+<h3><a href="/user/tobert/">tobert</a> on 2003-09-26T14:39:49</h3>
+The best way I've found is to use RaiseError =&gt; 1, which tells DBI to always throw an exception when there is an error.  This way, you never have errors go unnoticed.  If you want an error to not be fatal, use eval.<br/><br/>
+   eval {
+       $dbh-&gt;do("DROP TABLE users");
+   };
+   if ( $@ ) { my_error_handler( $@ ) }<br/><br/>
+Another method I use is a function that does a little more digging for me before printing it's error message.<br/><br/>
+   sub check_dbi_errors ($) {
+       my $sth = shift;
+       return if (!$sth-&gt;err);
+       warn $sth-&gt;errstr;
+       if ( $debug ) {
+           print "SQL for statement was: \"",
+                 $sth-&gt;{Statement}, "\"\n";<nobr> <wbr></nobr>...
+       }
+   }
+   my $sth = $dbh-&gt;prepare(execute( $value_for_d );
+   check_dbi_errors( $sth );<nobr> <wbr></nobr>...
+
+
+
+<blockquote>
+
+<h2>Re:{ RaiseError = 1 }</h2>
+<h3><a href="/user/tobert/">tobert</a> on 2003-09-26T14:56:30</h3>
+Hmm, I didn't look and see that the pre tag isn't allowed.  bummer.<br> <br>The best way I've found is to use RaiseError =&gt; 1, which tells DBI to always throw an exception when there is an error. This way, you never have errors go unnoticed. If you want an error to not be fatal, use eval.<br> <br>eval {<br>
+&nbsp; &nbsp; &nbsp; $dbh-&gt;do("DROP TABLE users");<br>};<br>if ( $@ ) { my_error_handler( $@ ) }<br> <br>Another method I use is a function that does a little more digging for me before printing it's error message.<br> <br>sub check_dbi_errors ($) {<br>
+&nbsp; &nbsp; &nbsp; my $sth = shift;<br>
+&nbsp; &nbsp; &nbsp; return if (!$sth-&gt;err);<br>
+&nbsp; &nbsp; &nbsp; warn $sth-&gt;errstr;<br>
+&nbsp; &nbsp; &nbsp; if ( $debug ) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; print "SQL for statement was: \"",<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $sth-&gt;{Statement}, "\"\n";<nobr> <wbr></nobr>...<br>
+&nbsp; &nbsp; &nbsp; }<br>}<br>my $sth = $dbh-&gt;prepare(<br>execute( $value_for_d );<br>check_dbi_errors( $sth );<nobr> <wbr></nobr>...<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

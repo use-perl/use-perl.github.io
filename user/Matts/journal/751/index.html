@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Matts: Parsing</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Parsing</h1>
+<h2><a href="/user/Matts/">Matts</a> on 2001-09-04T08:50:40</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This appeared in the discussion board attached to this journal:<br/><br/><i>Looks like your work on xml parser is involving you in some of the details of LL parsing. You might want to check out www.antlr.org Despite it being a Java tool, it is a nice tool for LL(k) [IMHO, Way better than yacc and the associated lalr grammars]</i><br/><br/>Actually I find this kind of parsing really easy. The good thing about XML is its 99% suitable for "character at a time" parsing. So the tokeniser is just "give me a character". There aren't many multi-character tokens in XML, the few exceptions being the bits in the DTD (like DOCTYPE, ELEMENT, ENTITY etc). So all I do for that is to read in a character at a time and if it's not what I expect, I buffer what I've read into the Reader class and backup. Actually the reader class does all that for me - I have match() and match_str() methods which do all the work.<br/><br/>So, take a section of the grammar:<br/><br/>  document ::= prolog element Misc*<br/><br/>In perl code this becomes:<br/><br/>  sub document {
+    my ($self, $reader) = @_;
+    $self->prolog($reader);
+    $self->element($reader);
+    while(!$reader->eof) {
+      $self->Misc($reader);
+    }
+  }<br/><br/>Misc is defined as:<br/><br/>  Misc ::= Comment | PI | S<br/><br/>So in perl code this becomes:<br/><br/>  sub Misc {
+    my ($self, $reader) = @_;
+    if ($self->Comment($reader)) {
+      return 1;
+    }
+    elsif ($self->PI($reader)) {
+      return 1;
+    }
+    elsif ($self->skip_whitespace($reader)) {
+      return 1;
+    }
+    return 0;
+  }<br/><br/>Now this is actually slightly different from the grammar, in that S is one whitespace character, whereas skip_whitespace consumes all whitespace. But analysis of the grammar shows that Misc never comes in isolation (i.e. it's always Misc*, or (something | else | Misc)*, so consuming all WS is safe.<br/><br/>Finally, the actual parsing (all you really see above is expansion of the grammar into perl code - it's missing the actual parsing of tokens bit, which happens at the leaves of the code).<br/><br/>  sub Comment {
+    my ($self, $reader) = @_;
+    if ($reader->match_string('<!--')) {
+      my $comment_str = '';
+      while(1) {
+        if ($reader->match('-')) {
+          $comment_str .= '-';
+          $reader->consume($CharMinusDash) ||
+             $self->parser_error(...);
+          $comment_str .= $reader->consumed;
+        }
+        elsif ($reader->consume($CharMinusDash)) {
+          $comment_str .= $reader->consumed;
+        }
+        else {
+          last;
+        }
+      }
+      $reader->match_str('-->') ||
+         $self->parser_error(...);
+      $self->lexhandler_method('comment',
+         { Data => $comment_str });
+      return 1;
+    }
+    return 0;
+  }<br/><br/>I hope that makes sense to people :-) Oh, and $CharMinusDash is a qr() regexp contained in an external file (Productions.pm). It uses the new unicode \x{...} syntax which only works in 5.7.2, sadly. Ah well, we need 5.7.2 to be able to do character set switching (using perlio, Encode, and binmode) so that's how it has to be.<br/><br/>Anyway, the upshot is that I find this a lot easier to work with than grammar "toolkits" like yacc (or antlr), simply because I'm intimately familiar with Perl. I know how to debug it. Perl is my friend :-)<br/><br/>Unfortunately the XML grammar is a bitch. It's not complete. The XML spec authors decided to punt on a lot of grammar issues and put those bits of the spec in the verbiage, rather than making the grammar complete (because this would confuse people reading the spec, apparently - I fail to see how that's really true!). So now I'm left trying to figure out how you might go about parsing PEReferences (those %foo; things that allow you to modularise DTDs) in the internal and external subset, since the grammar doesn't specify that properly. Bah! Maybe I'll skip that part for now :-)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: Automated Javascript tests with Test.Simple + WWW::Selenium</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Automated Javascript tests with Test.Simple + WWW::Selenium</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2009-06-06T23:01:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've been doing acceptance level QA at <a href="http://www.opensourcery.com/people/michael-schwern">my $job</a> lately which means a lot of clicking around in browsers and a lot of writing Selenium tests.  Really my job is to reduce the amount of manual testing which needs to be done and automate as much as possible.<br/><br/>I was talking with <a href="http://www.opensourcery.com/people/zack-hobson">Zack</a> who said he hates Selenium.  What he really meant was he hates testing at the browser level.  Its so finicky to write Selenium regression tests that won't break later because the layout changed.  He'd rather unit test his Javascript.  I pointed out <a href="http://openjsan.org/doc/t/th/theory/Test/Simple/0.21/">Test.Simple</a> as a solution.  Trouble is, that runs in a browser and someone still has to look at it.  That's not very useful for automated tests.<br/><br/>So I began wondering... what would it take to pipe the Test.Simple TAP into TAP::Harness?  Ideally I want to run the Javascript with a real DOM in a real browser, not some tinker toy simulation.  Can I get Firefox to pipe its page rendering to STDOUT?  I asked David Wheeler if he knew of anything and pointed me at some unfinished things like <a href="http://groups.google.com/group/jsan/browse_thread/thread/ed31b28554a60898?pli=1">JSAN::Prove</a> which requires a bunch of complicated setup and dependencies which I tl;dr'd.<br/><br/>Maybe there's some module on CPAN which can pipe from Firefox.  I searched for "firefox" and what comes up but <a href="http://search.cpan.org/perldoc?WWW::Selenium">WWW::Selenium</a>.  OF COURSE!  I can use WWW::Selenium to talk to <a href="http://seleniumhq.org/docs/05_selenium_rc.html">Selenium Remote Control</a> and get the output of a web page!<br/><br/><pre>
+    require WWW::Selenium;<br/><br/>    # Assumes you have a selenium server running locally on 4444
+    my $sel = WWW::Selenium->new(
+        host => "localhost",
+        post => 4444,
+        browser => "*firefox",
+        browser_url => "file://nothing"
+    );<br/><br/>    $sel->start;
+    $sel->open('http://isperldeadyet.com');
+    print $sel->get_body_text();
+</pre><br/><br/>Then it's a simple matter of hooking this into TAP::Harness.<br/><br/><pre>
+#!/usr/bin/perl -w<br/><br/>use TAP::Harness;<br/><br/>my $harness = TAP::Harness->new({
+    exec => sub {
+        my( $harness, $file ) = @_;<br/><br/>        # Let Perl programs run normally
+        return undef unless $file =~ m{\.(js|html)$};<br/><br/>        require WWW::Selenium;
+        my $sel = WWW::Selenium->new(
+            host => "localhost",
+            post => 4444,
+            browser => "*firefox",
+            browser_url => "file://nothing"
+        );<br/><br/>        require File::Spec;
+        my $url = "file://" . File::Spec->rel2abs($file);
+        $sel->start;
+        $sel->open($url);<br/><br/>        # Get whatever's inside <pre id="TAP">
+        return $sel->get_text(q{//pre[@id="TAP"]});
+    },
+    verbosity => 1
+});
+</pre><br/><br/>Then write up a little HTML wrapper to run a basic Test.Simple test.
+(Note that t/lib contains the Test.Simple libraries)<br/><br/><pre>
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<html>
+  <head>
+    <script type="text/javascript" src="t/lib/Test/Builder.js"></script>
+    <script type="text/javascript" src="t/lib/Test/Simple.js"></script>
+    <title>TAP test</title>
+</head><br/><br/><body>
+<pre id="TAP">
+  <script type="text/javascript">
+    plan({ tests: 1 });
+    ok( 1, "this is a test from Javascript" );
+  </script>
+</pre>
+</body>
+</html>
+</pre><br/><br/>And run it.<br/><br/><pre>
+$ perl -w javascript_harness.plx tap.html
+tap.html .. ok   
+All tests successful.
+Files=1, Tests=1,  8 wallclock secs ( 0.19 usr +  0.03 sys =  0.22 CPU)
+Result: PASS
+</pre><br/><br/>Its slow, but it's awesome!  It gives me something to stick into an
+automated smoke server.  Developers need a faster turn around time, so
+they can quickly and individually unit test it directly in their browser using
+Test.Harness.Browser... but that's another show.<br/><br/>But wait, there's more!<br/><br/>That HTML wrapper is icky.  Wouldn't it be better if one could just
+test Javascript directly?  Why yes!  How about we generate the wrapper
+for .js files?<br/><br/><pre>
+#!/usr/bin/perl -w<br/><br/>use autodie;
+use TAP::Harness;<br/><br/>my $harness = TAP::Harness->new({
+    exec => sub {
+        my( $harness, $file ) = @_;<br/><br/>        my($type) = $file =~ m{\.(js|html)$};
+        return unless $type;  # run Perl normally<br/><br/>        require File::Spec;
+        require WWW::Selenium;
+        my $sel = WWW::Selenium->new(
+            host => "localhost",
+            post => 4444,
+            browser => "*firefox",
+            browser_url => "file://nothing"
+        );<br/><br/>        my $url = $type eq 'js'   ? _testify_javascript($file) :
+                  $type eq 'html' ? File::Spec->rel2abs($file) :
+                                    die "Unknown type $type";<br/><br/>        $sel->start;
+        $sel->open($url);
+        return $sel->get_text(q{//pre[@id="TAP"]});
+    },
+});<br/><br/>$harness->runtests(@ARGV);<br/><br/>
+# Turn .js files into .html with the Test.Simple libraries loaded.
+sub _testify_javascript {
+    my $file = shift;<br/><br/>    open my $fh, "<", $file;
+    my $javascript = join "", <$fh>;<br/><br/>    use Cwd;
+    use File::Temp 'tempfile';<br/><br/>    my $cwd = cwd;<br/><br/>    my($tmpfh, $tmpfile) = tempfile( CLEANUP => 1 );
+    print $tmpfh <<"END_OF_HTML";
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<html>
+  <head>
+    <script type="text/javascript" src="$cwd/t/lib/Test/Builder.js"></script>
+    <script type="text/javascript" src="$cwd/t/lib/Test/Simple.js"></script>
+    <title>TAP test</title>
+</head><br/><br/><body>
+<pre id="TAP">
+<script type="text/javascript">
+$javascript
+</script>
+</pre>
+</body>
+</html>
+END_OF_HTML<br/><br/>    return "file://$tmpfile";
+}
+</pre><br/><br/>Which eliminates all the scaffolding from the Javascript test file.<br/><br/><pre>
+plan({ tests: 1 });
+ok( 1, "this is a test from Javascript" );
+</pre><br/><br/>And the end result is I can run Javascript and Perl tests together from the command line.<br/><br/><pre>
+$ perl javascript_harness.plx t/*.js t/*.t
+t/tap.js .. ok   
+t/perl.t .. ok   
+All tests successful.
+Files=2, Tests=2,  9 wallclock secs ( 0.19 usr  0.04 sys +  0.03 cusr  0.01 csys =  0.27 CPU)
+Result: PASS
+</pre><br/><br/>UPDATE:  As threatened, <a href="http://github.com/schwern/javascript-tap-harness/tree/master">its on github</a>.</p>
+
+
+<hr/>
+
+
+
+<h2>Cool</h2>
+<h3><a href="/user/grink/">grink</a> on 2009-06-07T02:20:55</h3>
+Have not dug into the nitty gritty of your post yet, but wow, looks awesome
+
+
+
+<h2>feels good man.</h2>
+<h3><a href="/user/drowsy/">drowsy</a> on 2009-06-07T13:51:12</h3>
+it looks very helpful, thank you xwrn!
+
+
+
+<h2>Thanks</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2009-06-08T01:59:14</h3>
+Looks like a useful breakthrough. Bookmarked.<br/><br/>Thanks!<br/><br/>   Mark
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

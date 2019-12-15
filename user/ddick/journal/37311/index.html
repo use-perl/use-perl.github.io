@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ddick: Modules for logging on win32</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Modules for logging on win32</h1>
+<h2><a href="/user/ddick/">ddick</a> on 2008-08-29T23:59:19</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><a href="http://use.perl.org/user/acme/">acme</a> was <a href=http://use.perl.org/user/acme/journal/37289">asking about best practice for logging modules</a>, citing <a href="http://search.cpan.org/user/mschilli/Log-Log4perl-1.18/lib/Log/Log4perl.pm">Log::Log4Perl</a> and <a href="http://search.cpan.org/user/drolsky/Log-Dispatch-2.21/lib/Log/Dispatch.pm">Log::Dispatch</a>.  By preference and experience i'm a unix programmer, but recently (last couple of years) i've needed to write some stuff for the win32 platform.  One of the more difficult things i've encountered is trying to log 'natively' on win32 and unix.</p><p>For me, native logging on win32 means logging to the windows event logger, which, as seen at <a href="http://search.cpan.org/user/jdb/Win32-EventLog-0.076/EventLog.pm">Win32::EventLog</a>, requires a numeric EventId and a set of parameters joined by the NUL character. Win32 combines these with a DLL provided by the application writer to produce the final localised message seen by the user in the event viewer.  Unix on the other hand via syslog, requires a string which is sent to the appropriate log file.  This presents a big problem when trying to create a common logging API.</p><p>So far, the usual way of combining the two seems to be by in the background, providing an EventId of 0 (or whatever number) and a single parameter consisting of the entire message. This allows this sort of interface:</p>
+<pre>
+Log->send($the_entire_log_message)
+</pre>
+<p>However, the EventId is the only thing visible in the event viewer until you double click on the specific event to see more details about it.  Therefore scrolling through X completely different entries all with an EventId of 0 is a bit tedious to say the least. So this sort of interface is familiar to the Unix programmers, but possibly a little misleading if they think their work will ever run seamlessly on windows.</p><p>My best effort at creating a combined win32 / unix log library has been to provide a call like this:</p> 
+<pre>
+Log->new($numericId, \@parameters)->send();
+</pre>
+<p>Which on unix opens the correct localisation file, creates the log message and sends it to syslog/wherever and on win32 sends direct to the event logger</p>
+<p>Comments on these ideas?</p></p>
+
+
+<hr/>
+
+
+
+<h2>Do both. :-)</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2008-08-30T00:52:01</h3>
+<p><a href="http://search.cpan.org/user/mschilli/Log-Log4perl-1.18/lib/Log/Log4perl/JavaMap/NTEventLogAppender.pm" title="cpan.org">http://search.cpan.org/user/mschilli/Log-Log4perl-1.18/lib/Log/Log4perl/JavaMap/NTE<nobr>v<wbr></nobr> entLogAppender.pm</a cpan.org></p><p>I just started using log4net. Typically, I log info/debug to a file, then also push Error/Warn/Fatals to the event log to get picked up but event log monitoring software (like 2008 Server Event Log Subscriptions)</p>
+
+
+
+<blockquote>
+
+<h2>i would but ... :-)</h2>
+<h3><a href="/user/ddick/">ddick</a> on 2008-08-30T10:31:50</h3>
+Log::Log4perl::JavaMap::NTEventLogAppender calls
+Log::Dispatch::Win32EventLog calls Win32::EventLog and passes it an EventId of 0. Oh well.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Logging</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2008-08-30T01:19:13</h3>
+<p>Just because you are on Windows does not mean you need to use the event log. I personally don't like it and just use Log4perl.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Logging</h2>
+<h3><a href="/user/ddick/">ddick</a> on 2008-08-30T10:25:49</h3>
+<p>my two worries on that idea is;</p><p>firstly a native windows person (the customer installing the application) may get confused about why this application logs differently than the normal windows apps</p><p>secondly, you then need to choose/install/maintain your own logrotate stuff, if you wish to stop logs growing forever.  the event logger, as you would expect for a native operating system function, does it's own housekeeping by default.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Logging</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2008-08-30T11:45:06</h3>
+<p>What, does anyone actually use and/or like the Windows event log?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Logging</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2008-08-30T12:25:52</h3>
+<p>Normally, I hate it for logging. But things have changed in Vista/Server 2008.</p><p>Microsoft has tried to turn the Event log into a syslogd like system. You can have a central server receive and/or monitor all of the other servers events logs, and write monitoring rules (if you see x of y ad level z, email/netsend/script user $)</p><p>Now that it's easier to have a server to monitor logs (like in an ops or helpdesk area), I'm more inclined to use them, at least for Errors/Fatal level events.</p><p>Of course, if you're using something like log4net, you can push logs anywhere withotu even caring about changing your mind.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

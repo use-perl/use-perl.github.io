@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: MMD and Allomorphism</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>MMD and Allomorphism</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-12-10T19:34:48</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>When I first read the docs for <a href="http://search.cpan.org/user/dconway/Class-Multimethods-1.70/lib/Class/Multimethods.pod">Class::MultiMethods</a>, I was confused.</p>
+
+<pre># IMPORT THE multimethod DECLARATION SUB...
+
+    use Class::Multimethods;
+
+ # DECLARE VARIOUS MULTIMETHODS CALLED find...
+
+ # 1. DO THIS IF find IS CALLED WITH A Container REF AND A Query REF...
+
+    multimethod find => (Container, Query) 
+                     => sub { $_[0]->findquery($_[1]) };
+
+ # 2. DO THIS IF find IS CALLED WITH A Container REF AND A Sample REF...
+
+    multimethod find => (Container, Sample)
+                     => sub { $_[0]->findlike($_[1]) };</pre>
+
+<p>However, after a bit of time, I realized I was being silly and the syntax is actually not too bad.  With how Perl works, that's one of the cleaner ways of describing things.  I probably would have found it easier if I had seen it written like this:</p>
+
+<pre>multimethod find => (Container, Query) => sub {
+    my ( $container, $query ) = @_;
+    $container->findquery($query)
+};
+
+multimethod find => (Container, Sample) => sub {
+    my ( $container, $sample ) = @_;
+    $container->findlike($sample)
+};</pre>
+
+<p>Ah, that's much clearer to me.</p>
+
+<p>Now a more conventional syntax would be cleaner still:</p>
+
+<pre>multimethod find(Container $container, Query $query) {
+    $container->findquery($query);
+};
+
+multimethod find(Container $container, Sample $sample) {
+    $container->findlike($sample);
+}</pre>
+
+<p>Now as it turns out, if you have multiple "multi" subs, <a href="http://www.mail-archive.com/perl6-language@perl.org/msg20870.html">you can wind up with complicated dispatching rules</a> which may be fast in C, but in pure Perl, can slow things down (this was proposed for Perl6 and appears different from how Damian's <tt>Class::MultiMethods</tt> works):</p>
+
+<ol>
+  <li>Gather all visible variants with a compatible number of parameters (taking into account the requirements of any "where" constraints)</li>
+  <li>If there are no such variants, throw a "no such multi" exception</li>
+  <li>Work out the Manhattan distance from the argument list to each variant's parameter list.</li>
+  <li>If there is a unique minimum, call that variant</li>
+  <li>Otherwise, discard every variant whose Manhattan distance isn't minimal</li>
+  <li>Work out the degree of specialization of each remaining argument list (i.e. the total number of C<where> specializations on the variant's complete set of parameters)</li>
+  <li>If there is a unique maximum, call that variant</li>
+  <li>Otherwise, if there is a compatible variant with an &lt;is default&gt; trait, call that variant</li>
+  <li>Otherwise, throw an "ambiguous call" exception.</li>
+</ol>
+
+<p>Got that?  Damian Conway summarizes this as "Unique least-inherited most-specialized match, or default."  That's actually not too bad, but I still get a bit twitchy reading it.  However, you can even get decent performance out of it you make heavy use of caching.</p>
+
+<p>Regardless of whether you use Manhattan distance or some other technique to determine the correct dispatch of the MultiMethod, there are two problems with this approach, one syntactic, one implementation.</p>
+
+<p>The syntactic problem is this:</p>
+
+<pre>multimethod find(Container $container, Query $query) {
+    $container->findquery($query);
+};
+
+multimethod find(Container $container, Sample $sample) {
+    $container->findlike($sample);
+}</pre>
+
+<p>See the problem?  No?  OK, let's try again:</p>
+
+<pre>multimethod find(Container $container, Query $query) {
+    $container->findquery($query);
+};
+
+# 300 lines of code later
+
+multimethod find(Container $container, Sample $sample) {
+    $container->findlike($sample);
+}</pre>
+
+<p>Ah ha!  Now you can see the problem.  The syntax makes it very easy for the programmer to accidentally split up related sections of code and that makes maintenance harder.  What I would like to see is something like this:</p>
+
+<pre>multimethod find -> 
+  (Container $container, Query $query) {
+    $container->findquery($query);
+  },
+  (Container $container, Sample $sample) {
+    $container->findlike($sample);
+  };</pre>
+
+<p>I can't say that this is the exact syntax I would want, but it has the advantage that the programmer is forced to group the overloaded function/methods together.</p>
+
+<p>The other problem is lack of support for <a href="http://use.perl.org/user/Ovid/journal/26748">allomorphism</a> (classes unrelated by inheritance which still have semantically equivalent sets or subsets of methods).  For example, consider this pseudo-code for Perl5:</p>
+
+<pre>multi method get_customer (CGI $query) {
+    my $customer = $query->param('customer') or croak $some_message;
+    return Customer->new($customer);
+}</pre>
+
+<p>This assumes that the argument is an instance of <tt>CGI.pm</tt>.  But what if you like <a href="http://search.cpan.org/user/jfreeman/Cgi-Simple-0.077/">CGI::Simple</a>?  It has the same interface (without the HTML stuff), passes all of the CGI.pm tests, but is lighter and faster.  It <em>should</em> work for the above, but it fails because the type is hardcoded when it's the behaviors we're really interested in.  Further, because of Perl's poor introspection, it's not possible to know if two methods are semantically equivalent (in other words, do they have the same signatures and return types?)</p>
+
+<p>This raises another interesting problem, though.  There's a well-known ambiguous dispatch problem with MMD.  Let's say that <tt>Cat</tt> and <tt>Dog</tt> inherit from a <tt>Mammal</tt> class.</p>
+
+<pre>multi sub sausage (Cat $cat, Mammal $mammal) {
+    # do something
+}
+
+multi sub sausage (Mammal $mammal, Dog, $dog) {
+    # do something
+}</pre>
+
+<p>Which gets calls with <tt>sausage($cat, $dog);</tt>?  It's ambiguous and can't get resolved.  However, these tend to arise when you have more than one argument to the function or method (excluding the invocant, if any).  But what about allomorphism?  Imagine a system that let's you supply signatures to fall back on if you don't have the exact class you want:</p>
+
+<pre>multi sausage (Mammal $mammal) {
+    make_sausage($mammal);
+}
+
+# "{ void cry_for_help(void) }" is a signature which means
+# we can dispatch to any instance which provides this
+multi sausage (AnyThing $thing { void cry_for_help(void) } ) {
+    $thing->cry_for_help;   # before being ground
+    make_sausage($thing);
+}</pre>
+
+<p>Now we assume by default that the mammal class does not have a <tt>&cry_for_help</tt> method.  What if we apply a <tt>Beg</tt> trait to a mammal subclass for a mammal which ordinarily cannot make noise, but the <tt>Beg</tt> trait supplies the <tt>cry_for_help</tt> method?  Which of the above methods should be called?  It might be the first method since that's a mammal, but it might be the second since that allows it to cry for help.  Depending upon what each function does, we could argue for either.  Should we favor behavior over classes in this case?</p>
+
+<p>Are there simple answers to these problems?  I don't know, but I suspect there aren't.  Creating an allomorphic MMD system is likely to introduce plenty of bugs in programmers code and while allomorphism solves some complexity problems, it seems to introduce others.</p></p>
+
+
+<hr/>
+
+
+
+<h2>RE: MMD and Allomorphism</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2006-12-11T05:01:31</h3>
+<blockquote> <div><i>
+Ah ha! Now you can see the problem. The syntax makes it very easy for the programmer to accidentally split up related sections of code and that makes maintenance harder.
+</i></div> </blockquote>
+<p>
+Well, this makes the assumption that the two methods are related in some way other than having the same name. When you think of classes being a collection of methods and attributes (or fields or instance variables or whatever you wanna call them), then the idea of splitting up this multi-method across 300 lines of code is horrid. <b>But</b> if you flip that assumption over (because it is only an assumption, and not a hard and fast rule of all OO systems) and look at methods as being first class things on par with classes, it does not seem to be such a problem.
+</p>
+<p>
+I think the difference is best illustrated in how a method is called. Do you call the method like this:</p><p><blockquote> <div><tt>$obj-&gt;foo(); # send the message foo to the instance $obj</tt></div> </blockquote> or do you call the method like this:<p><blockquote> <div><tt>foo($obj); # dispatch a varient of foo on the instance $obj</tt></div> </blockquote> They can produce the same results, but the approach is completely different.
+
+<blockquote> <div><i>
+Imagine a system that let's you supply signatures to fall back on if you don't have the exact class you want:</i><blockquote><div><i> <tt>multi sausage (AnyThing $thing { void cry_for_help(void) } ) {<br>&nbsp; &nbsp; $thing-&gt;cry_for_help;&nbsp; &nbsp;# before being ground<br>&nbsp; &nbsp; make_sausage($thing);<br>}</tt></i></div> </blockquote></div>   </blockquote>
+<p>There is no need to imagine it, you can have it today! Ladies and Gentlemen i give you,<nobr> <wbr></nobr>... Ocaml</p> <p><blockquote> <div><tt>class anything =<br>object (self)<br>&nbsp; &nbsp; method cry_for_help = print_string ("Help anything\n")<br>&nbsp; &nbsp; method foo = 1<br>end;;<br> <br>class anywho =<br>object (self)<br>&nbsp; &nbsp; method cry_for_help = print_string ("Help anywho\n")<br>&nbsp; &nbsp; method bar = 1<br>end;;<br> <br>let sausage x =<br>&nbsp; &nbsp; x#cry_for_help<br>;;<br> <br>sausage (new anything);<br>sausage (new anywho);</tt></div> </blockquote>  <p>Here I have defined two classes who have the following "class signatures", which are (and this is what the ocaml REPL will print out for you):</p> <p><blockquote> <div><tt>class anything : object<br>&nbsp; method cry_for_help : unit<br>&nbsp; method foo : int<br>end<br>class anywho : object<br>&nbsp; method bar : int<br>&nbsp; method cry_for_help : unit<br>end</tt></div> </blockquote>  <p>And I have a function (sausage), who (through the magic of type inference) has been determined to have the following signature</p> <p><blockquote> <div><tt>val sausage : &lt; cry_for_help : 'a;<nobr> <wbr></nobr>.. &gt; -&gt; 'a = &lt;fun&gt;</tt></div> </blockquote>  <p>What this is saying is that <code>sausage</code> must be passed an object (not a class, only an instance) which has a method <code>cry_for_help</code>. When I run this in the OCaml REPL I get this:</p> <p><blockquote> <div><tt>Help anything<br>Help anywho</tt></div> </blockquote>  <p>What is basically going on here (as best as I understand it) is called "structural typing". Where instead of just comparing the type's by name (<code>Foo-&gt;isa(Foo)</code>) it is comparing them structurally.</p>
+<p>And of course my favorite part of OCaml is that I didn't have to actually write down any of this type information at all. The type inferencer just figured it all out for me. It determined that I would be calling the <code>cry_for_help</code> method on the object passed into <code>sausage</code> and built all the type signatures I needed. It then determined that the instance of <code>anything</code> and <code>anywho</code> properly fit that signature, and so it let me compile the code. </p>
+<p>
+Of course, this all comes at a price. OCaml is statically typed, so things like runtime code generation, runtime class creation or even auto-converting a string to an int are pretty much impossible to do. However, you do get blazing fast code (comparable to C/C++ in all the shootouts) and the warm fuzzy feeling that only static typing can bring you.
+</p>
+<p>- Stevan</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

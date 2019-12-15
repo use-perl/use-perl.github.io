@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Shlomi Fish: Imported Symbols Trouble</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Imported Symbols Trouble</h1>
+<h2><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2008-01-18T16:53:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+After I udpated my Mandriva Cooker system a few days ago (after the perl 
+package there had been upgraded to 5.10.0), I noticed that SpamAssassin's 
+"spamd" and "spamassassin" started generating the following warnings:
+</p>
+
+<pre>
+Constant subroutine IO::Socket::INET6::AF_INET6 redefined at
+/usr/lib/perl5/5.10.0/Exporter.pm line 66.
+ at /usr/lib/perl5/vendor_perl/5.8.8/IO/Socket/INET6.pm line 16
+Prototype mismatch: sub IO::Socket::INET6::AF_INET6 () vs none at
+/usr/lib/perl5/5.10.0/Exporter.pm line 66.
+ at /usr/lib/perl5/vendor_perl/5.8.8/IO/Socket/INET6.pm line 16
+Constant subroutine IO::Socket::INET6::PF_INET6 redefined at
+/usr/lib/perl5/5.10.0/Exporter.pm line 66.
+ at /usr/lib/perl5/vendor_perl/5.8.8/IO/Socket/INET6.pm line 16
+Prototype mismatch: sub IO::Socket::INET6::PF_INET6 () vs none at
+/usr/lib/perl5/5.10.0/Exporter.pm line 66.
+ at /usr/lib/perl5/vendor_perl/5.8.8/IO/Socket/INET6.pm line 16
+</pre>
+
+<p>
+After investigating, I found out that there was a "use Socket6;" call
+there, which imported the <tt>AF_INET6</tt> and <tt>PF_INET6</tt> symbols,
+which were already imported into the <tt>IO::Socket::INET6</tt> package by
+previous <tt>Socket</tt> and <tt>IO::Socket</tt> calls. 
+</p>
+
+<p>
+In order to get rid of the warnings, I eventually decided to only selectively
+import symbols from <tt>Socket6</tt>, and imported the necessary symbols
+minus <tt>AF_INET6</tt> and <tt>PF_INET6</tt>. In order to get 
+<tt>IO::Socket::INET6</tt> to pass its tests, I had to fix its tests, which
+had been broken before any modifications to it started.
+<a href="http://www.leonerd.org.uk/">LeoNerd</a> helped me with that,
+so thanks!
+Then I 
+<a href="http://qa.mandriva.com/show_bug.cgi?id=36889">submitted a modified 
+SRPM to Mandriva</a> with a patch and went to sleep happy. 
+</p>
+
+<p>
+Today, when I woke up and checked my email, I was surprised to discover that
+about 20 spam mails landed at my inbox. As it turned out, they didn't have
+the SpamAssassin headers. Running <tt>spamc</tt> from the command line, 
+yielded an unmodified message, while the standalone <tt>spamassassin</tt> 
+program worked perfectly. So I started to investigate why spamc and spamd 
+failed.
+</p>
+
+<p>
+I ran into some trouble trying to point <tt>spamd</tt> to a modified 
+<tt>IO::Socket::INET6</tt> module, because it was tainted, and won't read
+the <tt>PERL5LIB</tt> environment variable (it's documented in 
+<a href="http://perldoc.perl.org/perlrun.html">perlrun</a>. I had to 
+modify the sources and use "use lib".
+</p>
+
+<p>
+I also had a lot of trouble trying to see why <tt>IO::Socket::INET6</tt> 
+fails and where. This eventually was resolved by running spamd like this:
+</p>
+
+<pre>
+perl  -T blib/script/spamd -c -m5 -H --syslog="stderr info"
+</pre>
+
+<p>
+Then I could see the error clearly. Apparently I missed importing 
+<tt>inet_ntop()</tt> from the Socket6 module, which was called by some
+functions that were not ran in the unit tests, and so it was only detected 
+when spamd ran. This is one disadvantage of dynamic, symbolic languages such as
+Perl, and can be prevented in statically compiled languages such as C and
+as far as I know, Java as well.
+</p>
+
+<p>
+Well, but since the code in question was Perl, I just added tests for the
+functions calling <tt>inet_ntop()</tt> and added it to the imports. After
+installing the modified module, spamd worked again, and 
+<a href="http://qa.mandriva.com/show_bug.cgi?id=36952">I submitted a new
+patch for inclusion into Mandriva</a>. So the enhancements now are that
+the warnings have been removed, the tests passing and the test suite made
+more robust.
+</p>
+
+<p>
+As these modifications, may be useful for other platforms besides Mandriva,
+<a href="http://www.nntp.perl.org/group/perl.module-authors/2008/01/msg6187.html">I
+sent a message to the maintainer and other designated parties regarding
+resuming the maintenance of IO::Socket::INET6</a>.
+</p>
+
+<p>
+Some other lessons from this:
+</p>
+
+<ol>
+
+<li>
+<tt>use MyModule ()</tt> is your friend. <tt>use MyModule;</tt> and then
+using the symbols that are exported by default is more evil.
+</li>
+
+<li>
+If you can use the symbols from the original package. If you can't, import
+them selectively.
+</li>
+
+<li>
+Make sure you have a comprehensive test suite with good (preferabaly 100%)
+test coverage. Test-Driven Development is your friend.
+</li>
+
+</ol>
+
+<p>
+Right now I'm cranky and happy at the same time, because I've spent
+half-a-day on this bug.
+</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

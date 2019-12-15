@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: splitting up a &quot;big&quot; git repo, take two</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>splitting up a &quot;big&quot; git repo, take two</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2007-09-11T01:37:13</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><html><p>Converting to git has been fun, educational, and annoying, at various times.
+Here are some notes (mostly to myself) on the fun, educational, and annoying
+bits that I solved today.</p><p>When I converted my personal Subversion repository (notes on my RPG, talks,
+letters, config files) to Git, I just turned one big Subversion repo into one
+big Git repo.  It was about 400 megabytes, in Git.</p><p>I decided, a little later, that there was no reason that all my huge Keynote
+slides needed to be in the same place as my letters to my grandmother or my
+notes on my RPGs.  A little digging made it seem like this would work just
+fine:</p><pre>$ git filter-branch --subdirectory-filter letters HEAD
+</pre><p>With that, my history would be rewritten to only include changes in the letters
+directory, which would become root.  When I did it, I found that everything was
+still there -- but listed as a new or modified file.  That was easy to deal
+with, too:</p><pre>$ git reset --hard
+</pre><p>Great!  Now I had only my fifteen letters with twenty total revisions.  Only
+one small problem:</p><pre>$ du -sh ../letters
+381M letters
+
+$ git-gc && git-prune
+$ du -sh ../letters
+381M letters
+</pre><p>I couldn&#39;t figure out what the hell was going on, mostly because I didn&#39;t know
+much about how git stored things.  More importantly, I didn&#39;t realize that when
+cloning a git repository from one directory to another on the same filesystem,
+<code>git-clone</code> will make hardlinks.  Then, when cleaning up, it will see that
+files are in use and not purge them.  They&#39;re not actually taking up any more
+space, and after I had removed the original, big repository that I&#39;d cloned, a
+cleanup would have worked.</p><p>I realized this later, when reading the docs because of another problem.  I had
+long since removed the trimmed-down repositories, because I thought they were
+taking up too much space.  To deal with the problem from the get-go, I did
+something like this:</p><pre>for dir in talks/exporter rpg/deliverance letters;
+  do (
+    cd $dir
+    git filter-branch --subdirectory-filter talks/$dir HEAD
+    git reset --hard
+    cd ..
+    git clone --no-hardlinks $dir _$dir
+    cd _$dir
+    git gc --aggressive
+    git prune
+  )
+done
+</pre><p>The important thing here is the <code>--no-hardlinks</code> option to <code>git clone</code>.
+Obviously, it prevents hardlinking, instead making copies of everything.  With
+that done, the <code>gc</code> and <code>prune</code> commands can work as I had expected, removing
+all the objects not used in this particular repo.</p><p>More and more, I find that git is a really well-designed system.  I wish I had
+a reason to learn much more about it!</p></html>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Similar problem, not as good a solution</h2>
+<h3><a href="/user/david.romano/">david.romano</a> on 2007-09-11T04:42:39</h3>
+<p>Thanks for the write-up: I was trying almost the same thing! I had imported a pretty big repository (made up of various subprojects) to git, which is sorta what you <a href="http://use.perl.org/user/rjbs/journal/34085" title="perl.org">described a bit ago</a perl.org>. I had also renamed some directories along the way, so when I tried to separate them up with <code>git-filter-branch</code>, it was failing with collecting all the revisions needed.
+</p>
+<p>I ended up writing two <a href="http://www.unobe.com/files/osx/git-history-files.txt" title="unobe.com">helper</a unobe.com> <a href="http://www.unobe.com/files/osx/git-history-sieve.txt" title="unobe.com">scripts</a unobe.com> to solve my problem, and I wish I hadn't glossed over <code>--no-hardlinks</code> because that would have saved quite a bit of time. On the other hand, I found out by cloning the git repo twice (and doing <code>git gc</code>) has the same effect as <code>--no-hardlinks</code>. At any rate, these two scripts worked well enough do what I needed to do. I'll most likely change them in the future to integrate <code>--no-hardlinks</code>.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of LTjake: DBIx::Class::Indexed</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>DBIx::Class::Indexed</h1>
+<h2><a href="/user/LTjake/">LTjake</a> on 2007-04-05T18:34:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>It's pretty much a given that a modern web app will have some sort of database backend. With a modern web app
+comes a modern web framework. This also means that you'll probably use some sort of ORM. You can then tie your ORM
+to your web framework and create a CRUD interface.</p>
+<p>For the unaware, CRUD stands for Create, Read, Update and Delete. 4 primitive, but essential, operations for
+managing the data in the store. And alternative acronym is BREAD -- Browse, Read, Edit, Add, Delete. This acromym
+incorporates the notion that, in order to do read, edit, and delete operations, you need to be able to find a
+particular record. This typically comes in the form of a x-records per page list that you can navigate until you
+find what you want.</p>
+<p>Finding what you want has become increasingly important. This is why I'd like to add a new letter to the BREAD/CRUD
+acronyms -- S, for Search.</p>
+<p>Although we could live with whatever google provides, I have no doubt that most people would like a more
+domain-focused search facility for whatever application they're working with. I've seen many interfaces with a bunch
+of boxes and pull-downs for boolean operations. In such cases, the server side application is probably translating that
+into <code>SELECT * FROM foo WHERE x LIKE '%y%'</code> or some such.</p>
+<p>That may be good enough for some -- but even though the user knows they're not using google, they still expect it to
+work the same way! Unfortunately, SQL-style searches typically mean that the user must know, to the letter, what they're
+looking for -- meaning sub-par search results and frustrated users.</p>
+<p>This is where indexing (sometimes referred to as fulltext indexing) comes in. For the uninitiated, indexing can be
+generalized as the process by which data (text in our case) is optimized for document retrieval relevant to a search query.
+That's a really poor definition, but, I won't go into any more detail than that, so check out wikipedia for <a href="http://en.wikipedia.org/wiki/Index_%28search_engine%29">more information on the subject</a>.</p>
+<p>A lot of databases have, or are getting, the ability to to do said indexing -- but i've not experimented with that so I won't comment.</p>
+<p>We're using the <a href="http://lucene-ws.net/">Lucene WebService</a> to do our indexing. Other indexing systems with perl bindings
+include <a href="http://search.cpan.org/dist/KinoSearch/">KinoSearch</a>, <a href="http://search.cpan.org/dist/Search-Xapian/">Xapian</a>, 
+<a href="http://search.cpan.org/dist/Search-Estraier/">Hyper Estraier</a> and even the <a href="http://search.cpan.org/dist/Lucene/">C port of Lucene</a>. All of these indexers should allow you to use Google-like syntax to search whatever data you've indexed.</p>
+<p>Now, I've gone through all of that back-story to ask the following question: Wouldn't it be nice if every time I added/updated/deleted data with my ORM, my
+indexer choice would sync itself accordingly?</p>
+<p>Well, if your ORM is DBIx::Class, then I might have something for you. I've started creating a component to do just
+that -- <a href="http://dev.lucene-ws.net/browser/perl/DBIx-Class-Indexed/trunk/">DBIx::Class::Indexed</a>.</p>
+<p>Here's a sample usage:</p>
+<pre>
+package PetShop::Cat;
+
+use strict;
+use warnings;
+use base qw( DBIx::Class );
+
+__PACKAGE__->load_components( qw( Indexed Core ) );
+__PACKAGE__->set_indexer(
+    'KinoSearch',
+    {
+        invindex => '/path/to/my/index/'
+    }
+);
+__PACKAGE__->table('cat');
+__PACKAGE__->add_columns(
+    cat_id => {
+        data_type         => 'integer',
+        is_auto_increment => 1,
+    },
+    name => {
+        data_type => 'varchar',
+        size      => 512,
+        indexed   => 1,
+    },
+    color => {
+        data_type   => 'varchar',
+        size        => 100,
+        is_nullable => 1,
+        indexed     => 1,
+    },
+    age => {
+        data_type   => 'integer',
+        indexed     => 1,
+        is_nullable => 1,
+    },
+);
+__PACKAGE__->set_primary_key( qw( cat_id ) );
+
+1;
+</pre>
+<p>So, each time I add/update/delete a Cat -- KinoSearch will follow suit. Currently, we
+only have components for indexing, but I've been chatting with the DBIx-Class devs to figure
+out the best way to integrate searching into the mix.</p>
+<p>If this project interests you, leave a comment or send me an <a href="mailto:bricas@cpan.org">email</a>. I'm starting with  <a href="http://dev.lucene-ws.net/browser/perl/DBIx-Class-Indexer-WebService-Lucene/trunk/">lucene-ws</a> and <a href="http://dev.lucene-ws.net/browser/perl/DBIx-Class-Indexer-KinoSearch/trunk/">KinoSearch</a> as targets. My knowledge of KinoSearch is slim so I would really appreciate some help there.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

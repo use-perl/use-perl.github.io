@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of miyagawa: Web::Scraper hacks #1: Extract links linking to images</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Web::Scraper hacks #1: Extract links linking to images</h1>
+<h2><a href="/user/miyagawa/">miyagawa</a> on 2007-09-03T16:59:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'm trying to put some neat cookbook things using Web::Scraper on this journal. They'll eventually be incoropolated into the module document like Web::Scraper::Cookbook, but I'll post here for now since it's easy to update and give a permalink to.<br/><br/>The easiest way to keep up with these hacks would be to subscribe to <a href="http://use.perl.org/user/miyagawa/journal/rss">the RSS feed of this journal</a>, or look at <a href="http://del.icio.us/miyagawa/webscraper">my del.icio.us links tagged 'webscraper'</a> (which has an RSS feed too).<br/><br/>Want to contribute your experience? Tag them <a href="http://del.icio.us/tag/webscraper">webscraper on del.icio.us</a> so I can follow.<br/><br/>Yesterday I played with <a href="http://blog.bulknews.net/blog-cameraphone.cgi">What cameraphone do they use?</a> which extracts photo files from blog sites, and used the following code to extract image files.<br/><br/><pre>
+# extract A links that has IMG inside
+my $s = scraper {
+    process "a>img", "links[]" => sub { $_->parent->attr('href') }
+};
+</pre><br/><br/>With "a>img" CSS selector, you'll get 'img' tags that follows 'a' tags, then call $_->parent to get its parent tag to retrieve the 'href' attribute.<br/><br/><pre>
+> echo '<a href="foo.jpg"><img src="bar.jpg"></a>' | scraper
+scraper> process "a>img", "links[]" => sub { $_->parent->attr('href') }
+scraper> y
+---
+links:
+  - foo.jpg
+</pre><br/><br/>To be more accurate, so that it won't pick up A links that actually don't link to .jpg files, you can write a bit complex XPath expression:<br/><br/><pre>
+process q{//a[contains(@href,'.jpg')]/img},
+  'links[]' => sub { $_->parent->attr('href') };
+</pre><br/><br/>contains() XPath expression makes sure that the href attribute actually contains ".jpg" somewhere, so it won't pick up A tag linking to HTML file etc. 
+</p>
+
+
+<hr/>
+
+
+
+<h2>Better living through superior XPath</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-09-03T19:21:38</h3>
+<p>Note that part of the improved expressiveness of XPath over CSS is that you don&#8217;t need to match on the deepest node you are trying to match; you can always climb back up the three, or use assertions:</p> <p><blockquote> <div><tt># Tree navigation:<br>process '//a[contains(@href,".jpg")]/img/..', 'links[]' =&gt; '@href';<br> <br># Any valid XPath is also valid in an assertion:<br>process '//a[img][contains(@href,".jpg")]', 'links[]' =&gt; '@href';</tt></div> </blockquote>  <p>The assertion is clearly the more straightforward way to say what you want here. It says &#8220;match all <code>a</code> element nodes anywhere, for which, given that node as context, there is an <code>img</code> element node child, and for which, given that node as context, there is an <code>href</code> attribute child whose values contains<nobr> <wbr></nobr><code>.jpg</code>.&#8221; So you match just the links you want, and then you can use the Web::Scraper short cut notation to pick up the <code>href</code> attributes.</p>
+
+<p>Note that I mean &#8220;any valid XPath&#8221; quite literally: you can <em>nest</em> assertions, too, to as many levels as you like/need. F.ex., you might want to say this:</p> <p><blockquote> <div><tt># Match thumbnail image links based on CSS classes<br>process '//a[img[@class="thumb"]][contains(@href,".jpg")]', 'links[]' =&gt; '@href';</tt></div> </blockquote>  <p>But if you need to match mostly on the tree below the element you want, it might be more readable to use tree navigation instead. Rather than using a long, complex assertion, possibly with nested subassertions, you just match the entire desired tree shape, then walk back up out of it. In my experience the need for this is rare, but still, it helps to remember that XPath allows you to walk the tree any direction you want.</p>
+
+<p>XPath is much more than just a punctuation-laden version of CSS.<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+<blockquote>
+
+<h2>Re:Better living through superior XPath</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2007-09-03T21:01:40</h3>
+<cite><br><br>Oh yes, and that's why I prefer CSS selector!<br><br>My brain doesn't have enough space to remember stuff like the complete XPath syntax that I rarely use. I guess I should just print out XPath cheat sheet somewhere, though.<br><br>Thanks for the "superior" XPath pointer anyway. That works and that's exactly why I keep the XPath support in Web::Scraper<nobr> <wbr></nobr>:)<br></cite>
+
+
+
+<blockquote>
+
+<h2>Re:Better living through superior XPath</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-09-03T22:59:58</h3>
+<p>Ah, hehe. For me I guess it&#8217;s much like with the dereferencing punctuation in Perl: it has a few consistent rules that compose cleanly. So it doesn&#8217;t take up any space in my head at all. To each his own.<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>scRUBYt!</h2>
+<h3><a href="/user/Relipuj/">Relipuj</a> on 2007-09-04T15:50:09</h3>
+Hello,<br><br>Just in case you wouldn't know about this fanstastic scraping tool: <a href="http://scrubyt.org/getting-started-with-scrubyt/" title="scrubyt.org">http://scrubyt.org/getting-started-with-scrubyt/</a scrubyt.org><br><br>I'm sure there's a lot of ideas in that application you could include in your module.<br><br>Regards,<br>Relipuj.
+
+
+
+<blockquote>
+
+<h2>Re:scRUBYt!</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2007-09-04T15:57:49</h3>
+Yes, I've taken a look at it as well, and found scrapi API easier to implement. Making Web::Scraper backend a complete OO and providing different DSL dialects on top of it is a big TODO<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:scRUBYt!</h2>
+<h3><a href="/user/Relipuj/">Relipuj</a> on 2007-09-04T16:27:21</h3>
+This was just a suggestion<nobr> <wbr></nobr>;-) being an occasional scripter (and bad at it probably), i realize it's a big thing to do (or i probably cannot realize it<nobr> <wbr></nobr>;-).<br><br>Personally i don't mind too much about the DSL and the OO interface. An imported function is perfectly ok.<br><br>What i love about it, it's that you just give it hints of what you want ("APPLE M9801LL..." and the "71.99" in the example given), and it guesses, correctly in general, what you want to extract...<br><br>But now i'd guess it is a lot of work too.<br><br>Your module is really great, i'm playing with it since a few hours and it's cool to use the scrAPI from perl<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Not really on-topic</h2>
+<h3><a href="/user/titivillus/">titivillus</a> on 2007-09-12T14:21:46</h3>
+But after reading your slides, I got religion real quick on Web::Scraper. Even presented on it to my Perl Mongers group. Thanks!
+
+
+
+<blockquote>
+
+<h2>Re:Not really on-topic</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2007-09-12T17:45:27</h3>
+Oh that's awesome. Which perl mongers?
+
+
+
+<blockquote>
+
+<h2>Re:Not really on-topic</h2>
+<h3><a href="/user/titivillus/">titivillus</a> on 2007-09-12T18:03:36</h3>
+Purdue Perl Mongers in West Lafayette, IN.<br/><br/>The sad part is that I got it working and was testing and writing the thing in the two hours before the meeting, so I don't really have my head around the syntax. The sadder part is that my mashine became unstable after I left so I couldn't SSH and look at example code and demo it. The saddest part was that there were no new members because the promotion machine got bolloxed.<br/><br/>The happy part is that I essentially get a do-over because of all that.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Aspect 0.90 - Aspect-Oriented Programming for Perl, rebooted</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Aspect 0.90 - Aspect-Oriented Programming for Perl, rebooted</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2010-05-27T02:44:01</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>After two years of development at $work, we've finally completed our program of stability work. To the great credit of our 7 man Perl team, we've managed to reduce the (predicted and actual) downtime to about 1 hour per year for our billion dollar ecommerce site that you've never heard of.<br/><br/>With stability solved, our focus now turns to usability. And unlike downtime, which is easily measurable, we don't really have any decent metrics for usability. So in preparation for this massive new metrics development push, for about a year now I've been hacking away on <a href="http://search.cpan.org/perldoc?Aspect">Aspect.pm</a>, Perl's Aspect-Oriented Programming framework.<br/><br/>My plan is to use this to write performance and metrics plugins for a generic Telemetry system, which would less us turn on and off metrics capturing for a library of different events, driven by configuration on the production hosts.<br/><br/>If you have never encountered Aspect-Oriented Programming before, you can think of it as a kind of <a href="http://search.cpan.org/perldoc?Hook::LexWrap">Hook::LexWrap</a> on steroids. The core "weaving" engine controls the selection and subjugation of functions, and the generation of the hooking code, and then two separate sugar-enhanced mechanisms are provided on top of this core to define what functions to hijack, and what to do when something we hit one of them.<br/><br/>The main power of AOP is in the ability to build up rich and complex hijacking conditions, and then write replacement code in a way that doesn't have to care about what is being hijacked and when.<br/><br/>This ability to manipulate large numbers of functions at once makes it a great tool for implementing "cross-cutting concerns" such as logging, tracing, performance metrics, and other kinds of functions that would normally result in having a bucketload of single lines scattered all through your implementation.<br/><br/>It also lets you do semi-evil "monkey-patching" tricks in a highly controlled manner, and potentially limited to only one single execution of one single process, without having to touch the target modules all the time everywhere.<br/><br/>For example, the following code shortcuts to false a particular named function only if it isn't being called recursively, and randomly for 1% of all calls, simulating an intermittent failure in the interface to some kind of known-unreliable hardware interface like a GPS unit.
+<pre>
+use Aspect;<br/><br/>before {
+    $_->return_value(undef);
+} call 'Target::function' & highest & if_true { rand() < 0.01 };
+</pre>
+While the original implementation of Aspect.pm wasn't too bad and did work properly, it had two major flaws that I've been working to address.<br/><br/>Firstly, it was trying to align itself too closely to the feature set of AspectJ. Unlike AspectJ, which does aspect weaving (installation) at compile time directly into the JVM opcodes, Perl's Aspect.pm does weaving at run-time using function-replacement technique identical to Hook::Lexwrap.<br/><br/>This difference means there's certain techniques that AspectJ does that we can't really ever do properly, but there are other options open to us that couldn't be implemented in Java like the use of closures.<br/><br/>For example, with Aspect.pm you can do run-time tricks like that rand() call shown above. Since the if_true pointcut is also a closure, you can even reach have it interact with lexical variables from when it was defined.<br/><br/>This makes for some very interesting options in your test code, allowing lighter  alternatives to mock objects when you only want to mock a limited number of methods, because you can just hijack the native classes rather than building a whole set of mock classes and convincing your main code to make use of them.
+<pre>
+use Aspect;<br/><br/># Hijack the first four calls to any foo_* method
+my @values = qw{ one two three four };
+before {
+    $_->return_value(shift @values);
+} call qr/^Target::foo_\w+$/ & if_true { scalar @values };
+</pre><br/><br/>The second problem I've fixed is the speed. The original implementation made heavy use of object-orientation at both weave-time and run-time.<br/><br/>Logically this is a completely defensible decision. However, from a practical standpoint when you are going to be running something inline during function calls, you don't really want to have to run a whole bunch of much more expensive recursive methods.<br/><br/>So I've restructured much of the internals to greatly improve the speed.<br/><br/>I've dumbed down the inheritance structure a bit to inline certain hot calls at the cost of a bit more code.<br/><br/>I've also implemented a currying mechanism, so that run-time checks can safely ignore conditions that will always be true due to the set of functions that ended up being hooked.<br/><br/>And finally, rather than do method calls on the pointcut tree directly, we now compile the pointcuts down to either a string parameter-free equivalent functions.<br/><br/>In the ideal case the entire pointcut tree is now expressed as a single-statement Perl expression which makes no further function calls at all.<br/><br/>This not only removes the very expensive cost of Perl's function calls, but having everything in a single expression also exposes the boolean logic to the lower-level opcode compiler and allows culling and shortcutting at a much lower level.<br/><br/>With these two major improvements in place, I've also taken the opportunity to expand out the set of available conditions to include a number of additional rules or interest to Perl people that don't have equivalents in the Java world like tests for the wantarray'ness of the call.
+<pre>
+use Aspect;<br/><br/># Trap calls to a function we know behaves badly in list or void contexts
+before {
+    $_->exception("Dangerous use of function in non-scalar context");
+} call 'Target::function' & ! wantscalar;
+</pre><br/><br/>In addition to the expanded functionality, I've also massively expanded the test suite and written up full (or at least nearly full) POD for all classes in the entire Aspect distribution.<br/><br/>To celebrate this near-completion of the first major rewrite phase, I've promoted the version to a beta'ish 0.90.<br/><br/>There's still some work to do before release 1.00. In particular, at present the point context objects still work to a single unified set of method calls, regardless of the advice type.<br/><br/>This means that advice code can attempt to interrogate or manipulate things that are irrelevate or outright illegal in certain contexts.<br/><br/>Cleaning this up will elevate these bad context usages to "method not found" exceptions, and will also allow prohibiting the use of pointcut conditions in contexts where they are meaningless (such as exception "throwing" clauses for before { } advice when no such exception can exist).<br/><br/>It should also allow faster implementations of the point context code, because it won't need to take multiple situations into account and can specialise for each case.<br/><br/>Once this is completed, and some additional test scripts have been adding for particularly nasty cases, I'll be able to do the final 1.00 release.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Re: Aspect 0.90 - Aspect-Oriented Programming...</h2>
+<h3><a href="/user/cosimo/">cosimo</a> on 2010-05-27T06:57:13</h3>
+<p>Adam, this is cool.</p><p>However, I'd be interested in the nature and details of your never-heard-of billion dollar site stability work. Any chance of you talking about that?</p>
+
+
+
+<h2>Tiny nit</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2010-05-27T07:55:53</h3>
+<p>I should file this as a bug or fix it in SVN myself, but there's a small typo in the synopsis of 0.90: s/\$wormhole/\$aspect/</p>
+
+
+
+<h2>Some issues with AOP</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2010-05-27T08:05:23</h3>
+<p>One thing I think you should note in your documentation is that it's very important to realize that a software must not rely on aspects to function. That is to say, if all pointcuts fail to match, the software must still be correct. Aspects should generally <em>add</em> behaviour, not alter it.</p><p>For example, one common example Java programmers use is to mark code as thread-safe. However, if a pointcut fails to match a function which must be thread-safe, the match fails <em>silently</em>.  As a result, previously thread-safe code may no longer be thread-safe, but the programmer won't notice this and the tests are highly likely to not catch this.</p><p>So if your pointcuts match all methods named <tt>foo_\w+</tt> and some bright programmer fails to notice this action at a distance (and who would fail to notice action at a distance?) and renames some functions that the pointcuts previously matches, the behaviour of the code is altered, but it's awfully hard to notice this.</p><p>This is one of the reasons I like roles.  Consider this:</p><blockquote><div><p> <tt>package Role::Munge;<br>use Moose::Role;<br> <br>requires qw(some_method);<br> <br>before 'another_method' =&gt; sub {<br>&nbsp; &nbsp; my $self = shift;<br>&nbsp; &nbsp; my $stuff = $self-&gt;some_method;<br>&nbsp; &nbsp;# do more stuff<br>};</tt></p></div> </blockquote><p>If some enterprising programmer renamed either 'some_method' or 'another_method', this code fails at composition time and gives composition safety.  AOP silent-failure modes and action at a distance were one of the reasons roles (traits) were created in the first place.</p><p>So if you find AOP useful, that's great. Just note that if your system is incorrect without aspects, you have a major design flaw.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Some issues with AOP</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-05-28T00:02:58</h3>
+<p>I concur.</p><p>I think while AOP shows promise for stuff beyond just tracing, logging and what not, I can't see how you could scale it without similar problems to many other purely declarative systems like XSLT where actions happen in parallel and at a distance.</p><p>I'll look at adding some kind of Aspect Caveats section to the documentation.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Bitwise operators?</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2010-06-02T03:17:02</h3>
+<p>Hey, what's with the bitwise operators? Would ordinary boolean operators work here or are you doing this for some invisible-to-me precedence reason?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Bitwise operators?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-06-03T00:34:14</h3>
+<p>Historical reasons.</p><p>The bitwise operators were the ones that the Aspect library used when I took it over.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

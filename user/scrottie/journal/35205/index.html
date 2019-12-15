@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of scrottie: All about blessed stash objects: better living through evil</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>All about blessed stash objects: better living through evil</h1>
+<h2><a href="/user/scrottie/">scrottie</a> on 2007-12-26T01:34:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Typically, when you write an object in Perl, you combine two disjunct things:  data, as stored in a hash, and methods (code), stored in a package.  <code>bless</code> makes this association.  Any reference type can be blessed, but these references may only be blessed into a package.  Here's the trick:  packages are data types in Perl, one of the 15 odd types, and you can take a reference to them:  <code> \ %{"foo::}</code>.  This means that packages can be blessed into packages.  This trick involves resurrecting some of the oldest datastructures in Perl, globs and stashes, for modern, OO purposes.  A whole lot of fun ensues.
+<br><br>
+Okay, I'm going to stop calling packages packages; they're created with the <code>package</code> statement, but they're better known as a stash, or symbol table hash.
+<br><br>
+Like hashes, stashes contain data of various types, indexed by name.  When you don't use <code>my</code> to declare your variables, variables are also stored in the package, as was the way in the olden days.  Functions declared like <code>sub foo { ... }</code>, the common way, also get stored in the stash.  Normal function calls and normal method calls (like <code>foo()</code> and <code>$ob->foo</code>, and unlike <code>$hash{value}->()</code>) all operate on stashes.
+<br><br>
+Newly constructed blessed stash objects are empty of methods.  Code references get copied in, initializing them as a copy of another object's code.  This is a "prototype based object system", as is JavaScript's.  JavaScript objects are hashes, with the key being the method name and the value being code.  Since each object has (indeed, is) it's very own stash, we can use define our methods in terms of closures.
+<br><br>
+Here's some code to create one of these puppies, and to create a <code>method</code> function that will neatly stick closures into the stash for you.  This is old code I've posted before; sorry for the dup.  I'm trying to turn this into a more accessible article.
+<br><br>
+<pre>
+sub new {<br/><br/>        # object setup (evil, run)
+        my $type = shift;
+        my %opts = @_;
+        my $package = $type . sprintf '::X%09d', our $counter++;
+        do { no strict 'refs'; push @{$package.'::ISA'}, $type; };
+        my $self = bless \%{$package.'::'}, $package;
+        sub method ($&);
+        do { no warnings 'redefine'; *method = sub ($&) { my $name = shift; *{"$package\::$name"} = shift; }; };<br/><br/>         ...<br/><br/>}
+</pre>
+<br><br>
+Then inside there, you can write methods like so:
+<br><br>
+<pre><br/><br/>    my $arg;<br/><br/>    method foo => sub {
+        my $self = shift;
+        $arg++;
+        $self->avast_ye();
+    };
+</pre>
+<br><br>
+<code>$arg</code> is a lexical variable that the method <code>foo</code> closes over.  Each time <code>new</code> gets called, a new stash is created, and a new <code>$arg</code> gets created, and a new coderef attached to that new <code>$arg</code> gets created and rammed into that new stash.  New everything, each go -- that's the trick.
+<br><br>
+When you write "package" in your code, you're defining a new stash.  They also autovivicate (spontaneously spring into existence by their mere mention).  That looks like <code>%{"foo::"}</code>.  Yes, that's similar to a computed hash name (and also requires <code>no strict 'refs'</code>) but the name ends in a double colon.
+<br><br>
+<code>my $package = $type . sprintf '::X%09d', our $counter++;</code> -- this computes a new package name based on the existing one plus a serial number.
+<br><br>
+<code>do { no strict 'refs'; push @{$package.'::ISA'}, $type; };</code> -- this forces the new package to inherit from the base one, so that it in turn inherits what it inherits.
+<br><br>
+<code>my $self = bless \%{$package.'::'}, $package;</code> -- this creates the object as this new stash blessed into itself.
+<br><br>
+<code>sub method ($&); do { no warnings 'redefine'; *method = sub ($&) { my $name = shift; *{"$package\::$name"} = shift; }; };</code> -- prototype the <code>method</code> function to take as args a scalar and code and define it was stuffing that code into the stash under the given name.  That's the glob syntax.  Stashes contain globs.  Only references may be assigned into globs, and by assigning in a code reference, a new method is created.
+<br><br>
+Stashes a derivative of hashes, but rather than containing arbitrary types, they only contain typeglobs, which may in turn contain any other type.  This way, you can both a <code>$foo</code> and a <code>@foo</code>, as a stash in turn can hold one of every other type.
+<br><br>
+Instance data is then hidden away in lexical variables where subclasses can't see it.  That's not always what's desired.  In a blessed hash, you could write <code>$self->{foo}</code> to get at a data item.  Since stashes only contain globs, you'd have to instead write <code>${ $self->{foo} }</code>.  To access an array stored in a normal blessed hash, you'd write <code>@{ $self->{foo} }</code>, which is the same for blessed stashes.  Everything is stored by reference, including scalars, in blessed stashes.  <code>Data::Alias</code> can make this a lot easier:
+<br><br>
+<pre>
+    use Data::Alias;
+    method foo => sub {
+        my $self = shift;
+        alias my @foo = @{ $self->{foo} };
+        push @foo, @_;
+    };
+</pre>
+<code>alias</code> gives you fully read-write variables that are aliases to data stored in the object.
+<br><br>
+Data stored in <code>$self</code> is actually stored the same way that <code>local</code> data is stored.  Only the syntax is different.
+<br><br>
+Before you get started, a few caveats:  methods built out of closures (which access instance data simply as <code>$foo</code> rather than <code>$self->{foo}</code>) take a lot more memory than normal methods.  Stashes don't get garbage collected at all; data stored in them is considered "global", and this data includes references to the closures and references to lexical variables.  It probably contains circular references.  You may think about writing a <code>DESTROY<code> routine to tear everything down.
+<br><br>
+-scott
+</p>
+
+
+<hr/>
+
+
+
+<h2>Package::Generator</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2007-12-26T18:58:10</h3>
+I have from time to time used Package::Generator to facilitate similar or related forms of evil.  It helps hide the scary ick behind a reasonable looking method call.
+
+
+
+<h2>Minor erratum</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-12-29T14:03:04</h3>
+<p><blockquote> <div><p>That looks like <code>%{"foo::"}</code>. Yes, that&#8217;s similar to a computed hash name (and also requires <code>no strict 'refs'</code>) but the name ends in a double colon.</p></div> </blockquote>
+
+<p>Actually, you can write just <code>%foo::</code> if you&#8217;re not using computed stash names. That will work just fine under strictures.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

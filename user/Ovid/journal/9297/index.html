@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: New Territory</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>New Territory</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2002-12-05T22:49:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>As part of a refactoring effort with one of our projects, I've started to create persistent objects that map to a single row in a database table.  It's been a lot of fun, but I've run into a weird problem with a potentially weirder solution.  If I instantiate a "people" object, I can get the company id, but not the company.  So I use the company id to instantiate a company object.  Which has a state/province id, which leads to a country id, which in turn leads to a global region id.  So, I find that I need to instantiate five objects to get the following line displayed:</p>
+
+<p><b>Tommy Atkins, Foo Company, Poole, United Kingdom, Europe</b></p>
+
+<p>With, at present, 387 people in the database, that's 1935 objects that I need to instantiate to merely get the name of each.  There's a noticeable delay in instantiating the list of 387 people, so this will not scale.</p>
+
+<p>My thought has been to create views in the database with the data that I need for given diplays and possibly reuse this data for multiple diplays.  Then, because updating a view can be difficult (there is some support for this in MS SQL Server), I use a feature that I built into my objects, but hadn't actually used.  When I create a "View" object, my constructor uses the following:</p>
+
+<p><tt>$self-&gt;_set_read_only;</tt></p>
+
+<p>It's very nice and simple programming everything this way, so I've been having a lot of fun.  Further, because of some of the things that I've read here, the following works:</p>
+
+<p><tt>$people-&gt;set_fields( $people-&gt;get_fields );</tt></p>
+
+<p>As does the following:</p>
+
+<p><tt>$people<br>
+&nbsp;&nbsp;-&gt;new( $id )<br>
+&nbsp;&nbsp;-&gt;set_first_name( $first )<br>
+&nbsp;&nbsp;-&gt;set_last_name( $last )<br>
+&nbsp;&nbsp;-&gt;save;</tt></p>
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>Decomposition</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2002-12-06T00:52:16</h3>
+<p>
+I wonder if mapping objects to records is working in this case.  This is just brainstorming, so ignore me if lighting doesn't strike.
+</p>
+<p>
+One random thought is that you could have something that maps bits of SQL and objects that contain these bits of SQL, turning them into full-blown queries only when it's necessary to pull a row.  For example, you'd set constraints such as <em>associated with this person's name</em> and <em>matches the previous constraint's <strong>office_id</strong> field</em>, passing that to a method that builds the appropriate objects.
+</p>
+<p>
+Of course, that's re-inventing SQL.  Hmm.  Maybe lazily-instantiated objects from a factory?
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Decomposition</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2002-12-06T01:27:35</h3>
+<p>Can you give an example?  It seems that having objects that contain bits of SQL and then trying to put all of that together is a daunting task.  My underlying structure seems sound and it has worked wonderfully.  All I do (mostly) is subclass a PersistentObject class, provide some class data and I have 20 to 30 methods instantly built for only about 5 minutes of work.  Previously, I was trying to do all of that by hand for each "thing" in the database and it was an absolute nightmare.  This is much faster, but I've traded away flexibility for simplicity.</p>
+
+<p>I should add that I had considered adding some data to each class that would map out possible connections to other tables and dynamically build complicated queries depending upon the data that I needed, but once I sat down and saw how far I would have to go to implement that, it didn't seem feasible.  On the other hand, I've often found that things that aren't feasible tend to be much easier once I just byte (sic) the bullet.</p>
+
+<p>I don't think lazily-instantiated objects is the key, either (assuming we're thinking the same thing).  In this case, when I create a list, I still need to instantiate every one of those objects just for the name.  If I don't istantiate them up front (a huge chunk of memory), then I need to instantiate them as I go ensure they get reaped ASAP.  That would be less memory, but even if that doesn't take  longer, it will still be at least as long as it was, thus putting me back to my original performance problem.  If you think I'm missing the point, let me know.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Decomposition</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2002-12-06T07:25:44</h3>
+Sounds like you've partially rewritten Class::DBI and/or Alzabo, both of which are designed to let you represent database rows as objects (Alzabo also does some other neat things too).
+
+
+
+<blockquote>
+
+<h2>Re:Decomposition</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2002-12-12T19:29:20</h3>
+<p>Alzabo doesn't support MS SQL Server, which is what I am running on.  I had checked out some of the Perl OO Persistence work, but most of it had one or more of the following limitations:</p>
+
+<ul>
+  <li>Doesn't support MS SQL Server</li>
+  <li>Doesn't support an existing schema</li>
+  <li>Poor documentation</li>
+  <li>No longer maintained</li>
+</ul>
+
+<p> <a href="http://www.soundobjectlogic.com/tangram/" title="soundobjectlogic.com">Tangram</a soundobjectlogic.com> looked interesting, but from what I could tell, gradual refactoring wasn't an option as it appears to go from the object to the schema.  Existing schemas meant I was out of luck.</p>
+
+<p>I'm going to grab Alzabo and Class::DBI and see if I can work with them.  One problem with Class::DBI is the the get_ and set_ methods, by default, use the field names in the database.  I think the programmer should be forced to decouple that when creating the object.  Otherwise, if you need to change a field name, you have to find every method that touches that field and change its name.  There are methods to change the names of the accessors and mutators, but they have to be explicitly used.  If you forget about them, whoops!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Decomposition</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2002-12-12T19:44:19</h3>
+Of the four problems you cite, Class::DBI doesn't have any of them, and Alzabo just doesn't support MS SQL server.  Adding support for it wouldn't be too hard, however.<br> <br>I disagree about decoupling mtehod names from column names, however.  If it changes in the schema, that probably means that the _meaning_ has changed, so why not change the method name?
+
+
+
+<blockquote>
+
+<h2>Re:Decomposition</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2002-12-12T20:19:46</h3>
+<p>It might change the meaning, but it also might be a relatively trivial change that shouldn't affect the overall design of things.  For example, with my code, the programmer must explicitly provide class data that maps external names (used in methods), to field names in the database.  Here's a map for our "local regions" (note that the field names are not aligned because of difficulties formatting one use.perl).  I want <tt>&lt;pre&gt;</tt> tags<nobr> <wbr></nobr>:)</p>
+
+<p> <tt>my %map = ( qw/<br>
+&nbsp;&nbsp;id localRegionID<br>
+&nbsp;&nbsp;global_region_id globalRegionID<br>
+&nbsp;&nbsp;name localRegionName<br>
+&nbsp;&nbsp;description description<br>
+&nbsp;&nbsp;phone enquiry_phone<br>
+&nbsp;&nbsp;fax enquiry_fax<br>
+&nbsp;&nbsp;email enquiry_email<br>
+&nbsp;&nbsp;display enquiry_display<br><nobr> <wbr></nobr>/);</tt> </p>
+
+<p>You'll note that over the course of time, we've managed to have some field names that are studly caps and others that use underscores.  Further, two of the field names have the table name embedded in them (whether or not that is a good thing is a matter of debate).  However, the keys here are used to generate nice, consistent method names.  I don't have to worry about what it's called internally.  Further, if we go back and fix all of the field names to be more consisten, very little of the code changes except for the values in the mapping.  In this case, it's not the meaning that has changed, but merely applying a more consistent style.</p>
+
+<p> <tt>my %map = ( qw/<br>
+&nbsp;&nbsp;id id<br>
+&nbsp;&nbsp;global_region_id global_region_id<br>
+&nbsp;&nbsp;name name<br>
+&nbsp;&nbsp;description description<br>
+&nbsp;&nbsp;phone enquiry_phone<br>
+&nbsp;&nbsp;fax enquiry_fax<br>
+&nbsp;&nbsp;email enquiry_email<br>
+&nbsp;&nbsp;display display<br><nobr> <wbr></nobr>/);</tt> </p>
+
+<p>This is useful because it makes the code more robust.  I feel that it's very important to force this decoupling of method names from field names.  Further, if the meaning <em>does</em> change and I have to alter the method names, this is not more work than it would be otherwise.  It should also be added that I didn't notice Class::DBI when I was checking out the POOP modules.  Funny thing, that.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Memoize</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2002-12-06T01:20:53</h3>
+&gt; With, at present, 387 people in the database, that's 1935 objects that I need to instantiate...
+
+<p>I hope you're not fetching every bit of data from the database 387 times. You should only have to fetch each unique thing once using something like the Memoize module or some homegrown version of it. If you don't have 387 global regions, then you shouldn't have 387 instances of them.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Memoize</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2002-12-06T01:54:49</h3>
+<p>I'm not using Memoize.  Instead, I check the id and classname and if I already have an instance of an object, I fetch it from a cache.  Because it's only a reference in the cache, all instances of the object are simultaneously updated (if more than one) and I don't typically need to worry about database synchronization issues.</p>
+
+<p>In other words, my initial explanation was a bit simplistic, but it seemed easier that way<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Memoize</h2>
+<h3><a href="/user/dws/">dws</a> on 2002-12-06T20:45:35</h3>
+Most people use a "if it's not in the cache, fetch it" strategy. An alternative is to fetch the data, and only add it to the cache if it's not already there. This sounds counterintuitive, but can be a win if can fetch data for the complete traversal of objects in one query. That is, instead of having the Person class do a query to get a person by id, have a helper class use a JOIN query to get the person data (by id), along with the company data, along with whatever else, in one big row. Then pick the row apart, adding the objects to the cache if necessary.
+<p>
+Databases are good enough at doing joins that you might find that doing all-at-once JOIN queries are faster than going after the parts individually, even if you're using a cache to avoid having to do some of the queries.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Memoize</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2002-12-07T03:04:09</h3>
+<p>
+Yes, this is what I was trying to say.  Just say no to editing things for <a href="/user/gnat/" title="perl.org">gnat</a perl.org>, kids!
+</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Flyweights</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2002-12-06T03:05:10</h3>
+Keep in mind that I only get to read what you post, and the general uselessness of <a href="http://use.perl.org/user/petdance/journal/7575" title="perl.org">"Can't you just..."</a perl.org>.<br> <br>A couple of people have already mentioned Memoize, which return the same result given the same input.  The same result can be the same object.  A given company (or whatever the appropriate thing), you can return the same object.  This has shades of the Flyweight Design Pattern (note: this is not the same "flyweight" concept that Damian discusses in his book).  Keep a collection (the <i>flyweight pool</i>) of objects around the represent an entity.  Several other objects can share these flyweight objects.<br> <br>The objects are called "flyweight" because they represent little bits of data---a name, or address, and so on---that you use over and over again.  The actual data only lives in one place, so you do not have an explosion of identical objects.<br> <br>Of course, the point of a design pattern is that you do not need to implement it in any particular way.  Once you lookup a company, you could put its data into the hash.  No need for fancy classes or objects like you might see in the C++ or Java discussions of these things.<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

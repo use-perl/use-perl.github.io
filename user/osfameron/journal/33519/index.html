@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of osfameron: Unexpected %INC behaviour on recursive use.</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Unexpected %INC behaviour on recursive use.</h1>
+<h2><a href="/user/osfameron/">osfameron</a> on 2007-06-14T11:57:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>We noticed a lot of "subroutine redefined" warnings in our apache
+logs.  A little investigation later, and it turns out the problem is
+with recursive uses.
+<p>
+Consider the following modules (named after the classic Italian metasyntactic characters)
+
+<pre>
+ package Pippo;
+ use strict; use warnings;
+ use Data::Dumper;
+ BEGIN { warn Dumper( { Pippo => \%INC } ); }
+ use Pluto;
+ sub dummy1 { ; }
+ 1;
+</pre>
+
+and
+
+<pre>
+ package Pluto;
+ use strict; use warnings;
+ use Data::Dumper;
+ BEGIN { warn Dumper( { Pluto => \%INC } ); }
+ use Pippo;
+ sub dummy2 {;}
+ 1;
+</pre>
+
+<p>
+Here's some output for <tt>perl -c</tt> (trimming the Dumper output to just show these 2 modules)
+
+<pre>
+$ perl -c Pippo.pm
+$VAR1 = {
+          'Pippo' => { }
+        };
+$VAR1 = {
+          'Pluto' => {
+                       'Pluto.pm' => 'Pluto.pm',
+                     }
+        };
+$VAR1 = {
+          'Pippo' => {
+                       'Pippo.pm' => 'Pippo.pm',
+                       'Pluto.pm' => 'Pluto.pm',
+                     }
+        };
+Subroutine dummy1 redefined at Pippo.pm line 8.
+Pippo.pm syntax OK
+</pre>
+<p>
+That is, the first module, Pippo, doesn't set its entry in %INC
+until after it's finished processing.  The use'd module sets its
+entry in %INC immediately, which is handy, as otherwise we'd have an
+infinite recursive use.  As it is, only Pippo gets used twice,
+triggering the "Subroutine redefined" warning.
+<p>
+I whined about this in #london.pm, and Nicholas suggested that the
+timing of this behaviour might possibly be considered a bug.  Is
+there a case for saying that %INC should be set for the file first
+invoked by <tt>perl</tt>?
+<p>
+Recursive uses are very likely on the "well don't do that" list,
+but the timing surprises me in any case.
+</p></p>
+
+
+<hr/>
+
+
+
+<h2>Maybe changing usage works</h2>
+<h3><a href="/user/ferreira/">ferreira</a> on 2007-06-14T12:28:21</h3>
+<p>
+When you're saying <code>"perl -c Pippo.pm"</code>, you are compiling and running a package without a surrounding require, and then <code>"use Pluto"</code> works alright.
+
+</p><p>
+Compare that with the output of <code>"perl -c -e 'use Pippo'"</code>. It seems more well behaved (and does not emit warnings).</p><p><blockquote> <div><tt>$ perl -c -e 'use Pippo'<br>$VAR1 = {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 'Pippo' =&gt; {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;'Pippo.pm' =&gt; 'Pippo.pm'<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;}<br>&nbsp; &nbsp; &nbsp; &nbsp; };<br>$VAR1 = {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 'Pluto' =&gt; {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;'Pluto.pm' =&gt; 'Pluto.pm',<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;'Pippo.pm' =&gt; 'Pippo.pm'<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;}<br>&nbsp; &nbsp; &nbsp; &nbsp; };<br>-e syntax OK</tt></div> </blockquote> In your example, you compile <code>"Pippo.pm"</code> which uses <code>"Pluto.pm"</code> which uses <code>"Pippo.pm"</code> (which does not take into account that <code>Pippo.pm</code> is being compiled). When <code>"use Pluto"</code> succeeds, the subroutines in <code>Pippo.pm</code> are redefined.
+
+
+
+<blockquote>
+
+<h2>Workarounds</h2>
+<h3><a href="/user/osfameron/">osfameron</a> on 2007-06-14T13:26:16</h3>
+Actually, that's quite cute, though you don't need the -c anymore (it checks the syntax of the expression "use Pippo").  And it does clarify the difference between running a file and <tt>use</tt>ing it.<br><br>But it would be nice to be able to "perl -c" the file directly (as it's burned into my finger memory as well as my Vim configuration).<br><br>Oh, I forgot to post the workaround I use:<p><blockquote> <div><tt>package Pippo;<br>BEGIN { $INC{'Pippo.pm'} = $0}</tt></div> </blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

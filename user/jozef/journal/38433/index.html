@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jozef: unqualified XML schema</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>unqualified XML schema</h1>
+<h2><a href="/user/jozef/">jozef</a> on 2009-02-09T11:26:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Last week I spent significant amount of time troubleshooting SOAP messages, checking XML messages and reading WSDL and XSD files.<br/><br/>The outcome is to always note this little option switch in XSD root element called - <code>elementFormDefault="qualified"</code>. If not set this option defaults to unqualified. unqualified is only good and should be used when we need the XMLs with empty namespaces. When there starts to be namespaces always set <code>elementFormDefault="qualified"</code>. This will ensure that all elements has their proper namespace.<br/><br/>Some examples to explain:<br/><br/>Imagine we want to have a schema for following XML:<br/><br/>&lt;note&gt;
+    &lt;text&gt;huh?&lt;/text&gt;
+&lt;/note&gt;<br/><br/>Then the XSD will look like this:<br/><br/>&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot; standalone=&quot;yes&quot;?&gt;
+&lt;xs:schema
+    version=&quot;1.0&quot;
+    xmlns:xs=&quot;http://www.w3.org/2001/XMLSchema&quot;
+&gt;
+&lt;xs:element name=&quot;note&quot; type=&quot;noteText&quot; /&gt;
+&lt;xs:complexType name=&quot;noteText&quot;&gt;
+    &lt;xs:sequence&gt;
+        &lt;xs:element name=&quot;text&quot; type=&quot;xs:string&quot; minOccurs=&quot;0&quot;/&gt;
+    &lt;/xs:sequence&gt;
+&lt;/xs:complexType&gt;
+&lt;/xs:schema&gt;<br/><br/>So far so "unqualified" good. When xs:schema root element get's parameter called targetNamespace="http://justns/" then the valid XML looks a bit different:<br/><br/>&lt;ns1:note xmlns:ns1=&quot;http://justns/&quot;&gt;
+    &lt;text&gt;huh?&lt;/text&gt;
+&lt;/ns1:note&gt;<br/><br/>Note that "note" element has a namespace and "text" element has an empty namespace. And this was cause of my troubles. First thing <a href="http://search.cpan.org/perldoc?XML::Compile">XML::Compile</a> needs an extra option "elements_qualified =&gt; 'TOP'" to work properly with this kind of mix. The second problem starts when encapsulating this XML in other XML like SOAP envelope. If the envelope sets an default "xmlns" then all the elements without namespace inherits the default one which is wrong.<br/><br/><a href="http://use.perl.org/user/markov/">Mark Overmeer</a> say: "Unqualified is out of fashion: has no future.". He is right. Only for small XMLs where there will NEVER EVER be any namespace, the unqualified is useful.<br/><br/>Just for a completenes the example XML+XSD with qualified turned on:<br/><br/>&lt;ns1:note xmlns:ns1=&quot;http://justns/&quot;&gt;
+    &lt;ns1:text&gt;huh?&lt;/ns1:text&gt;
+&lt;/ns1:note&gt;<br/><br/>
+&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot; standalone=&quot;yes&quot;?&gt;
+&lt;xs:schema
+    version=&quot;1.0&quot;
+    xmlns:xs=&quot;http://www.w3.org/2001/XMLSchema&quot;
+    xmlns:tns=&quot;http://justns/&quot;
+    targetNamespace=&quot;http://justns/&quot;
+    elementFormDefault=&quot;qualified&quot;
+&gt;<br/><br/>&lt;xs:element name=&quot;note&quot; type=&quot;tns:noteText&quot; /&gt;<br/><br/>&lt;xs:complexType name=&quot;noteText&quot;&gt;
+    &lt;xs:sequence&gt;
+        &lt;xs:element name=&quot;text&quot; type=&quot;xs:string&quot; minOccurs=&quot;0&quot;/&gt;
+    &lt;/xs:sequence&gt;
+&lt;/xs:complexType&gt;<br/><br/>&lt;/xs:schema&gt;
+</p>
+
+
+<hr/>
+
+
+
+<h2>Namespaces aren't for humans</h2>
+<h3><a href="/user/potyl/">potyl</a> on 2009-02-09T18:24:36</h3>
+<p>The way namespaces are implemented in XML are not too help full for us humans. An XML parser can keep track of the namespace of a node by checking the prefix used and going up in the DOM until it finds the namespace declaration or if there's no prefix by looking for the closest parent that defines a default namespace.</p><p>For a human this is very error prone, specially if the XML file is generated by a program and that namespaces are redeclared everywhere. This worsens if the namespaces get associated to different prefixes, which is perfectly legal. Trying to match the namespaces manually under such conditions can be quite tedious and error prone. Anyone that has parsed an Excel XML file by hand knows how difficult this can get!</p><p>The thing is that namespaces a vital and can't be avoided. So we have to learn to live with them. They become even more necessary when mixing different XML applications (SVG, XHTML, XSLT, etc).</p><p>This is exactly why I have created <a href="http://search.cpan.org/dist/Xacobeo/" title="cpan.org">Xacobeo</a cpan.org>. The main goal was to help me display the XML document and the DOM tree as an XML parser sees it and not as it is declared in the file. For this latter purpose any text editor or pager (less and more) does the job. But,for for seeing the namespaces of the nodes as far as I know nothing existed.</p><p>If you look carefully you will see that Xacobeo always displays each XML node with the proper namespace prefix. No matter if the orignal node used a prefix or if it relied on the default namespace. This makes it trivial to see instantaneously the namespace of each node.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

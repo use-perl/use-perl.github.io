@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of zzo: High Availability using Catalyst &amp;amp; FastCGI external serv</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>High Availability using Catalyst &amp;amp; FastCGI external serv</h1>
+<h2><a href="/user/zzo/">zzo</a> on 2007-08-18T04:04:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Zero Downtime / High Availability with Catalyst & FastCGI external servers
+Intro<br/><br/>Here's the idea - you simultaneously run 2 FastCgiExternalServer's - a production one & a staging one. The staging one you muck around with to your heart's content. Start/stop/restart it - whatever - it won't effect your production environment. At some point you want to promote the staging stuff into production. And of course you cannot have ANY downtime.<br/><br/>I'm going to use an application name of 'mt' for this example - so replace it (or not) with your own - same for 'example.com'
+All of these examples run fine on CentOS
+You're probably going to have to change some paths too<br/><br/>Get Started<br/><br/>So you need 5 files - 2 httpd.conf's, 2 start/stop/restart fastcgi scripts, & 1 switchover script<br/><br/>    * The 2 httpd configuration files are a 'production one' - which you're running 99% of the time, and a 'temporary one' - that you use to gracefully promote your staging stuff into production.
+    * The 2 start/stop/restart scripts are used to independently start/stop/restart your fastcgi external servers.
+    * The 1 switchover script will actually do the promotion with zero downtime. When you're done promoting your production environment will exactly match your staging environment. <br/><br/>   1. create 2 httpd.conf's - 'httpd_prod.conf' & 'httpd_temp.conf' - each with a staging & production virtual server:<br/><br/>         1. http_prod.conf:<br/><br/>            <VirtualHost *:80>
+                ServerName stage.example.com
+                ErrorLog logs/example.com/stage_error_log
+                CustomLog logs/example.com/stage_access_log combined
+                Alias / /tmp/mt.stage/
+            </VirtualHost><br/><br/>            <VirtualHost *:80>
+                ServerName example.com
+                ServerAlias www.example.com
+                ErrorLog logs/example.com/error_log
+                CustomLog logs/example.com/access_log combined
+                Alias / /tmp/mt.prod/
+            </VirtualHost><br/><br/>            # the staging socket
+            FastCgiExternalServer /tmp/mt.stage -socket /tmp/mt.stage.socket<br/><br/>            # the production socket
+            FastCgiExternalServer /tmp/mt.prod -socket /tmp/mt.prod.socket<br/><br/>         2. http_temp.conf: (so named because this is a temporary state when you want to make staging = production)
+            Note the only diff is there's only 1 external server (the staging one) & the production virtual host now points to it<br/><br/>            <VirtualHost *:80>
+                ServerName stage.example.com
+                ErrorLog logs/example.com/stage_error_log
+                CustomLog logs/example.com/stage_access_log combined
+                Alias / /tmp/mt.stage/
+            </VirtualHost><br/><br/>            <VirtualHost *:80>
+                ServerName example.com
+                ServerAlias www.example.com
+                ErrorLog logs/example.com/error_log
+                CustomLog logs/example.com/access_log combined
+                Alias / /tmp/mt.stage/<br/><br/>            </VirtualHost><br/><br/>            FastCgiExternalServer /tmp/mt.stage -socket /tmp/mt.stage.socket<br/><br/>   2. You need 2 /etc/init.d (or whatever) scripts that start & stop your fastcgi servers: mt.prod & mt.stage - the differences are mt.prod uses /tmp/mt.prod & mt.stage uses /tmp/mt.stage for their sockets & they have different pid files (also I don't start as many processes for my staging daemons) - finally REALLY make sure PROD starts up before moving on.
+         1. mt.prod:<br/><br/>            #!/bin/sh<br/><br/>            APP_PATH=<path to yer Catalyst base directory>
+            FCGI_SOCKET_PATH=/tmp/mt.prod.socket
+            PID_PATH=/tmp/mt.prod.pid<br/><br/>            case $1 in
+                start)
+                    echo -n "Starting PROD MT: mt_fastcgi.pl"
+                    cd $APP_PATH
+                    script/mt_fastcgi.pl -l $FCGI_SOCKET_PATH -p $PID_PATH -d -n 5
+                    echo<br/><br/>                    # make real sure it's started
+                    PID=`cat $PID_PATH`
+                    if [ -n "$PID" ]
+                    then
+                        echo "Started"
+                    else
+                        echo "Start failed - trying again"
+                        unlink $FCGI_SOCKET_PATH
+                        $0 start
+                    fi<br/><br/>                    ;;<br/><br/>                stop)
+                    echo -n "Stopping PROD MT: "
+                    PID=`cat $PID_PATH`
+                    if [ -n "$PID" ]
+                    then
+                        echo -n kill $PID
+                        kill $PID
+                        echo
+            	    unlink $FCGI_SOCKET_PATH
+                    else
+                        echo MT not running
+                    fi
+                    ;;<br/><br/>                restart|force-reload)
+            	$0 stop
+            	sleep 10
+            	$0 start
+                    ;;<br/><br/>                *)
+                    echo "Usage: /etc/init.d/mt.prod { stop | start | restart }"
+                    exit 1
+                    ;;
+            esac<br/><br/>         2. mt.stage:<br/><br/>            #!/bin/sh<br/><br/>            APP_PATH=<path to yer Catalyst base directory>
+            FCGI_SOCKET_PATH=/tmp/mt.stage.socket
+            PID_PATH=/tmp/mt.stage.pid<br/><br/>            case $1 in
+                start)
+                    echo -n "Starting STAGE MT: mt_fastcgi.pl"
+                    cd $APP_PATH
+                    script/mt_fastcgi.pl -l $FCGI_SOCKET_PATH -p $PID_PATH -d
+                    echo
+                    ;;<br/><br/>                stop)
+                    echo -n "Stopping STAGE MT: "
+                    PID=`cat $PID_PATH`
+                    if [ -n "$PID" ]
+                    then
+                        echo -n kill $PID
+                        kill $PID
+                        echo
+            	    unlink $FCGI_SOCKET_PATH
+                    else
+                        echo STAGE MT not running
+                    fi
+                    ;;<br/><br/>                restart|force-reload)
+            	$0 stop
+            	sleep 10
+            	$0 start
+                    ;;<br/><br/>                *)
+                    echo "Usage: /etc/init.d/mt.stage { stop | start | restart }"
+                    exit 1
+                    ;;
+            esac<br/><br/>   3. The Switchover script - this will make staging -> production without any downtime. Note you'll probably have to change the HTTP_BASE_DIR, the path/method you use to gracefully restart apache, and the location of your production start/stop script:<br/><br/>      #!/bin/sh<br/><br/>      # CHANGE this probably
+      BASE_HTTP_DIR=/etc/httpd/conf
+      HTTPD_CONF=$BASE_HTTP_DIR/httpd.conf<br/><br/>      # Maybe also change the way you gracefully restart apache
+      # Maybe also change the path to your mt.prod start/stop/restart script<br/><br/>      link_to () {
+          # First symlink httpd.conf
+          unlink $HTTPD_CONF
+          ln -s $BASE_HTTP_DIR/$1 $HTTPD_CONF
+          if [ -e $HTTPD_CONF ]; then
+              echo "Symlinked $HTTPD_CONF to $BASE_HTTP_DIR/$1"
+          else
+              echo "$HTTPD_CONF doesn't exist - error symlinking - I'm outta here"
+              exit 1
+          fi<br/><br/>          # Restart apache nicely - you may need to change this to however you do it
+          echo "Gracefully restarting apache..."
+          /etc/init.d/httpd graceful
+      }<br/><br/>      # Make production = staging
+      echo "Switching over to temporary config..."
+      link_to httpd_temp.conf<br/><br/>      # okay production is now running staging<br/><br/>      # Now restart the production socket
+      echo "Restarting production socket..."
+      /etc/init.d/mt.prod restart
+      sleep 5<br/><br/>      PID=`cat /tmp/mt.prod.pid`
+      RUNNING=`ps auxwww $PID | grep $PID | grep -v grep | grep -v ps`<br/><br/>      # Make sure it's back up
+      if [ "$RUNNING" ]; then
+              echo "Production socket looking good: $RUNNING"
+      else
+              echo "Production socket didn't start up!!"
+              echo "Site running staging config/socket - be careful."
+              echo "Fix the problem & re-run $0 to get back to production config/socket."
+              exit $?
+      fi<br/><br/>      # Now switch back over to the production httpd.conf
+      echo "Switching back to production config..."
+      link_to httpd_prod.conf<br/><br/>
+Putting It All Together<br/><br/>Start<br/><br/>   1. First you start up both mt.prod & mt.stage so you've got sockets /tmp/mt.prod & /tmp/mt.stage
+   2. Symlink httpd.conf -> httpd_prod.conf
+   3. Start apache <br/><br/>
+Edit/Muck with staging<br/><br/>Now make changes & restart your staging fastcgi servers as necessary:<br/><br/>/etc/init.d/mt.stage restart<br/><br/>This won't effect production at all.
+Go to http://stage.example.com & check out your changes<br/><br/>
+Promote<br/><br/>Okay now you're happy with staging & are ready to move the staging stuff into production.
+Run the switchover script - this will promote the staging stuff to production without any downtime.   It will:<br/><br/>   1. Move httpd.conf symlink to point to http_temp.conf
+   2. restart apache gracefully
+   3. now your production server is using the 'staging' socket
+   4. restart your production socket /etc/init.d/mt.prod restart (or whatever)
+   5. Move httpd.conf symlink back to http_prod.conf
+   6. restart apache gracefully <br/><br/>Now production matches staging without any downtime - woohoo! <br/><br/>Rinse. Lather. Repeat
+</p>
+
+
+<hr/>
+
+
+
+<h2>mod_perl too</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-08-20T19:01:28</h3>
+Note that this technique also works with mod_perl.  You would run two mod_perl backends instead of FastCGI backends, but otherwise it's about the same.
+
+
+
+<h2>Static files</h2>
+<h3><a href="/user/dandv/">dandv</a> on 2008-03-23T08:04:54</h3>
+If I followed correctly, this works because the Catalyst<nobr> <wbr></nobr>.pm files are loaded in memory and unless mt_fastcgi.pl is relaunched, the copy in memory will not be re-read from disk.<br/><br/>But what happens to static files? On AJAX apps, one may edit a<nobr> <wbr></nobr>.JS that communicates with the server side, restart staging, but when a prod user hits the app, it will pull in the changed<nobr> <wbr></nobr>.JS, which may not work with the unchanged Catalyst app files.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Grokking exceptions</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Grokking exceptions</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2003-01-28T22:59:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I didn't program Java for very long, so I really never quite understood the best way to handle exceptions.  (The one thing that I miss  in Perl is compile-time checking of whether or not the exceptions are caught, but that's a side issue).  Recently, I was struggling to get an API just write (sic) and the simplest way to do it seemed to be the following:</p>
+
+<p><tt>my $data = $self-&gt;__validate_added_data;<br>
+if ( UNIVERSAL::isa( $data, 'Foo::Form' ) ) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;# add the data<br>
+}<br>
+else {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;# process the error<br>
+}</tt></p>
+
+<p>In other words, if I get back a valid Form object, I can add the data to the database.  Otherwise, I have a hashref that contains the form error information.  This error information is user error -- not program error.  As a result, I don't want to die or warn, yet variants of those are typical Perl error handling mechanisms.  Further, I have a method that returns two fundamentally different types of data:  and object or a hashref.  I finally started using the <tt>Error.pm</tt> module and now use try/catch blocks to handle the types of errors that I need.</p>
+
+<p><tt>try {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my $data = $self-&gt;__validate_added_data;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;# add the data<br>
+}<br>
+catch FormValidationError with {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;# process the error<br>
+};</tt></p>
+
+<p>Combining this with <tt>Test::Exception</tt> has made my tests simpler and my code more self-documenting.  I'm going to have to dig up some resources on "Best Practices" with exception handling.  I like this.</p>
+
+
+<p>Hmm ... I think I'll post this on Perlmonks and see what they have to say.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Exception debate</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2003-01-29T01:33:21</h3>
+FWIW, I've noticed more discussion of whether checked exceptions in Java are worth the effort, particularly since they're not implemented in C#. There's a <a href="http://www.mindview.net/Etc/Discussions/CheckedExceptions" title="mindview.net">good writeup</a mindview.net> on the issues from Bruce Eckel, along with some <a href="http://www.mindview.net/Etc/Discussions/UnCheckedExceptionComments" title="mindview.net">related discussion</a mindview.net>.
+
+
+
+<blockquote>
+
+<h2>Re:Exception debate</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2003-01-29T03:51:50</h3>
+<p>Absolutely wonderful writeup!  That definitely makes the think that checked exceptions might not be the WunderTool that I thought.  The problem appears to lie in programmers being pressed for time and thus "swallowing" exceptions with the intent to come back to them later.  We all know what a lie "I'll do it tomorrow" is<nobr> <wbr></nobr>:)</p>
+
+<tt>try {<br>
+&nbsp;&nbsp;doSomethingWith(foo);<br>
+}
+catch (SomeException e) {}<nobr> <wbr></nobr>/* exception swallowed */</tt>
+
+<p>Knowing full well that I'm often under the gun at work, I could easily see myself doing that with <em>every intent</em> of coming back to it.  Three thousand lines of code later<nobr> <wbr></nobr>...</p>
+
+<p>There is one benefit to checked exceptions that I see.  If I am using third-party software, I might not be aware of all of the exceptions that it throws.  It would be nice to see the uncaught exceptions at compile time.  Shipping a product after having failed to trap the <tt>YourCPUIsOverheating</tt> exception would definitely be a damper on my day (and perhaps my paycheck).  Why would I fail to trap it?  It's in the docs, right?  And I'm going to read the docs tomorrow.  Really.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Closures</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-01-29T08:07:24</h3>
+Watch out for the closures issue with Error.pm. I wrote about this in my exceptions talk <a href="http://axkit.org/docs/presentations/tpc2003/" title="axkit.org">here</a axkit.org>.
+
+
+
+<blockquote>
+
+<h2>Re:Closures</h2>
+<h3><a href="/user/vbeilin/">vbeilin</a> on 2003-01-29T11:48:38</h3>
+perhaps <a href="http://axkit.org/docs/presentations/tpc2001/" title="axkit.org">here?</a axkit.org>
+
+
+
+<h2>Re:Closures</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2003-01-29T13:40:13</h3>
+Ooops, I meant 2002 not 2003.
+
+
+
+<h2>Re:Closures</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2003-01-29T18:29:04</h3>
+<p>That's a great article.  Thank you very much.  That was certainly a pitfall that I was not anticipating</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

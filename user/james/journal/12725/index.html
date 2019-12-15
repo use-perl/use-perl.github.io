@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of james: Magic References</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Magic References</h1>
+<h2><a href="/user/james/">james</a> on 2003-06-10T10:38:45</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've been playing around with Perl over the last couple of days to see what I can do with references.  I really get annoyed with having to test everything to see if it is blessed before testing to see if it matches the interface that I'm expecting:
+<code>
+  if (blessed( $arg ) && $arg->isa('Some::Class')) {
+    # ...
+  }
+</code>
+So what I've been trying to do is get it so that references are automagically blessed into a class that shares the name of their reference type:
+<code>
+  % perl -Mmagicrefs -MData::Dumper -e 'print Dumper( {} )'
+  $VAR1 = bless( {}, 'HASH' );
+</code>
+And it all works, so now I can do:
+<code>
+  use lib './lib';
+  use strict;
+  use magicrefs; ## turn on magic references<br/><br/>  my $c = {
+  	 Auto => 'blessed',
+	   refs => 'are',
+	   fun  => '.'
+	  };<br/><br/>  print $c->keys->join(','),"\n";<br/><br/>  ## or ##<br/><br/>  if ($c->keys->grep( sub { /^[A-Z]/ } )->size == 1) {
+    print "right\n";
+  } else {
+    print "wrong\n";
+  }<br/><br/>  ## or ##<br/><br/>  my %hash = $c->deref;<br/><br/>  ## or with the magic of deparse<br/><br/>  print sub { 1; }->code(), "\n";
+</code>
+I'm guessing the chances of this going into the core are pretty slim however :-)</p>
+
+
+<hr/>
+
+
+
+<h2>UNIVERSAL::isa</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2003-06-10T11:21:54</h3>
+<tt>The "blessed( $arg ) &amp;&amp; $arg-&gt;isa('Some::Class')" idiom is not necessary. You can do<br> <br>#!perl -l<br>$x = {};<br>print UNIVERSAL::isa($x,"Foo::Bar") ? 1 : 0;<br>print UNIVERSAL::isa($x,"HASH") ? 1 : 0;<br>__END__<br>0<br>1<br> <br>(as documented in the UNIVERSAL manpage)</tt>
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL::isa</h2>
+<h3><a href="/user/james/">james</a> on 2003-06-10T11:36:55</h3>
+I know, I was using it as a small, trite example. The actual problem is that its easier to refactor away conditions if everything is an object - which is my real dislike. I felt going into why I like to refactor away conditions was probably beyond the scope of the journal entry, which was more about having HASH/ARRAY/SCALAR/... objects, and the nice things that you can do once you have them.
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL::isa</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2003-06-10T11:50:37</h3>
+And by the way are you going to upload <tt>magicrefs</tt> to some comprehensive perl archive network ?
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL::isa</h2>
+<h3><a href="/user/james/">james</a> on 2003-06-10T11:54:01</h3>
+It's essentially a patch against pp.c in the perl source.  I could put it on CPAN, but it seems like a strange place to put a patch. I think it might be possible to do something similar with optimizer.pm, but I need to talk to sky a little about that.
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL::isa</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2003-06-10T12:14:59</h3>
+Ah. You're evil, then<nobr> <wbr></nobr>;-) If this is a core patch, then I don't understand what's in magicrefs.pm -- is it a lexical pragma ? What core function(s) are you patching, and to do what ?
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL::isa</h2>
+<h3><a href="/user/james/">james</a> on 2003-06-10T12:26:28</h3>
+magicrefs.pm is a pragma similar to sort, ie, not lexical.<br> <br>Essentially it alters S_refto in pp.c.  magicrefs.pm sets a hint that is examined in S_refto to determine whether or not we should bless all references that are created (with the exception of those that are SvREADONLY).  magicrefs also use's the various reftype modules.<br> <br>
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL::isa</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2003-06-10T12:49:27</h3>
+OK, I can now see how optimizer.pm can help -- by inserting a bless op before the refgen/srefgen ops.
+
+
+
+<blockquote>
+
+<h2>Re:UNIVERSAL::isa</h2>
+<h3><a href="/user/malte/">malte</a> on 2003-06-10T15:04:43</h3>
+<p>You could probably do this by overloading the dereferencing operators.</p>
+
+<p>Obviously, at the expend of acceptable performance.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Newfangled</h2>
+<h3><a href="/user/acme/">acme</a> on 2003-06-10T12:36:50</h3>
+Now all you need to do is make sure that it works with Acme::Dot and then we have Ruby in Perl!
+
+
+
+<h2>Possible breakage</h2>
+<h3><a href="/user/2shortplanks/">2shortplanks</a> on 2003-06-10T13:42:16</h3>
+Quite a lot of code needs to know if what it's passed is a object (which it shouldn't go inside) or a hash (which it can.)  To do this it uses <code>blessed</code> which you've just broken.
+<p>
+Let's fix that
+</p> <blockquote><div> <tt>sub BasicType::a_sub_not_likely_to_be_here { 0 }<br>@HASH::ISA=qw(BasicType);<br>@ARRAY::ISA=qw(BasicType);<br>...</tt> </div></blockquote>(untested code, of course)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

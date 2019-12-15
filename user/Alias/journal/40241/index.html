@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Making threads suck less in Padre</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Making threads suck less in Padre</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2010-03-12T05:26:21</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Yes, threads suck. And in several different ways. Slow, memory-bloating, etc etc etc.<br/><br/>However, threads work.<br/><br/>Installing them from the CPAN on Windows, Mac and Linux works.<br/><br/>Using them as they are intended to be used works on Windows, Mac and Linux.<br/><br/>Integration with Wx works on Windows, Mac and Linux.<br/><br/>And using them to saturate a 4 CPU core development machine works, without resorting to having both them AND external processes.<br/><br/>And they work well enough that nobody has yet had an itch strong enough to step up and replace our task management code with something else that can support more than one CPU (and since our task system is derived from Process.pm, it is specifically designed to make it easy to use alternative backends).<br/><br/>So threads work, but they suck. Or at least, interpreter-copy sucks.<br/><br/>And in an IDE scenario where your process needs to load 50-100 meg of code just to drive the cooler IDE functions they suck even harder.<br/><br/>Fortunately, Padre has a rather forgiving attitude to things sucking.<br/><br/>We would rather have someone commit something that works and sucks, than not have it committed at all. And Padre is full of all kinds of features that work but suck. And slowly, gradually, they suck less.<br/><br/>The most recent couple of releases have come with stability warnings due to the arrival of our second-generation "Slave Driver" threading model.<br/><br/>The Slave Driver mechanism attempts to specifically contain and reduce the problems associated with threads.<br/><br/>During startup, we load the minimum number of modules required to conduct communication across threads, and then immediately spawn off a master thread which will remain unused while our main thread continues onward and loads up as much code as it likes.<br/><br/>Later on, when we need to do background work, this master thread is then further cloned into a slave thread which will bloat out incrementally, loading only the code it needs to execute the task.<br/><br/>While the slave driver mechanism itself landed a few weeks ago, the final step of pushing the master spawn point up into the start-up code just landed today.<br/><br/>The result of this is a change in our per-thread cost from 34meg per thread to about 20meg per thread (for a total reduction in memory in a low-usage case from 90meg to 60meg).<br/><br/>If not for the fact that loading Wx is an all or nothing proposition, we could probably cut this in half again. And while a collection of half a dozen 35meg threads (about the maximum we are likely to need to saturate 4 CPU cores) in a thread pool is a nasty amount of RAM, even for an IDE, half a dozen 10meg threads is a lot closer to a tolerable memory cost.<br/><br/>And if we can drop this further to around 5 meg, we get close to the memory cost of a forking/process model, which is the only other parallelism model available in the short term that supports many cores transparently.</p>
+
+
+<hr/>
+
+
+
+<h2>Wx loading</h2>
+<h3><a href="/user/mattia/">mattia</a> on 2010-03-12T10:09:59</h3>
+<blockquote><div><p>If not for the fact that loading Wx is an all or nothing proposition</p></div>
+</blockquote><p>
+
+  There is a patch to change that in a wxPerl branch; it should work but needs some real-world testing.  I think Steffen was waiting for the Padre changes above before testing it.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Wx loading</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2010-03-12T16:09:34</h3>
+<p>Well, it was actually a bit different. I implemented the SlaveDriver bit because it's a precursor to being able to use the wx-threading-only branch. I got sidetracked fixing the problems the new approach created for Padre. (Andrew Bramble did a lot of the fixing, actually!) Then, I got sucked into other work.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>fork isn't portable</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2010-03-12T16:13:16</h3>
+<p>"And if we can drop this further to around 5 meg, we get close to the memory cost of a forking/process model, which is the only other parallelism model available in the short term that supports many cores transparently."</p><p>Yes, but it's not really available because it's not portable to win32. Besides: A lot of the memory you save with the fork() copy-on-write may eventually be copied when accessed by Perl. Pseudo-code:</p><blockquote><div><p> <code><br>my $foo = 1.;<br>fork();<br># $foo SV shared<br>if ($foo == 1) {}<br># $foo SV likely not shared any more =&gt; integer conversion modified the SV<br></code></p></div> </blockquote>
+
+
+
+<h2>threads ain't slow.</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2010-03-12T16:16:50</h3>
+<p>PS: ithreads aren't slow per se. It's just the communication between them that sucks. Just like communication between processes...</p>
+
+
+
+<h2>threads::lite</h2>
+<h3><a href="/user/Arador/">Arador</a> on 2010-03-14T21:25:22</h3>
+<p>I have been prototyping a new threading system that's modeled after Erlang: threads share nothing with each other and can only communicate through a channel. I think that would be a better fit for background processes. You can find a rather old version <a href="http://search.cpan.org/user/leont/threads-lite/" title="cpan.org">on CPAN</a cpan.org>. I'm planning to push a largely rewritten version to github as soon as it's remotely functional again.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

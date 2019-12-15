@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of gav: Fun with eval</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Fun with eval</h1>
+<h2><a href="/user/gav/">gav</a> on 2003-07-15T02:27:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I had a little problem while working on a site for a client. The structure was defined using a field that contained the item's parents seperated by colons. For example, "A:B:C", meant that the root was A which had a child B which had a child C (which is the parent of the item).</p>
+
+<p>After starting doing something far too complicated I came up with an easier way. Why not use eval? You end up with something a simple as:</p>
+
+<pre>my $hash = join '', map "{$_}", split /:/, $path;
+eval "\$tree->$hash ||= 1";
+</pre>
+
+<p>This relies on the Perl's <a href="http://tlc.perlarchive.com/articles/perl/ug0002.shtml">autovivification</a>. Remember, Data::Dumper is your friend.</p></p>
+
+
+<hr/>
+
+
+
+<h2>remarkably similar</h2>
+<h3><a href="/user/gizmo_mathboy/">gizmo_mathboy</a> on 2003-07-15T02:47:52</h3>
+It's interesting to see that structure. It's similar to what I did in a mysql database in that the child had a field for it's parent. In hindsight maybe I should have created another field that listed the geneology of the child. I seemed to be determining the parents of a child much more than the children of a parent.<br> <br>
+
+
+
+<h2>Don't do this with eval!</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2003-07-15T06:26:21</h3>
+Well, go ahead and do this with eval if you're not concerned with either speed or security.
+<p>
+Eval means you're firing up the compiler.  Fun fun.  Slow slow.
+</p><p>
+Eval also means that you have to be <i>very</i> careful about the data.  It'd be trivial to launch arbitrary code by selecting the proper data here.
+</p><p>
+There's really no need.  You can run a lot faster and a lot safer with:</p><blockquote><div> <tt>$tree ||= {};<br>my $place = $tree;<br>$place = $place-&gt;{$_} ||= {} for split<nobr> <wbr></nobr>/:/, $path;</tt> </div></blockquote>(This may not be precisely the code, but this seemed
+to handle the cases I ran it on.)
+<p>
+Also note that in your version, first following "A::B" then "A::B::C" means you were storing data into %1 symbolically (disabled with "use strict").  Bad.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Don't do this with eval!</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2003-07-15T06:44:22</h3>
+<blockquote><div><em> <tt>$tree ||= {};<br>my $place = $tree;<br>$place = $place-&gt;{$_} ||= {} for split<nobr> <wbr></nobr>/:/, $path;</tt></em> </div></blockquote>  <br>Something like that lets you end with a HASHref instead of the SCALARref. Unfortunately, you can't create a reference to a hash element's value part.<br> <br>But adding something like a _value key solves that:<blockquote><div> <tt>sub walk_tree {<br>&nbsp; &nbsp; my ($hashref, @path) = @_;<br>&nbsp; &nbsp; $hashref = \%{ $hashref-&gt;{$_} } for @path;<br>&nbsp; &nbsp; return $hashref;<br>}<br>
+&nbsp; <br>my $tree = {};<br>${ walk_tree $tree =&gt; qw(A B C) }{_value} = "value";<br>
+&nbsp; <br>use Data::Dumper;<br>print Dumper($tree);</tt> </div></blockquote>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Tied hash</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2003-07-15T18:40:17</h3>
+You could do something like what Win32::TieRegistry does, and create a tied hash class which just accepts a delimited string as a hash key, but internally breaks it up into separate keys. That is, if there isn't already a generic module which does this<nobr> <wbr></nobr>:-)
+
+
+
+<blockquote>
+
+<h2>Re:Tied hash</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2003-07-15T22:08:04</h3>
+And on that note, here's a very incomplete tied hash class. Possible improvements (besides making it a complete tied hash class), might be to add options for recursively making tied hashes, so you could say something like:<code> $href = $hash{"A:B"}; $value = $href-&gt;{"C:D"};</code> (Note: the way it is now, only the top level hash is tied).<blockquote><div> <tt>#!/usr/bin/perl<br> <br>use strict;<br>use warnings;<br>use Data::Dumper;<br> <br>package Tie::Hash::DelimitedKey;<br> <br>sub TIEHASH {<br>&nbsp; my ($class, $delimiter) = @_;<br>&nbsp; $delimiter = ":" unless defined $delimiter;<br>&nbsp; my $re = qr/\Q$delimiter/ unless ref($delimiter);<br>&nbsp; bless {DELIM=&gt;$re, HASH=&gt;{}}, $class;<br>}<br> <br>sub STORE {<br>&nbsp; my $self = shift;<br>&nbsp; my ($href, $last_key) = $self-&gt;_walk_keys(shift);<br>&nbsp; $href-&gt;{$last_key} = shift;<br>}<br> <br>sub FETCH {<br>&nbsp; my $self = shift;<br>&nbsp; my ($href, $last_key) = $self-&gt;_walk_keys(shift);<br>&nbsp; $href-&gt;{$last_key};<br>}<br> <br>sub _walk_keys {<br>&nbsp; my ($self, $key) = @_;<br>&nbsp; my $href = $self-&gt;{HASH};<br>&nbsp; my @keys = split $self-&gt;{DELIM}, $key;<br>&nbsp; my $last_key = pop @keys;<br>&nbsp; for (@keys) {<br>&nbsp; &nbsp; $href-&gt;{$_} = {} unless exists $href-&gt;{$_};<br>&nbsp; &nbsp; $href = $href-&gt;{$_};<br>&nbsp; }<br>&nbsp; return $href, $last_key;<br>}<br> <br>package main;<br>my $href = tie my %hash, 'Tie::Hash::DelimitedKey';<br> <br>$hash{"A:B:C:D"} = 5;<br>print $hash{"A:B:C:D"},"\n";<br>my $sref = \$hash{"A:B:C:D"};<br>$$sref = 6;<br>print Dumper($href);</tt> </div></blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

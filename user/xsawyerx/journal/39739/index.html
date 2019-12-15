@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of xsawyerx: Extensive POE Testing PT. 3 - Testing, Sequence Ordered</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Extensive POE Testing PT. 3 - Testing, Sequence Ordered</h1>
+<h2><a href="/user/xsawyerx/">xsawyerx</a> on 2009-10-11T09:42:27</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>My <a href="http://use.perl.org/user/xsawyerx/journal/39734">last post</a> went over the idea of ordered tests, in which we run events in a certain order. It's a simple concept, it's easy to test and it's very nifty.</p>
+
+<p>However, it fails to cover some more advanced grounds, specifically the idea of multiple runtimes of a session or event, in which we can result in a race condition where two or more instances of the event will try to fire first and we aren't exactly sure which will come first. One could stumble over an <code>if()</code> that will take it a little bit more while the other might handle an unexpected delay because of its flow.</p>
+
+<p>Still, the point to make is that usually in such situations we don't really care what was the <b>numbered order</b> of the events, we care about the <b>preceeding order</b> of the events. Meaning, the <b>sequence of events</b>.</p>
+
+<p>Here is an example:</p>
+<pre>
+package MyPackage;
+use MooseX::POE;
+
+has 'num' => ( is => 'ro', isa => 'Int', default => 0 );
+
+sub START { # in MX::POE, this is mapped to _start
+    $_[KERNEL]->yield('first');
+}
+
+event 'first' => sub {
+    if ( $_[OBJECT]->num == 7 ) {
+        # lucky number slevin
+        $_[KERNEL]->yield('long_taking_event');
+    }
+
+    $_[KERNEL]->yield('second');
+};
+
+event 'second' => sub {
+    print "reached second!\n";
+};
+
+event 'long_taking_event' => sub {
+    print "reached long taking event!\n";
+};
+
+package main;
+MyPackage->new( num => rand(10) ) for 1 .. 5;
+</pre>
+
+<p>In this example, we aren't exactly sure if <code>num</code> will be 7 or not, and thus we aren't sure if <code>long_taking_event</code> will even be called. Besides, we're running each event more than once so the <code>order</code> function with the static number of running order of the events cannot even be applied here.</p>
+
+<p>Interestingly enough, we can stipulate that we do know <code>first</code> is suppose to run only after <code>START</code>. This might seem a bit given, but maybe we've made an error in the code and run <code>first</code> directly? How about knowing that <code>long_taking_event</code> and <code>second</code> can only be run after <code>first</code>? That's pretty good to know. If we run the program and it will see that <code>second</code> ran <b>before</b> <code>first</code>, we know we've made a mistake!</p>
+
+<p>That's what I call <b>sequenced-ordered tests</b> or <b>event-dependency order</b>. It's when the order isn't conclusive, but the sequence of events is. Right now my (yet unnamed and unpublished) framework supports that in a very simple form:</p>
+<pre>
+with 'POE::Test::Simple'; # running title
+
+has '+seq_ordering' => ( default => sub { {
+    'first'            => [ 'START'          ],
+    'second'           => [ 'START', 'first' ],
+    'long_taking_event => [ 'START', 'first' ],
+} } );
+
+# then each event/sub called can register itself with the framework
+event 'second' => sub {
+    $_[OBJECT]->seq_order('second');
+};
+</pre>
+
+<p>Right now I'm working on making this implicit so it's not required to run at all in order for the testing to run. Much help on this came from <code>mst</code>, <code>doy</code> and other great people at <code>#moose</code>. Thanks guys!</p>
+
+<p>Again, thinking about what this still misses: <address>how many times each event ran?</address> We have no counting of this, so the next post will cover <b>event counting</b>, which is exactly it. Meanwhile, if you feel like pitching ideas for the framework module name, I'd appreciate it.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

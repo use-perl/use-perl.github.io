@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Matts: Hacking fun</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Hacking fun</h1>
+<h2><a href="/user/Matts/">Matts</a> on 2006-07-26T23:42:42</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>A few days ago I read James Duncan Davidson's <a href="http://duncandavidson.com/essay/2006/06/webaspipe">The Web As A Pipe</a> (I think it was linked from a blog entry here). It got me thinking about AxKit 2.0. The question I was asking myself was: why do I need Apache?<br/><br/>All the deployments of AxKit in serious setups probably use a front-end proxy. That's because this is how mod_perl stuff is recommended to be setup. So if the backend is just a system for running bits of perl, why do I need all the extra "apache" stuff?<br/><br/>The other avenue that led me to this (below) is that I've been working a lot on scalable servers lately. I wrote an epoll/kqueue smtp server for our spamtrap (now part of <a href="http://www.qpsmtpd.org/">qpsmtpd</a>), and I hack on various logs which I query with dns as I'm parsing them, requiring tens of thousands of parallel DNS queries. For all of this I use <a href="http://search.cpan.org/user/bradfitz/Danga-Socket/">Danga::Socket</a> - a sort of POE-like framework for epoll/kqueue, but without all the overhead of POE. I also recently started using <a href="http://www.danga.com/djabberd/">djabberd</a> for a jabber server - a very cool project you should check out.<br/><br/>In working on scalable servers (all written in Perl) I got to thinking - "Why isn't there a highly scalable HTTP server written in perl, with decent pluggability like mod_perl, but without all the hassle of setting up apache and mod_perl". So I wrote one.<br/><br/>I borrowed bits of code from danga's perlbal project (a perl http load balancer that they put in front of the livejournal servers, with each perlbal server doing about 40Mb/s of traffic), some of qpsmtpd's ideas, and re-wrote a lot of it as my own.<br/><br/>So now I have a http server. It does basic http stuff, like receive http requests and send responses back. It has pluggable logging (like qpsmtpd). It has an expandable config system, so any plugin can define its own config directives in a MUCH easier manner than apache. It can run CGIs. In benchmarking I can deliver about 1500 req/s (just flat files, and that's unoptimised as I haven't done the fancy AIO stuff yet), but more important is that it's scalable - it can handle 100,000 concurrent connections if you want it to, and easily send large files to slow clients.<br/><br/>Anyway, I'm not going to reveal the source for it just yet (well, some people have seen it - join #axkit-dahut on irc.perl.org if you want to play), but I wanted to blog what I'd been hacking on.</p>
+
+
+<hr/>
+
+
+
+<h2>Look at mongrel</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2006-07-27T11:52:27</h3>
+I love the HTTP as pipe idea.  It's so much more sensible than FastCGI, which I now hate, having used it for rails.
+
+<p>Everybody in the rails world seems to be looking at <a href="http://mongrel.rubyforge.org/" title="rubyforge.org">Mongrel</a rubyforge.org> recently.  One of it's claims to fame is that it's got an extremely fast HTTP parser (written in C), which helps it to scale well.  I wonder if it would be worth appropriating that code for your project...
+
+</p><p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Look at mongrel</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-07-27T12:37:29</h3>
+The bottlenecks are elsewhere.<br><br>if I can serve 2000 reqs/sec (localhost to localhost, using apachebench) of just static files, and this server is for applications, I'm not going to worry about parsing headers too much.
+
+
+
+<h2>Re:Look at mongrel</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2006-07-31T15:29:09</h3>
+What did you hate about FastCGI?  It seems to be getting more popular at the moment.
+
+
+
+<blockquote>
+
+<h2>Re:Look at mongrel</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2006-08-01T12:02:05</h3>
+The complete lack of introspection.  It's a binary protocol and I found it quite difficult to debug without resorting to tools like strace.  Whereas with HTTP it's laughably easy to see what's going on.
+
+<p>-Dom</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Tease!</h2>
+<h3><a href="/user/acme/">acme</a> on 2006-07-28T12:30:49</h3>
+You're such a tease, but I love the fact you're hacking on this<nobr> <wbr></nobr>;-)
+
+
+
+<blockquote>
+
+<h2>Re:Tease!</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-07-28T12:44:26</h3>
+svn://axkit.org/axkit2
+
+
+
+
+
+</blockquote>
+
+
+<h2>lighttpd?</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2006-07-31T15:27:39</h3>
+Won't you end up with something pretty similar to lighttpd + FastCGI?
+
+
+
+<blockquote>
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-07-31T15:40:52</h3>
+Not really.<br><br>Say you want to build an app - you don't want to fuss about deployment just yet. With this you can just download it, and run "./axkit" and start building your app. No downloading extra httpds and configuring them.<br><br>When you want to deploy, you can either deploy standalone like this without an extra httpd, or you can stick lighttpd or apache up front, giving you whatever extra features you might need from those (e.g. SSL).<br><br>All this is easier to debug than FastCGI, and can utilise proxy caching at the frontend. See the original article (linked above) for more explanation.
+
+
+
+<blockquote>
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2006-07-31T16:56:23</h3>
+I have read the original article and I think he's full of it.  FastCGI's protocol is too hard to understand, so let's write an HTTP server?  It doesn't make any sense.  Writing a good network server is much harder than figuring out how to debug FastCGI hiccups.<br><br>It sounds to me like you're solving a different problem -- how to have a quick dev server.  Most projects are doing this with HTTP::Server::Simple.  I personally think it's a bad idea to develop on a server that isn't identical to what you deploy on, having been bitten several times by differences in behavior when I don't have the reverse proxy running in dev, etc.  I do understand the desire to get going fast though.
+
+
+
+<blockquote>
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-07-31T17:15:42</h3>
+It's not just about hiccups with FastCGI. I don't know about all the ins and outs of that protocol, but can you make the frontend cache the results with FastCGI if you send the right http headers? If not then that's a huge reason right there.<br><br>I also wanted a server that can scale decently if you need it to. I don't believe HTTP::Server::Simple (or anything currently on CPAN, with the possible exception of Perlbal but that doesn't do dynamic content) is scalable.
+
+
+
+<blockquote>
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2006-07-31T17:30:15</h3>
+The caching issue is probably dependent on the FastCGI implementation.  With apache 2 and the new caching stuff, it should be possible.  Not sure about lighttpd.<br><br>HTTP::Server::Simple doesn't scale at all.  It's just a quick dev server.<br><br>The main difficulty in using a single-threaded server for dynamic content generation is how you handle slow things that are hard to split up, like database queries.  I talked to a couple of people at OSCON (Stas Bekman, Artur Bergman) about this and they were both following the approach of handing off those requests to a separate daemon and picking up the results later.  It seemed very similar to a lighttpd/FastCGI model ultimately.
+
+
+
+<blockquote>
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-07-31T17:39:13</h3>
+<i> It seemed very similar to a lighttpd/FastCGI model ultimately.</i><br><br>Sort of - except there's a reason smart people are going down this single-threaded server route - even if you have some bits hanging off as other daemons, ultimately your scalability is still better. And with all the AJAX stuff going on now, high parallelism is becoming even more of a big deal.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-07-31T19:40:20</h3>
+<p>Why is it appreciably harder to write a good d&#230;mon vs. a FastCGI frontend? That doesn&#8217;t make any sense to me.</p>
+
+
+
+<blockquote>
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2006-07-31T20:18:35</h3>
+Have you ever tried to write a reliable HTTP server that deals well with all the things that can happen with networks and broken clients, and has very high performance?  There's a reason why apache httpd took more than a few hours to write.  Now compare that to simply adding a little debug code to an already working FastCGI implementation.
+
+
+
+<blockquote>
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-07-31T20:22:10</h3>
+No, but I've written a couple of SMTP servers that do that<nobr> <wbr></nobr>:-)
+
+
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-07-31T20:38:36</h3>
+<p>So what you&#8217;re objecting to is not any of the stated goals, but just the fact that it would require effort that cannot build on something existing?</p>
+
+
+
+<blockquote>
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2006-07-31T21:58:22</h3>
+The stated goal that I saw in that article was "fix my (unspecified) FastCGI problems" and the solution was to write an HTTP server.  It didn't make sense to me, and it still doesn't.  Matt's goals (quick bundled dev server with decent production capabilities) don't seem related to what the article was talking about.<br><br>In the article, Davidson complains about "zombies, mysterious crashes, and other annoyances" -- sort of like the kind you see when you try to write a new networkd server.  He complains that you have to care about which release of the server software you're running.  Well, duh.  That applies to databases, OS, and everything else.  He complains that you have to run a web server in front of your app.  Making the web server run in the same process doesn't seem like an improvement to me.<br><br>The way things are looking these days, serving static content from a single-threaded server and passing requests for dynamic stuff off to a separate daemon seems like the best formula anyone has come up with for scaling.  It also happens to be what lighttpd + FastCGI already do.  Maybe someone will build a better version of the same thing, but I don't see anyone building anything fundamentally different, and the FastCGI protocol itself is pretty obviously not the reason for anyone's problems, although the implementation might be.<br><br>In short, I think the whole article sounds like a case of Not Invented Here.  Having a non-HTTP protocol doesn't seem to have killed database servers, so why is it such a problem for FastCGI?  It's not.
+
+
+
+<blockquote>
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-07-31T22:15:41</h3>
+You haven't answered the point about frontend caching when sending the right headers. That can be a big win. Honestly the FastCGI protocol seems to be a solution in search of a problem - the HTTP protocol is perfectly suited to whatever the inventors were trying to achieve.
+
+
+
+<blockquote>
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2006-08-04T03:53:57</h3>
+Apache's mod_cache can cache any URL, so I assume FastCGI would be fine.  I don't think lighttpd has caching built in, or proxying for that matter.<br><br>FastCGI doesn't seem very useful to me either, since I already have mod_perl (and many other perl options for that matter), but some of the people who I talked to at OSCON seemed to prefer FastCGI for its simplicity when compared to running another separate httpd daemon.<br><br>The bottom line for me is that it seems like a strange choice for Ruby.  They don't have a mod_perl, so they are talking about dropping a widely used solution (many PHP hosts have FastCGI) that works, for a new thing that will be hard to get right.  To me it looks like "I don't want to debug this guy's code, so I'll just rewrite the whole thing" -- a case of NIH.  It sounds a lot easier to fix FastCGI's implementation issues than to write a new httpd daemon that will offer similar performance and hold up under load without bugs.<br><br>But hey, charging in has worked well for the Rails guys so far, and maybe there's just no one willing  to work on fixing lighttpd's FastCGI implementation.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:lighttpd?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-07-31T22:42:28</h3>
+<p>I don&#8217;t see how database server binary protocols are in any way a relevant example. They are closed proprietary wire formats, they have a single implementation for each end of the wire, and the code for both ends is written by the same entity. Noone expects the client library of MySQL to interoperate with the PostgreSQL server, yet people fully expect to be able to run the same FastCGI-fronted application under lighttpd, multiple different FastCGI implementations for Apache, and who knows what else.</p>
+
+<p>When I look at the issue I see the same as Matt &#8211; the FastCGI protocol is just a gratuitous extra spec unnecessarily involved in serving. I really don&#8217;t see how a process speaking FastCGI to another process, which as you correctly say has to deal with all the vagaries of typical d&#230;mons, is fundamentally simpler than a process speaking HTTP to another process &#8211; other than that the latter case enables scenarios that the former precludes. There is no conceptual difference, only the fact that a passable implementation of FastCGI exists and of HTTP doesn&#8217;t.</p>
+
+<p>I say if someone puts in the work, more power to them. They&#8217;ll have my gratitude.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

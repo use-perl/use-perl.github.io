@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Burak: Parse::HTTP::UserAgent: yet another user agent string parser</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Parse::HTTP::UserAgent: yet another user agent string parser</h1>
+<h2><a href="/user/Burak/">Burak</a> on 2009-09-04T04:25:35</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I was using <a href="http://search.cpan.org/dist/HTTP-BrowserDetect/">HTTP::BrowserDetect</a> for a long time. Not because it's a pice of art or accurate, but because of <a href="http://c2.com/cgi/wiki?LazinessImpatienceHubris">laziness</a> perhaps. When I had some free time, I thought about re-inventing the wheel, like <a href="http://search.cpan.org/user/burak/">I did several times</a> before. The main reason for re-inventing is the source code and interface of the module (try to read it, you'll understand) and the lack of new releases. Also, it's not accurate.</p>
+
+<p>
+There are two other alternatives though: <a href="http://search.cpan.org/dist/HTML-ParseBrowser/">HTML::ParseBrowser</a> and <a href="http://search.cpan.org/dist/HTTP-DetectUserAgent/">HTTP::DetectUserAgent</a>. The former is really good parser-wise, while the latter is actually a sniffer and does not give you a verbose result.
+</p>
+
+<p>
+So, I wrote <a href="http://search.cpan.org/dist/Parse-HTTP-UserAgent/">Parse::HTTP::UserAgent</a>. It tries to be verbose and parse as much as possible from the junk named "User Agent String". It tries to identify the major browsers first and then falls back to minor/old ones  with an extended probe. The parsed structure has many fields like:
+
+<pre>
+name               Browser name. You may need to check original_name() if faker (like Maxthon).
+version_raw        Browser version
+version            version(version_raw)->numify: The float version of the parsed version.
+original_name      The original name (i.e.: Maxthon)
+original_version   The original version (i.e.: 2.0 (Maxthon))
+os                 Operating system. Windows names returned instead of versions
+lang               The "user interface" language of the browser
+toolkit            [tk_name, tk_version, version(tk_version)->numify]. Gecko, Trident, etc.
+dotnet             If it has .NET CLR version in the string, this'll have all versions
+mozilla            If a Mozilla browser, returns Moz version: [original, version(original)->numify]
+strength           Encryption strength (I guess this does not have much value today)
+robot              UA is a robot
+extras             Any non-parsable junk. Arrayref.
+parser             The name of the parser that returned the result set
+generic            Parsed by a generic parser? Bool.
+string             The original User Agent String
+unknown            User Agent String can not be parsed
+device             ***not implemented yet
+wap                ***not implemented yet
+mobile             ***not implemented yet
+</pre>
+
+The module also has <code>->as_hash</code> and <code>->dumper</code> methods for debugging purposes.
+</p>
+
+<p>
+The biggest difference is; it parses the fakers like Maxthon accurately.  Also extracts .NET versions and toolkit names and versions. It also identifies <a href="http://dev.opera.com/articles/view/opera-ua-string-changes/">Opera 10</a> (btw, Opera is the first thing I install on a new system) correctly.
+</p>
+
+<p>
+The version numbers are converted to decimals to ease comparison (I dislike that major/minor stuff the others implement). The conversion also removes any junk string (like "gold") from the version number. While using <a href="http://search.cpan.org/dist/version/">version</a> is good, as it handles all the nasty stuff, I got some regression from 5.6.2 smokers after releasing the module. It looks like they (5.6.2) have the pure perl version::vpp (I couldn't compile the xs version under 5.6.1 either) which has some kind of bug. I've opened a <a href="http://rt.cpan.org/Public/Bug/Display.html?id=49348">ticket about the issue</a>, but also added a workaround to fool version::vpp (postfix '.0' if version is three digits). I currently have no idea about 5.5.x but 5.6.x seem to be fine at least (also tested myself with ActivePerl 5.6.1 on a virtual Windows XP).
+</p>
+
+<p>
+The module also has some example programs in it for benchmarking. I'll give some figures below. The test system is: Windows Vista Home Premium SP2 32bit & P8600 @ 2.40GHz & ActivePerl 5.10.0.1004
+
+<pre>
+C:\>perl -Ilib eg\bench.pl -c 1000
+*** The data integrity is not checked in this run.
+*** This is a benchmark for parser speeds.
+*** Testing 161 User Agent strings on each module with 1000 iterations each.
+
+This may take a while. Please stand by ...
+
+          Rate    HTML   HTML2 Browser   Parse  Parse2  Detect
+HTML    12.6/s      --     -2%    -63%    -75%    -82%    -90%
+HTML2   12.9/s      2%      --    -62%    -75%    -81%    -90%
+Browser 34.2/s    170%    166%      --    -33%    -51%    -73%
+Parse   51.1/s    304%    297%     50%      --    -26%    -59%
+Parse2  69.4/s    449%    439%    103%     36%      --    -44%
+Detect   125/s    888%    871%    266%    144%     80%      --
+
+The code took: 241.65 wallclock secs (228.21 usr +  0.08 sys = 228.29 CPU)
+
+---------------------------------------------------------
+
+List of abbreviations:
+
+HTML      HTML::ParseBrowser v1
+HTML2     HTML::ParseBrowser v1 (re-use the object)
+Browser   HTTP::BrowserDetect v0.99
+Detect    HTTP::DetectUserAgent v0.01
+Parse     Parse::HTTP::UserAgent v0.16
+Parse2    Parse::HTTP::UserAgent v0.16 (without extended probe)
+
+</pre>
+
+HTML::ParseBrowser is slow as hell. Even re-using the object as the doc suggests does not help. It's good that I wasn't aware of the module until now :p HTTP::BrowserDetect is not a good performer too. But the interface is extensive and it's kinda defacto standard in this area. It tries to match with *anything* possible and this choice slows it down (who cares if $ua->win31 is true as of today right?). HTTP::DetectUserAgent is the speedy one here. It doubles Parse::HTTP::UserAgent even when the extended probe is disabled. However it gains this speed with several CAVEATs as the version number suggests.
+
+<pre>
+C:\>perl -Ilib eg\accuracy.pl
+*** This is a test to compare the accuracy of the parsers.
+*** The data set is from the test suite. There are 161 UA strings
+*** Parse::HTTP::UserAgent will detect all of them
+*** A tiny fraction of the regressions can be related to wrong parsing.
+*** Equation tests are not performed. Tests are boolean.
+
+This may take a while. Please stand by ...
+
+----------------------------------------------------------------------------------------------
+| Parser                 | Name FAILS     | Version FAILS  | Language FAILS | OS FAILS       |
+----------------------------------------------------------------------------------------------
+| HTTP::DetectUserAgent  |   27 -  16.77% |   37 -  23.27% |   67 - 100.00% |   35 -  24.31% |
+| HTTP::BrowserDetect    |   28 -  17.39% |    8 -   5.03% |   67 - 100.00% |   20 -  13.89% |
+| HTML::ParseBrowser     |    0 -   0.00% |    3 -   1.89% |   42 -  62.69% |   19 -  13.19% |
+| Parse::HTTP::UserAgent |    0 -   0.00% |    3 -   1.89% |    3 -   4.48% |    4 -   2.78% |
+----------------------------------------------------------------------------------------------
+
+</pre>
+
+Parse::HTTP::UserAgent is not perfect, but at least it seems to be close. HTML::ParseBrowser is more accurate on name/version matching. Speedy HTTP::DetectUserAgent seems to be the worst. However there is one caveat, the test data is from the Parse::HTTP::UserAgent test suite. So, Parse::HTTP::UserAgent is not actually that good yet since there are some patterns it can not match.
+
+</p>
+
+<p>
+Note: The module is already on <a href="http://search.cpan.org/dist/Parse-HTTP-UserAgent">CPAN</a>, but you can get the latest code and non-CPAN content from <a href="http://bitbucket.org/burak/cpan-parse-http-useragent/src/">the code repository</a>. The repo also has a <code>etc/Migration.pod</code> for HTTP::BrowserDetect users.
+</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

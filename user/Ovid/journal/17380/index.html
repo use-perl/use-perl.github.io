@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Traits in Perl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Traits in Perl</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2004-02-12T20:49:10</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>chromatic has <a href="http://search.cpan.org/user/chromatic/Class-Roles-0.30/">Class::Roles</a> on the CPAN.  This is an attempt to implement <a href="http://www.cse.ogi.edu/user/black/publications/TR_CSE_02-012.pdf">traits</a> in Perl.  I think it's a great start,but there are a few features of traits that it doesn't implement yet.  I've been thinking about the problem and I think I've got it licked.  When all of the traits (roles) are used, a dynamically created interface is generated and it validates the integrity of the flattened class.  It's a bit more complicated than it sounds, but I'll send chromatic some code when I'm done -- if it works.</p></p>
+
+
+<hr/>
+
+
+
+<h2>The Wait</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2004-02-15T01:15:49</h3>
+<p>I'm waiting to see what shakes out of A12 before I do much more work on it.  Very few people really understand the point of roles; I hope that Larry will explain it far better than I've been able to do.</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Wait</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-02-15T02:36:41</h3>
+<p>I don't blame you.  It looks like there's a lot of potential there, but how it integrates into Perl 6 will be interesting.</p>
+
+<p>I just finished an alpha version of <tt>Class::Trait</tt> and I'm writing the docs now.  I don't have a tarball uploaded, but the interface looks like this (borrowing heavily from your examples):</p> <blockquote><div> <tt>package Person;<br># make them a lifeguard, but ensure that they use &amp;Trait::Dog::swim and not<br># &amp;Trait::LifeGuard::swim<br>use Class::Trait 'Trait::LifeGuard';<br>use Class::Trait 'Trait::Dog' =&gt; { explicit =&gt; 'swim' };<br> <br># the dog will want a &amp;doggie_treat, but since it's AUTOLOADed or inherited,<br># we must explicitly promise that it will be available<br>Class::Trait-&gt;promise('doggie_treat');<br>Class::Trait-&gt;assemble; <br> <br>1; <br> <br>package Trait::LifeGuard;<br> <br>sub swim {<br>&nbsp; return Trait::LifeGuard::_swim();<br>}<br> <br>sub save_drowning_swimmer {<br>&nbsp; my (undef, $swimmer) = @_;<br>&nbsp; # save the swimmer<br>}<br> <br>1;<br> <br>package Trait::Dog;<br> <br>Class::Trait-&gt;expects('doggie_treat');<br> <br>sub swim {<br>&nbsp; my ($class, $target) = @_;<br>&nbsp; Trait::Dog::_eat($class-&gt;doggie_treat);<br>&nbsp; # swim to $target<br>}<br> <br>sub _eat {<br>&nbsp;<nobr> <wbr></nobr>...<br>}<br> <br>1;</tt> </div></blockquote> <p>Essentially, it boils down to traits having expectations and the primary class making promises.  If the primary class does not have a given method in its symbol table (due to AUTOLOAD or inheritance), then it promises that the method will be available when called (<tt>Class::Trait-&gt;promise('doggie_treat');</tt>).  A trait is expected to not make promises at the current time (that may change).</p>
+
+<p>A trait might need methods it doesn't provide, though, so it sets expectations</p> <blockquote><div> <tt>package Trait::Dog;<br>Class::Trait-&gt;expects('doggie_treat');</tt> </div></blockquote> <p>As the primary class and traits are used, a tally of all promises, expectations, and actual methods is made.  When the <tt>Class::Trait-&gt;assemble</tt> method is called, the interface is validated and flattened into the primary class.</p>
+
+<p>To resolve conflicts, you must explicitly request a given method from a trait.</p> <blockquote><div> <tt>use Class::Trait 'Trait::Dog' =&gt; { explicit =&gt; 'swim' };</tt> </div></blockquote> <p>All methods in a package that do not begin with an underscore (or the "import" method) are added to the list of traits to be flattened.  If a trait wants a private helper method, it must call it via the fully qualified name (or a private subref).</p>
+
+<p>So far, the tests pass, but it does have a few limitations.  I worked hard to make the interface as self-explanatory as possible.  If you or anyone else is interested, I can provide a download link for the tarball when it's ready.</p>
+
+
+
+<h2>Re:The Wait</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-02-15T02:42:58</h3>
+<p>I forgot to mention that since I don't know how Perl 6 roles are to be implemented, my design goals were driven by my understanding of the original traits document.  That's one of the reasons why I call them "traits" instead of "roles".  I've thought about uploading this to the CPAN, but I have two concerns.  First, I don't want to cause potential confusion when Perl 6 comes out.  Second, since there are already beginning implementations of roles, I don't necessarily want to provide competing modules unless I am very confident in what mine can do.</p>
+
+<p>Also, I've discovered that when I write weird stuff like this, I get very little feedback.  Very few people understand what traits do (I'm not entirely sure that I've got it right), so I suspect that few, if any, would use my module.  Further, I base my idea on the idea of composite runtime interfaces.  That's a bizarre concept, so I don't know if it's a good idea.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

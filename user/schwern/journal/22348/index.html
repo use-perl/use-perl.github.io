@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: I hate make</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>I hate make</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2004-12-17T07:04:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Particularly the concept of writing a cross-platform Makefile.  Its like cross-platform GUI code, nearly impossible.  Here's a little microcosm of my pain.<br/><br/>I want to run a make target in a subdirectory.  On Unix that's easy.<br/><br/>    cd dir && $(MAKE) target FOO=bar<br/><br/>And that even works on NT.  But what about Win9x and nmake (ie. the "free as in beer" Windows native make that most people get)?  It doesn't understand &&.  Futhermore each line of the shell can effect another.  So you have to do this.<br/><br/>    cd dir
+    $(MAKE) target FOO=bar
+    cd ..<br/><br/>I'll be merciful and skip explaining what dmake brings to the party.<br/><br/>But then there's another make variant, MMS/K for VMS.  And with completely alien shell conventions.  There its...<br/><br/>    set default [.dir]
+    $(MAKE) target FOO=bar
+    set default [-]<br/><br/>But that's not quite right.  You can't just pass args to make on VMS, oh no.  The need special macro magic.<br/><br/>    set default [.dir]
+    $(MAKE) target /macro=(FOO=bar)
+    set default [-]<br/><br/>And $(MAKE) isn't set.  Its $(MMS).  Lovely.<br/><br/>    MAKE = $(MMS)<br/><br/>    set default [.dir]
+    $(MAKE) target /macro=(FOO=bar)
+    set default [-]<br/><br/>This difference alone accounts for a huge wad of duplication in MakeMaker.  I'm whittling away at it with a cd() method.<br/><br/>    my $make_command = $mm->cd($dir, @commands);<br/><br/>Then I can plunk that $make_command into a Makefile and be reasonably sure it'll be the right thing for the current platform.  This alone knocked out most of MM_Win95.pm.  MM_VMS is proving more tenacious, I haven't decided what to do yet about the /macro= wackiness and other MMS argument passing anomalies.  Probably yet another method.<br/><br/>Now before you think "why do you bother with VMS?", let me say that I get more help and patches from vmsperl than I do from Windows users.  And despite all its faults I can at least telnet to a VMS machine to test things out, DEC/Compaq/HP helpfully provides several for such purposes (http://www.testdrive.hp.com/).  But rjbs is setting up a Windows machine for me to VNC into and I got an offer on Perlmonks for some sort of email-based Windows smoke acount.  So hopefully that will make life a little easier.
+</p>
+
+
+<hr/>
+
+
+
+<h2>abstract the abstract</h2>
+<h3><a href="/user/jhi/">jhi</a> on 2004-12-17T14:50:57</h3>
+Why not something like $mm-&gt;runcmd(%opt) where %opt:<br>cmd    =&gt; argv[0]<br>args   =&gt; [argv[1..]]<br>env    =&gt; {...}<br>cwd    =&gt; directory where to cd in and out of<br>stdin  =&gt; file<br>stdout =&gt; file<br>etc.<br>Shades of t/test.pl:runperl(), don't you think?<nobr> <wbr></nobr>:-)<br> <br>
+
+
+
+<blockquote>
+
+<h2>Re:abstract the abstract</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2004-12-18T00:36:42</h3>
+See MM_Any-&gt;oneliner().  It makes the job barely tolerable.  Here's an example from generating the clean target.<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; # Equivalent to 'cd $dir &amp;&amp; $(TESTF) $(FIRST_MAKEFILE) &amp;&amp; $(MAKE) clean'<br>
+&nbsp; &nbsp; &nbsp; &nbsp; for my $dir (@{$self-&gt;{DIR}}) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $subclean = $self-&gt;oneliner(sprintf 'CODE', $dir);<br>chdir '%s';  system '$(MAKE) clean' if -f '$(FIRST_MAKEFILE)';<br>CODE<br> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $clean<nobr> <wbr></nobr>.= "\t$subclean\n";<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br> <br>But you can't move everything to running individual perl scripts, its too bloody slow.  And there's something depressingly Sisyphusian about a Perl module to write a Makefile full of shell scripts which are ultimately Perl one-liners.<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

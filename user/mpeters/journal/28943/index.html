@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of mpeters: HTML Form filling benchmarks</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>HTML Form filling benchmarks</h1>
+<h2><a href="/user/mpeters/">mpeters</a> on 2006-03-09T21:40:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Every web application needs to fill in HTML &lt;form&gt;s at some point. Simple text &lt;input&gt;s and &lt;textarea&gt;s are easy to do. But radio buttons, checkboxes and &lt;select&gt;s are a bit harder.
+<br><br>
+I love <a href="http://search.cpan.org/perldoc?HTML::FillInForm">HTML::FillInForm</a> because each form &lt;input&gt; is treated the same. It doesn't matter if the designer wants to change from a &lt;select&gt; box to radio boxes, or replace it with a text &lt;input&gt;. The code that fills it doesn't change.
+<br><br>
+But <a hre="http://search.cpan.org/perldoc?HTML::FillInForm>HTML::FillInForm</a>
+has to parse the entire HTML, find the &lt;form&gt; and the inputs and then change the HTML to include all the values and <code>selected="selected"</code> stuff. That's gotta be slow, right?<br><br>
+So, to see how slow I decided to benchmark it (against <a href="http://search.cpan.org/perldoc?HTML::Template::Expr">HTML::Template::Expr</a>). Here's the results (<em>code benchmarked is at the bottom</em>):<br>
+With small, fairly simple forms, and using external files so H::T::E could cache -
+<pre>
+For 1000 iterations:<br/><br/>      Rate hte fif
+hte 1493/s  -- -7%
+fif 1613/s  8%  --<br/><br/>      Rate  fif  hte
+fif 1075/s   -- -11%
+hte 1205/s  12%   --
+</pre><br/><br/>And it usually went back and forth like that. They were both very close and the winner flipped-flopped.<br><br>
+Now with a very large complicated HTML <form> with lots of other markup taken straight from a client's site:
+<pre>
+[mpeters@localhost ~]$ ./bench.pl
+      Rate  hte  fif
+hte 44.2/s   -- -27%
+fif 60.6/s  37%   --
+[mpeters@localhost ~]$ ./bench.pl
+      Rate  hte  fif
+hte 41.8/s   -- -36%
+fif 65.4/s  56%   --
+</pre><br/><br/>FillInForm consistently beat H::T::E on this large form. I was pretty amazed. If you see any problems with my benchmark, please let me know.
+<br><br>
+<strong>Benchmark code</strong>
+<pre>
+#!/usr/bin/perl
+use strict;
+use warnings;
+use Benchmark qw(:all);
+use HTML::FillInForm;
+use HTML::Template::Expr;
+use HTML::Template;<br/><br/>my %values = (
+    prefix      => 'Mr.',
+    first_name  => 'Michael',
+    last_name   => 'Peters',
+    address1    => '1234 Main St.',
+    city        => 'Silver Spring',
+    state       => 'Maryland',
+    zip         => '12345',
+    country     => 'US',
+);<br/><br/>sub fill_form {
+    my $tmpl = HTML::Template->new(
+        filename => 'form_text.tmpl',
+        cache    => 1,
+    );
+    my $out = $tmpl->output();<br/><br/>    HTML::FillInForm->new()->fill(
+        scalarref => \$out,
+        fdat      => \%values,
+    );
+}<br/><br/>sub fill_tmpl {
+    my $tmpl = HTML::Template::Expr->new(
+        filename => 'tmpl_text.tmpl',
+        cache    => 1,
+    );
+    $tmpl->param(%values);
+    $tmpl->output();
+}<br/><br/>cmpthese(
+    1000,
+    {
+        hte => sub { fill_tmpl() },
+        fif => sub { fill_form() },
+    },
+);<br/><br/></pre></p>
+
+
+<hr/>
+
+
+
+<h2>Faster HTML::FillInForm</h2>
+<h3><a href="/user/Hansen/">Hansen</a> on 2006-03-10T18:00:29</h3>
+And if you want a faster version of HTML::FillInForm you could try an unreleased and untested version based on XML::LibXML, <a href="http://dev.catalyst.perl.org/browser/trunk/HTML-FillInForm-LibXML/" title="perl.org">HTML::FillInForm::LibXML</a perl.org>.
+
+
+
+<blockquote>
+
+<h2>Re:Faster HTML::FillInForm</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2006-03-10T22:47:44</h3>
+I tried to run my benchmark against using this too, and it seemed to be extremely fast (even with a lot of libxml warnings about various constructs in the HTML). But then I looked at the output and it didn't actually fill the form in. Very strange since it did parse the HTML. Maybe I did something wrong... I'll keep looking.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

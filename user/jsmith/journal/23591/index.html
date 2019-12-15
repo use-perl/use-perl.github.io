@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jsmith: Perl Syntax Mangling and XML Compilers</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl Syntax Mangling and XML Compilers</h1>
+<h2><a href="/user/jsmith/">jsmith</a> on 2005-03-10T20:54:08</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+My mind has been trying to wrap itself around the idea of an XML Compiler Compiler.  That would be something that takes a description of an XML language (such as a RelaxNG description with some additional bits to explain how to actually do the compile) and writes a SAX handler that will do the compile.  Of course, we need to allow one XML language to embed or be embedded in another XML language.  (A lot of this comes from the work on the Gestinanna project that resulted in a compiler for statemachines and another for workflows that shared a lot of common code.)
+</p><p>
+With that in mind, I started fresh work on the compiler code without trying to hack the existing Gestinanna modules.  I also changed where I put the commas and semi-colons.
+</p><p>
+Now, I have code like the following:
+
+<pre>package XML::Compiler::SAXHandler
+         
+; sub new_handler {
+    my($type, %params) = @_
+
+  ; return bless { %params
+                 , Context => [ ]
+                 , Current_NS => { }
+                 } => $type
+}
+
+; sub start_document {
+    my $e = shift
+    
+  ; my $sub
+  ; foreach my $ns ($e -> handled_namespaces) {
+        foreach my $h ($e -> ns_handlers($ns)) {
+            if( ($sub = $h -> can('start_document'))
+                && ($sub != \&start_document) ) {
+                $sub->($h, $e) && last
+            }
+        }
+    }
+}
+
+; sub start_element {
+    my($e, $el) = @_
+  ; $el -> {Parent} ||= $e -> {Current_Element}
+  ; $el -> {Namespaces} = { %{$el -> {Parent} -> {Namespaces} || {}}
+                          , %{$el -> {Namespaces} || {}}
+                          }
+  ; $e -> {Current_Element} = $el
+
+  ; my $ns = $el -> {NamespaceURI}
+
+  ; my @attribs
+  ; my @defined_ns
+
+  ; foreach my $attr (@{$el -> {Attributes}}) {
+    }
+
+  ; $el -> {_Defined_NS} = \@defined_ns
+  ; $el -> {Attributes} = \@attribs
+  
+  # need to handle block v. expression context setting
+  ; push @{$e -> {Context}}, 0
+}
+</pre>
+<p>
+After you uncross your eyes, you might wonder why I put the semis and the commas at the beginning of the line (and instead of commas and semis being optional at the end of a block, they are now optional at the beginning of a block, with semis optional after a block as well).  The key to this is the last comment in the code example.  Semicolons delimit series of statements while commas delimit series of expressions.  The traditional approach of putting these at the end of their respective part means we need to know the type of code we just emitted.  By putting them at the beginning, we only need to know what kind of code we are expecting.
+</p><p>
+By managing what we expect when we see a start element, we can hopefully simplify some of the code that otherwise would need to handle the selection of the statement or expression terminator in the end element.
+</p></p>
+
+
+<hr/>
+
+
+
+<h2>Please - my eyes hurt</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2005-03-10T21:07:03</h3>
+There's a reason in Perl that you can always end a block <i>with</i> a semicolon (it doesn't create a null statement) and can always end a list <i>with</i> a comma (it doesn't create an extra null element.  Please do that.  Don't write Perl code the way no sane person would do it, even automatically.
+
+
+
+<blockquote>
+
+<h2>Re:Please - my eyes hurt</h2>
+<h3><a href="/user/jsmith/">jsmith</a> on 2005-03-10T22:08:44</h3>
+<p>
+I agree that the ultimate code generated should be readable.  I was just doing that as an exercise to get a different view on things.  Some of the things XML languages require are a bit twisted when they get translated into a language such as Perl (e.g., should the &lt;for-each/&gt; become a foreach or a map in Perl?  is it in a statement or an expression context?  need to throw some &lt;sort/&gt; expressions in before we iterate...).
+</p> <p>
+The plan would be to put the code through a pretty-printer anyway, which I do now in the old code with its traditional semis and commas.  IMHO, autogeneration shouldn't pretty-print too much, but such code is hard to read regardless of comma/semi placement without a pretty-printer of some kind.
+</p>
+
+
+
+<h2>Re:Please - my eyes hurt</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2005-03-11T15:29:21</h3>
+Horror: http://perl.4pro.net/pcs.html
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

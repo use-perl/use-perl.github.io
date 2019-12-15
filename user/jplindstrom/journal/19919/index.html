@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jplindstrom: Profilers and profiling</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Profilers and profiling</h1>
+<h2><a href="/user/jplindstrom/">jplindstrom</a> on 2004-07-19T08:29:26</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>So, at least two profilers worked fine. Which is nice, I haven't had great success in that department historically.<br/><br/><a href="http://search.cpan.org/search?query=Devel%3A%3AProfile">Devel::Profile</a> is a debugger-based sub-routine level profiler which gives you total execution time spent in each sub as well as the call count. The overhead of instrumentation is about 10%. Very handy, but it would be useful to be able to disable reporting for certain modules/subs. <br/><br/>For example, in the application I profiled (an Apache-based OLTP application based on Class::DBI on e.g. MySQL, and CGI::Session for session state persistence) more than a third of the execution time was spent in DBI::db::commit, DBI::db::ping and DBI::st::execute, which means they mostly obscure the things that actually can be tuned outside the database, i.e. my application. This is interesting, because since the database is on a different machine, the mod_perl application itself is CPU bound and game for profiling and optimization.<br/><br/>I'm not sure whether Devel::Profile can be used to profile code running under mod_perl since it's supposed to be invoked lik so<br/><br/>  perl -d:Profile script.pl<br/><br/>but for me that wasn't a problem. TDD tends to result in a nice design and the call dispatch is completely decoupled from Apache. That's where I drive the performance run.<br/><br/>This is the output of Devel::Profile<br/><br/><small
+<pre>
+%Time    Sec.     #calls   sec/call  F  name
+22.97    1.3708       23   0.059601     DBI::db::commit
+ 5.89    0.3514      317   0.001108     DBI::db::ping
+ 5.49    0.3277     7195   0.000046     <anon>:...e/lib/Class/DBI/Column.pm:41
+ 4.75    0.2836      251   0.001130     DBI::st::execute
+ 3.62    0.2159     7263   0.000030     Class::DBI::Column::name_lc
+ 2.94    0.1752      207   0.000846     Class::DBI::_init
+ 2.29    0.1364     8844   0.000015     Class::Accessor::get
+ 1.35    0.0807       20   0.004035     GS::Server::Dispatcher::Foo::Bar::dispatch_baz
+...
+</pre>
+</small><br/><br/>Interesting runner up: Stringification of the Class::DBI::Column objects. All three lines with #calls around 8000 are a result of the Class::DBI::Column<br/><br/><pre>
+  use overload
+      '""'     => sub { shift->name_lc },
+      fallback => 1;
+</pre><br/><br/>List of columns are stringified all over the place in Class::DBI, so this could be a good place to cheat.<br/><br/><pre>
+  shift->name_lc    --unrolls-to-->    lc($_[0]->{name})
+</pre><br/><br/>By violating DRY and breaking encapsulation in a horrible way, the run time decreased with 17% in this particular case. Maybe core functions aren't instrumented because the 7195 executions of "<anon>:...e/lib/Class/DBI/Column.pm:41" is nowhere to be found in the profiling report anymore.<br/><br/>But what about memoize? That would eliminate the lookup without screwing with the code structure. Alas, memoize is for caching the result of expensive calls, and this isn't such a case. <pre>shift->name_lc</pre> isn't really expensive, only very, very frequent. So the cost of non-overloaded stringification (to avoid infinite recursion) plus memoize is more work than the original code.<br/><br/>I'm still not certain it's worth it. Devel::Profile is good for finding low-level inefficiencies, but a weak tool for identifying things at a higher level that should be done differently or not at all. I think that manually instrumenting the code, with full knowledge of the business logic,  is the way to go there.<br/><br/>The other profiling module I managed to get to work, <a href="http://search.cpan.org/search?query=Devel%3A%3ASmallProf">Devel::SmallProf</a>,  is also debugger based, but concentrates on individual lines of code instead of sub routines. Like Devel::Profile it provides execution count and timing. The output is a little bit flaky with "page breaks" inserted at random intervals. Here is an example.<br/><br/><small>
+<pre>
+       22 0.000142 0.000000    52:   my $method = $rhRequest->{"method"};
+       22 0.000128 0.000000    53:   my $methodDispatch = "dispatch_$method";
+       22 0.000139 0.010000    54:   $rhClassKey->{$domain} or die("Invalid
+       22 0.000120 0.000000    55:   $rhClassKey->{$domain}->{$method} or
+        0 0.000000 0.000000    56:
+           ================ SmallProf version 1.15 ================
+                   Profile of ../lib/GS/Server/Dispatcher.pm           Page 157
+       =================================================================
+    count wall tm  cpu time line
+       22 0.000117 0.000000    57:   my $class =
+       22 0.000234 0.000000    58:   $rhResponse = $class-
+        0 0.000000 0.000000    59:
+        0 0.000000 0.000000    60:
+        0 0.000000 0.000000    61:  #Commit
+       22 0.000162 0.000000    62:  GS->dbi_commit("Main");
+        0 0.000000 0.000000    63: };
+       22 0.000097 0.010000    64: if($@) {
+        0 0.000000 0.000000    65:  my $err = $@;
+        0 0.000000 0.000000    66:  eval { GS->dbi_rollback("Main"); };
+        0 0.000000 0.000000    67:  $rhResponse = { statusMessage => "Internal
+        0 0.000000 0.000000    68:  ##todo: log error
+        0 0.000000 0.000000    69: }
+</pre>
+</small><br/><br/>The output could use a HTML-ization with color coded lines to make the expensive ones stand out, and maybe a ToC to jump to the lines with highest count and execution time. As it is now, it's a little too easy to gloss over all the code and miss the interesting parts. Visualization matters.
+</p>
+
+
+<hr/>
+
+
+
+<h2>DBI Profiling</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2004-07-19T15:43:57</h3>
+<p>Modern versions of the DBI come with DBI::ProfileDumper and dbiprof, which are useful.  They let you know how long your SQL took to execute.
+
+</p><p>-Dom</p>
+
+
+
+<h2>profiling with mod_perl</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2004-07-19T18:28:32</h3>
+To run mod_perl with Devel::Profile, try this:
+<p><blockquote><div> <tt>&nbsp; % setenv PERL5OPT -d:Profile<br>&nbsp; % httpd -X -d `pwd` &amp;<br>&nbsp;<nobr> <wbr></nobr>... make some requests to the server here<nobr> <wbr></nobr>...<br>&nbsp; % kill `cat logs/httpd.pid`<br>&nbsp; % unsetenv PERL5OPT<br>&nbsp; % dprofpp</tt> </div></blockquote> <p>
+If Devel::Profile works for you, Devel::DProf should too.</p>
+
+
+
+<blockquote>
+
+<h2>Re:profiling with mod_perl</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2004-07-20T03:47:41</h3>
+That worked great! Thanks!<br> <br>Running it in Apache showed that the Apache::Reload::handler consumed 12% of the time, that's good to know...
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: UNIVERSAL::require must die!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>UNIVERSAL::require must die!</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2005-10-02T08:04:36</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Here I am preparing a new release of UNIVERSAL::require and I just can't
+document that the right thing to do is:<br/><br/>        $module->require or die $UNIVERSAL::require::ERROR;<br/><br/>Yuck.  So early in the module's development and already the interface is
+fucked.  Not only is that a lot to type, a lot of people don't realize
+UNIVERSAL::require does not die.  And why should they?  require() dies.
+UNIVERSAL::require should die.<br/><br/>I'd rather fix it now than never be able to.  Here's the plan.<br/><br/>-1)  UNIVERSAL::require is getting its own distribution separate from
+     UNIVERSAL::exports both to highlight the module better and to avoid
+     any upgrade pain around UNIVERSAL::require from effecting 
+     UNIVERSAL::exports.<br/><br/>0)  I've looked through the modules using UNIVERSAL::require (cpansearch++)
+    and noticed only a few cases where the code wasn't dying on failure.
+    So the potential impact of changing require() to die is small.<br/><br/>1)  Add use() which will be just like require() except...
+        * It calls import()
+        * It dies on failure to load.<br/><br/>2)  Add require_or_die() which is just like require() except...
+        * It dies on failure to load.<br/><br/>3)  Email all known users of UNIVERSAL::require (CPANTS++, cpansearch++) and
+    telling them to switch to require_or_die() or use() and bump up their
+    required version to 0.04.<br/><br/>4)  Declare that the behavior of require() will change in the future to
+    match require_on_die() unless there's a storm of protest.<br/><br/>That gives folks an upgrade path and enough lead time to adjust their code
+to the change.</p>
+
+
+<hr/>
+
+
+
+<h2>*cry*</h2>
+<h3><a href="/user/jesse/">jesse</a> on 2005-10-02T09:27:10</h3>
+So this:<nobr> <wbr></nobr>../JFDI/lib/JFDI/Web.pm:    unless ($class-&gt;require) {<br/><br/>will stop working in the future?<br/><br/>About 40% of our internal code that uses UNIVERSAL::require is dying on failure. But that leaves 60% that isn't.  And having something so simple change semantics out from under us is going to lead to pain.<br/><br/>That makes me sad. Please do note that there's a lot of code out there that uses CPAN modules but isn't on CPAN itself.<br/><br/>Maybe someday we'll get a sane module versioning system<nobr> <wbr></nobr>;)
+
+
+
+<blockquote>
+
+<h2>Re:*cry*</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2005-10-03T05:08:28</h3>
+<blockquote> <div><tt>unless ($class-&gt;require) { will stop working in the future?</tt></div> </blockquote>That's the plan.<blockquote> <div><tt>Please do note that there's a lot of code out there that uses CPAN modules but isn't on CPAN itself.</tt></div> </blockquote>If you look at <a href="http://search.cpan.org/src/MSCHWERN/UNIVERSAL-exports-0.03/Makefile.PL" title="cpan.org">the Makefile.PL for UNIVERSAL::require</a cpan.org> you'll notice logic in there which checks if the currently installed version of the module is older than the last API change.  If so, it warns about the API change and sleeps for a moment so there's a hope of it being seen.  Additionally, I'll put this warning in the version *before* I make the change to require() so there's plenty of lead time.
+
+
+
+<blockquote>
+
+<h2>Re:*cry*</h2>
+<h3><a href="/user/jesse/">jesse</a> on 2005-10-03T06:08:42</h3>
+But that still breaks existing code. What about having the "...and die" behaviour require a different "use UNIVERSAL::require" line?
+
+
+
+<blockquote>
+
+<h2>Re:*cry*</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2005-10-03T20:19:20</h3>
+Already thought about this.<blockquote> <div><tt>package A;<br>
+&nbsp; <br>use UNIVERSAL::require;<br>
+&nbsp; <br>package B;<br>
+&nbsp; <br>use UNIVERSAL::require qw(die);<br>
+&nbsp; <br>package C;<br>
+&nbsp; <br>Some::Module::Which::Does::Not::Exist-&gt;require;</tt></div> </blockquote>What happens?  Thus is the curse of UNIVERSAL.  I also can't use a different package name, such as UNIVERSAL::use or UNIVERSAL::load, if its going to have a require() method because then UNIVERSAL::require and UNIVERSAL::use could not be used together in the same package.
+
+
+
+<blockquote>
+
+<h2>Re:*cry*</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2005-10-03T20:20:35</h3>
+<blockquote> <div><tt>because then UNIVERSAL::require and UNIVERSAL::use could not be used together in the same package.</tt></div> </blockquote>s/package/program/
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>storm of protest</h2>
+<h3><a href="/user/davebaird/">davebaird</a> on 2005-10-02T13:41:41</h3>
+<p>Not a fan of this change. What's wrong with saying
+
+<code>$foo-&gt;require or die $@;</code>
+
+That's not too much to type. It breaks this kind of useful idiom:
+
+<code>$this-&gt;require or $that-&gt;require or die "No alternatives found: $@";</code>
+
+and it breaks this kind of portability even more</p><blockquote> <div><tt>if ( $better-&gt;require )<br>{<br>&nbsp; &nbsp;$better-&gt;frobnicate;<br>}<br>else<br>{<br>&nbsp; &nbsp; $default-&gt;frobnicate;<br>}</tt></div> </blockquote>It also makes it difficult to write a custom error message - I have to wrap the call in an eval, and so we're back where we started before UNIVERSAL::require. 
+
+<p>require() has 2 modes - success or failure. It's only trying to do one thing - load code. It seems reasonable to differentiate these cases by returning true or false, rather than returning true or die. Might as well not return the true value if the failure mode will die anyway. </p>
+
+<p>You'll save a few people who are not in the habit of checking return values from tripping over their feet. The rest of us will have to start wrapping these calls in evals if we want to take alternative action when a particular module doesn't load. </p>
+
+<p>d.</p>
+
+
+
+<blockquote>
+
+<h2>Re:storm of protest</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2005-10-02T14:21:26</h3>
+<blockquote><div>I have to wrap the call in an eval, and so we're back where we started before UNIVERSAL::require.</div></blockquote><br>No we're not. Now you're wrapping it in eval{}, not in eval "".  That's a big win.
+
+
+
+<blockquote>
+
+<h2>Re:storm of protest</h2>
+<h3><a href="/user/kane/">kane</a> on 2005-10-02T14:29:02</h3>
+Coincidentaly, this is what Module::Load does -- analogous to 'require', but not doing the silly bareword vs string differentiation:
+<br> <br><br/><br/><code>
+    use Module::Load;<br> <br><br/><br/>    my $module = 'Data:Dumper';<br>
+    load Data::Dumper;     # loads that module<br>
+    load 'Data::Dumper';    # ditto<br>
+    load $module              # tritto<br>
+</code><br/><br/><br> <br><br/><br/>You can read the docs <a href="http://search.cpan.org/user/kane/Module-Load-0.10/lib/Module/Load.pm" title="cpan.org">here</a cpan.org>
+
+
+
+<h2>Re:storm of protest</h2>
+<h3><a href="/user/davebaird/">davebaird</a> on 2005-10-02T14:59:46</h3>
+I'd argue that's a small win. We're talking about a single call, like <code>eval { $fooo-&gt;require }</code>. The only win here is if we declared <code>$foo</code>, not <code>$fooo</code>. <code>eval { $foo-&gt;reqiure }</code> is still a runtime error.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:storm of protest</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2005-10-03T05:28:39</h3>
+<blockquote> <div><tt>What's wrong with saying $foo-&gt;require or die $@; That's not too much to type.</tt></div> </blockquote>Its not about the amount of typing (well... part of it is).  Its about the expectation that require() should die.  Even *I'm* surprised to find out that $foo-&gt;require doesn't die and I WROTE THE MODULE!<br><br>Error checking should be something you turn off, not something you turn on.  Especially when it comes to dealing with the World Outside Your Program.  Files, networks, etc... things not totally under your program's control and thus likely to do unexpected things.<br><br>I will say using $@ to return the error is a lot better than $UNIVERSAL::require::ERROR, and it seems to work... which is an accident, but a happy one.  It certainly makes me gag a lot less.  However I'm not happy about the mixing of idioms, using $@ for an error even though there's no (visible) eval.<blockquote> <div><tt>It breaks this kind of useful idiom: $this-&gt;require or $that-&gt;require or die "No alternatives found: $@";</tt></div> </blockquote>I have no matching idiom for that and that bothers me.  Though it bothers me less than thinking about having to append "or die $@" on the end of most of my require calls much in the same way it bugs me about open() or any other "outside world" call.  I tend to <code>use Fatal</code> a lot.<blockquote> <div><tt>Might as well not return the true value if the failure mode will die anyway.</tt></div> </blockquote>That makes <code>eval { $foo-&gt;require } or do_bleh</code> a little difficult.<br><br>Its a little known, and little used, fact that you can return pretty much any scalar from require including references.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Er... all of them?</h2>
+<h3><a href="/user/cog/">cog</a> on 2005-10-03T13:54:36</h3>
+<i>all known users of UNIVERSAL::require (CPANTS++, cpansearch++)</i><br><br>Er... are you assuming that all users of UNIVERSAL::require have their code on CPAN?<nobr> <wbr></nobr>:-)
+
+
+
+<blockquote>
+
+<h2>Re:Er... all of them?</h2>
+<h3><a href="/user/Louis_Wu/">Louis_Wu</a> on 2005-10-03T19:04:48</h3>
+<blockquote> <div><em>Er... are you assuming that all users of UNIVERSAL::require have their code on CPAN?<nobr> <wbr></nobr>:-)</em></div>
+</blockquote>
+Yet Another Reason to Release to CPAN.  ( YARRC?)  You get early notice when a module you rely upon is changed.
+
+
+
+<blockquote>
+
+<h2>Re:Er... all of them?</h2>
+<h3><a href="/user/cog/">cog</a> on 2005-10-04T08:42:01</h3>
+True, but sometimes... you just can't<nobr> <wbr></nobr>:-)
+
+
+
+<h2>Re:Er... all of them?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2005-10-08T12:50:32</h3>
+Are you kidding?<br><br>You want us to drop every silly web application we've ever written for every client into CPAN?<br><br>Stuff that contains business logic that only applies to a guava farmer working in the north-western tasmania local government area of Tasman, who uses Quickbooks and has Internet Explorer specific functionality?
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Er... all of them?</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2005-10-03T20:22:44</h3>
+<blockquote> <div><tt>Er... are you assuming that all users of UNIVERSAL::require have their code on CPAN?<nobr> <wbr></nobr>:-)</tt></div> </blockquote>No, just all <i>known</i> users.  Look inside the Makefile.PL for how everyone else is informed.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Er... all of them?</h2>
+<h3><a href="/user/cog/">cog</a> on 2005-10-04T08:41:18</h3>
+Hum, that <i>is</i> a good idea. However, shouldn't it ask "Do you want to install this thing, because it might screw things up?" instead of just saying "Hey, watch out, because you might just have screwed things up..." (I'm thinking automated instalations here)<br><br>I might be getting something wrong, though, and I'm not sure whether you'd be able to prevent the instalation from within Makefile.PL. Probably.
+
+
+
+<blockquote>
+
+<h2>Re:Er... all of them?</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2005-10-09T20:19:35</h3>
+You're right, I should ask the user using prompt().  I'd probably have it default to "Yes" most of the time as it would be far too obnoxious for someone to fire off an automated install and then have it fail halfway through because I made some trivial backwards incompatibility.  Though if I was to have made the require change I'd have it default to "no".<blockquote> <div><tt>I might be getting something wrong, though, and I'm not sure whether you'd be able to prevent the instalation from within Makefile.PL. Probably.</tt></div> </blockquote>There is the simple expedient of just not producing a Makefile.
+
+
+
+<blockquote>
+
+<h2>Re:Er... all of them?</h2>
+<h3><a href="/user/cog/">cog</a> on 2005-10-10T08:45:20</h3>
+There's another issue... you're checking whether the module is already available and deciding whether the guy is using it depending on it being instaled before... what if he used it before, but is now installing things on a brand new machine?<nobr> <wbr></nobr>:-\<br><br><i>There is the simple expedient of just not producing a Makefile.</i><br><br>Indeed<nobr> <wbr></nobr>:-)
+
+
+
+<blockquote>
+
+<h2>Re:Er... all of them?</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2005-10-10T11:22:02</h3>
+<blockquote> <div><tt>There's another issue... you're checking whether the module is already available and deciding whether the guy is using it depending on it being instaled before... what if he used it before, but is now installing things on a brand new machine?</tt></div> </blockquote>In that case then its being installed as a dependency of something which itself has not yet been installed.  When the dependent thing gets installed its own tests will run and detect if the incompatibility caused a problem.<br><br>Oh... you do have tests, right?<br>
+
+
+
+<blockquote>
+
+<h2>Re:Er... all of them?</h2>
+<h3><a href="/user/cog/">cog</a> on 2005-10-10T13:00:19</h3>
+Right, but maybe printing out a notice explaining what's happening would help, in that case (telling the user that maybe installing a previous version would solve the problem).<br><br>That, however, poses a problem, as the module was already installed... but maybe you can somehow detect, er... something else O:-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

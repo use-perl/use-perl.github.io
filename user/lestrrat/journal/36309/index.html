@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of lestrrat: Profiling Your C Libraries</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Profiling Your C Libraries</h1>
+<h2><a href="/user/lestrrat/">lestrrat</a> on 2008-05-02T00:30:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've been trying to profile Memcached::libmemcached for a while.</p>
+<p>Before I start, I'm not going to claim that I'm a C expert, so take my writings with a grain of salt. Ok?</p>
+
+<p>I've run a few benchmarks on Cache::Memcached::libmemcached/ Memcached::libmemcached against Cache::Memcached::Fast, and have found that get_multi() seems to be consistently slower for Memcached::libmemcached. At this point I'm inclined to think that the bottleneck is within the underlying libmemcached library.</p>
+
+<p>As the rules of optimization says, I wasn't going to do anything before I got a profile output, so I started digging around gprof.</p>
+
+<p>Now, gprof looked much like my beloved Devel::DProf, so I was thinking this would be an easy task.... turns out not.</p>
+
+<p>So the first thing to note: to enable profiling, you must enable -pg on both compilation and linking. in a nutshell, this is what you do:</p>
+
+<pre>
+  shell> gcc -pg foo.c
+  shell> ./a.out
+  # executing ./a.out (and a successful call to exit())
+  # creates a gmon.out file
+  shell> gprof
+</pre>
+
+<p>So first I created foo.c.</p>
+
+<pre>
+  #include <libmemcached/memcached.h>
+  #include <stdio.h>
+
+  memcached_return
+  fetch(memcached_st *ptr, memcached_result_st *result, void *context)
+  {
+      fprintf(stderr,
+          "%s => %s\n",
+          memcached_result_key_value(result),
+          memcached_result_value(result)
+      );
+  }
+
+  int
+  main(int argc, char **argv)
+  {
+      int i;
+      memcached_st *ptr;
+      char *keys[]          = { "a", "b", "c", "d", "e", "f" };
+      size_t key_length[]   = {   1,   1,   1,   1,   1,   1 };
+      uint32_t flags = 0;
+      memcached_return error = 0;
+      memcached_return (*callbacks[])(memcached_st *ptr, memcached_result_st *result, void *context) = { fetch };  
+
+      ptr = memcached_create(NULL);
+      memcached_server_add(ptr, "localhost", 11211);
+
+      for(i = 0; i < 6; i++) {
+          memcached_set(ptr, keys[i], key_length[i], "1", 1, (time_t) NULL, (uint32_t) NULL);
+      }
+      for(i = 0; i < 100000; i++) {
+          memcached_mget(ptr, keys, key_length, 6);
+          memcached_fetch_execute(ptr, callbacks, NULL, 1);
+      }
+
+      memcached_free(ptr);
+  }
+</pre>
+
+<p>k. now, for my needs, I need to enable this on both libmemcached and my sample test file. So this is what I do:</p>
+
+<pre>
+  shell> ./configure --enable-pic CFLAGS=-pg LDFLAGS=-pg
+  shell> make
+  shell> make install
+</pre>
+
+<p>and then I compile/link with my foo.c</p>
+
+<pre>
+  shell> gcc -pg -lmemcached foo.c
+</pre>
+
+<p>and now gprof:</p>
+
+<pre>
+  shell> gprof -b
+  Flat profile:
+
+  Each sample counts as 0.01 seconds.
+    %   cumulative   self              self     total           
+   time   seconds   seconds    calls  Ts/call  Ts/call  name    
+   57.14      0.04     0.04                             fetch
+   42.86      0.07     0.03                             main
+    0.00      0.07     0.00   800009     0.00     0.00  data_start
+
+  			Call graph
+
+
+  granularity: each sample hit covers 4 byte(s) for 14.29% of 0.07 seconds
+
+  index % time    self  children    called     name
+                                                   <spontaneous>
+  [1]     57.1    0.04    0.00                 fetch [1]
+                  0.00    0.00  600000/800009      data_start [3]
+  -----------------------------------------------
+                                                   <spontaneous>
+  [2]     42.9    0.03    0.00                 main [2]
+                  0.00    0.00  200009/800009      data_start [3]
+  -----------------------------------------------
+                  0.00    0.00  200009/800009      main [2]
+                  0.00    0.00  600000/800009      fetch [1]
+  [3]      0.0    0.00    0.00  800009         data_start [3]
+  -----------------------------------------------
+
+  Index by function name
+
+     [3] data_start              [1] fetch                   [2] main
+</pre>
+
+<p>Uh, what? where are my calls to memcached_* functions? Naturally, I try googling for gprof with dynamic linking, etc. But this didn't turn up much.</p>
+
+<p>I fought with this for a while (actually, for like 2 months, on and off), and this morning I just had the thought to just link the objects statically. god, why didn't I think of this before?</p>
+
+<p>So I've now moved back to where my .o files are (the "libmemcahced" directory) and moved my foo.c there. this time I do</p>
+
+<pre>
+  shell> gcc -pg foo.c *.o
+  shell> ./a.out
+  shell> gprof -b
+</pre>
+
+<p>And guess what, I finally got my gprof!!! aaaaahhh bliss. I can finally start digging. At first flance, it looks like there are too many reads for the  100K mget() with 6 keys I'm doing (the profiling output reads <i>8.9 million</i> reads). I haven't done any work just yet. will see what I can find.</p>
+
+<pre>
+  Flat profile:
+
+  Each sample counts as 0.01 seconds.
+    %   cumulative   self              self     total
+   time   seconds   seconds    calls  us/call  us/call  name
+   37.02      0.48     0.48  8900049     0.05     0.05  memcached_io_read
+   17.56      0.71     0.23   700006     0.33     1.24  memcached_response
+   10.69      0.85     0.14  1400019     0.10     0.12  memcached_io_write
+    8.40      0.96     0.11   600000     0.18     0.31  value_fetch
+    4.58      1.02     0.06   100000     0.60     2.50  memcached_mget_by_key
+    4.58      1.08     0.06                             __i686.get_pc_thunk.bx
+    3.82      1.14     0.05   600000     0.08     0.08  fetch
+    3.05      1.18     0.04   100000     0.40     9.60  memcached_fetch_execute
+    2.29      1.21     0.03   600001     0.05     0.05  memcached_string_check
+    2.29      1.24     0.03   100007     0.30     0.30  io_flush
+    1.53      1.25     0.02   600006     0.03     0.03  memcached_generate_hash
+    1.53      1.27     0.02                             hash_crc32
+    1.15      1.29     0.01   600000     0.03     0.03  memcached_result_reset
+    0.76      1.30     0.01                             main
+    0.38      1.30     0.01                             io_wait
+    0.38      1.31     0.01                             memcached_result_set_value
+    0.00      1.31     0.00   600000     0.00     0.00  memcached_result_value
+    0.00      1.31     0.00   600000     0.00     0.00  memcached_string_reset
+    0.00      1.31     0.00   100007     0.00     0.00  memcached_connect
+    0.00      1.31     0.00   100007     0.00     0.00  network_connect
+    0.00      1.31     0.00   100000     0.00     2.50  memcached_mget
+    0.00      1.31     0.00        7     0.00     0.12  memcached_do
+    0.00      1.31     0.00        6     0.00     1.64  memcached_send
+    0.00      1.31     0.00        6     0.00     1.64  memcached_set
+    0.00      1.31     0.00        6     0.00     0.00  storage_op_string
+    0.00      1.31     0.00        1     0.00     0.00  host_reset
+    0.00      1.31     0.00        1     0.00     0.05  memcached_create
+    0.00      1.31     0.00        1     0.00     0.18  memcached_free
+    0.00      1.31     0.00        1     0.00     0.00  memcached_io_close
+    0.00      1.31     0.00        1     0.00     0.18  memcached_quit
+    0.00      1.31     0.00        1     0.00     0.18  memcached_quit_server
+    0.00      1.31     0.00        1     0.00     0.05  memcached_result_create
+    0.00      1.31     0.00        1     0.00     0.00  memcached_result_free
+    0.00      1.31     0.00        1     0.00     0.00  memcached_server_add
+    0.00      1.31     0.00        1     0.00     0.05  memcached_string_create
+    0.00      1.31     0.00        1     0.00     0.00  memcached_string_free
+    0.00      1.31     0.00        1     0.00     0.00  rebalance_wheel
+    0.00      1.31     0.00        1     0.00     0.00  server_add
+    0.00      1.31     0.00        1     0.00     0.00  server_list_free
+    0.00      1.31     0.00        1     0.00     0.00  set_hostinfo
+    0.00      1.31     0.00        1     0.00     0.00  set_socket_options
+
+                        Call graph
+
+
+  granularity: each sample hit covers 4 byte(s) for 0.76% of 1.31 seconds
+
+  index % time    self  children    called     name
+                                                   <spontaneous>
+  [1]     93.1    0.01    1.21                 main [1]
+                  0.04    0.92  100000/100000      memcached_fetch_execute [2]
+                  0.00    0.25  100000/100000      memcached_mget [5]
+                  0.00    0.00       6/6           memcached_set [19]
+                  0.00    0.00       1/1           memcached_free [21]
+                  0.00    0.00       1/1           memcached_create [24]
+                  0.00    0.00       1/1           memcached_server_add [35]
+  -----------------------------------------------
+                  0.04    0.92  100000/100000      main [1]
+  [2]     73.3    0.04    0.92  100000         memcached_fetch_execute [2]
+                  0.23    0.64  700000/700006      memcached_response [3]
+                  0.05    0.00  600000/600000      fetch [10]
+  -----------------------------------------------
+                  0.00    0.00       6/700006      memcached_send [18]
+                  0.23    0.64  700000/700006      memcached_fetch_execute [2]
+  [3]     66.4    0.23    0.64  700006         memcached_response [3]
+                  0.45    0.00 8300048/8900049     memcached_io_read [4]
+                  0.11    0.08  600000/600000      value_fetch [7]
+  -----------------------------------------------
+                  0.00    0.00       1/8900049     memcached_quit_server [23]
+                  0.03    0.00  600000/8900049     value_fetch [7]
+                  0.45    0.00 8300048/8900049     memcached_response [3]
+  [4]     37.0    0.48    0.00 8900049         memcached_io_read [4]
+  -----------------------------------------------
+                  0.00    0.25  100000/100000      main [1]
+  [5]     19.1    0.00    0.25  100000         memcached_mget [5]
+                  0.06    0.19  100000/100000      memcached_mget_by_key [6]
+  -----------------------------------------------
+                  0.06    0.19  100000/100000      memcached_mget [5]
+  [6]     19.1    0.06    0.19  100000         memcached_mget_by_key [6]
+                  0.14    0.03 1400000/1400019     memcached_io_write [8]
+                  0.02    0.00  600000/600006      memcached_generate_hash [13]
+                  0.00    0.00  100000/100007      memcached_connect [29]
+  -----------------------------------------------
+                  0.11    0.08  600000/600000      memcached_response [3]
+  [7]     14.3    0.11    0.08  600000         value_fetch [7]
+                  0.03    0.00  600000/8900049     memcached_io_read [4]
+                  0.03    0.00  600000/600001      memcached_string_check [11]
+                  0.01    0.00  600000/600000      memcached_result_reset [15]
+  -----------------------------------------------
+                  0.00    0.00       7/1400019     memcached_do [20]
+                  0.00    0.00      12/1400019     memcached_send [18]
+                  0.14    0.03 1400000/1400019     memcached_mget_by_key [6]
+  [8]     13.0    0.14    0.03 1400019         memcached_io_write [8]
+                  0.03    0.00  100007/100007      io_flush [12]
+  -----------------------------------------------
+                                                   <spontaneous>
+  [9]      4.6    0.06    0.00                 __i686.get_pc_thunk.bx [9]
+  -----------------------------------------------
+                  0.05    0.00  600000/600000      memcached_fetch_execute [2]
+  [10]     3.8    0.05    0.00  600000         fetch [10]
+                  0.00    0.00  600000/600000      memcached_result_value [27]
+  -----------------------------------------------
+                  0.00    0.00       1/600001      memcached_string_create [26]
+                  0.03    0.00  600000/600001      value_fetch [7]
+  [11]     2.3    0.03    0.00  600001         memcached_string_check [11]
+  -----------------------------------------------
+                  0.03    0.00  100007/100007      memcached_io_write [8]
+  [12]     2.3    0.03    0.00  100007         io_flush [12]
+  -----------------------------------------------
+                  0.00    0.00       6/600006      memcached_send [18]
+                  0.02    0.00  600000/600006      memcached_mget_by_key [6]
+  [13]     1.5    0.02    0.00  600006         memcached_generate_hash [13]
+  -----------------------------------------------
+                                                   <spontaneous>
+  [14]     1.5    0.02    0.00                 hash_crc32 [14]
+  -----------------------------------------------
+                  0.01    0.00  600000/600000      value_fetch [7]
+  [15]     1.1    0.01    0.00  600000         memcached_result_reset [15]
+                  0.00    0.00  600000/600000      memcached_string_reset [28]
+  -----------------------------------------------
+                                                   <spontaneous>
+  [16]     0.4    0.01    0.00                 io_wait [16]
+  -----------------------------------------------
+                                                   <spontaneous>
+  [17]     0.4    0.01    0.00                 memcached_result_set_value [17]
+  -----------------------------------------------
+                  0.00    0.00       6/6           memcached_set [19]
+  [18]     0.0    0.00    0.00       6         memcached_send [18]
+                  0.00    0.00       6/700006      memcached_response [3]
+                  0.00    0.00      12/1400019     memcached_io_write [8]
+                  0.00    0.00       6/7           memcached_do [20]
+                  0.00    0.00       6/600006      memcached_generate_hash [13]
+                  0.00    0.00       6/6           storage_op_string [31]
+  -----------------------------------------------
+                  0.00    0.00       6/6           main [1]
+  [19]     0.0    0.00    0.00       6         memcached_set [19]
+                  0.00    0.00       6/6           memcached_send [18]
+  -----------------------------------------------  
+                  0.00    0.00       1/7           memcached_quit_server [23]
+                  0.00    0.00       6/7           memcached_send [18]
+  [20]     0.0    0.00    0.00       7         memcached_do [20]
+                  0.00    0.00       7/1400019     memcached_io_write [8]
+                  0.00    0.00       7/100007      memcached_connect [29]
+  -----------------------------------------------  
+                  0.00    0.00       1/1           main [1]
+  [21]     0.0    0.00    0.00       1         memcached_free [21]
+                  0.00    0.00       1/1           memcached_quit [22]
+                  0.00    0.00       1/1           server_list_free [39] 
+                  0.00    0.00       1/1           memcached_result_free [34]
+  -----------------------------------------------  
+                  0.00    0.00       1/1           memcached_free [21]
+  [22]     0.0    0.00    0.00       1         memcached_quit [22]
+                  0.00    0.00       1/1           memcached_quit_server [23]
+  -----------------------------------------------  
+                  0.00    0.00       1/1           memcached_quit [22]
+  [23]     0.0    0.00    0.00       1         memcached_quit_server [23]
+                  0.00    0.00       1/7           memcached_do [20] 
+                  0.00    0.00       1/8900049     memcached_io_read [4]
+                  0.00    0.00       1/1           memcached_io_close [33]
+  -----------------------------------------------  
+                  0.00    0.00       1/1           main [1]
+  [24]     0.0    0.00    0.00       1         memcached_create [24]
+                  0.00    0.00       1/1           memcached_result_create [25]
+  -----------------------------------------------  
+                  0.00    0.00       1/1           memcached_create [24]
+  [25]     0.0    0.00    0.00       1         memcached_result_create [25]
+                  0.00    0.00       1/1           memcached_string_create [26]
+  -----------------------------------------------  
+                  0.00    0.00       1/1           memcached_result_create [25]
+  [26]     0.0    0.00    0.00       1         memcached_string_create [26]
+                  0.00    0.00       1/600001      memcached_string_check [11]
+  -----------------------------------------------  
+                  0.00    0.00  600000/600000      fetch [10]
+  [27]     0.0    0.00    0.00  600000         memcached_result_value [27]
+  -----------------------------------------------  
+                  0.00    0.00  600000/600000      memcached_result_reset [15]
+  [28]     0.0    0.00    0.00  600000         memcached_string_reset [28]
+  -----------------------------------------------  
+                  0.00    0.00       7/100007      memcached_do [20]
+                  0.00    0.00  100000/100007      memcached_mget_by_key [6]
+  [29]     0.0    0.00    0.00  100007         memcached_connect [29]
+                  0.00    0.00  100007/100007      network_connect [30]
+  -----------------------------------------------
+                  0.00    0.00  100007/100007      memcached_connect [29]
+  [30]     0.0    0.00    0.00  100007         network_connect [30]
+                  0.00    0.00       1/1           set_hostinfo [40]
+                  0.00    0.00       1/1           set_socket_options [41]
+  -----------------------------------------------
+                  0.00    0.00       6/6           memcached_send [18]
+  [31]     0.0    0.00    0.00       6         storage_op_string [31]
+  -----------------------------------------------
+                  0.00    0.00       1/1           server_add [38]
+  [32]     0.0    0.00    0.00       1         host_reset [32]
+  -----------------------------------------------
+                  0.00    0.00       1/1           memcached_quit_server [23]
+  [33]     0.0    0.00    0.00       1         memcached_io_close [33]
+  -----------------------------------------------
+                  0.00    0.00       1/1           memcached_free [21]
+  [34]     0.0    0.00    0.00       1         memcached_result_free [34]
+                  0.00    0.00       1/1           memcached_string_free [36]
+  -----------------------------------------------
+                  0.00    0.00       1/1           main [1]
+  [35]     0.0    0.00    0.00       1         memcached_server_add [35]
+                  0.00    0.00       1/1           server_add [38]
+  -----------------------------------------------
+                  0.00    0.00       1/1           memcached_result_free [34]
+  [36]     0.0    0.00    0.00       1         memcached_string_free [36]
+  -----------------------------------------------
+                  0.00    0.00       1/1           server_add [38]
+  [37]     0.0    0.00    0.00       1         rebalance_wheel [37]
+  -----------------------------------------------
+                  0.00    0.00       1/1           memcached_server_add [35]
+  [38]     0.0    0.00    0.00       1         server_add [38]
+                  0.00    0.00       1/1           host_reset [32]
+                  0.00    0.00       1/1           rebalance_wheel [37]
+  -----------------------------------------------
+                  0.00    0.00       1/1           memcached_free [21]
+  [39]     0.0    0.00    0.00       1         server_list_free [39]
+  -----------------------------------------------
+                  0.00    0.00       1/1           network_connect [30]
+  [40]     0.0    0.00    0.00       1         set_hostinfo [40]
+  -----------------------------------------------
+                  0.00    0.00       1/1           network_connect [30]
+  [41]     0.0    0.00    0.00       1         set_socket_options [41]
+  -----------------------------------------------
+  Index by function name
+
+     [9] __i686.get_pc_thunk.bx  [4] memcached_io_read      [19] memcached_set
+    [10] fetch                   [8] memcached_io_write     [11] memcached_string_check
+    [14] hash_crc32              [5] memcached_mget         [26] memcached_string_create
+    [32] host_reset              [6] memcached_mget_by_key  [36] memcached_string_free
+    [12] io_flush               [22] memcached_quit         [28] memcached_string_reset
+    [16] io_wait                [23] memcached_quit_server  [30] network_connect
+     [1] main                    [3] memcached_response     [37] rebalance_wheel
+    [29] memcached_connect      [25] memcached_result_create [38] server_add
+    [24] memcached_create       [34] memcached_result_free  [39] server_list_free
+    [20] memcached_do           [15] memcached_result_reset [40] set_hostinfo
+     [2] memcached_fetch_execute [17] memcached_result_set_value [41] set_socket_options
+    [21] memcached_free         [27] memcached_result_value [31] storage_op_string
+    [13] memcached_generate_hash [18] memcached_send         [7] value_fetch
+    [33] memcached_io_close     [35] memcached_server_add
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Cachegrind</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-05-02T04:33:24</h3>
+<p>If you're happy with gprof, that's good.  I found it a lot of work.  Even though there's a substantial performance hit, <a href="http://valgrind.org/docs/manual/cl-manual.html" title="valgrind.org">Callgrind</a valgrind.org> has been invaluable for me.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Cachegrind</h2>
+<h3><a href="/user/lestrrat/">lestrrat</a> on 2008-05-02T06:10:08</h3>
+Well, I was happy until I tried callgrind upon your comment. I guess I'm not going back to gprof unless I need to. Thanks!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

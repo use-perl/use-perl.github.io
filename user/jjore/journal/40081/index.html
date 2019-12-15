@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjore: Unicode URLs, wtf?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Unicode URLs, wtf?</h1>
+<h2><a href="/user/jjore/">jjore</a> on 2010-01-07T05:43:29</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Hey internet, &#x2838;&#x2819;&#x2831; &#x281d;&#x2809;&#x2801;&#x2808; &#x2805;&#x281d;&#x2801;&#x2815;&#x2815;&#x2809;&#x2803; &#x281d;&#x2806;&#x280f;&#x280d;&#x281e;?<br/><br/>A year or more ago I was fixing work's web site to handle Unicode as entered by users into fields. We don't use CGI.pm because....? Well ok, we just don't. It also doesn't handle Unicode properly either. Or at least almost no version. Huh.<br/><br/>If a user types "Coat&#x131;cook" you'll probably get the dotless "i" character as either %C4%B1 or %u131 but CGI.pm as supplied by perl almost most of the time won't do something reasonable.<br/><br/><ul>
+<li>not ok 5.11.3 CGI-3.48
+<li>not ok 5.10.1 CGI-3.43
+<li>ok 5.10.0 CGI-3.29
+<li>not ok 5.8.9 CGI-3.42
+<li>not ok 5.6.2 CGI-2.752
+</ul><br/><br/>Wut?<br/><br/><pre>
+for v in 5.11.3 5.10.1 5.10.0 5.8.9 5.6.2;do
+  /opt/perl-$v-64-thr-dbg/bin/perl\
+    -le '
+      use CGI;<br/><br/>      my $input  = "a=%u2021";
+      my $expect = "\x{2021}";
+      my $got = CGI->new( $input )->param( "a" );<br/><br/>      print $expect eq $got
+        ? "ok $] $CGI::VERSION"
+        : "not ok $] $CGI::VERSION"
+    ';
+done
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>CGI.pm</h2>
+<h3><a href="/user/Hansen/">Hansen</a> on 2010-01-07T11:31:36</h3>
+<p>CGI.pm decodes the non-standard (and invalid according to RFC 3986) pct escape into a UTF-8 octet string, but it doesn't decode it into perl unicode string. I think the current behavior is desirable since the data can contain any octets in any encoding.</p><p>--<br>chansen</p>
+
+
+
+<h2>Re: Unicode URLs, wtf?</h2>
+<h3><a href="/user/daxim/">daxim</a> on 2010-01-07T12:12:04</h3>
+<blockquote><div><p> &gt; %u131</p></div> </blockquote><p>
+What sort of encoding is that? I mean, I can see it's the Unicode codepoint preceded by <tt>%u</tt>, but which standard backs this? I've never encountered this before.
+</p><p>
+Here's my take on it:</p><blockquote><div><p> <tt>use CGI qw();<br>use Encode qw(decode_utf8);<br> <br>my $input&nbsp; = 'a=%C4%B1';<br>my $expect = "\x{131}";<br>my $got&nbsp; &nbsp; = decode_utf8(CGI-&gt;new($input)-&gt;param('a'));<br># as per best practice http://search.cpan.org/perldoc?CGI#-utf8<br> <br>use Devel::Peek qw(Dump); Dump $expect; Dump $got;<br> <br>print $expect eq $got<br>&nbsp; ? "ok $] $CGI::VERSION"<br>&nbsp; : "not ok $] $CGI::VERSION"<br> <br>__DATA__<br>SV = PV(0x88bc40) at 0x8c12f8<br>&nbsp; REFCNT = 1<br>&nbsp; FLAGS = (PADMY,POK,pPOK,UTF8)<br>&nbsp; PV = 0x8aaad0 "\304\261"\0 [UTF8 "\x{131}"]<br>&nbsp; CUR = 2<br>&nbsp; LEN = 8<br>SV = PV(0xac9e60) at 0x8c13e8<br>&nbsp; REFCNT = 1<br>&nbsp; FLAGS = (PADMY,POK,pPOK,UTF8)<br>&nbsp; PV = 0xad5740 "\304\261"\0 [UTF8 "\x{131}"]<br>&nbsp; CUR = 2<br>&nbsp; LEN = 8<br>ok 5.010001 3.48</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re: Unicode URLs, wtf?</h2>
+<h3><a href="/user/Hansen/">Hansen</a> on 2010-01-07T12:50:53</h3>
+<p>It usually comes from broken javascript applications that uses escape() instead of encodeURI()</p><p><code><br>escape("\u263A")    -&gt; %u263A<br>encodeURI("\u263A") -&gt; %E2%98%BA<br></code></p><p>--<br>chansen</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>:utf-8 ?</h2>
+<h3><a href="/user/Yanick/">Yanick</a> on 2010-01-08T01:18:50</h3>
+<p>Did you try using use 'CGI qw/<nobr> <wbr></nobr>:utf8<nobr> <wbr></nobr>/;'?  That seems to work the way you want with CGI 3.49 (at least it seems to on my box).</p>
+
+
+
+<blockquote>
+
+<h2>Re::utf-8 ?</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2010-01-09T05:14:19</h3>
+<p>Nope. I'd never noticed the option. My bad!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

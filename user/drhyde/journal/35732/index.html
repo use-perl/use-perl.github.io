@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of drhyde: How useful closures are!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>How useful closures are!</h1>
+<h2><a href="/user/drhyde/">drhyde</a> on 2008-02-23T15:16:35</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>As some of you may be aware, I'm working on a pure-perl Z80 emulator.  Why?  &lt;shrug> Why not!  And we can't go letting the <a href=http://search.cpan.org/search?query=Acme%3A%3A6502&mode=all>6502 boys</a> have all the fun!
+
+<p>It also makes a very good example of how useful closures can be.  Here's just one example.
+
+<p>The Z80 is an 8 bit processor, with several 8 bit registers.  But it also has some 16 bit "reigster pairs", which are made up of two 8 bit registers that can be treated as a single larger register.  For example, the 8 bit register B and C can be combined to make a 16 bit register BC.  Any operation that changes B or C 
+also changes BC, and vice versa.  Now, to implement them, I could have lots of hairy logic so that any instruction that operates on BC actually operates on both
+ B and C.  But that would lead to lots of duplication of code, for all the register pairs, and for all the instructions that operate on 'em.
+
+<p>I already have a ::Register8 class for an 8 bit register, and a Register16 class
+ for real 16 bit registers such as the Program Counter (a register that points at the next instruction to execute) which store a value and have get() and set() 
+methods.  So, I thought, instead of putting lots of hairy logic in the instructions themselves, I could move it into the registers so I'd only have to write it 
+once.  The Register* classes already have a 'value' field for storing the register's current value.  So I changed Register16 to have either a value field or a pair of 'get' and 'set' fields, depending on how the register was initialised in 
+perl.  If it has a value field, then get() and set() simply operate on that.  But if instead it has get/set fields, then get() and set() call those code-refs instead.
+
+<p>So now, I can create a 16 bit register pair like this ...
+
+<p><code>
+my $BC = CPU::Emulator::Z80::Register16->new(<br>
+&nbsp;&nbsp;get => sub {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;return 256 * $self->register('B')->get() +<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$self->register('C')->get()<br>
+&nbsp;&nbsp;},<br>
+&nbsp;&nbsp;set => sub {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my $value = shift;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;$self->register('B')->set($value >>8);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;$self->register('C')->set($value & 0xFF);<br>
+&nbsp;&nbsp;}<br>
+);<br>
+</code>
+
+<p>and then as far as implementing the actual Z80 instructions goes, I can just get() and set() sixteen bit registers with a single method call, instead of doing all the multiplication, shifting, bitmasking and so on every time.  Note that I use a variable <code>$self</code> inside the two anonymous subroutines without declaring it with <code>my</code>.  This isn't a bug.  That is the <code>$self</code> in the code that creates the anonysubs.  It has nothing to do with whatever 
+<code>$self</code> might be inside a Register16 class's get() or set() method.
+
+<p>But there are actually several register-pairs, so I went one step further.  Instead of repeating that chunk of code several times, once for each pair, I did this:
+
+<p><code>
+$AF&nbsp;=&nbsp;_derive_register16($self,&nbsp;qw(A&nbsp;F));<br>
+$BC&nbsp;=&nbsp;_derive_register16($self,&nbsp;qw(B&nbsp;C));<br>
+$DE&nbsp;=&nbsp;_derive_register16($self,&nbsp;qw(D&nbsp;E));<br>
+<br>
+...<br>
+<br>
+sub&nbsp;_derive_register16&nbsp;{<br>
+&nbsp;&nbsp;my($self,&nbsp;$high,&nbsp;$low)&nbsp;=&nbsp;@_;<br>
+&nbsp;&nbsp;return&nbsp;CPU::Emulator::Z80::Register16->new(<br>
+&nbsp;&nbsp;&nbsp;&nbsp;get&nbsp;=>&nbsp;sub&nbsp;{<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return&nbsp;256&nbsp;*&nbsp;$self->register($high)->get()&nbsp;+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$self->register($low)->get()<br>
+&nbsp;&nbsp;&nbsp;&nbsp;},<br>
+&nbsp;&nbsp;&nbsp;&nbsp;set&nbsp;=>&nbsp;sub&nbsp;{<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;my&nbsp;$value&nbsp;=&nbsp;shift;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$self->register($high)->set($value&nbsp;>>8);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$self->register($low)->set($value&nbsp;&&nbsp;0xFF);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;},<br>
+&nbsp;&nbsp;);<br>
+}<br>
+</code>
+
+<p>In this case, I pass <code>$self</code> and the names of two 8 bit registers to 
+the <code>_derive_register16</code> function.  That function then creates and returns a Register16 now "closing over" <em>3</em> variables.
+
+<p>Closures rock.  By combining objects and closures I have ended up writing a <em>lot</em> less code.  And by reducing the amount of duplication in my code, when 
+I inevitably find a bug, I'll have just one place to fix it, instead of having to remember all the hundred places where I twiddle register pairs.  If you ever find yourself writing the same code over and over again just with minimally different data, this is a useful technique.
+
+<p>You can see what I'm up to on this project by looking at the <a href=http://drhyde.cvs.sourceforge.net/drhyde/perlmodules/CPU-Emulator-Z80/>CVS repository</a>.
+
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of gav: how to sync perl modules on different servers?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>how to sync perl modules on different servers?</h1>
+<h2><a href="/user/gav/">gav</a> on 2003-08-21T13:33:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I'm running into a problem where I need to make sure  a set of servers all have identical perl modules. Up to now I've been doing things manually (badly) but things break if I forget to install a module or forget I've upgraded one.</p>
+<p>Is there some way to treat one machine as the "master" and make sure all the rest have the same modules and the same versions as it?</p> </p>
+
+
+<hr/>
+
+
+
+<h2>Mounting?</h2>
+<h3><a href="/user/clscott/">clscott</a> on 2003-08-21T13:39:44</h3>
+Use whatever network files services your OS enables (like NFS,SMB).
+<br>
+Then one server can be the master and the others can mount them.
+
+
+
+<h2>syncing CPAN modules</h2>
+<h3><a href="/user/jbisbee/">jbisbee</a> on 2003-08-21T13:53:55</h3>
+Right now we migrate code via CVS export and rsync by using <code>cvs rtag TAG MODULE1 MODULE2</code>.  and then using psync (a perl wrapper around rsync that has a config file to do multiple rsyncs).
+<p>
+Anyway, I recently was battling this exact same problem when upgrading DBI and DBD::Sybase on our servers and I wanted to changes to go with the migration (I also wanted a way to roll back in case all HELL broke loose)
+</p><p>
+My solution was to make a new CVS module called CPAN and then install the CPAN modules into that directory:
+</p><blockquote><div> <tt>
+perl -ICPAN Makefile.PL LIB=CPAN<br>
+make<br>
+make test<br>
+make install
+</tt> </div></blockquote>
+<p>
+I then went into the CPAN directory and did a <tt>cvs add</tt> on all the files that were installed (made sure I did
+<tt>cvs add -kb</tt> for binary files to turn off keywords and tell CVS its binary).
+</p><p>
+This solution really rocks because now I can take a migration including new or upgraded CPAN modules I'm using and then I can forget about it (no more having to update 20 servers with the udpates modules).
+</p><p>
+One short coming I found that even though I did a <tt>perl -ICPAN Makefile.PL</tt>, I found that when I did the <tt>make test</tt> the tests didn't include the CPAN directory and this boggles me a bit when DBD::Sybase compiled against a newer version of DBI, but when the tests ran they didn't include the CPAN directory and everything failed<nobr> <wbr></nobr>:(  (solved this by editing the 10 test to include my new foreign library path but I'm sure there is an easier way to do this)</p>
+
+
+
+<blockquote>
+
+<h2>Re:syncing CPAN modules</h2>
+<h3><a href="/user/hfb/">hfb</a> on 2003-08-21T14:07:44</h3>
+Have you tried using CPAN::Site?
+
+
+
+
+
+</blockquote>
+
+
+<h2>try reading the CPAN FAQ :)</h2>
+<h3><a href="/user/hfb/">hfb</a> on 2003-08-21T14:05:49</h3>
+You could either use a Bundle or Autobundle which are slightly different since Autobundle will make a bundle of everything, including the core modules. Both of these are mentioned in reasonable detail on the FAQ. You can also use ExtUtils::Installed to generate a list of installed modules  [ also in the FAQ ] on all the boxes, compare them, and then either generate a Bundle or use CPAN.pm to install. You can also use "perl -MCPAN -e 'CPAN::Shell-&gt;install(CPAN::Shell-&gt;r)'" to update everything automatically with CPAN.pm. And, should you be using Solaris, you can use mkpkg to generate solaris packages which are awfully handy in such situations. I wouldn't recommend NFS for installations as the second your network goes tits up you're screwed, especially if you have perl boot scripts.<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:try reading the CPAN FAQ :)</h2>
+<h3><a href="/user/gav/">gav</a> on 2003-08-21T18:02:31</h3>
+<p>Thanks for the tip. ExtUtils::Installed works beautifully. I think the trick will be to create bundles and push them to the other servers, the only problem seems to be modules that have interactive installers.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Fotango::Build</h2>
+<h3><a href="/user/james/">james</a> on 2003-08-21T16:52:48</h3>
+We have the same issue at Fotango.  Essentially we've come to the decision that if something is used by our source, then we need to version control it.  The net result has been doing vendor imports of huge amounts of source code (ie, apache, mod_perl, perl, all CPAN modules, etc) into our version control system.<br> <br>We are also putting together a build system so that our systems all build into one app directory with its own bin, lib and include dirs.<br> <br>The individual package build instructions live on our intranet (which happens to be a Kwiki) and the build results get reported back to another page on the Kwiki.  Basically the plan is to do nightly smokes that we can see relatively easily...<br> <br>The build instructions themselves need to be multiplatform, as we build to three different OS's. In order to handle that we've come up with a multi-platform build syntax for Kwiki that can be commented on^W^Wranted about alongside the build instructions themselves.<br> <br>As it turns out we need to manage well over 2 million lines of code, which has surprised all of us here....<br> <br>Its all very useful and interesting, but bootstrapping it is taking a _long_ time.  Once we are done however, we'll have an Kwiki-based automated build system that allows our development team to be responsible for software quality, rather than the sysadmins.  Of course this will be all open-sourced in several weeks...<br> <br>
+&nbsp;
+
+
+
+<h2>Another option ...</h2>
+<h3><a href="/user/rob_au/">rob_au</a> on 2003-08-22T04:13:09</h3>
+Another option which may be worth investigating depending upon the network environment would be the use of PAR archives.<p>
+The latest version of PAR (0.74) is fairly stable and incorporates the facility to specify PAR archives by remote URLs - For example, based on that in <a href="http://www.perlfoundation.org/index.cgi?page=tpf-grants/tang-grant-rep" title="perlfoundation.org">Autrijus Tang's TPF Grant 2003 Report</a perlfoundation.org>:</p><p><blockquote><div> <tt>BEGIN<br>{<br>&nbsp; &nbsp; use PAR;<br>&nbsp; &nbsp; use lib 'http://localhost/DBI-1.37-i386-freebsd-5.8.0.par';<br>}<br> <br>use DBI;<br> <br>print DBI-&gt;VERSION;</tt> </div></blockquote> <p>
+(Naturally, the filename of the PAR archive could be changed to something more generic for access by remote network hosts).</p><p>
+In addition to this, work which Autrijus performed under the scope of this TPF Grant added the ability to sign, verify, install and uninstall PAR components which would be important in order to ensure the validity and integrity of archives retrieved from remote locations.  The report of this work has been linked from use.perl.org previously <a href="http://use.perl.org/article.pl?sid=03/08/04/1023245&amp;mode=thread&amp;tid=1" title="perl.org">here</a perl.org>).</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

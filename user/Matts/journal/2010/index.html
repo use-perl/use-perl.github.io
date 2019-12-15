@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Matts: RT</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>RT</h1>
+<h2><a href="/user/Matts/">Matts</a> on 2002-01-09T17:21:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Random thoughts of the day...<br/><br/>I've been looking at high performance servers. For several reasons really - we need some high performance stuff at work here, and it's fun, and I'm looking at issues AxKit(B2B?) may face in the future.<br/><br/>I really like the select() based design, and that's what I've based AxKitB2B around. But just as threading and forking servers do, select based has performance issues of its own. Once you reach about 1000 concurrent clients, the select() overhead comes into play, because you basically have to check every listening socket for incoming data (or ready to receive). A lot of this is discussed on the <a href="http://www.kegel.com/c10k.html">C10K page</a> which is a really interesting read. There's some talk over the net of people managing 100,000 concurrent connections on solaris boxes, but nothing detailing how they did that (I'm curious how AIM and ICQ manage their number of users, for example, since they must maintain a persistent connection to the server, unless the clients poll for new messages every 0.5 seconds or something).<br/><br/>I also came across <a href="http://www.nightmare.com/medusa/medusa.html">Medusa</a> which is a Python library that facilitates writing select() based servers. It doesn't seem that different from POE, except it doesn't offer other object services like POE does, however it's focus is performance, where POE's isn't...<br/><br/>One thing I didn't know before today was that disk I/O is always blocking. This is from <a href="http://marc.theaimsgroup.com/?l=apache-new-httpd&m=92100977123493&w=4">a post</a> to Apache's new-httpd group (where they discuss apache development - it's a hystorical naming issue):
+<ul><tt>disk i/o -- you select event folks, you know that you've got
+single-threaded disk i/o, right?  Works fine for benchmarks.  But in
+real life people serve websites off NFS.  Think about it.  Don't
+say "use asynch i/o" -- see portability.  Don't say "do what squid
+does and spawn i/o threads" -- if we're going to do that we might
+as well use threading for the entire server, we have to solve the
+same portability problems.</tt></ul>
+I didn't know that until today when I went investigating this.<br/><br/>But the big wins for me in a single-process select() server over a forking server are that I no longer have to worry about slow clients holding on to a process (a-la mod_perl without a lightweight frontend), and state maintainence - one of the most oft talked about things on the mod_perl list. If only it could just be stored in a package var eh? Well with single process servers that's a reality (modulo load balancing architecture issues).<br/><br/>The other thing I've been thinking about today is just another bit of Ruby envy... Why do I have to put up with the overhead of a HV (hash) or an AV (array) just to implement a multi-value storing class in Perl? Other languages don't. And why do I need the overhead of hash or array access to get at my values?<br/><br/>So I thought about alternatives. One possibility is Inline::Struct. But that doesn't seem very subclassable. And it's the subclassing that's the nub. So <i>how to subclass an XS based class (that is a bless SV ref in perl space) yet still allow the subclass to add in member variables that are private to that class</i>? I figure it would work like this:<br/><br/>1. Each class maintains a list of super objects (stored in an AV in the struct).
+2. The constructor, new() calls ___new() (three underscores - implementation private) to create the object, which in turn calls ___new() on all entries in @ISA, assuming that the ISA class is some subclass of CObject. It then stores the generated object (effectively the parent class instance) in $self->___supers.
+3. Once everything is constructed, new() calls init() (if it exists - the author has to write that one).
+4. An AUTOLOAD is implemented for every class, which attempts to call the method on every entry in ___supers. I'm not sure how we detect if a method existed - perhaps with eval{}.<br/><br/>Beyond that, it needs an Inline module to implement this, which is pretty much beyond me right now. But I wanted to blog my ideas down here in case I ever come back to it.</p>
+
+
+<hr/>
+
+
+
+<h2>ICQ, AIM... Jabber!</h2>
+<h3><a href="/user/godoy/">godoy</a> on 2002-01-10T02:46:56</h3>
+Matt, instead of just guessing how ICQ and AIM work, you should take a look at <a href="http://www.jabber.org/" title="jabber.org">Jabber</a jabber.org>. The paradigm is almost the same. There's an additional problem at Jabber: decentralized servers.
+<br>
+<br>How does one server tells the other that user X is online? And when he goes offline, how is it done?
+<br>
+<br>Using something light (such as SOAP?) to transfer XML messages (Jabber is XML-based) might be a plus on what you're thinking.
+<br>
+<br>You don't need to maintain state... You need to know when users are logged in or not, and send them messages.
+<br>
+<br>If a user disconnects without telling the server (i.e machine crash), you can detect that on a minutly basis, with some kind of "I'm alive!" message that should be sent from the client to the server (if he isn't online, we don't need to expend bandwidth trying to find it out).
+<br> <br>These are just loose thoughts, but I'd think a bit on that.
+
+
+
+<blockquote>
+
+<h2>Re:ICQ, AIM... Jabber!</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-01-10T07:24:28</h3>
+Thanks. I'd thought about that too, but it wasn't entirely relevant.
+<br>
+<br>I'm not (yet) thinking in terms of real world applications - the stuff I'm writing at work will have to deal with all of about 20 concurrent connections.
+<br>
+<br>I was really just looking into it.
+<br>
+<br>Besides, the statelessness doesn't really work for instant messaging, because it requires a regular connect-poll-disconnect cycle from the client at whatever latency figure you want to choose for messages, and setting up connections can be expensive, so I very much doubt IM clients do that.
+<br>
+<br>It's much more fun to speculate about this stuff than to read source code, don't you think?<nobr> <wbr></nobr>:-)
+
+
+
+<h2>Re:ICQ, AIM... Jabber!</h2>
+<h3><a href="/user/jhi/">jhi</a> on 2002-01-10T18:26:10</h3>
+"Something light as SOAP"...? *cough* *sputter*
+
+
+
+<blockquote>
+
+<h2>Re:ICQ, AIM... Jabber!</h2>
+<h3><a href="/user/godoy/">godoy</a> on 2002-01-10T19:14:41</h3>
+You can try CORBA...<nobr> <wbr></nobr>;o)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

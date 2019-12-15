@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: is_prime(number) in Perl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>is_prime(number) in Perl</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-02-23T14:54:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>As a general rule, if you want to check if a number is prime, it turns out that the <em>deterministic</em> solutions are rather slow.  In fact, they tend to be too slow for general use.  So I figured, while writing <tt>Number::Properties</tt> that <tt>is_prime()</tt> should use the <a href="http://en.wikipedia.org/wiki/Miller-Rabin_primality_test">Miller-Rabin primality tests</a>.  My code had some issues, but I suspect this had something to do with Perl's lack of precision.  As a result, and since Perl is a bit slow for work like this, I figured I would write the code in XS.  I used the C from <a href="http://www.topcoder.com/tc?module=Static&d1=tutorials&d2=primalityTesting">Top Coder's primality testing article</a>, but quickly got stuck with the following error:</p>
+
+<pre>Error: 'long long' not in typemap in Properties.xs, line 64
+Please specify prototyping behavior for Properties.xs (see perlxs manual)</pre>
+
+<p>Much googling suggests to me that there's not a simple way around this that's also robust.  Damn.  I may have to switch back to Perl.</p></p>
+
+
+<hr/>
+
+
+
+<h2>That implies...</h2>
+<h3><a href="/user/AndyArmstrong/">AndyArmstrong</a> on 2008-02-23T15:09:30</h3>
+<p>...that you're trying to move a long long between C and Perl. Do you need to do that? Can't the long longs just live inside the C?</p>
+
+<p>It's probably not too hard to write the code to thunk between long long and Math::BigInt - would that help?</p>
+
+
+
+<blockquote>
+
+<h2>Re:That implies...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-02-23T16:02:55</h3>
+<p>I don't know since my C and XS skills are so poor.  The relevant bit of XS code is this:</p> <p><blockquote> <div><tt>#include "EXTERN.h"<br>#include "perl.h"<br>#include "XSUB.h"<br>#include &lt;stdbool.h&gt;<br> <br>#include "ppport.h"<br> <br>/* This function calculates (ab)%c */<br>int modulo(int a,int b,int c){<br>&nbsp; &nbsp; long long x=1,y=a;<nobr> <wbr></nobr>// long long is taken to avoid overflow<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;// of intermediate results<br>&nbsp; &nbsp;<nobr> <wbr></nobr>// skipping implementation<br>}<br> <br>/* this function calculates (a*b)%c taking into account<br>&nbsp; &nbsp;that a*b might overflow */<br>long long mulmod(long long a,long long b,long long c){<br>&nbsp; &nbsp; long long x = 0,y=a%c;<br>&nbsp; &nbsp;<nobr> <wbr></nobr>// skipping implementation<br>}<br> <br>/* Miller-Rabin primality test, iteration signifies the accuracy of the test */<br>bool Miller(long long p,int iteration){<br>&nbsp; &nbsp; if(p&lt;2){<br>&nbsp; &nbsp; &nbsp; &nbsp; return false;<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; if(p!=2 &amp;&amp; p%2==0){<br>&nbsp; &nbsp; &nbsp; &nbsp; return false;<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; long long s=p-1;<br>&nbsp; &nbsp; while(s%2==0){<br>&nbsp; &nbsp; &nbsp; &nbsp; s/=2;<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; int i;<br>&nbsp; &nbsp; for(i=0;i&lt;iteration;i++){<br>&nbsp; &nbsp; &nbsp; &nbsp; long long a=rand()%(p-1)+1,temp=s;<br>&nbsp; &nbsp; &nbsp; &nbsp; long long mod=modulo(a,temp,p);<br>&nbsp; &nbsp; &nbsp; &nbsp; while(temp!=p-1 &amp;&amp; mod!=1 &amp;&amp; mod!=p-1){<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; mod=mulmod(mod,mod,p);<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; temp *= 2;<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; if(mod!=p-1 &amp;&amp; temp%2==0){<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; return false;<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; return true;<br>}<br> <br>MODULE = Number::Properties&nbsp; &nbsp; &nbsp;PACKAGE = Number::Properties<br> <br>void Miller(p, iteration)<br>&nbsp; &nbsp; long long p<br>&nbsp; &nbsp; int iteration</tt></div> </blockquote>  <p>In other words, I just need to figure out the interface to the <tt>Miller()</tt> function and this should work, but I'm unsure.</p>
+
+
+
+<blockquote>
+
+<h2>Re:That implies...</h2>
+<h3><a href="/user/AndyArmstrong/">AndyArmstrong</a> on 2008-02-23T16:19:08</h3>
+<p>If you're prepared to limit the input to 32 bit integers you can probably just change the <code>long long</code> to <code>long</code> in the prototype of Miller(). It should still use <code>long long</code> internally.</p>
+
+<p>To be more strictly correct you could use the output of</p> <p><blockquote> <div><tt>perl -MConfig -le 'print $Config{ivtype}'</tt></div> </blockquote>  <p>as the type of that argument. That will be <code>long</code> for 32 bit Perl and <code>long long</code> for 64 bit Perl.</p>
+
+<p>And if you want to be really sneaky write a version that bypasses XS type mapping and correctly handles Math::BigInt objects<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:That implies...</h2>
+<h3><a href="/user/bart/">bart</a> on 2008-02-23T18:10:16</h3>
+<p><div class="quote">If you're prepared to limit the input to 32 bit integers</div> A plain float in Perl has 53 bits of precision, which means you can represent 53 bit integers exactly, which is better than merely 32 bits.<br><br>Or, am I missing a point?<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:That implies...</h2>
+<h3><a href="/user/AndyArmstrong/">AndyArmstrong</a> on 2008-02-23T18:21:06</h3>
+<p>No, I think you're quite right<nobr> <wbr></nobr>:)</p>
+
+<p>This little program:</p> <p><blockquote> <div><tt>#!/usr/bin/perl<br> <br>my $num&nbsp; = 1;<br>my $bits = 0;<br>while ( $num + 1 != $num ) {<br>&nbsp; &nbsp; $num *= 2;<br>&nbsp; &nbsp; $bits++;<br>}<br> <br>print "$bits\n";</tt></div> </blockquote>  <p>prints 53.</p>
+
+<p>So Ovid - make that argument a double and then cast it to a long long inside the function.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:That implies...</h2>
+<h3><a href="/user/renodino/">renodino</a> on 2008-02-23T18:19:48</h3>
+<i>If</i> (and its a big if) you need the full 64 bit input, might I suggest passing the number as a string/PV, then doing a strtoll() or its equivalent in your non-XS functions ?
+<p>
+Then your XS looks like:
+</p><p><p><blockquote> <div><tt>void Miller(char *p, int iteration)</tt></div> </blockquote>  <p>
+and the Miller function becomes
+</p><p><p><blockquote> <div><tt>bool Miller(char *p_as_str,int iteration){<br>&nbsp; &nbsp; long long p = stroll(p_as_str);<br>&nbsp; &nbsp; if(p&lt;2){</tt></div> </blockquote>  <p>
+Caveat: obviously, if you put something other than  a number in p_as_str, things will go awry. Also, different platforms (e.g., Windows) have variants of the stroll().</p>
+
+
+
+<blockquote>
+
+<h2>Re:That implies...</h2>
+<h3><a href="/user/renodino/">renodino</a> on 2008-02-23T21:52:33</h3>
+DOH! That should be <b>strtoll()</b>...
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>The Updated AKS primality test is slow?</h2>
+<h3><a href="/user/Limbic Region/">Limbic Region</a> on 2008-02-23T17:04:49</h3>
+I assume you were referring to<br><br><a href="http://en.wikipedia.org/wiki/AKS_primality_test" title="wikipedia.org">http://en.wikipedia.org/wiki/AKS_primality_test</a wikipedia.org><br><br><i>The key significance of AKS is that it was the first published primality-proving algorithm to be simultaneously general, polynomial, deterministic, and unconditional. Previous algorithms have achieved any three of these properties, but not all four.</i><br><br>I haven't seen an implementation (in perl or otherwise), but I thought it put to bed the problem of determining if a number was prime or not.  The real problem is factorizing a composite.
+
+
+
+<h2>Fast primality testing with Pari</h2>
+<h3><a href="/user/pjf/">pjf</a> on 2008-02-23T23:00:46</h3>
+<p>If you're after a fast way of checking for prime numbers from Perl, then it's hard to go past <a href="http://pari.math.u-bordeaux.fr/" title="u-bordeaux.fr">PARI/GP</a u-bordeaux.fr>, which has a <a href="http://search.cpan.org/perldoc?Math::Pari" title="cpan.org">Math::Pari</a cpan.org> interface.  With the generation of large primes, strong random numbers, support for integers up to (2^29)^29 out of the box, and a host of other math functions, Pari is essentially crack for number theorists.  It provides both <a href="http://pari.math.u-bordeaux.fr/dochtml/html.stable/Arithmetic_functions.html#isprime" title="u-bordeaux.fr">isprime()</a u-bordeaux.fr> and <a href="http://en.wikipedia.org/wiki/Pseudoprime" title="wikipedia.org">ispseudoprime()</a wikipedia.org> functions.
+</p> <p>
+There's also a brief mention of using Math::Pari for primality testing <a href="http://perlmonks.org/?node_id=656028" title="perlmonks.org">on perlmonks</a perlmonks.org>.
+</p> <p>
+Cheerio,
+</p> <p> <i>Paul</i> </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

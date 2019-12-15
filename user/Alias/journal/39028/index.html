@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Parsing the DarkPAN - Phase 1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Parsing the DarkPAN - Phase 1</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2009-05-25T03:19:43</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>It seems to me that most of the problems around proposals for how Perl 5 should support it's users comes down to the way in which we do deprecation.<br/><br/>If we take each deprecation individually, we really need to go through four steps to achieve the deprecation.<br/><br/>1. Determine how commonly used the feature is, to assess the impact of the deprecation and thus determine a reasonable time frame.<br/><br/>2. Flag the feature with a deprecation warning in the compiler.<br/><br/>3. Provide users with an automated mechanism for location the deprecation in their code, and if possible automatically upgrading the code to equivalent replacement code.<br/><br/>4. Convert the deprecation warning to an error and remove the feature.<br/><br/>Since we're already doing step 2, and step 4 is fairly trivial, the real job here is steps 1 and 3.<br/><br/>Step 3 could also be fairly easily solved via the use of something like Perl::Critic (with some improvements to support autorepair).<br/><br/>That leaves Step 1 as the Big Hairy Problem.<br/><br/>Because to do Step 1 properly, we need to parse the DarkPAN.<br/><br/>Having established last week that we can indeed parse the DarkPAN (or at the very least, a representative percentage of it) the task now is to actually produce a DarkPAN analysis engine.<br/><br/>Over the weekend, I went out and bought a portable hard-drive and started to put together a prototype, using the CPAN as the initial population (CPAN represents about 10-20% of the total data I'll need to manage).<br/><br/>Breaking down the problem into individual steps, I've realised that I really can't afford to continuously download, extract and parse all these documents. I need to be able to go straight to parsed documents so that the computational cost is entirely focused on the scanning functions.<br/><br/>Combining <a href="http://search.cpan.org/perldoc?CPAN::Mini::Visit">CPAN::Mini::Visit</a> and <a href="http://search.cpan.org/perldoc?PPI::Cache">PPI::Cache</a> I've created this initial database for the most straight forward subset of the CPAN (tarballs under 3 megabytes, indexing all no_index-ignored modules and all .t test scripts).<br/><br/>The result is around 150,000 md5-indexed pre-parsed PPI documents in Storable form, weighing in at 5-6 gig. This is quite a reasonable number, and means I should be able to fit all the required code on the 300 gig portable drive.<br/><br/>One minor problem I uncovered doing this is that 2 levels of cache subdirectories isn't enough. Most directories already have several hundred files. To get to the full 1,000,000 files I'll probably need to add another layer of splitting to prevent lookups slowing down.<br/><br/>The second job I need to do is to generate and store the metrics produced for all of these files.<br/><br/>Fortunately, I've already had some experience trying to do this (with varying levels of success). Perl::Metrics, CPAN::Metrics, and the newer Perl::Metrics2 are all attempts to create a simple SQLite-based database framework to store vast numbers of metric data.<br/><br/>After about 18 hours of CPU chewing over the weekend (most of which was actually the SQLite costs) I've gotten the first subset of this done, populating a core set of metrics (file size, lines of code, PPI token and element counts) for the 75,000 .pm files.<br/><br/>One downside I've found is that the current process of processing the files is driven via a CPAN::Mini::Visit process. I'm finding that this is far too messy to be practical, memory leaks due to all the failing tarball extracts are resulting in the process expanding to hit the 2 gig of RAM limit.<br/><br/>For my second pass over this data, I plan to integrate PPI::Cache with Perl::Metrics2. This will let me separate the discovery, download, parsing and caching of the PPI documents from the analysis and metrics storage.<br/><br/>This separation of concerns is also important, because it means that every time I add a new metrics plugin to the scanner (to find, for example, all instances of two-argument open) the scanner can fill in the new metric records without having to know where any of the code actually came from. I should also be able to hash the work across more than one CPU easily, by just trivially splitting over the first or second level directory names.<br/><br/>The final step is the indexing process. This is another CPAN::Mini::Visit process which takes all the files in each tarball, and writes a database entry with the source, file name, and md5 hash of the file.<br/><br/>This table can then be joined against the main metrics table to answer questions about where all the files that have a particular metric value actually live.<br/><br/>My hope is that with about another week of code tweaks and a few days of CPU, I should have reached a point where I have a stable database indexing all of the Perl in the CPAN.<br/><br/>The next step after that is to look at integrating something like Ohloh's web APIs, so that I can start the process of tracking down and extracting the Perl code from external SVN (and later other type) repositories.
+</p>
+
+
+<hr/>
+
+
+
+<h2>There's a Business In This</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-05-25T03:32:38</h3>
+<p>There's a modest but sustainable business model in something similar.</p><p>I still disagree that the impact of the change should determine the deprecation cycle length.  The point of having a documented support policy is to remove all of the silly Internet body part measuring contests from project management.</p>
+
+
+
+<blockquote>
+
+<h2>Re:There's a Business In This</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-05-25T03:58:03</h3>
+<p>The trouble is that the more a feature is used, the more time involved in porting.</p><p>If the time allowed for deprecation is the same regardless of scale, you end up with some fairly horrid Mythical Man Month style amplification in the cost.</p><p>We already dealt with the pathological case of this with Y2K.</p><p>You had a feature (two digit years) which had an absolute hard limit to fix, was present in all languages across almost the entire history of software development and impacted not just on data but also on code.</p><p>And even if there was nothing that needed fixing, there was still a fairly big cost just to audit the code and make sure the problem didn't apply.</p><p>The result of this deprecation "perfect storm" was enormous amounts of effort and money which achieved the final result of business as usual and mostly not breaking.</p><p>Nothing we could generate would remotely approach that cost, but that doesn't mean there isn't a cost different between deprecating something that wasn't used a lot (we think) like v-strings or pseudo-hashes, compared to something I'd personally like to deprecate, tie(), that is used a lot (we think).</p><p>There's also a difference between deprecations that we can provide completely or mostly reliable auto-upgrade for (like two to three argument open) vs something that would require more substantial rewriting classes that relied on it (like, say, dropping blessed ARRAY support) as well as their depandants (tieing).</p>
+
+
+
+<blockquote>
+
+<h2>Re:There's a Business In This</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-05-25T05:05:48</h3>
+<blockquote><div><p> <em>The trouble is that the more a feature is used, the more time involved in porting.</em></p></div> </blockquote><p>To my knowledge, no one has suggested removing <code>tie</code>, no matter how much we'd like to see it disappear.  Likewise <code>bless</code>.  Yet there are plenty of ways to extend the time between first deprecation and final migration: don't upgrade ever, don't upgrade yet, use a backwards compatibility mode in the interpreter, use a backwards compatibility library, move to Nepal to herd yaks.</p><p>Having multiple incompatible half-hearted ways to do something in the core is a recipe for magnified suck.  The sooner we get rid of those, the better.  Please don't add the cost of migrating everyone else's code to p5p's already impossible budget.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

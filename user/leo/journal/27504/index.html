@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of leo: &quot;The Continuation Bug&quot; is gone</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>&quot;The Continuation Bug&quot; is gone</h1>
+<h2><a href="/user/leo/">leo</a> on 2005-11-07T23:24:35</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Today I've checked in the final fix for one of the longest
+outstanding bugs inside Parrot.</p>
+<p>A short recap:</p>
+<p>Having first-class continuation objects is one of the design
+goals of Parrot. A lot of HLLs support continuations with some
+special syntax and with continuations in the core a lot of HLL
+control structures and features like exceptions can be implemented easily.
+</p>
+<p>But there was a problem with continuations.
+Continuations can change the CFG (control flow graph) of a
+program in such a way that there are suddenly loops, where the
+register allocation code isn't (and can't be) aware of it.</p>
+
+<p>The following code piece from a test provided by <a href="http://www.bofh.org.uk/" rel="nofollow">Piers</a> revealed the whole
+problem:</p>
+<p> <code>
+arr1 = "[1, 3, 5]"<br>
+arr2 = "[1, 5, 9]"<br>
+x = choose(arr1)<br>
+y = choose(arr2)<br>
+if (x * y != 15)<br>
+fail = find_lex "fail"<br>
+fail()</code>
+</p>
+
+<p>To the register allocator this looks like a linear control flow,
+which is just executed once (there is no loop outside of that code
+snippet). But actually the <code>choose</code> closures are capturing
+their continuations and are backtracking through the call to the
+<code>fail</code> function. We suddenly have a loop going from
+<code>fail()</code> to one of the <code>choose()</code> function
+call returns. The code that the register allocator should have been
+considering would be something like this:</p>
+
+<p> <code>
+&nbsp;&nbsp;arr1 = "[1, 3, 5]"<br>
+&nbsp;&nbsp;arr2 = "[1, 5, 9]"<br>
+choose_again_1:  # label actually in front of function return<br>
+&nbsp;&nbsp;x = choose(arr1)<br>
+choose_again_2:<br>
+&nbsp;&nbsp;y = choose(arr2)<br>
+&nbsp;&nbsp;if (x * y != 15)<br>
+&nbsp;&nbsp;fail = find_lex "fail"<br>
+&nbsp;&nbsp;fail()<br>
+&nbsp;&nbsp;goto choose_again_1 or _2</code> </p>
+
+<p>This implies that the registers
+of the variables <code>x, y, arr2</code> can't be reused for example to
+assign a register to the <code>fail</code> variable. But exactly this
+has happened and the code really "fail"ed.</p>
+
+<p>There were some (IMHO) impractical proposals to fix this, like
+refetching all variables from lexicals all the time (and don't use
+native integers and numbers because these aren't lexicals) but the
+real fix for this is now in: that is - just don't reallocate
+the registers used by lexicals and non-volatile variables to other
+variables like temporaries.</p>
+<p>That's the reason for variable-sized register frames and, well, some
+lack of visible progress of Parrot development for some time.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

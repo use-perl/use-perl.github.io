@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of LTjake: Catalyst Tip: Easy paging using uri_with()</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Catalyst Tip: Easy paging using uri_with()</h1>
+<h2><a href="/user/LTjake/">LTjake</a> on 2006-09-20T13:03:20</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Just about every app needs to do paging. Using <a href="http://search.cpan.org/dist/DBIx-Class/">DBIx::Class</a>, grabbing a <a href="http://search.cpan.org/dist/Data-Page/">Data::Page</a> object from a resultset is as easy as calling <code>$rs->pager</code>. Constructing the next/previous page urls can sometimes been an odd challenge. Enter <code>uri_with</code>.</p>
+<p><code>uri_with</code> lets you add new (or replace existing) key-value pairs in the current request's URL. The following Template Toolkit code shows you how to take a URL (eg. <code>http://example.com/search/?q=foo</code>) and append next and previous page numbers (eg. <code>http://example.com/search/?q=foo&page=2</code>). It assumes that you have a Data::Page object in a stash variable called "pager".</p>
+<pre>
+[% IF pager.previous_page %]
+<a href="[% c.request.uri_with( page => pager.previous_page ) %]">Previous Page</a>
+[% END %]
+[% IF pager.next_page %]
+<a href="[% c.request.uri_with( page => pager.next_page ) %]">Next Page</a>
+[% END %]
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>uri_with</h2>
+<h3><a href="/user/bart/">bart</a> on 2006-09-21T07:18:22</h3>
+Where is that function stored? I can imagine it to be useful for people who are not using Template Toolkit, and just use Data::Pager in their CGI scripts.
+
+
+
+<blockquote>
+
+<h2>Re:uri_with</h2>
+<h3><a href="/user/LTjake/">LTjake</a> on 2006-09-21T10:39:17</h3>
+<p>The function resides in <a href="http://search.cpan.org/dist/Catalyst-Runtime/lib/Catalyst/Request.pm" title="cpan.org">Catalyst::Request</a cpan.org>. Its utility is fairly dependent on the fact that we use a URI object for the request URL.</p>
+<p>Here's the relevant snippet:</p> <blockquote> <div><tt>use utf8;<br>use Carp;<br>use URI::QueryParam;<br> <br>sub uri_with {<br>&nbsp; &nbsp; my( $self, $args ) = @_;<br> <br>&nbsp; &nbsp; carp( 'No arguments passed to uri_with()' ) unless $args;<br> <br>&nbsp; &nbsp; for my $value ( values %$args ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; for ( ref $value eq 'ARRAY' ? @$value : $value ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $_ = "$_";<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; utf8::encode( $_ );<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; };<br> <br>&nbsp; &nbsp; my $uri = $self-&gt;uri-&gt;clone;<br> <br>&nbsp; &nbsp; $uri-&gt;query_form( {<br>&nbsp; &nbsp; &nbsp; &nbsp; %{ $uri-&gt;query_form_hash },<br>&nbsp; &nbsp; &nbsp; &nbsp; %$args<br>&nbsp; &nbsp; } );<br>&nbsp; &nbsp; return $uri;<br>}</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:uri_with</h2>
+<h3><a href="/user/bart/">bart</a> on 2006-09-22T08:46:59</h3>
+OK, silly question perhaps... Why do you do the hard work manually, why not make use of the method <a href="http://search.cpan.org/perldoc?URI%3A%3AQueryParam" title="cpan.org">query_param_append</a cpan.org>?
+
+
+
+<blockquote>
+
+<h2>Re:uri_with</h2>
+<h3><a href="/user/LTjake/">LTjake</a> on 2006-09-22T11:20:11</h3>
+<p>Unless i'm misunderstanding your point, I don't believe that method does what we're looking for. Example: say we have the following URL</p> <blockquote> <div><tt>http://www.example.com/?q=test&amp;page=2</tt></div> </blockquote> <p>...and we're generating the "next page" url. The following test script should show the two different methods:</p> <blockquote> <div><tt>use strict;<br>use warnings;<br> <br>use Test::More tests =&gt; 2;<br> <br>use URI;<br>use URI::QueryParam;<br> <br>my $uri&nbsp; &nbsp; &nbsp; = URI-&gt;new( 'http://example.com/?q=test&amp;page=2' );<br>my $expected = {<br>&nbsp; &nbsp; q&nbsp; &nbsp; =&gt; 'test',<br>&nbsp; &nbsp; page =&gt; 3<br>};<br> <br># method used in Catalyst::Request<br>{<br>&nbsp; &nbsp; my $next = $uri-&gt;clone;<br>&nbsp; &nbsp; $next-&gt;query_form( {<br>&nbsp; &nbsp; &nbsp; &nbsp; %{ $next-&gt;query_form_hash },<br>&nbsp; &nbsp; &nbsp; &nbsp; ( page =&gt; 3 )<br>&nbsp; &nbsp; } );<br>&nbsp; &nbsp; is_deeply( $next-&gt;query_form_hash, $expected, 'method used in Catalyst::Request' );<br>}<br> <br># use query_param_append()<br>{<br>&nbsp; &nbsp; my $next = $uri-&gt;clone;<br>&nbsp; &nbsp; $next-&gt;query_param_append( page =&gt; 3 );<br>&nbsp; &nbsp; is_deeply( $next-&gt;query_form_hash, $expected, 'use query_param_append()' );<br>}</tt></div> </blockquote> <p>And the results...</p> <blockquote> <div><tt>1..2<br>ok 1 - method used in Catalyst::Request<br>not ok 2 - use query_param_append()<br>#&nbsp; &nbsp;Failed test 'use query_param_append()'<br>#&nbsp; &nbsp;in uri.pl at line 29.<br>#&nbsp; &nbsp; &nbsp;Structures begin differing at:<br>#&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $got-&gt;{page} = ARRAY(0x82aa794)<br>#&nbsp; &nbsp; &nbsp;$expected-&gt;{page} = '3'<br># Looks like you failed 1 test of 2.</tt></div> </blockquote> <p>As you can see, it made the page param into <code>page =&gt; [2, 3]</code> rather than just <code>page =&gt; 3</code>.</p>
+
+
+
+<blockquote>
+
+<h2>Re:uri_with</h2>
+<h3><a href="/user/bart/">bart</a> on 2006-09-22T17:55:23</h3>
+Oh, if replacing instead of adding is what you want, then there are other methods that this module provides, such as <tt>query_param</tt>:
+<blockquote><div>If additional arguments are given, they are used to update successive parameters with the given key. If any of the values provided are array references, then the array is dereferenced to get the actual values.</div>
+</blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:uri_with</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-09-23T04:05:59</h3>
+<p>The point is you don&#x2019;t have to construct a <tt>URI</tt> object. You just call <tt>uri_with</tt> and everything except the bits you want to override is already set up for you. Buf if you haven&#x2019;t used an MVCish web app framework (even an ad-hoc one of your own device), you probably won&#x2019;t appreciate why that&#x2019;s so very useful.</p>
+
+
+
+<blockquote>
+
+<h2>Re:uri_with</h2>
+<h3><a href="/user/bart/">bart</a> on 2006-09-23T10:22:26</h3>
+<blockquote> <div><i>The point is you don&#8217;t have to construct a URI object.</i></div> </blockquote>
+I'm not disputing that. I'm talking about the actual implementation of uri_with, which <em>does</em> create an object, and takes the long road to do it. It recreates every form parameter, instead of just adding new ones, and manually prepares every passed parameter for addition. This is a job the used module should have done.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>quotes</h2>
+<h3><a href="/user/zby/">zby</a> on 2006-10-20T08:19:50</h3>
+Shouldn't the 'page' param be quoted?  Like:<code> c.request.uri_with( 'page' =&gt; pager.next_page</code>
+
+
+
+<blockquote>
+
+<h2>Re:quotes</h2>
+<h3><a href="/user/LTjake/">LTjake</a> on 2006-10-20T18:25:45</h3>
+<p>Nope -- quotes are not strictly required. So says the examples in <a href="http://search.cpan.org/dist/Template-Toolkit/lib/Template/Manual/Variables.pod" title="cpan.org">the docs</a cpan.org>, at least<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org story by brian_d_foy: Patch fixes buffer overflow in regexp compiler</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Patch fixes buffer overflow in regexp compiler</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2007-11-29T14:45:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a href="http://www.ccl4.org/user/nick/">nicholas</a> writes "Perl 5 Porters have released a fix to the regexp engine, which Google
+researchers recently discovered had a buffer overflow when compiling very
+specific patterns. Note that the pattern is the risk, not the data it matches.<br/><br/><br> <br>All Perl users should consider updating their Perl installation to address
+CVE-2007-5116:</p>
+<p><ul> <li> <i>For Perl 5.8.8<br>
+<a href="ftp://ftp.cpan.org/pub/CPAN/authors/id/N/NW/NWCLARK/regexp-5.8.8.patch">ftp://ftp.cpan.org/pub/CPAN/authors/id/N/NW/NWCLARK/regexp-5.8.8.patch</a> </i>
+</li>
+<li>For Perl 5.8.7, 5.8.6 and 5.8.5
+<a href="ftp://ftp.cpan.org/pub/CPAN/authors/id/N/NW/NWCLARK/regexp-5.8.7.patch">ftp://ftp.cpan.org/pub/CPAN/authors/id/N/NW/NWCLARK/regexp-5.8.7.patch</a>
+</li>
+<li>For Perl 5.8.4
+<a href="ftp://ftp.cpan.org/pub/CPAN/authors/id/N/NW/NWCLARK/regexp-5.8.4.patch">ftp://ftp.cpan.org/pub/CPAN/authors/id/N/NW/NWCLARK/regexp-5.8.4.patch</a>
+</li>
+<li>For Perl 5.8.3, 5.8.2 and 5.8.1
+<a href="ftp://ftp.cpan.org/pub/CPAN/authors/id/N/NW/NWCLARK/regexp-5.8.3.patch">ftp://ftp.cpan.org/pub/CPAN/authors/id/N/NW/NWCLARK/regexp-5.8.3.patch</a>
+</li>
+<li>For Perl 5.8.0
+<a href="ftp://ftp.cpan.org/pub/CPAN/authors/id/N/NW/NWCLARK/regexp-5.8.0.patch">ftp://ftp.cpan.org/pub/CPAN/authors/id/N/NW/NWCLARK/regexp-5.8.0.patch</a>
+</li>
+</ul>
+
+<br> <br>Specifically, the bug is that if you have a pattern which in itself uses no
+Unicode characters, but matches Unicode characters (for example
+<code>\x{}</code> escapes) then at compile time the regexp engine will
+allocate memory assuming an 8 bit representation on the first pass. However,
+if the pattern also has 8 bit characters, then when the Unicode characters are
+compiled (on the second pass) any existing 8 bit characters will be converted
+to UTF-8 representation, which is likely to be a buffer overflow. Matches will
+also fail.
+
+<br> <br>Given that it's been present since 5.8.0 (July 2002) and the bug itself (but
+not the security implication) wasn't reported until early this year*, it is
+unlikely to crop up in the wild.
+
+<br> <br>Redhat's announcement is <a href="https://rhn.redhat.com/errata/RHSA-2007-0966.html">https://rhn.redhat.com/errata/RHSA-2007-0966.html</a>
+which I find unclear in its wording: <br> <br> <p><blockquote> <div>Specially crafted input to a regular expression can cause Perl to
+improperly allocate memory, possibly resulting in arbitrary code running
+with the permissions of the user running Perl.</div>
+</blockquote>
+
+<br> <br>The "input" is the pattern, not the matched string. So it's not going to be
+an issue at all, unless your programmers are foolish enough to allow
+untrusted user input to be interpolated into regular expressions. If so, you
+were already open to denial of service attacks from patterns that
+bust the C stack (fixed in 5.10) or take until the heat death of the
+universe to complete (inherently unfixable in a general purpose programming
+language).
+
+<br> <br>The CVE announcement is <a href="http://nvd.nist.gov/nvd.cfm?cvename=CVE-2007-5116">http://nvd.nist.gov/nvd.cfm?cvename=CVE-2007-5116</a>
+It's terse, and has the same ambiguity: <br> <br> <p><blockquote> <div>Buffer overflow in the polymorphic opcode support in the Regular
+Expression Engine (regcomp.c) in Perl 5.8 allows context-dependent
+attackers to execute arbitrary code by switching from byte to Unicode
+(UTF) characters in a regular expression.</div>
+</blockquote>
+
+<br> <br>Yes, conceivably you can now inject arbitrary code. But if you did, you
+program (not perl) was badly written, and already had the ability to be
+crashed or hung.
+
+<br> <br>The timing of this announcement is not ideal. Security researches at Google
+discovered the buffer overflow in the regexp engine compiler. As best I can
+tell, they reported it to Linux vendors, who forwarded it to one Perl 5
+committer, who forwarded it on to the rest. There was some discussion about
+the patch that needed backporting from 5.10 (where it was already fixed) to
+5.8, and then <b>that was the last we heard.</b>
+
+<br> <br>The next "contact" we had was discovering that the Linux vendors had made
+public security announcements, without even notifying us, let alone
+discussing a timescale. I consider this outcome neither professional nor
+courteous, but hope that it was caused by an unfortunate series of events
+that won't re-occur.
+
+<br> <br>To help avoid such a repeat, we've set up a contact address,
+perl5-security-report@perl.org solely for reporting any similar core security
+bugs.
+
+<br> <br>Currently it points to a unarchived mailing list with the same name
+(<code>perl5-security-report@perl.org</code>), using the regular perl.org list
+manager and sign-up address conventions. We'd welcome anyone competent
+to request to subscribe. It's likely not to be high traffic &mdash; right
+now we seem to average 1 security issue every 2 years, but we'd really
+like more people on it so that there's a good chance that at least one
+of the subscribers will have the time to respond to any initial report
+within 24 hours, at least to say roughly: <br> <br> <p><blockquote> <div>"thanks for the report. I can confirm that this is a bug. We're looking
+into how to resolve it, and we'll get back to you"</div>
+</blockquote>
+
+
+<br> <br> <small>* The bug was first found against 5.10-to-be, not 5.8.x, by Jeurd,
+while at the <a href="http://www.perl-workshop.de/">German Perl Workshop</a>,
+when trying to write a program to convert BNF grammars to 5.10 regexps. You
+have to push the engine pretty far to get to it.</small>"</p>
+
+
+<hr/>
+
+
+
+<h2>Patch applied but still mem errors after reg ex</h2>
+<h3><a href="/user/towersys/">towersys</a> on 2007-12-03T01:43:04</h3>
+Hi mate,<br/><br/>thanks for the post, we've been getting memory errors consistantly from our perl based blogging software (MT). Even with ulimit "unlimited" and your patch it still seems to die with ""Out of memory during "large" request for 1052672 bytes, total sbrk() is 41959424 bytes at lib/MT/Builder.pm line 375."" just after performing this segment of code:<br/><br/>(builder.pm)
+<code>
+foreach (@args) {
+                    $_ = [ $_-&gt;[0], $_-&gt;[1] ];
+                    my $arg = $_;
+                    if (ref $arg-&gt;[1] eq 'ARRAY') {
+                        $arg-&gt;[1] = [ @{$arg-&gt;[1]} ];
+                        foreach (@{$arg-&gt;[1]}) {
+                            if (m/^\$(\w+)$/) {
+                                $_ = $ctx-&gt;var($1);
+                            }
+                        }
+                    } else {
+                        if ($arg-&gt;[1] =~ m/^\$(\w+)$/) {
+                            $arg-&gt;[1] = $ctx-&gt;var($1);
+                        }
+                    }
+                }<br/><br/>                my $out = $h-&gt;($ctx, \%args, $cond);<nobr> <wbr></nobr>// Line 375
+</code><br/><br/>Any ideas?
+
+
+
+<h2>requires mod_perl re-compile?</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2007-12-20T21:48:09</h3>
+This may be a naive question, but if this patch is applied and Perl is re-compiled, would a mod_perl installed compiled against this Perl also need to be re-compiled?<br><br>My guess is "No".
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: CGI parameters as objects</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>CGI parameters as objects</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2004-08-25T23:56:08</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've been toying with the idea of creating something like this:</p>
+
+<pre>use CGI::Simple::AsObjects 
+    handle => [qw/Customers Products/];
+
+my $cgi = CGI::Simple::AsObjects->new;
+my $customer = $cgi->cust_param('customer_no');
+print $customer->name; # objects directly from the CGI request</pre>
+
+<p>Still, if you know OO Perl, do you still use CGI, or would anyone even want this?  I think it's a useful idea, but I'd have to play with the interface.  The import list is <em>almost</em> like traits in that you can have a variety of specialized "param" methods automatically available and you can fetch an object directly back from an CGI parameter without the tedious hassle of validating the object ids and instantiating the objects.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Can it be easy?</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2004-08-26T05:54:26</h3>
+How do you map form fields to objects?  Is there a way that you have to do that without a lot of work?
+
+
+
+<blockquote>
+
+<h2>Re:Can it be easy?</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2004-08-26T13:57:26</h3>
+Something like CGI::State maybe?
+
+
+
+<h2>Re:Can it be easy?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-08-26T14:30:44</h3>
+<p>If you are just writing a small script or two, this would be overkill.  However, if you're building a large system, I think the setup would be worth it.  Going with Juerd's name of "Class::CGI", I am thinking something along the following lines, with three required subs:</p> <blockquote><div> <tt>package Class::CGI::Customer;<br>use My::Customer;<br>use Class::CGI;<br> <br>sub register {<br>&nbsp; name&nbsp; &nbsp;=&gt; 'Customer',<br>&nbsp; method =&gt; 'cust_param',<br>&nbsp; param&nbsp; =&gt; 'cust_id',&nbsp; &nbsp; # can be overridden<br>}<br> <br>sub validate {<br>&nbsp; my $cgi = shift; # not needed here, but perhaps elsewhere?<br>&nbsp; my ($id) = shift =~<nobr> <wbr></nobr>/^(\d+)$/;<br>&nbsp; return $id;<br>}<br> <br>sub create {<br>&nbsp; my ($cgi, $id) = @_;<br>&nbsp; return My::Customer-&gt;new($id);<br>}<br> <br>1;</tt> </div></blockquote> <p>Obviously, the validation and creation routine may take a lot more work, depending upon the needs of a module, but a basic one like this could be reused quite a bit and save some headache.  Maybe something like this would be useful, too:</p> <blockquote><div> <tt>use Class::CGI<br>&nbsp; Customer =&gt; 'customer_id,<br>&nbsp; Product&nbsp; =&gt; 'product_id';<br> <br>my $cgi = Class::CGI-&gt;new;<br>my $customer = $cgi-&gt;param('customer_id');<br>print $customer-&gt;name;</tt> </div></blockquote> <p>That would avoid the the necessesity of hardcoding the exact same parameter name in every form, something which I see is frequently not done.</p>
+
+<p>I think I may just have a project after I get back from Burning Man.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Can it be easy?</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2004-08-26T14:59:01</h3>
+You should call a register method in Class::CGI, not define one that it is supposed to track down and call.  Also you need to figure out how to handle conflicts where two different objects use similar parameter names.<p>
+
+However when you finish your module and flesh it out, you'll probably discover that you've started writing a controller in an MVC pattern.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Can it be easy?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-08-26T15:17:18</h3>
+<p>I was certainly considering the issue of handling conflicts.  That could get annoying, particularly if a given controller does not use the conflicting packages but some poor sod gets bitten by it later down the road.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Class::CGI</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2004-08-26T10:59:50</h3>
+Nice idea, but can you call it Class::CGI then, like Class::DBI? It's shorter and IMHO nicer to look at. After all, they do almost the same, do they not?
+
+
+
+<blockquote>
+
+<h2>Re:Class::CGI</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-08-26T14:31:49</h3>
+<p>Much better name.  Thank you.  See my response to <tt>brian d foy</tt> for more implementation ideas.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>I do a similar thing</h2>
+<h3><a href="/user/gav/">gav</a> on 2004-08-26T16:03:03</h3>
+I have a class that combines Data::FormValidator and some other things so I can write:<blockquote><div> <tt>my $addr = Foo::Address-&gt;new($cgi);<br>if ($addr-&gt;is_valid) {<br>&nbsp; # XXX<br>} else {<br>&nbsp; print "The following fields are missing or invalid: ", join("\n", $addr-&gt;errors);<br>}</tt> </div></blockquote>It has a few neat features including supporting a prefix so if you have two addresses in the same field you can use:<blockquote><div> <tt>&lt;input type="text" name="addr1.name"&gt;<br>&lt;input type="text" name="addr2.name"&gt;</tt> </div></blockquote>and:<blockquote><div> <tt> my $addr1 = Foo::Address-&gt;new($cgi, 'addr1');<br> my $addr2 = Foo::Address-&gt;new($cgi, 'addr2');</tt> </div></blockquote>It's made things way easier.
+
+
+
+<blockquote>
+
+<h2>Re:I do a similar thing</h2>
+<h3><a href="/user/ajtaylor/">ajtaylor</a> on 2004-08-27T16:16:10</h3>
+Very cool idea! Could it work in conjuntion with something like CGI::Untaint or Class::DBI::FromCGI? Any chance this could be released to CPAN? How do you handle testing with your object level validation - dummy CGI object?
+<p>
+I have something similar to you except I combine the validation at a higher level when deciding if a form should be processed or simply displayed. So I can't do the individual object level validation like you're doing. Any errors from D::FV are eventually stuffed into the template parameters before processing. The caveat is that to get the errors to show in the template you have to manually add them where appropriate. Even better would be a way to define a form programmatically and have the error params automatically included. Of course, this would take away my ability to customize my templates but anyway...</p><blockquote><div> <tt>package My::App;<br>use base 'My::AppBase';<br> <br>sub runmode_foo {<br>&nbsp; my $self = shift;<br>&nbsp; if ($self-&gt;form_submitted) {<br>&nbsp; &nbsp; # process form &amp; redirect<br>&nbsp; }<br> <br>&nbsp; # print the form<br>}<br> <br>package My::AppBase;<br>use base 'CGI::Application';<br> <br>sub form_submitted {<br>&nbsp; my $self = shift;<br>&nbsp; my $q = $self-&gt;query;<br> <br>&nbsp; my $submitted = $q-&gt;param('_form_submitted');<br>&nbsp; return 0 unless $submitted;<br> <br>&nbsp; # get the D::FV profile based on runmode<br>&nbsp; my $profile = $self-&gt;get_validation_profile;<br>&nbsp; if ($profile) {<br>&nbsp; &nbsp; my $dfv = Data::FormValidator-&gt;new({}, $self-&gt;param('dfv_defaults') );<br>&nbsp; &nbsp; my $r = $dfv-&gt;check($q, $profile);<br>&nbsp; &nbsp; if ($r-&gt;has_missing or $r-&gt;has_invalid) {<br>&nbsp; &nbsp; &nbsp; $self-&gt;param('validation_errors', $r-&gt;msgs);<br>&nbsp; &nbsp; &nbsp; $self-&gt;error_msg("There were problems submitting the form.");<br>&nbsp; &nbsp; &nbsp; return 0;<br>&nbsp; &nbsp; }<br>&nbsp; }<br>&nbsp; return 1;<br>}</tt> </div></blockquote>But I like the idea of being able to validate data for an individual object. One thing that would be super cool (and this is partially inspired by a <a href="http://jobs.perl.org/job/1759" title="perl.org">job posting</a perl.org>) would be to combine server-side runmode level validation (is the combination of inputs for this screen valid?), client-side validation via JS (for quicker simple validation), and then individual object level validation (like your setup). The killer feature of course is being able to define all this data in a single place and be used throughout.
+
+
+
+<blockquote>
+
+<h2>Re:I do a similar thing</h2>
+<h3><a href="/user/gav/">gav</a> on 2004-08-27T17:28:27</h3>
+I've been thinking about the client-side JS validation recently. What my plan is:
+<ol>
+<li>Write something like D::FV but with a more flexible store for the rules</li>
+<li>Have a JS version of this</li>
+<li>Use one of the SpiderMonkey based CPAN modules to test Perl vs JS</li>
+<li>Release to CPAN</li>
+<li>...</li>
+<li>Profit!</li>
+</ol> <br>
+
+
+
+<blockquote>
+
+<h2>Re:I do a similar thing</h2>
+<h3><a href="/user/ajtaylor/">ajtaylor</a> on 2004-08-27T18:13:20</h3>
+My thinking was to have the validation module be able to write a JS function (ie. check_form() ), that would do at least the easier checks. This of course requires some other template support to automatically set the onSubmit attribute of the appropriate  element.<br/><br/>The checks would just cover the simple cases: required field &amp; dependencies. If this field is not present, then fail. If field a is "foo", then fields x &amp; y are also required. I want to do it all in a single module, which can then be transposed on either the client (via templates) or server side.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

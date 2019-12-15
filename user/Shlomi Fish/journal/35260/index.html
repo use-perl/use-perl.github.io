@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Shlomi Fish: Line Count Benchmark</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Line Count Benchmark</h1>
+<h2><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2008-01-01T18:20:08</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+OK, first of all, Happy New (Civil) Year to everybody. Then, I'd like to note
+that I enjoyed the <a href="http://act.perl.org.il/ilpw2007/">Israeli 2007
+Perl Workshop</a> that I attended yesterday a lot, and would like to thank
+all the organisers for making it happen. I posted 
+<a href="http://perl.org.il/pipermail/perl/2007-December/009338.html">some 
+notes from topics we discussed in the conference</a> to the mailing list, so
+you may find it interest to read them. I may post a more thorough report
+later on.
+</p>
+
+<p>
+Now, to the main topic of this post. I've been on Freenode's #perl
+the other day, when we were discussing how to count the number of lines in a
+file. Someone suggested opening the files, and then using <tt>&lt;$fh&gt;</tt>
+and counting the number of lines. Someone else suggested trapping the output
+of <tt>wc -l</tt>. Then someone argued that trapping the output of 
+<tt>wc -l</tt> is non-portable and will cost one in a costy fork. But is it
+slower?
+</p>
+
+<p>
+To check, I created a very large text file using the following command:
+</p>
+
+<code>
+locate .xml | grep '^/home/shlomi/Backup/Backup/2007/2007-12-07/disk-fs' | \<br />
+xargs cat &gt; mega.xml<br />
+</code>
+
+<p>
+Here, I located all the files ending with .xml in my backup and concatenated
+them together into a file "mega.xml". The statistics for this file are:
+</p>
+
+<code>
+$ LC_ALL=C wc mega.xml<br />
+   195594  1704386 17790746 mega.xml<br />
+</code>
+
+<p>
+Then I ran the following benchmark using it:
+</p>
+
+<code>
+#!/usr/bin/perl <br />
+<br />
+use strict;<br />
+use warnings;<br />
+<br />
+use Benchmark ':hireswallclock';<br />
+<br />
+sub wc_count<br />
+{<br />
+    my $s = `wc -l mega.xml`;<br />
+    $s =~ /^(\d+)/;<br />
+    return $1;<br />
+}<br />
+<br />
+sub lo_count<br />
+{<br />
+    open my $in, "&lt;", "mega.xml";<br />
+    local $.;<br />
+    while(&lt;$in&gt;)<br />
+    {<br />
+    }<br />
+    my $ret = $.;<br />
+    close($in);<br />
+    return $ret;<br />
+}<br />
+<br />
+if (lo_count() != wc_count())<br />
+{<br />
+    die "Error";<br />
+}<br />
+<br />
+timethese(100,<br />
+    {<br />
+       'wc' =&gt; \&amp;wc_count,<br />
+        'lo' =&gt; \&amp;lo_count,<br />
+    }<br />
+);<br />
+</code>
+
+<p>
+The results?
+</p>
+
+<code>
+shlomi:~/Download$ perl ../time-various-line-counts.pl<br />
+Benchmark: timing 100 iterations of lo, wc...<br />
+        lo: 18.0495 wallclock secs (16.72 usr +  1.17 sys = 17.89 CPU) @  5.59/s (n=100)<br />
+        wc: 3.70755 wallclock secs ( 0.00 usr  0.03 sys +  1.77 cusr  1.91 csys =  3.71 CPU) @ 3333.33/s (n=100)<br />
+</code>
+
+<p>
+The <tt>wc</tt> method wins and is substantially faster. It's probably
+because <tt>wc</tt> is written in optimised C, and so counts the lines
+faster, despite the fact it had forked earlier.
+</p>
+
+<p>
+For small files, the pure-Perl version wins. But for large files, <tt>wc</tt>
+is better. But naturally, it's not portable, which may be a deal-breaker in
+some cases.
+</p>
+
+<p>
+The lesson of this is that <a href="http://perl.plover.com/yak/12views/samples/notes.html#sl-3">forking processes or calling external is sometimes a 
+reasonable thing to do</a>. (as MJD noted earlier in the link).
+</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>External shell tools</h2>
+<h3><a href="/user/srezic/">srezic</a> on 2008-01-01T19:56:22</h3>
+... and it is difficult to get it right. On FreeBSD there is usually some whitespace before the line count, so the regexp has to be changed to<nobr> <wbr></nobr><tt>/^\s*(\d+)/</tt>.
+<p>
+But the results on my system (amd64-freebsd) look different: using a text file with nearly 200000 lines the wc version makes only about 22 iterations/second, much slower than on your system. The the perl version seems to be faster than on your system: 9/s.</p>
+
+
+
+<h2>Invalid result</h2>
+<h3><a href="/user/srezic/">srezic</a> on 2008-01-01T20:01:05</h3>
+And now I see the trap: Benchmark.pm seems to not count the CPU time from child processes! So it's not 3333/s for the wc version, but only 26.9/s.
+
+
+
+<h2>Mmmm</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-01-02T02:44:53</h3>
+<p><blockquote> <div><tt>sub tr_count {<br>&nbsp; &nbsp; local ( $/, $_ ) = \( 2**19 );<br>&nbsp; &nbsp; my $c = 0;<br>&nbsp; &nbsp; open my $in, "&lt;", $file;<br>&nbsp; &nbsp; $c += y/\n// while &lt;$in&gt;;<br>&nbsp; &nbsp; return $c;<br>}</tt></div> </blockquote>  <p>Only slightly slower than <code>wc</code> on my machine.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Aristotle: RFC: DateTime::Weekdays</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>RFC: DateTime::Weekdays</h1>
+<h2><a href="/user/Aristotle/">Aristotle</a> on 2008-04-01T12:02:12</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I just went to set up a cron script to automatically mail the date of our next Perlmonger meeting to our mailing list, and was boggled to find that <a href="http://search.cpan.org/perldoc?DateTime">DateTime</a> includes no way to do things like finding the next Tuesday past a given date, nor is there anything for that on CPAN. Instead you are apparently expected to copy-paste some slightly fiddly code from <a href="http://datetime.perl.org/index.cgi?FAQSampleCalculations">an FAQ</a> and tweak it.</p>
+
+<p>Sorry, that&#8217;s just not acceptable. So I whipped this up:</p>
+
+<pre>
+#!/usr/bin/perl
+package DateTime::Weekdays;
+use strict;
+use DateTime ();
+BEGIN { our @ISA = qw( DateTime ) }
+
+sub set_day_of_week {
+	my $self = shift;
+	my %a = @_;
+
+	my ( $dow, $wanted_dow ) = ( $self->day_of_week(), $a{ dow } );
+
+	if( $a{past} ) { $_ = -$_ for $dow, $wanted_dow }
+
+	my $delta = ( $wanted_dow - $dow + 7 ) % 7;
+
+	return $self if $delta == 0 and not $a{always_differ};
+
+	$delta += 7 if $a{always_differ};
+	$delta = -$delta if $a{past};
+
+	return $self->add( days => $delta );
+};
+
+sub next   { $_[0]->set_day_of_week( dow => $_[1] ) }
+sub prev   { $_[0]->set_day_of_week( dow => $_[1], past => 1 ) }
+sub coming { $_[0]->set_day_of_week( dow => $_[1], always_differ => 1 ) }
+sub last   { $_[0]->set_day_of_week( dow => $_[1], always_differ => 1, past => 1 ) }
+
+1;
+
+__END__
+
+=head1 NAME
+
+DateTime::Weekdays - find nearby DateTimes by weekday
+
+=head1 SYNOPSIS
+
+ use DateTime::Weekdays;
+ my $dt = DateTime::Weekdays->now;
+ my ( $Thu, $Fri ) = ( 4, 5 );
+
+ print 'First Friday of this month: ',
+   $dt->clone->truncate( to => 'month' )
+             ->next( $Fri );
+
+ print 'Last Friday of this month: ',
+   $dt->clone->truncate( to => 'month' )
+             ->add( months => 1 )
+			 ->subtract( days => 1 )
+			 ->prev( $Fri );
+
+ print 'The Friday before today: ',
+   $dt->clone->last( $Fri );
+
+ print 'London.pm heretics meeting this month: ',
+   $dt->clone->truncate( to => 'month' )
+             ->coming( $Thu );
+
+=head1 DESCRIPTION
+
+A subclass of L<DateTime> that includes a few methods for weekday-based
+calculations.
+
+=head1 INTERFACE 
+
+The workhorse method in this class is C<set_day_of_week>. You are not expected
+to call this directly; instead, use the convenience methods provided. They all
+expect a single parameter: a weekday number.
+
+=head2 next
+
+The nearest future date with the given weekday. May be the current date
+itself.
+
+=head2 prev
+
+The nearest past date with the given weekday. May be the current date itself.
+
+=head2 coming
+
+The next future date with the given weekday. This is always at least one day
+in the future.
+
+=head2 last
+
+The most recent past date with the given weekday. This is always at least one
+day in the past.
+
+=head2 set_day_of_week
+
+This method implements the calculation. It accepts the following named
+parameters:
+
+=over 4
+
+=item C<dow>
+
+The desired weekday number in DateTime convention (ie. a value in the range of
+1..7 meaning Monday..Sunday). This parameter is requirement.
+
+=item C<past>
+
+A boolean specifying whether to look for a date with the desired weekday is in
+the past, relative to the starting date.
+
+=item C<always_differ>
+
+A boolean specifying whether the date returned must always be in the future
+(or past).
+
+F.ex., if the date in question is a Friday and you ask for a Friday in the
+future, then normally the date itself will be returned with no changes. If
+you set this parameter, however, then the Friday in the following week will
+be returned.
+
+=back
+
+
+=head1 AUTHOR
+
+Aristotle Pagaltzis L<mailto:pagaltzis@gmx.de>
+
+
+=head1 COPYRIGHT AND LICENCE 
+
+Copyright (c) 2008, Aristotle Pagaltzis. All rights reserved.
+
+This module is free software; you can redistribute it and/or modify it under
+the same terms as Perl itself. See L<perlartistic>.
+
+
+=head1 DISCLAIMER OF WARRANTY
+
+BECAUSE THIS SOFTWARE IS LICENSED FREE OF CHARGE, THERE IS NO WARRANTY FOR THE
+SOFTWARE, TO THE EXTENT PERMITTED BY APPLICABLE LAW. EXCEPT WHEN OTHERWISE
+STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES PROVIDE THE
+SOFTWARE "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE. THE ENTIRE RISK AS TO THE QUALITY AND
+PERFORMANCE OF THE SOFTWARE IS WITH YOU. SHOULD THE SOFTWARE PROVE DEFECTIVE,
+YOU ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR, OR CORRECTION.
+
+IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING WILL ANY
+COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MAY MODIFY AND/OR REDISTRIBUTE THE
+SOFTWARE AS PERMITTED BY THE ABOVE LICENCE, BE LIABLE TO YOU FOR DAMAGES,
+INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES ARISING
+OUT OF THE USE OR INABILITY TO USE THE SOFTWARE (INCLUDING BUT NOT LIMITED TO
+LOSS OF DATA OR DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR
+THIRD PARTIES OR A FAILURE OF THE SOFTWARE TO OPERATE WITH ANY OTHER
+SOFTWARE), EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGES.
+</pre>
+
+<p>Look good? Anyone willing to write a test suite for me? <tt>:-P</tt></p></p>
+
+
+<hr/>
+
+
+
+<h2>Patches welcome</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2008-04-01T15:53:56</h3>
+I'd probably be willing to put set_day_of_week into DateTime.pm proper. I don't know about the sugar methods though.<br><br>Regardless, DateTime::Weekdays probably isn't the right namespace. Please come discuss this on the datetime@perl.org list.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Patches welcome</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-04-01T17:42:52</h3>
+<p>I know this is not the proper venue &#8211; I saw the pointer to the mailing list. I posted here instead of to the list because, well, I&#8217;d have to subscribe to the list, and then I&#8217;d be subscribed to <em>yet another</em> Perl list. I am on way too many of those already&#8230; I guess I should consolidate the mailboxes for the low-traffic lists and suck it up.</p>
+
+<p>Also, I know it&#8217;s not a good name. Don&#8217;t worry, I&#8217;m not putting this on CPAN quite yet.<nobr> <wbr></nobr><tt>:-)</tt> That&#8217;s why I posted an RFC.</p>
+
+<p>I also don&#8217;t think the names for the sugar methods are particularly great. But if they don&#8217;t go in at all, then both the workhorse method and its parameters should have shorter names.</p>
+
+<p>Mainly, I&#8217;d like these kinds of calculations to result in sufficiently similar amounts of code as the use of Date::Manip would yield that one would not be overly inclined to reach for Date::Manip over DateTime even in quick and dirty scripts like my &#8220;pipe this 10-line mail to <code>sendmail</code>&#8221; 15-liner cron job. The sugar methods seem necessary to achieve that.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Patches welcome</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2008-04-01T19:10:03</h3>
+<p>I think <i>set_day_of_week</i> is a bad name and doesn't belong in the core of DateTime.  The name doesn't really uniquely identify what the method does and implies several different inconsistent possibilities for its semantics.</p>
+
+<p>I think it'd be better if this functionality were wrapped in a DateTime::Set, which would give you the next and previous methods you are looking for.  Maybe DateTime::Set::ByWeekday?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Patches welcome</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-04-02T18:54:02</h3>
+<p>That sounds reasonable; I&#8217;m just not sure it makes sense. There is nothing of interest about the set as a whole: it&#8217;s no more than a set with weekly recurrence (and you can easily construct it that way if you do need such a set). The only property of interest is that 2 (or 3) specific members of the set are closest to a particular date.</p>
+
+<p>Also, I wanted to roll in a way to find the passed weekday that falls within the same week as the given date. To me there seems to be no reasonable way to conceive of that as a set.</p>
+
+<p>I suppose you could make an argument that it is a set of just 2&#8211;3 datetimes (the weekday within the same week, the strictly previous and strictly next weekdays, and the day itself, where the last may not be part of the set and the first always coincides with one of the others). That, I suppose, would be more an issue of naming. But it doesn&#8217;t really make any sense to iterate over that kind of set.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Patches welcome</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2008-04-01T19:10:20</h3>
+If this doesn't make it into DateTime proper, I'd rather it be a mixin that I could use just once and then all my datetime objects would behave thusly.
+
+
+
+
+
+</blockquote>
+
+
+<h2>The Module's Licensing</h2>
+<h3><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2008-04-01T17:48:28</h3>
+<p>
+I hope I'm not starting a licensing flamewar here, but your licence section reads:
+</p> <p><blockquote><div>This module is free software; you can redistribute it and/or modify it under
+the same terms as Perl itself. See L.</div>
+</blockquote>
+
+<p>
+Now, the same terms as Perl (?) itself, if we assume that Perl == perl 5, would mean a dual-GPLv2-and-above and Artistic 1.0 *only*. Now, the Artistic 1.0 licence is very vague and is <a href="http://www.fsf.org/licensing/licenses/index_html#ArtisticLicense" title="fsf.org">considered neither GPL-compatible nor free by the Free Software Foundation</a fsf.org>. And the GPL is well,
+<a href="http://www.gnu.org/licenses/gpl-faq.html" title="gnu.org">the  GPL</a gnu.org> and has its own restrications and complications.
+</p>
+
+<p>
+Please consider also licensing your module under the Artistic Licence v. 2.0 (and possibly future versions of the Artistic Licence) which is well-phrased, free, GPL (version 2 and above) compatible, and more permissive than the GPL. (e.g: it allows publically-distributed code to be linked against it without needed to be GPL-compatible, and ergo free-software).
+</p>
+
+<p>
+One option would be to license it under the GPLv2 or any later version and the Artistic 1.0 or any later version.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Module's Licensing</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2008-04-01T19:06:57</h3>
+<p>Do you realize this is the standard way of licensing Perl modules?  What in the world made you single out this one module and this one author for this subject?</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Module's Licensing</h2>
+<h3><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2008-04-01T19:27:24</h3>
+<p><div class="quote"> <p>Do you realize this is the standard way of licensing Perl modules?  What in the world made you single out this one module and this one author for this subject?</p> </div>  <p>
+I didn't single out Aristotle or his module in particular, nor accused him of doing anything wrong in particular. I just noted that in his general request-for-comments for the module because I noticed it there. (Better late than never, I guess).
+</p>
+
+<p>
+I just wanted to note that from now on, it would be a better idea from the legal standpoint to use a different wording of the licensing terms as I explained above to avoid the licensing problems that the "same as perl5" face.
+</p>
+
+<p>
+But thanks for noting that - I'll convert and extend my comments into a blog post on my use.perl.org journal for future consideration. Expect a flamewar about it on an RSS aggregator near you.<nobr> <wbr></nobr>;-)
+</p>
+
+<p>
+That put aside, an alternative to this, which I'm using, is to use licences that permit relicensing of derived works, to other free (or non-free) licences. The MIT X11 licence explicitly allows "sub-licensing" and is my preferred licence for Perl and non-Perl open-source work. Some of the modules I maintain on CPAN still carry different licensing terms (usually "same as perl") because I inherited them from different authors. In that case, I normally disclaim all rights to the module, so all the remaining copyright holders of the code can make re-licensing decisions without me.
+</p>
+
+<p>
+Thanks again.
+</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:The Module's Licensing</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-04-01T19:21:02</h3>
+<p>I don&#8217;t care. Show me someone who is having a problem.</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Module's Licensing</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-04-03T01:03:28</h3>
+<p>With respect, by the time there is a problem, it's rather too late to change the license text.</p>
+
+<p>I've updated my modules to read that they are available under the same license as the Perl 5.8.x series.</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Module's Licensing</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-04-03T07:55:38</h3>
+<p>That&#8217;s a different matter (and thanks for pointing it out; I&#8217;ma fix my module template right now).</p>
+
+<p>What Shlomi is asking for is a complete change of licences. Now, neither option in the Perl (5.8) licence is my personal best preference. (I like the LGPL best.) But that&#8217;s how 99.5% of the CPAN is licensed, and since these terms don&#8217;t cause big problems in practice, there&#8217;s more value in not forcing the user to evaluate yet another licence than there is in having slightly better licensing terms.</p>
+
+<p>(Btw, with projects as small as this one, I am open to feedback but I don&#8217;t apply patches, precisely so that if there is an issue with licensing, I can fix it whenever and however I want/need.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Module's Licensing</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-04-03T17:00:09</h3>
+<p>I misunderstood your concern; I agree with the desire to stay compatible with the rest of the CPAN.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Date::Piece</h2>
+<h3><a href="/user/Eric Wilhelm/">Eric Wilhelm</a> on 2008-04-02T17:19:38</h3>
+IMO, doing math on dates with DateTime is asking for trouble because you are working with seconds.  Date::Simple works with days and Date::Piece extends that to add some nice syntax.
+
+
+
+<blockquote>
+
+<h2>Re:Date::Piece</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-04-02T18:37:24</h3>
+<p>What sort of trouble?</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

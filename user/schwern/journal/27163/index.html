@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: What is the sound of one head thudding?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>What is the sound of one head thudding?</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2005-10-14T02:41:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Is it not the sound of frustration?<br/><br/>I'm trying to write a module that given a filehandle which is zero or more of zipped, gzipped or pgp (and possibly more in the future) encoded it unpacks the contents of the filehandle.  The trick is everything has to be done with filehandles.  Filehandles in and filehandles out.  At no time should the files exist on disk (security reasons, very sensitive data).  The moral equivalent to:  <br/><br/><pre>
+    system("gunzip foo.pgp.gz | ungpg | myprogram");
+</pre><br/><br/>Except its more complicated because it involves zip programs with multiple files.  Ultimately, I want to be able to write this:<br/><br/><pre>
+    # Typically $input_fh comes from Net::SFTP.
+    my %files = Extractor->extract($input_fh);<br/><br/>    while( my($filename, $fh) = each %files) {
+        _filter_out_sensitive_information_and_write($fh, $filename);
+    }
+</pre><br/><br/>For example, if $input_fh is to a zip file which contains "foo" and "bar" %files will contain the keys "foo" and "bar" and the values will be open filehandles to their contents.  The filter reads and munges the contents of the filehandles and outputs to the associated file.<br/><br/>What's kicking my ass is that many of the existing unarchiving modules don't return filehandles.  Archive::Zip and Compress::Zlib both return objects.  I'm using the less than desirable GnuPG::Interfaces instead of Crypt::GPG simply because Interfaces uses filehandles.  I tried tying the objects to a handle but the tying seems to get lost once the handle is copied.  I played a bit with wrapping them inside IO::Handle glob objects but that's just too weird even for me.<br/><br/>My final thought is that since I control the filters I can just write an adaptor around each nearly-a-filehandle object which Archive::Zip or Compress::Zlib returns and have the filters use that, but it seems like a lot of work when filehandles would do everything I want.<br/><br/>Am I missing something?<br/><br/><b>UPDATE:</b><br/><br/>Yes I am.  And it is this.<br/><br/><pre>
+    assert tied $fh;
+</pre><br/><br/>That returns false.  THIS returns true.<br/><br/><pre>
+    assert tied *$fh;
+</pre><br/><br/>*sigh*  I was doing the former.  It made me think the returned filehandle was not tied.  Trouble is, the internal testing system we use is XUnit style.  It dies on failure.  So I never saw the next test which checks the contents of the filehandle.<br/><br/>Reason #139892 why aborting on failure is EVIL!</p>
+
+
+<hr/>
+
+
+
+<h2>An other angle</h2>
+<h3><a href="/user/mir/">mir</a> on 2005-10-14T15:34:03</h3>
+<blockquote> <div><i>At no time should the files exist on disk (security reasons, very sensitive data).</i></div> </blockquote>
+<p>What about using an encrypted filesystem? Or "plain" encrypted files for every step?</p>
+
+
+
+<blockquote>
+
+<h2>Re:An other angle</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2005-10-14T23:08:28</h3>
+<blockquote> <div><tt>What about using an encrypted filesystem?</tt></div> </blockquote>I don't have that level of control over the system.  One trick I can use, and is being used elsewhere in the code, is unlinked temp files (open a temp file and unlink it).  The file is on disk but no other process can see or read it except my open filehandle.  Once my filehandle goes away the file goes away (yes, it might hang around on the disk for a while before its wiped.  This is ok.).  It won't get backed up.<br><br>But this involves each extraction step to read the file in and write it back out.  And then the filters have to read it in and write it out.  Seems like a lot of unnecessary reads and writes.  Then again, the extracting and filtering is not the bottleneck in this process.  Its the processing done on the resulting decoded and filtered file which is.<blockquote> <div><tt>Or "plain" encrypted files for every step?</tt></div> </blockquote>What does that mean?
+
+
+
+
+
+</blockquote>
+
+
+<h2>Tied filehandles</h2>
+<h3><a href="/user/bart/">bart</a> on 2005-10-16T02:07:44</h3>
+Surely you can make it work using tied filehandles. It won't be dead easy, it won't be the fastest, but at least you can make it behave like filehandles.<br><br>Another option would be to make the readers separate processes, which print the virtual file contents through their STDOUT, which you can then pipe back into your program.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Tied filehandles</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2005-10-16T17:24:21</h3>
+<blockquote> <div><tt>Surely you can make it work using tied filehandles. It won't be dead easy, it won't be the fastest, but at least you can make it behave like filehandles.</tt></div> </blockquote>BLALHRARHALHBLAHGH!<br><br>I just figured it out.  See edited post.<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

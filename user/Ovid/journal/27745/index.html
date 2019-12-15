@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Trying to implement runtime traits</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Trying to implement runtime traits</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-11-25T22:13:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>As it turns outs, implementing traits at runtime isn't too hard.  It's the syntax which is killing me.  Let's say that I have a new "Dog" object and I want my dog to do tricks.  In Perl 6:</p>
+
+<pre>$fido does Tricks;</pre>
+
+<p><tt>Class::Trait</tt> was not originally designed to support runtime trait composition so the <tt>does</tt> method either returns a list of traits a class can do or returns a boolean value indicating that a particular trait passed to it is avaiable.  Thus, we use the <tt>apply</tt> method for adding traits.  However, this raises a number of thorny issues.  First, according to <a href="http://dev.perl.org/perl6/doc/design/syn/S12.html#roles">Synopsis 12</a>, roles can be applied at runtime to both classes and instances and this will create a new anonymous class.  For instances, this is easy.  What does this mean for classes, though?  I'm not sure.  Bummer.</p>
+
+<p>Applying them at runtime for instances is easier.  I need to rebless an object into the appropriate anonymous class and flatten the trait methods into that class.  However, I don't have an appropriate syntax.  I could do this:</p>
+
+<pre>require Tricks;
+my $fido = Dog->new;
+Tricks->apply($fido);</pre>
+
+<p>Unfortunately, Synopsis 12 makes it clear that we should be able to apply several traits to fido at once, flattening them into a new anonymous class.  The only way I can see to make that work is a variant of this:</p>
+
+<pre>Class::Trait->apply($fido, @list_of_traits);</pre>
+
+<p>That seems like a really ugly syntax.  However, more than this, how would I then apply traits to a class?  I could do this:</p>
+
+<pre>Class::Trait->apply(__PACKAGE__, @list_of_traits);</pre>
+
+<p>That seems like an even uglier syntax but I can't think of a better way.  For the time being, runtime trait application seems best suited for instances, so I'll focus on that.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Applying several runtime Traits</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2005-11-26T03:02:10</h3>
+<p>
+Applying several traits to an instance should not do anything different than applying one. So for instance this (in pseudo Perl 6):
+</p><blockquote> <div><code>
+$fido does Tricks does Treats;
+</code></div> </blockquote>
+Would become this (in Perl 5 Traits):
+<blockquote> <div><code>
+Treats-&gt;apply(Tricks-&gt;apply($fido));
+</code></div> </blockquote>
+Basically apply should return the reblessed instance, and you just keep chaining them.
+
+<p>
+Now, this may not be the most efficient approach, but I am not really sure that would matter since runtime application of multiple traits will probably be a rare occurance. The better way to accomplish this (IMO of course) is to compose a third Trait out of the multiple traits you have applied, then apply that third trait to your instance.
+</p>
+<p>
+As for the application of traits to classes at runtime, I think it is actually quite simple (although it might require fiddling with Class::Trait internals to make this work right). You basically just need to add in the trait as you would at compile time. This makes (some) sense if you think of classes as being singleton instances of class Class.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-11-26T14:32:25</h3>
+<blockquote> <div><p>The better way to accomplish this (IMO of course) is to compose a third Trait out of the multiple traits you have applied, then apply that third trait to your instance.</p></div> </blockquote>
+
+<p>I think that&#8217;s the key to a bearable syntax: have a <code>Class::Traits::compose</code>, returning an anonymous trait which is a composition of the given traits, on which you then simply invoke <code>apply</code>:</p>
+
+<p> <code>Class::Traits-&gt;compose( "Tricks", "Treats" )-&gt;apply( $fido );</code> </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

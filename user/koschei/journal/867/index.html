@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of koschei: CS Tournaments</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>CS Tournaments</h1>
+<h2><a href="/user/koschei/">koschei</a> on 2001-10-03T22:05:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Counter Strike Tournaments. We're having one on Sunday. For assorted reasons (including having a P3-866 with linux installed just casually lying about), I'm the server admin.<br/><br/>I'm also playing, but that's not a problem since I'm in my Hall's A team (we're following Australian cricketing team naming conventions and have 'Bruce' and 'Bruce A' teams with the 'Bruce' team being the higher seeded one). This means that although I have fun playing CS, I have trouble shooting straight.<br/><br/>Courtesy the new version of Half Life we'll have delayed spectating enabled, which is cool. But not really tricky, nor relevant.<br/><br/>
+What we do need is some funky program to give us advanced control over the server. hlds is the name of the program under linux that runs a dedicated HL server. You tell it to run a game of cstrike rather than 'valve' and you end up with a csds. Text mode server, so it does stdin input and stdout output. Ideal for manipulation. Many programs have been written to control and report on assorted aspects of HL and CS servers. There's hlmonitor, csserverstat, halfStatus, adminmod, hlloh, kkrcon, log_anal and so on and so forth.<br/><br/>None of which offer the precise options I want. So I'm writing hlfork (named in the tradition of my nick and some of my machines - I'm Spoon on the network, and I have splade, knife and other assorted utensils).<br/><br/>It's also called hlfork because it seems to be one of the few monitoring programs that uses any form of decent forking and IO redirection.<br/><br/>Y'see, Perl is a wonderful language that makes such things really easy. Simple use of IO::Handle to make some file handles, and IPC::Open2 to fork the server makes writing hlfork nice and simple. It handles all that stuff for you.<br/><br/>So with those modules I can happily do a while{} loop over the hlds output and feed it input based upon that output.<br/><br/>But what if I want to control it from the keyboard as well as algorithmically. This is where things start getting messy. File handles tend to do blocking when you read from them and there's no input to be had, so you set them to not block and then you do polling and have to decide how often to poll. It all gets messy and complicated really quickly.<br/><br/>Thank goodness for POE.<br/><br/>Anyone who has had to glue together multiple input streams and do assorted things based upon them will love POE.<br/><br/>I basically set up one POE::Session that reads and writes the hlds program. Lots of nasty regexs on the output from hlds that calls various objects depending upon what happened (it's yet to be abstracted away to Spoon::CS::Event).<br/><br/>I also initialize a session that reads and writes stdin and stdout respectively. However, anything it reads it copies to the hlds session as wel as stdout. Thus I get a keyboard itnerface.<br/><br/>Finally, because I wanted it, there's an IRC session as well (using POE::Component::IRC). This lets hlfork give important status reports and also a game commentary to particular channels on our local IRC server. Users can also ask questions of the bot and it happily supplies answers. Rather cute really.<br/><br/>
+The data structures are interesting though. Or rather, they're very simple, but need to have stats and so on pulled from them. All the data is stored in a postgresql database (mate: you need transactions. mysql is bloody useless) and the assorted modules pull data from the tables as necessary.<br/><br/>At the time of writing the modules don't update the database with new information, but that requirement is coming.<br/><br/>It does happily read player, clan and map information though. Since some players also play online and in non-interhall competition we have different preferred clan names, I've had to allow that users can login from particular different IPs and with particular different clan names. so there are tables clan(_name_,_pid_) and allowed_hosts(_pid_,_ip_). These are read into appropriate Perl objects for ease of use. Because I'm a lazy sod and will generally only be concerned about "if ($clan eq $p->clan)" I can use Damian's Quantum::Superpositions module to store the clan information in the various player objects. Saves writing search code and means I can just pretend that people are in 'a' clan. The actual code that needs otherwise (a minority) can extract the individual clans easily enough (via a method, naturally).<br/><br/>For what it's worth, all of the Spoon::CS::* object modules (as distinct from the Spoon::CS::* utility modules) use Class::MethodMaker. It's really quite nice and allows me to do lots of things very simply. I hate writing boilerplate code, and it vastly reduces the amount of it.<br/><br/>
+On the web site of the server, we have a CS section that allows people to register for use of the server, clans, and download any required patches and maps. It also has news, tournament rules and so on but that's not really that interesting.<br/><br/>What is interesting, vaguely, is that there's a bit of code that allows people to show map information and rate the assorted maps. Since we're on a contained network, I can refer the Apache authentication off to the uni's LDAP server. This way, to access the site you have to login. But, you don't need to create a new user, or have (Yet Another) password. Which is nice. They just need to register on the site so we can link their university ID to their CS name. It does mean that it's really easy to tie in user particular data - e.g. votes for maps. No duplicate information (and since we're using postgresql, no dangling data since we have transactions and can rollback; again, why mysql?).<br/><br/>In time (when I get around to writing the code) hlfork will be able to extract data from the database and tailor the map cycling to the overall ratings. This would mean that higher ranked maps would appear more frequently and, possibly, for longer periods of time. Lower ranks maps would appear less frequently and for less time (and possibly for fewer wins; the server is set to cycle after X minutes or after one side reaches X wins).<br/><br/>(mental note: review the DBI book in a future entry)<br/><br/>
+All this takes time to implement, and I haven't even started talking about game statistics.<br/><br/>For the tournament, the important features are the ability to: restrict the game to particular players at particular times; restrict clan tags to particular players; restrict particular clans to particular times; restrict players to particular IPs; boot spectators that aren't the HLTV proxy.<br/><br/>Anything else is a bonus if it gets implemented in time. This was kind of sprung on me.<br/><br/>At least it will be all ready for next year's tournament which will be somewhat better organised (there will be preparation time). We've got 4 teams, each of 6 players this year. Next year we may well have more (or at least, those numbers may change - we may get teams of 5 if that maximises participation better).<br/><br/>Ideally, the web site would be able to provide realtime stats (or at least, end of round stats - start a transaction at the start of a round, do stuff during it, commit at the end, or rollback if the round is aborted - again: transactions = woo!).<br/><br/>
+However it goes, I'm going to end up with even more modules in the Spoon:: area. That's where I tend to chuck the modules that are somewhat non-generic. The stuff that gets renamed and packaged up properly when I get a good supply of tuits (round ones). Typically never, really. Usually they're the bits of code that go into lots of my programs on the various machines I use and it's easiest abstracting them to Spoon:: modules and doing 'cvs update' on the various machines. Even if only one of the machines is likely to need the Spoon::CS:: hierarchy.<br/><br/>No matter.<br/><br/>Anyway - breakfast time (8.05am).</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

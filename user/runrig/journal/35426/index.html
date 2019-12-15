@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of runrig: XSLT sort puzzle</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>XSLT sort puzzle</h1>
+<h2><a href="/user/runrig/">runrig</a> on 2008-01-19T00:15:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Following up on <a href="http://use.perl.org/user/runrig/journal/33883">previous XML sorting efforts</a>, where I mostly wanted to sort by tag name, then by NAME attribute, but for some elements, there were other attributes that I wanted to sort by. I first did the tag_name/NAME_attribute sort with <a href="http://search.cpan.org/dist/XML-Filter-XSLT">XML::Filter::XSLT</a>
+then sorted by the other odd elements using <a href="http://search.cpan.org/dist/XML-Filter-Sort">XML::Filter::Sort</a>.
+</p>
+<p>Out of curiosity, I wanted to try to do it all with XSLT, so I came up with:</p>
+<pre>
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+     version="1.0">
+
+<xsl:output method="xml" version="1.0"
+encoding="iso-8859-1" indent="yes" omit-xml-declaration="no"/>
+
+<xsl:template match="/">
+  <xsl:copy>
+    <xsl:apply-templates/>
+  </xsl:copy>
+</xsl:template>
+
+<xsl:template match="//*">
+  <xsl:copy>
+    <xsl:apply-templates select="@*"/>
+
+    <xsl:apply-templates select="D">
+      <xsl:sort select="@FOO"/>
+    </xsl:apply-templates>
+
+    <xsl:apply-templates select="*[not(self::D)]">
+      <xsl:sort select="name()"/>
+      <xsl:sort select="@NAME"/>
+    </xsl:apply-templates>
+
+  </xsl:copy>
+</xsl:template>
+
+<xsl:template match="@*|node()">
+  <xsl:copy>
+    <xsl:apply-templates select="@*|node()"/>
+  </xsl:copy>
+</xsl:template>
+
+</xsl:stylesheet>
+</pre>
+<p>Which sorts "D" elements by the FOO attribute, and everything else by tag name then NAME attribute. The difference between this and my previous method is that now "D" tags will come before "A" tags (and any others), whereas before they were still sorted by tag name. I think I can get the former two-pass approach behavior in one XSLT document, but for now, it's more trouble than it's worth. It would be easy if you could define a sort callback function.... :-)</p></p>
+
+
+<hr/>
+
+
+
+<h2>Way too much work</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-01-19T07:25:40</h3>
+<p>You&#8217;re defining two identity copies, one on the root element and one for everything else; why? Next, you write a template for<nobr> <wbr></nobr><code>//*</code> which is equivalent to matching <code>*</code> (but I haven&#8217;t slept and it&#8217;s 6AM, so I might be making a mistake). And finally, you say making the D nodes sort together with all the others would be a lot of work, when actually it&#8217;s less work than you&#8217;re already doing. Overall:</p> <p><blockquote> <div><tt>&lt;xsl:stylesheet<br>&nbsp; &nbsp; xmlns:xsl="http://www.w3.org/1999/XSL/Transform"<br>&nbsp; &nbsp; version="1.0"<br>&gt;<br> <br>&lt;xsl:output<br>&nbsp; &nbsp; method="xml"<br>&nbsp; &nbsp; encoding="iso-8859-1"<br>&nbsp; &nbsp; indent="yes"<br>&nbsp; &nbsp; omit-xml-declaration="no"<br>/&gt;<br> <br>&lt;xsl:template match="@*|node()"&gt;<br>&nbsp; &lt;xsl:copy&gt;<br>&nbsp; &nbsp; &lt;xsl:apply-templates select="@*|node()"/&gt;<br>&nbsp; &lt;/xsl:copy&gt;<br>&lt;/xsl:template&gt;<br> <br>&lt;xsl:template match="*"&gt;<br>&nbsp; &lt;xsl:copy&gt;<br> <br>&nbsp; &nbsp; &lt;xsl:apply-templates select="@*"/&gt;<br> <br>&nbsp; &nbsp; &lt;xsl:apply-templates select="*"&gt;<br>&nbsp; &nbsp; &nbsp; &lt;xsl:sort select="name()"/&gt;<br>&nbsp; &nbsp; &nbsp; &lt;xsl:sort select="<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; self::*[not(self::D)]/@NAME<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; | self::D/@FOO<br>&nbsp; &nbsp; &nbsp; "/&gt;<br>&nbsp; &nbsp; &lt;/xsl:apply-templates&gt;<br> <br>&nbsp; &lt;/xsl:copy&gt;<br>&lt;/xsl:template&gt;<br> <br>&lt;/xsl:stylesheet&gt;</tt></div> </blockquote>  <p>I think. Untested. You may have to write things a bit differently (to groggy to recall all the details precisely), but that&#8217;s the approach.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Way too much work</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2008-01-22T22:39:35</h3>
+Thanks. Tested and it works. I bow to your superior XSLT-fu (mine needs a lot of work). My only consolation is that I've seen worse code than mine from someone else who was trying to do the same sort of thing (and who wasn't even yet trying to sort by name()). I still find XSLT non-intuitive, e.g., how does it decide which templates to match, does it matter what in what order the templates come, and so why doesn't the first (identity) template above just match and copy everything unchanged?
+
+
+
+<blockquote>
+
+<h2>Re:Way too much work</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-01-23T01:32:31</h3>
+<p>Don&#8217;t worry, you&#8217;re in good company. Almost no one groks XSLT properly. (This is probably because every single XSLT tutorial is terrible junk.) Most of the transforms I see are seriously suboptimal, and a very large fraction of them are really atrocious. There&#8217;s a lot of cargo cult and programming by coincide in the XSLT world. Your attempt was quite decent by those standards.<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+<p>Actually, the way XSLT processing happens is very simple, but because of the implicit default templates, it seems very magical.</p>
+
+<p>First off: XSLT checks all templates for whether they match the <i>current node</i>. It then looks at the XPath expressions of the templates and calculates a <i>priority</i> from each of them based on a simple set of rules (but you can specify the priority of a particular template directly). Then it picks the template with the highest priority. If there are several matching templates with the same priority, this is an error.</p>
+
+<p>Secondly: the order in which nodes are processed is dependent purely on the order in which they get selected for processing by <code>xsl:apply-templates</code>. There is nothing magical about it; if there is no <code>xsl:apply-templates</code> instruction that picks up a particular node, then it won&#8217;t even be looked at.</p>
+
+<p>Now: these issues are clouded by the are built-in templates that are implicitly part of every transform. They look like this:</p> <p><blockquote> <div><tt>&lt;xsl:template match="*|/"&gt;<br>&nbsp; &lt;xsl:apply-templates/&gt;<br>&lt;/xsl:template&gt;<br> <br>&lt;xsl:template match="text()|@*"&gt;<br>&nbsp; &lt;xsl:value-of select="."/&gt;<br>&lt;/xsl:template&gt;<br> <br>&lt;xsl:template match="processing-instruction()|comment()"/&gt;</tt></div> </blockquote>  <p>In other words, by default:</p>
+
+<ol>
+<li> <p>Due to the first one of those templates, the root node and all elements will produce no output, but visiting one will guarantee that that processor will visit all its child nodes as well.</p> </li>
+<li> <p>When a text or attribute node is visited, it&#8217;s value is output due to the second template.</p> </li>
+<li> <p>The last template shown specifies that comments and processing instructions are simply thrown away.</p> </li>
+</ol>
+
+<p>When the processor loads a document, it makes the <i>root node</i> the <i>current node</i> and tries to match a template to it. Unless you&#8217;ve explicitly written an template to match it yourself, the first built-in template shown up there is what matches, so <code>xsl:apply-templates</code> is called, which selects the document element of the document and tries to match a template to it in turn. This gets the ball rolling. The processing then proceeds in order of the <code>xsl:apply-templates</code> instructions encountered and the nodes they select, matching templates to those nodes and executing the instructions given in them. Whenever it encounters an <code>xsl:apply-templates</code>, it recurses.</p>
+
+<p>That&#8217;s it. That&#8217;s all.</p>
+
+<p>It&#8217;s really very simple and completely non-magical. I remember how much it mystified me when I first started, because no one, and I mean <em>no one</em>, explains these few simple facts in simple terms.</p>
+
+<p>Once you understand that, it&#8217;s all just XPath-fu, which is set based, so making effective use of it (like what I did to consolidate your two different sorts) is somewhat reminiscent of the skill it takes to write effective SQL queries (though not exactly the same).</p>
+
+<p>I suggest using the <a href="http://www.w3.org/TR/xslt" title="w3.org">XSLT spec</a w3.org> as a reference; it&#8217;s more than sufficiently readable from a language user&#8217;s (as opposed to implementer&#8217;s) perspective for that purpose. (As is the <a href="http://www.w3.org/TR/xpath" title="w3.org">XPath spec</a w3.org>.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Way too much work</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-01-23T01:35:17</h3>
+<p>Ugh, even a multitude of previewings did not protect me from submitting the comment with a whole bunch of small grammatical and spelling mistakes. &#8220;It&#8217;s value?&#8221; Argh. My face is melting off. I&#8217;m not stupid &#8211; I swear!</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Way too much work</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2008-02-11T19:44:40</h3>
+Huh, the order of templates is not supposed to matter, but if I switch the order of the templates above, then it doesn't work anymore. If you change the "*" template to "//*", then it works again. Which probably explains why I had "//*" in my first template.
+Code:<p><blockquote> <div><tt>#!/usr/bin/perl<br> <br>use strict;<br>use warnings;<br> <br>use XML::LibXML;<br>use XML::LibXSLT;<br> <br>my $parser = XML::LibXML-&gt;new();<br>my $xslt = XML::LibXSLT-&gt;new();<br> <br>my $source = $parser-&gt;parse_string(&lt;&lt;'EOT');<br>&lt;?xml version="1.0" encoding="UTF-8"?&gt;<br>&lt;FOO&gt;<br>&lt;A NAME="a" FOO="c"/&gt;<br>&lt;B NAME="a" FOO="c"/&gt;<br>&lt;C NAME="a" FOO="c"/&gt;<br>&lt;D NAME="b" FOO="c"/&gt;<br>&lt;A NAME="b" FOO="b"/&gt;<br>&lt;B NAME="b" FOO="b"/&gt;<br>&lt;C NAME="b" FOO="b"/&gt;<br>&lt;D NAME="a" FOO="b"/&gt;<br>&lt;A NAME="c" FOO="a"/&gt;<br>&lt;B NAME="c" FOO="a"/&gt;<br>&lt;C NAME="c" FOO="a"/&gt;<br>&lt;D NAME="c" FOO="a"/&gt;<br>&lt;/FOO&gt;<br>EOT<br> <br>my $style_doc = $parser-&gt;parse_string(&lt;&lt;'EOT');<br>&lt;?xml version="1.0" encoding="ISO-8859-1"?&gt;<br> <br>&lt;xsl:stylesheet<br>&nbsp; &nbsp; xmlns:xsl="http://www.w3.org/1999/XSL/Transform"<br>&nbsp; &nbsp; version="1.0"<br>&gt;<br> <br>&lt;xsl:output<br>&nbsp; &nbsp; method="xml"<br>&nbsp; &nbsp; encoding="iso-8859-1"<br>&nbsp; &nbsp; indent="yes"<br>&nbsp; &nbsp; omit-xml-declaration="no"<br>/&gt;<br> <br>&lt;xsl:template match="//*"&gt;<br>&nbsp; &lt;xsl:copy&gt;<br> <br>&nbsp; &nbsp; &lt;xsl:apply-templates select="@*"/&gt;<br> <br>&nbsp; &nbsp; &lt;xsl:apply-templates select="*"&gt;<br>&nbsp; &nbsp; &nbsp; &lt;xsl:sort select="name()"/&gt;<br>&nbsp; &nbsp; &nbsp; &lt;xsl:sort select="<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; self::*[not(self::D)]/@NAME<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; | self::D/@FOO<br>&nbsp; &nbsp; &nbsp; "/&gt;<br>&nbsp; &nbsp; &nbsp; &lt;xsl:sort select="self::E/@FOO"/&gt;<br>&nbsp; &nbsp; &lt;/xsl:apply-templates&gt;<br> <br>&nbsp; &lt;/xsl:copy&gt;<br>&lt;/xsl:template&gt;<br> <br>&lt;xsl:template match="node()|@*"&gt;<br>&nbsp; &lt;xsl:copy&gt;<br>&nbsp; &nbsp; &lt;xsl:apply-templates select="@*|node()"/&gt;<br>&nbsp; &lt;/xsl:copy&gt;<br>&lt;/xsl:template&gt;<br> <br>&lt;/xsl:stylesheet&gt;<br> <br>EOT<br> <br>my $stylesheet = $xslt-&gt;parse_stylesheet($style_doc);<br> <br>my $results = $stylesheet-&gt;transform($source);<br> <br>print $stylesheet-&gt;output_string($results);</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Way too much work</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2008-02-11T20:03:36</h3>
+Aha...from <a href="http://www.w3.org/TR/xslt" title="w3.org">the docs</a w3.org>:<p><blockquote><div>It is an error if this leaves more than one match. An XSLT processor may signal the error; if it does not signal the error, it must recover by choosing, from amongst the matches that are left, the one that occurs last in the stylesheet.</div></blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Way too much work</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2008-02-11T20:04:37</h3>
+So it would probably be better to put an explicit priority on the "*" template.
+
+
+
+<blockquote>
+
+<h2>Re:Way too much work</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-02-11T21:47:19</h3>
+<p>Or use something more restrictive than <code>node()</code> in the identity transform to avoid matching elements, eliminating the conflict in the first place. The types a node can have are element, text, comment and processing instruction. Matching any node <em>except</em> elements therefore translates to XPath as &#8220;<code>text()|comment()|processing-instruction()</code>&#8221;. Another, possibly better way to write that (certainly a shorter one) is &#8220;<code>node()[not(self::*)]</code>&#8221;. (The predicate &#8220;<code>[]</code>&#8221; constrains the <code>node()</code> to match only when <code>*</code> would <code>not()</code> match the current node of that step, <code>self::</code>.)</p>
+
+<p>Messing with priorities directly is often bad maintainability juju. If you have a lot of possible matches, conflicts resolution will be complex and will occasionally produce surprising interactions that can be hair-tearingly hard to fix. Reducing the number of candidate templates is almost always preferable over coercing the matcher into resolving to the right one.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

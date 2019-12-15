@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Aristotle: Repairing broken documents that mix UTF-8 and ISO-8859-1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Repairing broken documents that mix UTF-8 and ISO-8859-1</h1>
+<h2><a href="/user/Aristotle/">Aristotle</a> on 2006-04-06T19:54:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>A perpetual (if thankfully not too frequent) problem on the web are documents claiming to be encoded in either <abbr title="Unicode Transformation Format">UTF</abbr>-8 or <abbr title="International Standards Organisation">ISO</abbr>-8859-1, but containing characters encoded according to the respective other charset. Such documents will display incorrectly, regardless of which way you look at them. Worse, if the document in question is <abbr title="Extensible Markup Language">XML</abbr> (such as, say, a newsfeed) and claims to be encoded in <abbr title="Unicode Transformation Format">UTF</abbr>-8, upset ensues that leads the <abbr title="Extensible Markup Language">XML</abbr> parser to <i>halt and catch fire</i> as soon as it encounters the first invalid byte.</p>
+
+<p>How does it know? It does because <abbr title="Unicode Transformation Format">UTF</abbr>-8 has a very specific way of encoding non-<abbr title="American Standard Code for Information Interchange">ASCII</abbr> characters. Encoding non-<abbr title="American Standard Code for Information Interchange">ASCII</abbr> characters according to <abbr title="International Standards Organisation">ISO</abbr>-8859-1 violates this scheme, so their presence is detectable with a very high degree of confidence.</p>
+
+<p>Of course, this can just as soon be used to good advantage. If you start with the working assumption that the primary encoding of a confusedly encoded document is <abbr title="Unicode Transformation Format">UTF</abbr>-8, and merely decode and re-encode the byte stream, you can salvage misencoded data by catching any character decoding errors and decoding the offending invalid bytes as <abbr title="International Standards Organisation">ISO</abbr>-8859-1.</p>
+
+<p>HereÃ¢â¬â¢s a Perl script, cleverly called <code>repair-utf8</code>, which implements this approach:</p>
+
+<pre>#!/usr/bin/perl
+use strict;
+use warnings;
+
+use Encode qw( decode FB_QUIET );
+
+binmode STDIN, ':bytes';
+binmode STDOUT, ':utf8';
+
+my $out;
+
+while( <> ) {
+	$out = '';
+	while( length ){
+		$out .= decode( "utf-8", $_, FB_QUIET );
+		$out .= decode( "iso-8859-1", substr( $_, 0, 1 ), FB_QUIET ) if length;
+	}
+	print $out;
+}</pre>
+
+<p>The only non-obvious bit to be aware of here is that when using the <a href="http://perldoc.perl.org/Encode.html#_CHECK_-=-Encode::FB_QUIET"><code>FB_QUIET</code></a> fallback mode, <a href="http://perldoc.perl.org/Encode.html">Encode</a> will remove any successfully processed data from the input buffer. The entire script revolves around this behaviour. After the first <code>decode</code>, <code>$_</code> will be empty if it was successfully decoded. If not, the successfully decoded part at the start of <code>$_</code> will be returned, and <code>$_</code> will be truncated from the front up to the offending byte. The second <code>decode</code> is then free to process that. The inner loop will keep running as long as any undecoded input is left, decoding it, if need be, one byte at a time as <abbr title="International Standards Organisation">ISO</abbr>-8859-1.</p></p>
+
+
+<hr/>
+
+
+
+<h2>or go for the jugular</h2>
+<h3><a href="/user/jhi/">jhi</a> on 2006-04-07T16:16:44</h3>
+<tt>s/(?&lt;![\xC2\xC3])([\x80-\xFF])/chr(0xC0|ord($1)&gt;&gt;6).chr(0x80|ord($1)&amp;0x3F)/eg; # If chars &gt; 0xFF extend appropriately.<br></tt>
+
+
+
+<blockquote>
+
+<h2>Re:or go for the jugular</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-04-07T21:24:41</h3>
+<p>Yeah, that&#8217;s an option. Not sure your regex is reliable enough; I think some invalid sequences can slip through that, which is no good. I&#8217;m also unsure that Latin-1 codepoints correspond 1:1 to Unicode codepoints. But yeah, I get your point.</p>
+
+<p>It would just take a lot of concentrated effort to ensure 100% correctness when taking that route, and I couldn&#8217;t be bothered with the bitfiddle this time (unlike that other time when I wrote <a href="http://plasmasturm.org/log/386/" title="plasmasturm.org">codepoint-to-UTF-8 math in XPath within XSLT</a plasmasturm.org> of all things). That code up there took 3 minutes to write once I found the right fallback in the Encode docs, and I know it&#8217;s correct.</p>
+
+<p>But I might do it the hard way anyway at some other time.</p>
+
+
+
+<blockquote>
+
+<h2>Re:or go for the jugular</h2>
+<h3><a href="/user/jhi/">jhi</a> on 2006-04-08T07:22:52</h3>
+: Not sure your regex is reliable enough; I think some invalid sequences can slip through that, which is no good.<br><br>My regex replaces high-bit-set bytes that cannot be the trailing bytes of validly UTF-8 encoded Latin-1 high-bit-bytes with their UTF-8 bytes.  What is invalid and what is not depends on your definition: is this<br><br>0xC3 0xBF<br><br>meant to be interpreted as a valid UTF-8 encoding of the one character U+00FF<br><br>LATIN SMALL LETTER Y WITH DIAERESIS<br><br>or as two characters<br><br>LATIN CAPITAL LETTER A WITH TILDE (U+00C3 == 0xC3)<br><br>followed by<br><br>INVERTED QUESTION MARK (U+00BF == 0xBF)<br><br>In other words, which interpretation gets to go first.<br><br>Note that UTF-8 was purposefully engineered so that legal UTF-8 is highly unlikely (based on statistical sampling of existing legacy 8-bit texts) to be valid/sensible legacy 8-bit text.<br><br>Since your input data is essentially corrupt (it is full of invalid UTF-8 sequences) you are going to end up with a best guess strategy which ever way you choose to go.<br><br>If you might have also code points beyond U+00FF in your data, then I fully recommend the Encode way, the regex grows too cumbersome, or at least too ugly.  This depends on whether your users have figured out how to input those fancy characters<nobr> <wbr></nobr>:-)<br><br>: I&#8217;m also unsure that Latin-1 codepoints correspond 1:1 to Unicode codepoints.<br><br>Latin-1 codepoints 0x00..0xff do correspond to Unicode codepoints U+0000..U+00FF 1:1, 100%, completely, fully, without doubt.<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:or go for the jugular</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-04-08T12:48:26</h3>
+<blockquote> <div><p>If you might have also code points beyond U+00FF in your data, then I fully recommend the Encode way, the regex grows too cumbersome, or at least too ugly. This depends on whether your users have figured out how to input those fancy characters<nobr> <wbr></nobr>:-)</p></div> </blockquote>
+
+<p>Ah, so that&#8217;s the assumption in your regex that I was vaguely aware of. Indeed, I cannot ignore codepoints beyond <code>U+00FF</code>. In particular, Unicode curly quotes (<code>U+2019</code>, <code>U+201C</code>, <code>U+201D</code>) and en- and em-dashes (<code>U+2013</code>, <code>U+2014</code>) are ubiquitous (and not at all hard for users to type), so I must assume that my UTF-8 data will contain many more high-bit-set byte values than just <code>0xC2</code>/<code>0xC3</code> that are still part of valid multibute sequences.</p>
+
+<p>As for your other question:</p>
+
+<blockquote> <div><p>is 0xC3 0xBF meant to be interpreted as a valid UTF-8 encoding of the one character U+00FF or as two characters U+00C3 followed by U+00BF</p></div> </blockquote>
+
+<p>It is to be interpreted as the UTF-8 encoding of <code>U+00FF</code>, as implied by my saying that the working assumption is that the primary encoding is UTF-8. In fact, this is the only way around which makes sense, because there are no invalid Latin-1-encoded sequences. You must assume UTF-8 so that you can actually have invalid sequences &#8211; of which you then conclude that they must be Latin-1 bytes.</p>
+
+<p>That&#8217;s the entire point of my post, actually.</p>
+
+<p>I&#8217;ve not tested the algorithm very widely so far, but so far it has been very accurate with whatever data I&#8217;ve thrown at it.</p>
+
+<blockquote> <div><p>Note that UTF-8 was purposefully engineered so that legal UTF-8 is highly unlikely (based on statistical sampling of existing legacy 8-bit texts) to be valid/sensible legacy 8-bit text.</p></div> </blockquote>
+
+<p>Oh, I know. It&#8217;s a marvel of design. Variable-width encodings suffer some inherent suckage, but UTF-8 pays this price in return for huge gains. It&#8217;s astonishingly clever and beautiful.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

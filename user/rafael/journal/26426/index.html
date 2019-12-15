@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rafael: Shakti, a Perl 6 bot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Shakti, a Perl 6 bot</h1>
+<h2><a href="/user/rafael/">rafael</a> on 2005-08-23T07:49:12</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Hmm, so, I wrote a very simple IRC bot in Perl 6 yesterday evening. It's a karmabot -- it implements the foo++ and bar-- commands that are familiar to purl's friends. Currently found as shakti on #mandrivafr on freenode. (Yes, karma, shakti, all that kind of stuff, we wanted to find a female sanskrit name.)
+<p />Here's the code, derived from examples/network/bot_irc.p6 in the pugs sources. Suggestions to make it more perl6ish welcome!
+<pre>
+#!/usr/bin/pugs<br/><br/>use v6;<br/><br/>my $nick = "shakti";
+my $server = "irc.freenode.net";
+my $chan = "#mandrivafr";
+my %karma;
+my %sux = (
+    php => 1,
+    python => 1,
+);
+my %rulz = (
+    perl => 1,
+    perl6 => 1,
+);
+my $karmafile = '/tmp/shakti.dump';<br/><br/>sub dump_karma {
+    my $fh = open($karmafile, :w) err say "Can't open $karmafile";
+    $fh.say("$_:%karma{$_}") for keys %karma;
+    $fh.close;
+}<br/><br/># load karma
+my $fh = open $karmafile err die "Can't load $karmafile";
+for =$fh {
+    $_ .= chomp;
+    my ($k, $v) = split ":", $_;
+    %karma{$k} = $v;
+}
+$fh.close;<br/><br/>my $hdl = connect($server, 6667);<br/><br/>say "Connected to $server";<br/><br/>$hdl.say("NICK $nick\nUSER $nick $nick $nick $nick");
+$hdl.flush;<br/><br/># discard first line
+my $ligne = readline($hdl);<br/><br/>$hdl.say("JOIN $chan");
+$hdl.flush;<br/><br/>say "Joined $chan";<br/><br/>while $ligne = =$hdl {<br/><br/>    $ligne .= chomp;<br/><br/>    given $ligne {<br/><br/>        when rx:perl5/^PING/ {
+            $hdl.say("PONG $nick");
+            $hdl.flush;
+        }<br/><br/>        when rx:perl5/^:(.*?)!.*? PRIVMSG $chan (.*)/ {
+            my $nick = $0;
+            my $msg = $1;
+            given $msg {
+                when rx:perl5/(\w+)\+\+/ {
+                    if $nick eq $0 {
+                        $hdl.say("PRIVMSG $chan :$nick: you can't up your own karma!");
+                    }
+                    else {
+                        %karma{lc $0}++;
+                        say "increment $0";
+                        dump_karma();
+                    }
+                }
+                when rx:perl5/(\w+)--/ {
+                    %karma{lc $0}--;
+                    say "decrement $0";
+                    dump_karma();
+                }
+                when rx:perl5/\bkarma\s+(\w+)/ {
+                    if $0 eq "shakti" {
+                        $hdl.say("PRIVMSG $chan :I have infinite karma");
+                    }
+                    elsif %sux{lc $0} {
+                        $hdl.say("PRIVMSG $chan :$0 has very, very bad karma");
+                    }
+                    elsif %rulz{lc $0} {
+                        $hdl.say("PRIVMSG $chan :$0 has infinite karma");
+                    }
+                    elsif %karma{lc $0} {
+                        $hdl.say("PRIVMSG $chan :$0 has karma of " ~ %karma{lc $0});
+                    }
+                    else {
+                        $hdl.say("PRIVMSG $chan :$0 has neutral karma");
+                    }
+                    $hdl.flush;
+                }
+            }
+        }<br/><br/>    };<br/><br/>}</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Very readable</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2005-08-23T08:55:25</h3>
+That's quite nice, to my untrained perl5 eyes. The only thing that gives me slight difficulties is seeing ".= chomp".  I'm guessing that dot is the method call operator and the line means assign the result of chomp back to $_?
+
+<p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Very readable</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2005-08-23T09:57:53</h3>
+That's right. I like this idiom. Maybe it looks perl5ish because my brain is still perl5ish, but in general I find perl 6 code to be quite readable.
+<p>Meanwhile, I was pointed out a few obvious mistakes; like two variables named $nick.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Hashes</h2>
+<h3><a href="/user/Smylers/">Smylers</a> on 2005-08-23T10:29:34</h3>
+<p>I think you can use the named option syntax to more concisely initialize hashes where you want the values to be true:</p> <blockquote> <div><tt>my %sux = (<br>&nbsp; &nbsp;<nobr> <wbr></nobr>:php<br>&nbsp; &nbsp;<nobr> <wbr></nobr>:python<br>);</tt></div> </blockquote> <p>I can't remember whether commas are needed, but I think not.</p>
+
+<p>Also, there's probably a better way of iterating through a hash's keys and values together, though I'm not sure it'll work with the statement modifier variant of <code>for</code> that you're using.</p>
+
+<p>Smylers</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

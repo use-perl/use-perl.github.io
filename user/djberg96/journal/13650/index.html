@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of djberg96: Ruby response to perl.com article on overloading</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Ruby response to perl.com article on overloading</h1>
+<h2><a href="/user/djberg96/">djberg96</a> on 2003-07-23T22:08:21</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This is a journal entry about Ruby and it's kinda long, so move along now if you aren't interested.
+<P>
+Specifically, this is a response to Dave Cross' article "Overloading" on perl.com, a problem I have with Dave's code and how Ruby is just better at OO.  You've been warned twice now.  Hopefully I won't get kicked off of use.perl or anything...
+<P>
+My first *major* issue is with the fact that Dave returns <CODE>undef</CODE> in the event of a failure when creating a new <CODE>Fraction</CODE> object (except in one case, where it croaks).  Why not <CODE>croak</CODE> on the spot for all failures?  Dave's approach could cause great confusion, forcing me to track down "can't call method on 'undef'" error messages later on.  I won't be able to tell right  away if the constructor failed or if the <CODE>Fraction</CODE> object was undef'd somewhere later on accidentally.  Why not at least give me the chance to wrap the constructor in an eval so I can trap that error if I'm so inclinded?  As it is I'll probably be stepping into the debugger at some point, or I'll be forced to write extra tests to account for this possibility.  Blech.
+<P>
+Ok, on to a Ruby version of the code.  Let's start with the base class:
+<P>
+<ECODE>
+# Note that the '@' can be replaced with 'self' if you prefer
+# normalise() method skipped since it wasn't actually provided in the article
+class Fraction
+   attr_reader :num, :den
+   def initialize(num=nil,den=nil)
+      if num && den
+         unless num.kind_of?(Fixnum) && den.kind_of?(Fixnum)
+            raise TypeError, "two-argument form accepts Fixnum's only"
+         end
+         @num = num
+         @den = den
+      elsif num && den.nil?
+         unless num.kind_of?(Fraction)
+            raise TypeError, "one-argument form accepts Fraction type only"
+         end
+         @num = num.num
+         @den = num.den
+      else
+         @num = 0
+         @den = 1
+      end
+   end
+end
+</ECODE>
+First, this just *looks* cleaner, mkay?  Specifically, I'm using actual parameter names in the constructor instead of $_[0] and $_[1], plus the -&gt;{x}, "ref", and <CODE>UNIVERSAL::isa</CODE> syntax is an eyesore IMO.  In addition, it's slightly less code.
+<P>
+Second, while I can't declare a type for the parameters (hey, this ain't Java, ok? - but see below), I can give them a name and a default value.  This provides an extra advantage over the Perl equivalent in that I can never pass more than two arguments without causing an error.
+<P>
+Third, because everything in Ruby is an object, and all objects have a type, we can use the kind_of? method to test the actual type of each argument rather than resorting to regular expressions, which is clunky. It works in Dave's code, but in general I think that approach is prone to error.
+<P>
+On to the overloading.  Dave provides an "add" method, then overloads the "+" operator.  Here's the Ruby equivalent:
+<ECODE>
+def +(n)
+   if n.kind_of?(Fraction)
+      num = (@num * n.den) + (n.num * @den)
+      den = @den * n.den
+      return Fraction.new(num,den)
+   elsif n.kind_of?(Fixnum) # Single digit
+      return self + Fraction.new(n,1)
+   elsif n =~ /(\d+)\/(\d+)/
+      return self + Fraction.new($1.to_i,$2.to_i)
+   else
+      raise ArgumentError, "Can't add a " + n.class.to_s + " to a Fraction"
+   end
+end
+alias add +
+</ECODE>
+No special keywords required and about half the code.  Just define the "+" method as you see fit.  This also has the added advantage of causing an error if you try to pass more than one argument, while Dave's version silently ignores extra arguments contained within @_.  To be fair, though, almost no one checks the argument length to methods in Perl (including me) because it's so rarely an issue.
+<P>
+While Ruby doesn't include any built-in mechanism for overloading, there *is* a package on the RAA called "overload" (go figure) written by Nobu Nakada that allows you to achieve the same effect.  Consider:
+<P>
+<ECODE>
+# Java weenies take note
+require "overload"
+class Fraction
+   def initialize
+      # ...
+   end
+   overload(:initialize)<br/><br/>   def initialize(x)
+      # ...
+   end
+   overload(:initialize,Fraction)<br/><br/>   def initialize(x,y)
+      # ...
+   end
+   overload(:initialize,Fixnum,Fixnum)
+end<br/><br/># Now I can do this ...<br/><br/>a = Fraction.new
+b = Fraction.new(a)
+c = Fraction.new(1,2)<br/><br/># ... and Ruby will call the appropriate constructor
+</ECODE>
+The best of all worlds.
+<P>
+There.  My Ruby proselytizing is done for the day.  Don't kill me.</p>
+
+
+<hr/>
+
+
+
+<h2>Hmmm</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2003-07-24T08:40:07</h3>
+Surely:<br> <br> <code> <br>class Fraction<br> <br>
+&nbsp; &nbsp; def +(n)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return n.add_fraction(self)<br>
+&nbsp; &nbsp; end<br> <br>
+&nbsp; &nbsp; def add_fraction(n)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return Fraction.new((@num * n.den) + (n.num * @den),<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; @den * n.den)<br>
+&nbsp; &nbsp; end<br> <br>
+&nbsp; &nbsp; def add_string(str)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; str =~<nobr> <wbr></nobr>/(\d+)\/(\d+)/ or<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; raise ArgumentError "Can't add '" + str + "' to " +<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; self.to_str + ": Badly formed string"<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return Fraction.new($1.to_i, $2.to_i)<br>
+&nbsp; &nbsp; end<br> <br>
+&nbsp; &nbsp; def add_fixnum(n)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return self + Fraction.new(n.to_i, 1)<br>
+&nbsp; &nbsp; end<br>end<br> <br>class Fixnum<br>
+&nbsp; &nbsp; def add_fraction(n)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; n.add_fixnum(self)<br>
+&nbsp; &nbsp; end<br>end<br> <br>class String<br>
+&nbsp; &nbsp; def add_fraction(n)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; n.add_string(self)<br>
+&nbsp; &nbsp; end<br>end<br> <br>class Object<br>
+&nbsp; &nbsp; def add_fraction(n)<br>
+&nbsp; &nbsp; &nbsp; &nbsp; raise ArgumentError, "Can't add a " + self.class.to_s + " to a Fraction"<br>
+&nbsp; &nbsp; end<br>end<br> </code> <br>is rather better Ruby.style
+
+
+
+<blockquote>
+
+<h2>Re:Hmmm</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2003-07-24T15:31:25</h3>
+Hmm..probably.  Perhaps I was being too faithful to Dave's code (someone else on IRC already said something similar).  In Ruby, as in Perl, TMTOWTDI.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Returning &quot;undef&quot; vs croaking</h2>
+<h3><a href="/user/davorg/">davorg</a> on 2003-07-24T10:27:53</h3>
+<blockquote><div> <i>My first *major* issue is with the fact that Dave returns undef in the event of a failure when creating a new Fraction object (except in one case, where it croaks).</i> </div></blockquote>
+
+<p>Actually, returning "undef" from the constructor is a vital part of the way the module works when it comes to constant overloading. It's the one instance of using "croak" that is a bug.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

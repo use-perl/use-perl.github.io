@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of tsee: AutoXS.pm: A learning experiment in XS and perlapi</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>AutoXS.pm: A learning experiment in XS and perlapi</h1>
+<h2><a href="/user/tsee/">tsee</a> on 2008-04-01T19:32:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+I'm a relatively long-time reader of the perl5-porters mailing list. Somewhat recently
+Nicholas Clark posed a few small challenges intended to draw more people into the Perl
+core development. I thought it was a great idea, but couldn't follow up on it at the
+time. I said I liked the concept on the #p5p IRC channel and so I thought I should learn
+a bit more about the Perl core and XS. While not the same, I presume that having strong knowledge about
+the XS/Perl API would be a jump start to understanding the core.
+</p><p>
+Skip ahead a few weeks. I have since submitted my thesis, went on vacation, and started a new job. But
+still no progress on my plan to learn XS. Until yesterday. I was idly playing with the
+<a href="http://search.cpan.org/user/rgarcia/perl-5.10.0/ext/B/B.pm">B</a> and 
+<a href="http://search.cpan.org/dist/B-Utils">B::Utils</a> modules when I had a pretty good idea
+for an interesting learning and experimentation project: <a href="http://search.cpan.org/dist/AutoXS">AutoXS</a>.
+</p><p>
+
+Essentially, the idea started out with using B to scan a running Perl program for subroutines or methods
+of a particular type. Typically, the simplest and most recurring methods are accessors for hash-based objects.
+(Just search CPAN for accessor-generators...) The next step is to replace the identified objects with
+precompiled XSUBs that accomplish the same task but having been written in C, doing so faster.
+</p><p>
+
+For simple accessors, that seems like a simple enough task at first: Write the XS code to access a value
+in a hash reference which is stored on the stack. Apart from the fact that it took me surprisingly long
+and a lot of patient help from the friendly people on #p5p to get the XS right (thanks!),
+this may seem like a simple enough task at first. But where's the hash key coming from? You can't expect the
+user to pass it in as an argument because that's beside the point. You can't know the key name at XS compile time
+because that's when the module's built. You currently cannot find the package and name using which the
+current method/subroutine was called either. So what's the answer? Something like currying. I don't think I need
+to explain to anyone what that is. But maybe I should mention that it's in C, not Haskell or Perl. C doesn't have
+currying.
+</p><p>
+
+The solution took some time in coming. The XS <i>ALIAS</i> keyword allows for compile time aliases to
+a single XSUB. The aliases can be distinguished from within the XSUB by means of an int variable whose
+value can be associated with the aliases. (Bad explanation, I guess, have a look at perlxs for a better one.)
+This doesn't get us all the way to currying, though. I had a look at the generated C code and realized that
+I could just write similar code on my own and assign new values of that magical integer to each new alias
+of the accessor prototype at run time (CHECK time, really, but run time would work, too). Then, all that
+was left to do was to put the hash key for the new alias into an array indexed with said numbers.
+Voila - fake currying for that XSUB.
+</p><p>
+
+By now, it all actually works. The scanner indentifies <a href="http://search.cpan.org/user/smueller/AutoXS-0.01/lib/AutoXS/Accessor.pm#RECOGNIZED_ACCESSORS">quite a few typical read-only accessors</a>. The XSUBs
+are, according to my crude measurements, between 1.6 and 2.5 times faster than the original accessors.
+If you're calling those accessor methods in a tight loop, that might actually make a bit of a difference.
+I wrapped it up in a module, <a href="http://search.cpan.org/dist/AutoXS">AutoXS</a>, and gave it the
+best interface ever. That is, none. You just say
+</p>
+
+  <code>use AutoXS::Accessor;</code>
+<p>
+to get the accessor scan for all methods in the current package. More seriously, one could let the user
+flag eligible methods or even apply the scan globally. But that's not the point. It's just kind of fun
+that it works <i>at all</i>.
+</p><p>
+Cheers,<br/>
+Steffen</p>
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>Another one to look at</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-04-02T00:07:30</h3>
+A second class you should look at Auto-XS'ifying is constants.<br><br>Something like sub { 1 } turns into dramatically faster XS.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Another one to look at</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2008-04-02T07:43:13</h3>
+That should be happening anyway, right? Perhaps only if you write sub () {1}.<br><br>The next thing I might tackle is setters. However, since those come in a much wider variety than getters, it'll take some better matching tools than what we have now in B::Utils. Just look at the code of AutoXS::Accessor for a sample of what kind of cruft I produced.<br><br>So as a yak shaving exercise, I'd like to write two routines: One that produces a pattern/condition structure for B::Util's opgrep() from an existing op tree and one that, given two such patterns, does an alternation of them. This is already there as op_or(), but what I'd want it to do is merge as much of the structures as possible:<br><br><code><br>
+&nbsp; op_or(<br>
+&nbsp; &nbsp; { name =&gt; 'foo', first =&gt; { name =&gt; 'bar' } }<br>
+&nbsp; &nbsp; { name =&gt; 'foo', first =&gt; { name =&gt; 'baz' } }<br>
+&nbsp; )<br></code><br><br>currently becomes<br><br><code><br>
+&nbsp; {<br>
+&nbsp; &nbsp; &nbsp; disjunction =&gt; [<br>
+&nbsp; &nbsp; &nbsp; &nbsp; { name =&gt; 'foo', first =&gt; { name =&gt; 'bar' } }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; { name =&gt; 'foo', first =&gt; { name =&gt; 'baz' } }<br>
+&nbsp; }<br></code><br><br>whereas it should be in an ideal world:<br><br><code><br>
+&nbsp; {<br>
+&nbsp; &nbsp; &nbsp; name =&gt; 'foo',<br>
+&nbsp; &nbsp; &nbsp; first =&gt; {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; disjunction =&gt; [<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; { name =&gt; 'bar' },<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; { name =&gt; 'baz' }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ],<br>
+&nbsp; &nbsp; &nbsp; }<br>
+&nbsp; }<br></code><br><br>Or, even better:<br><br><code><br>
+&nbsp; {<br>
+&nbsp; &nbsp; &nbsp; name =&gt; 'foo',<br>
+&nbsp; &nbsp; &nbsp; first =&gt; { name =&gt; ['bar', 'baz'] }<br>
+&nbsp; }<br></code><br><br>But then again, I'm probably not going to have time to do any of this any time soon. My XS learning time is spent for now and I have to get back to work and - Yay - my first teaching assignment.
+
+
+
+<blockquote>
+
+<h2>Re:Another one to look at</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-04-02T08:57:46</h3>
+sub () { 1 } gets you part of the way.<br><br>But the XS version is even faster again.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Another one to look at</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-04-02T09:11:56</h3>
+<p>How can a sub call be faster than compile-time constant folding?</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Another one to look at</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2008-04-02T15:56:51</h3>
+I just wrote the code to produce opgrep patterns from op trees (I.e. B::OP objects). Expect B::Utils 0.05_06 on CPAN soonish.<br><br>Oh, and there is a typo in my last comment. The second code snippet is missing a closing ]. Sorry about that.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Class::Accessor::Classy and/or Moose</h2>
+<h3><a href="/user/Eric Wilhelm/">Eric Wilhelm</a> on 2008-04-02T17:49:39</h3>
+This would be pretty awesome in something like Moose or Class::Accessor::Classy.<br><br>I would rather see it work declaratively instead of scanning for candidates (that seems like a separate tool.)<br><br>I'm also sort of envisioning an optimizing build process (which would eliminate any latency in compiling during development -- something that always bugs me about Inline.)
+
+
+
+<blockquote>
+
+<h2>Re:Class::Accessor::Classy and/or Moose</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2008-04-02T19:18:38</h3>
+You're right, of course. The code is really two quite separate parts: The B-based scanner which identifies targets and the XS/ALIAS hack which instantiates a new "curried" alias to the XSUB accessor. It should be simple to let the user explicitly flag subs for replacement instead of scanning. (Though the preposterous namespace choice doesn't make sense any more then.)<br><br>Actually, it would be even simpler to have a module and interface:<br><br><code><br>use Class::Accessor::XS::I::Am::Sure::That::Namespace::Is::Taken<br>
+&nbsp; &nbsp; get_foo =&gt; 'foo',<br>
+&nbsp; &nbsp; get_some_property =&gt; 'propertyname_aka_hashkey',<br>;<br></code><br><br>The code is there. One would just have to write the import() sub.<br><br>Perhaps I'll do that and just use it in AutoXS::Accessor with a replace_existing_subs_yes_I_fucking_mean_it =&gt; 1 option.<nobr> <wbr></nobr>:)<br><br>Other takers welcome, no question.<br>
+
+
+
+<h2>Re:Class::Accessor::Classy and/or Moose</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2008-04-03T15:00:50</h3>
+I just uploaded <a href="http://search.cpan.org/dist/Class-XSAccessor" title="cpan.org">Class::XSAccessor</a cpan.org> to PAUSE. It contains the code to install the fast XS accessors into user packages. It also supports setters.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

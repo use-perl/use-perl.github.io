@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jdavidb: Let's defeat purpose of transaction processing, shall we?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Let's defeat purpose of transaction processing, shall we?</h1>
+<h2><a href="/user/jdavidb/">jdavidb</a> on 2005-12-14T20:21:48</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>So you load a 10000 record file.  On record 9990, an error is detected.  Thankfully, Oracle throws an exception, and all your work is rolled back.  Otherwise, you'd have a real dickens of a time starting over when you need to reload the same file.</p>
+
+<p>Except that your DBA just called you, as mine did, and said, "You're affecting performance by not committing frequently!  You need to commit every 1000 records or so!"  That's great, but the purpose of transaction processing is so that all my records can go in as a <i>unit</i>.  I want them all to go in at once, or not at all.</p>
+
+<p>This is not the database I regularly work on, nor the DBA I regularly work with.  As a matter of fact, the real problem to me seems to be that this database is extraordinarily <i>slow</i>.  The regular database I work on would load all 10000 records in a heartbeat and not even shrug.  Over there, loading 24 hours worth of data took 24 hours.  On this database instance, loading 24 hours worth of data seems to take over 24 hours...</p>
+
+<p>So what do I do?  If I commit before the transaction is done, I lose the whole point of transaction processing.  Isn't the database supposed to handle this kind of crap on its own?  How do I appease the DBA without losing the fundamental point of why I need it to work this way?</p></p>
+
+
+<hr/>
+
+
+
+<h2>Suggestion</h2>
+<h3><a href="/user/cog/">cog</a> on 2005-12-14T22:15:02</h3>
+<i>So what do I do?</i><br><br>Er... can't you split your 10000 records in, say, 10 chunks of 1000 records each, and insert them separately?<br><br>I've seen people having the very same problem and solving it that way...<br><br>Or am I missing something?
+
+
+
+<h2>re Let's defeat purpose of transaction processing</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2005-12-14T22:27:00</h3>
+PLAN A - Do what is natural in the business logc.  Many a bulk file load does not have transactional nature at the business-logic level -- any one record could be cancelled separately.  And sometime the <b>whole</b> file <i>is</i> a transaction to the business too.  Some of my feeds it is required we reject the whole file if any record rejects, but others it is required we accept the rest of the records; I would claim the natural "transaction scope" for loading those files is different.
+
+<p>However, business logic / natural and operational efficiency are different. Having each file restartable is quite desirable at an operations level.  But having no pending transaction grow too large is a very real operational issue for the DBAs.  Your debate with the DBA is strictly in operational space; even if there was a natural business answer, the operational issues might trump it anyway.  This is however a solvable conundrum.
+
+</p><p>PLAN B -- Well, maybe you could use Perl or *nix <a href="http://www.google.com/search?q=split(1)+man" title="google.com">split(1)</a google.com> to split the input file into subfiles of 1k rec and process them in sequence, marking them <i>each</i> as completed when committed. Then if you need to restart, you can avoid the done ones and pickup at the 1000-line break to which the DB rolled-back.</p><blockquote> <div><tt>$ split --lines=1000 inputfile pieces.<br>$ ls piece*<br>pieces.aa pieces.ab pieces.ac pieces.ad pieces.ae<br>...<br># now process pieces.?? in sequence, commit each.<br>#&nbsp; = pieces.a[a-j] for your 10k records<nobr> <wbr></nobr>...</tt></div> </blockquote>This requires only wrapping your existing job with a splitter/re-sequencer script.
+
+<p>PLAN C -- Alternatively, you include in the transaction an update to a side table or the status table indicating the last file and line processed. Upon restart, that's where you resume. You probably already have a table listing files received with status<nobr> <wbr></nobr>... if so, you just need to add "Number of lines accepted" column, and update at each partial-file-commit point, not just at EOF.
+
+</p><p> This is somewhat more invasive, changing Schema and basic logic. But probably well worth it.
+
+</p><p>PLAN F -- The <b>obvious</b> answer of having the SQL avoid inserting records already in existence is of course so very very wrong, I hope I don't need to explain why.
+<br>(Hint: <i>speed and/or race conditions</i>)
+
+</p><p>Your instinct of asking the DBA why is DB can't handle a transaction of 10k records when other DBs can is of course a good question to ask. The DBA may have a good answer, though -- if the DBA is any good, they're paid to have a good answer to that question, one we outsiders do not <b>want</b> to have to understand. If the DB in question is optimized for On-Line usage, it may have internal structures that make queueing a huge transaction awkward. Or it may be running on junk hardware or an older rev of the DB or whatever. If there's a real answer, be prepared to fall back to plan B or plan C above (split).
+
+</p><p>If your business requires you to accept all valid records immediately and re-try only the invalids, you'd not rollback the invalid but commit all 999 good records in one batch and write the invalid 1 record to an exception file that could be reprocessed after repair. This is stored proc uglyness<nobr> <wbr></nobr>.. or a front end validation program.</p>
+
+
+
+<h2>__</h2>
+<h3><a href="/user/Abigail/">Abigail</a> on 2005-12-14T23:40:49</h3>
+Let's see, you have a transaction of a mere 10k rows, and the DBA comes complaining to you? Sound to me the DBA has a problem, not you. It should be you going to him saying that you try to insert 10k rows, and the database is really slow - asking him whether his database is badly configured.
+
+
+
+<blockquote>
+
+<h2>Re:__</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2005-12-15T15:48:23</h3>
+<p>Thanks.  I think in addition to the plans n1vux offered, I needed that validation to know I'm not being completely unreasonable.</p>
+
+<p>I did do some checking after my post and there are some 40K-record files I am loading.  But that's not even a difference of an order of magnitude.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

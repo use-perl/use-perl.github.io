@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of bart: Trying to compile CDB_File on Windows</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Trying to compile CDB_File on Windows</h1>
+<h2><a href="/user/bart/">bart</a> on 2006-02-23T11:47:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>With <a href="http://use.perl.org/user/Matts">Matts</a> talking about CDB_File, I took a look at what it was. It seems to me that it is a standalone XS module, so i took it as the next subject for my trials on compiling XS modules on PXPerl+MinGW. I don't even have an idea what the module is for... but it might prove useful, eventually.<br/><br/>I've had to tweak my environment a little, &mdash; well OK, a <em>lot</em>. This is why I despise working with C so much, but I'm planning on struggling my way through it at least once. The closest I finally got, was being left with 2 missing symbols: Perl_report_uninit, and fsync.<br/><br/>Well it appears I'm <a href="http://rt.cpan.org/Public/Bug/Display.html?id=2341">not the only one</a> with that problem. But other than that, Google doesn't really show me much.<br/><br/>The first problem is fsync(). I find it strange that CDB_File even tries to use fsync(), as Config.pm clearly indicates that $Config{d_fsync} is undefined, meaning, it's unavailable.<br/><br/>Some further poking around, and I found that Python <a href="http://mail.zope.org/pipermail/zodb-dev/2004-July/007689.html">maps fsync()</a> to <a href="http://msdn.microsoft.com/library/default.asp?url=/library/en-us/vclib/html/_crt__commit.asp">_commit</a>. Judging by fsync's manpage and the info on _commit, it appears to me that these functions even have the same parameters and the same outcome &mdash; I have no idea why they even have a different name. So, why doesn't Perl map fsync to _commit, too?<br/><br/>I'm still left with the Perl_report_uninit problem. Why that one isn't found, I don't know, as it clearly is Perl's problem. A grep shows this symbol is used in two header files, embed.h and proto.h, but it isn't actually defined anywhere. According to other copies I found on Internet, it <em>should</em> have been defined in embed.h, too, but apparently it isn't. Why not, I have no idea.</p>
+
+
+<hr/>
+
+
+
+<h2>report_uninit</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2006-02-23T23:41:31</h3>
+<blockquote><div>it clearly is Perl's problem</div></blockquote>
+<p>Naughty Matt. It's actually CDB_File's problem, because it's using a
+function that's not documented as part of Perl's API, and so isn't exported.
+Except, sadly, it seems you can't enforce that anywhere except Windows.</p>
+<p>I'm not convinced that use.perl is the best place for the discussions
+diagnosing bug reports. I think that you should use <code>perlbug</code> (or
+mail perl5-porters direct) to suggest using <code>_commit</code>, as the right
+people who understand Win32 stuff hang out there. I'm not sure where the best
+place is to discuss nailing down the linking issue.</p>
+
+
+
+<blockquote>
+
+<h2>Re:report_uninit</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2006-02-24T11:12:37</h3>
+This is one of the interesting features between Windows (COFF) vs Linux (ELF).  COFF treats each shared library as private by default, whereas ELF is one big global namespace.
+
+<p>I can't remember how MacOSX deals with this, but I recall that it's different yet again...
+
+</p><p>I strongly recommend reading <a href="http://linker.iecc.com/" title="iecc.com">Linkers &amp; Loaders</a iecc.com> for understanding all this, although as you can tell, it's been a while since I've read my copy...
+
+</p><p>-Dom</p>
+
+
+
+<h2>Re:report_uninit</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-02-24T17:35:35</h3>
+I'm just the maintainer - I promise I've been a good boy<nobr> <wbr></nobr>:-)<br><br>I'd be happy to apply any patches though.
+
+
+
+<blockquote>
+
+<h2>Re:report_uninit</h2>
+<h3><a href="/user/bart/">bart</a> on 2006-02-24T21:14:46</h3>
+When I get through the other problem, I'll test if it works (er, passes tests) with _commit() replacing fsync(). I'll let you know then. At a first look, I wouldn't see why not.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:report_uninit</h2>
+<h3><a href="/user/bart/">bart</a> on 2006-02-25T01:41:34</h3>
+The reason I'm not taking this to P5P is, frankly, that P5P scares me. I'm new at XS, I am actually just stumbling in the dark. So I'm hoping that if I make any blatant mistakes, maybe some friendly soul might correct me before I waste other people's valuable time. (If you smell just a hint of sarcasm, you'd be right.)<br><br>For P5P, you're expected to fully know what you're doing, preferably provide patches. I'm not a Perl Porter, I barely know how to work with these C tools, nor do I really like to do this kind of trenchwork.<br><br>I might poke some knowledgable people about how well my ideas fly, first, and perhaps <em>they</em> can take it to P5P.<br>
+
+
+
+<blockquote>
+
+<h2>Re:report_uninit</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-03-26T21:35:56</h3>
+<blockquote> <div><em>For P5P, you're expected to fully know what you're doing...</em></div> </blockquote>
+
+<p>I've never felt that way (and I still don't know what I'm doing).  I just try to show a reasonable effort and that seems to work fine.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

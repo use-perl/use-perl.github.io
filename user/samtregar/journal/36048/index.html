@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of samtregar: Sharing a DBI handle between Class::DBI and Rose::DB::Object</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Sharing a DBI handle between Class::DBI and Rose::DB::Object</h1>
+<h2><a href="/user/samtregar/">samtregar</a> on 2008-04-03T20:12:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>At my current job we've got a large existing code-base built on Class::DBI.  For my current project I decided to experiment with using Rose::DB::Object instead, hoping to see less need for hand-written SQL.  So far it's been a success, but one issue was quite difficult to get right - getting the two systems to share a DBI handle.  If I didn't do this then I was going to see a doubling of total DBI connections when I deployed my new app to the web cluster, which is unacceptable.
+<p>
+I started with the most obvious solution, an over-ridden init_db() in my Rose::DB::Object subclass:
+<p>
+<pre>sub init_db {
+    my ($pkg, @args) = @_;
+
+    My::Rose::DB->new_or_cached(dbh => My::Class::DBI->db_Main(), @args);
+}</pre>
+<p>
+That worked great at first - when Rose needs a DB connection it gets one pre-loaded with my Class::DBI handle.  (And as a side-note, the fact that the Class::DBI handle uses DBIx::ContextualFetch doesn't cause Rose problems.)
+<p>
+However, sometimes for unknown reasons Rose will decide it needs to reconnect after the initial connection is established.  To intercept these calls I added an overridden dbh() method to my Rose::DB sub-class:
+<p>
+<pre>
+sub dbh {
+    my $self = shift;
+    unless (@_) {
+        $self->{dbh} ||= My::Class::DBI->db_Main();
+    }
+    return $self->SUPER::dbh(@_);
+}
+</pre>
+<p>
+Another useful hint which helped me notice very quickly when Rose decided to reconnect - I gave Rose::DB an invalid password in my call to register_db.  That way Rose would have all the correct information about the connection, but wouldn't be able to initiate new connections.
+<p>
+I hope this helps other suffering Class::DBI users to give Rose a try!
+<p>
+-sam
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

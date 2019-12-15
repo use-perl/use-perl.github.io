@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ddick: x/platform mac address retrieval?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>x/platform mac address retrieval?</h1>
+<h2><a href="/user/ddick/">ddick</a> on 2007-07-26T06:28:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>How to get a mac address from linux/solaris/aix/hpux/MSWin32?<br/><br/>don't think this would be useful enough to send to cpan.org... but for future reference...<br/><br/><small><pre>
+#! /usr/bin/perl -w<br/><br/>use strict;
+use FileHandle();<br/><br/>MAIN: {
+  my ($macAddress);
+  if (($^O eq 'linux') || ($^O eq 'solaris') || ($^O eq 'hpux') || ($^O eq 'aix')) {<br/><br/>    $ENV{PATH} = '/sbin:/usr/sbin:/bin:/usr/bin';
+    delete @ENV{'IFS', 'CDPATH', 'ENV', 'BASH_ENV'};<br/><br/>    my ($ifconfig) = new FileHandle();
+    if (my $pid = $ifconfig->open('-|')) {
+      my ($buffer);
+      unless (defined $ifconfig->read($buffer, 8192)) {
+        die("Failed to read from ifconfig:$!");
+      }
+      if (($^O eq 'linux') || ($^O eq 'solaris')) {
+        # linux preceeded by HWaddr, solaris by ether
+        if ($buffer =~ /(?:HWaddr +|ether +)([0-9A-Fa-f]{1,2}):([0-9A-Fa-f]{1,2}):([0-9A-Fa-f]{1,2}):([0-9A-Fa-f]{1,2}):([0-9A-Fa-f]{1,2}):([0-9A-Fa-f]{1,2})/) {
+          $macAddress = formatMac($1, $2, $3, $4, $5, $6);
+        }
+      } elsif ($^O eq 'hpux') {
+        if ($buffer =~ /^0x([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2}) +$/) {
+          $macAddress = formatMac($1, $2, $3, $4, $5, $6);
+        }
+      } elsif ($^O eq 'aix') {
+        if ($buffer =~ / +([0-9A-Fa-f]{1,2})\.([0-9A-Fa-f]{1,2})\.([0-9A-Fa-f]{1,2})\.([0-9A-Fa-f]{1,2})\.([0-9A-Fa-f]{1,2})\.([0-9A-Fa-f]{1,2}) +/) {
+          $macAddress = formatMac($1, $2, $3, $4, $5, $6);
+        }
+      }
+      unless ($ifconfig->close()) {
+        if (($^O eq 'linux') || ($^O eq 'solaris')) {
+          die("Failed to successfully execute 'ifconfig -a':$!");
+        } elsif ($^O eq 'hpux') {
+          die("Failed to successfully execute 'lanscan -a':$!");
+        } elsif ($^O eq 'aix') {
+          die("Failed to successfully execute 'netstat -ia':$!");
+        } else {
+          die("Unknown failure when determining mac address for '$^O'");
+        }
+      }
+    } elsif (defined $pid) {
+      eval {
+        if (($^O eq 'linux') || ($^O eq 'solaris')) {
+          unless (exec({ 'ifconfig' } 'ifconfig', '-a')) {
+            die("Failed to execute 'ifconfig -a':$!");
+          }
+        } elsif ($^O eq 'hpux') {
+          unless (exec({ 'lanscan' } 'lanscan', '-a')) {
+            die("Failed to execute 'lanscan -a':$!");
+          }
+        } elsif ($^O eq 'aix') {
+          unless (exec({ 'netstat' } 'netstat', '-ia')) {
+            die("Failed to execute 'netstat -ia':$!");
+          }
+        } else {
+          die("Failed to find a command to produce the mac address for '$^O'");
+        }
+      };
+      print STDERR $@;
+      exit(1);
+    } else {
+      die("Failed to fork:$!");
+    }
+  } elsif ($^O eq 'MSWin32') {
+    my ($ipconfig) = new FileHandle("ipconfig /all |");
+    unless ($ipconfig) {
+      die("Failed to 'ipconfig /all':$!");
+    }
+    my ($buffer);
+    unless (defined $ipconfig->read($buffer, 8192)) {
+      die("Failed to read from ipconfig:$!");
+    }
+    if ($buffer =~ /^ +Physical Address(?:\. )+: ([0-9A-Fa-f]{1,2})\-([0-9A-Fa-f]{1,2})\-([0-9A-Fa-f]{1,2})\-([0-9A-Fa-f]{1,2})\-([0-9A-Fa-f]{1,2})\-([0-9A-Fa-f]{1,2})/m) {
+      $macAddress = formatMac($1, $2, $3, $4, $5, $6);
+    }
+    unless ($ipconfig->close()) {
+      die("Failed to close 'ipconfig /all':$!");
+    }
+  } else {
+    die("'$^O' cannot be recognised");
+  }
+  print "mac address is $macAddress\n";
+}<br/><br/>sub formatMac {
+  my (@octets) = @_;
+  return join(':', map { sprintf('%.2X', hex($_)) } @_);
+}
+</pre></small></p>
+
+
+<hr/>
+
+
+
+<h2>Multiple MACs</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2007-07-26T18:15:35</h3>
+This is a really good start, but what I'd really like to have is a hash of interfaces and their MACs. Right now I have at least two MACs on my laptop: wireless card and cabled-ethernet.
+
+
+
+<blockquote>
+
+<h2>Re:Multiple MACs</h2>
+<h3><a href="/user/ddick/">ddick</a> on 2007-07-26T20:51:02</h3>
+Yeah, this started as a way to uniquely identify a computer... GUID/MessageID sort of thingy
+
+
+
+<h2>Does this do the job?</h2>
+<h3><a href="/user/ddick/">ddick</a> on 2007-07-27T06:40:29</h3>
+<blockquote><div><small> <tt>#!<nobr> <wbr></nobr>/usr/bin/perl -w<br> <br>use strict;<br>use FileHandle();<br> <br>MAIN: {<br>&nbsp; my ($mac_address) = {};<br>&nbsp; if (($^O eq 'linux') || ($^O eq 'solaris') || ($^O eq 'hpux') || ($^O eq 'aix')) {<br> <br>&nbsp; &nbsp; $ENV{PATH} = '/sbin:/usr/sbin:/bin:/usr/bin';<br>&nbsp; &nbsp; delete @ENV{'IFS', 'CDPATH', 'ENV', 'BASH_ENV'};<br> <br>&nbsp; &nbsp; my ($ifconfig) = new FileHandle();<br>&nbsp; &nbsp; if (my $pid = $ifconfig-&gt;open('-|')) {<br>&nbsp; &nbsp; &nbsp; my ($buffer);<br>&nbsp; &nbsp; &nbsp; unless (defined $ifconfig-&gt;read($buffer, 8192)) {<br>&nbsp; &nbsp; &nbsp; &nbsp; die("Failed to read from ifconfig:$!");<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; if ($^O eq 'linux') {<br>&nbsp; &nbsp; &nbsp; &nbsp; if ($buffer =~<nobr> <wbr></nobr>/(\w+) +Link encap:Ethernet +HWaddr +([0-9A-Fa-f]{2}):([0-9A-Fa-f]{2}):([0-9A-Fa-f]{2}):([0-9A-Fa-f]{2}):([0-9A-Fa-<nobr>f<wbr></nobr>  ]{2}):([0-9A-Fa-f]{2})/m)<br>&nbsp; &nbsp; &nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $mac_address-&gt;{$1} = _format_mac($2, $3, $4, $5, $6, $7);<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; } elsif ($^O eq 'solaris') {<br>&nbsp; &nbsp; &nbsp; &nbsp; my ($interface_name);<br>&nbsp; &nbsp; &nbsp; &nbsp; foreach my $line (split(/\n/, $buffer)) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if ($line =~<nobr> <wbr></nobr>/^(\w+): +/) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ($interface_name) = ($1);<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; } elsif ($line =~<nobr> <wbr></nobr>/^\tether +([0-9A-Fa-f]{1,2}):([0-9A-Fa-f]{1,2}):([0-9A-Fa-f]{1,2}):([0-9A-Fa-f]{1,2}):([<nobr>0<wbr></nobr>  -9A-Fa-f]{1,2}):([0-9A-Fa-f]{1,2}) +$/)<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $mac_address-&gt;{$interface_name} = _format_mac($1, $2, $3, $4, $5, $6);<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; } elsif ($^O eq 'hpux') {<br>&nbsp; &nbsp; &nbsp; &nbsp; # hardware_path station_address crd_in# hdw_state net_name<br>&nbsp; &nbsp; &nbsp; &nbsp; if ($buffer =~<nobr> <wbr></nobr>/^\S+ +0x([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]<nobr>{<wbr></nobr>  2})([0-9A-Fa-f]{2}) +\d+ +\w+ +(\w+) +/m)<br>&nbsp; &nbsp; &nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $mac_address-&gt;{$7} = _format_mac($1, $2, $3, $4, $5, $6);<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; } elsif ($^O eq 'aix') {<br>&nbsp; &nbsp; &nbsp; &nbsp; # interface_name mtu network address<br>&nbsp; &nbsp; &nbsp; &nbsp; if ($buffer =~<nobr> <wbr></nobr>/^(\w+) +\d+ +\S+ +([0-9A-Fa-f]{1,2})\.([0-9A-Fa-f]{1,2})\.([0-9A-Fa-f]{1,2})\.([0-9A-Fa-f]{1,2})<nobr>\<wbr></nobr> <nobr> <wbr></nobr>.([0-9A-Fa-f]{1,2})\.([0-9A-Fa-f]{1,2}) +/m)<br>&nbsp; &nbsp; &nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $mac_address-&gt;{$1} = _format_mac($2, $3, $4, $5, $6, $7);<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; unless ($ifconfig-&gt;close()) {<br>&nbsp; &nbsp; &nbsp; &nbsp; if (($^O eq 'linux') || ($^O eq 'solaris')) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; die("Failed to successfully execute 'ifconfig -a':$!");<br>&nbsp; &nbsp; &nbsp; &nbsp; } elsif ($^O eq 'hpux') {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; die("Failed to successfully execute 'lanscan -a':$!");<br>&nbsp; &nbsp; &nbsp; &nbsp; } elsif ($^O eq 'aix') {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; die("Failed to successfully execute 'netstat -ia':$!");<br>&nbsp; &nbsp; &nbsp; &nbsp; } else {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; die("Unknown failure when determining mac address for '$^O'");<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; } elsif (defined $pid) {<br>&nbsp; &nbsp; &nbsp; eval {<br>&nbsp; &nbsp; &nbsp; &nbsp; if (($^O eq 'linux') || ($^O eq 'solaris')) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; unless (exec({ 'ifconfig' } 'ifconfig', '-a')) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; die("Failed to execute 'ifconfig -a':$!");<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; } elsif ($^O eq 'hpux') {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; unless (exec({ 'lanscan' } 'lanscan', '-v')) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; die("Failed to execute 'lanscan -v':$!");<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; } elsif ($^O eq 'aix') {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; unless (exec({ 'netstat' } 'netstat', '-ia')) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; die("Failed to execute 'netstat -ia':$!");<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; } else {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; die("Failed to find a command to produce the mac address for '$^O'");<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; };<br>&nbsp; &nbsp; &nbsp; print STDERR $@;<br>&nbsp; &nbsp; &nbsp; exit(1);<br>&nbsp; &nbsp; } else {<br>&nbsp; &nbsp; &nbsp; die("Failed to fork:$!");<br>&nbsp; &nbsp; }<br>&nbsp; } elsif ($^O eq 'MSWin32') {<br>&nbsp; &nbsp; my ($ipconfig) = new FileHandle("ipconfig<nobr> <wbr></nobr>/all |");<br>&nbsp; &nbsp; unless ($ipconfig) {<br>&nbsp; &nbsp; &nbsp; die("Failed to 'ipconfig<nobr> <wbr></nobr>/all':$!");<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; my ($buffer);<br>&nbsp; &nbsp; unless (defined $ipconfig-&gt;read($buffer, 8192)) {<br>&nbsp; &nbsp; &nbsp; die("Failed to read from ipconfig:$!");<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; my ($interface_name);<br>&nbsp; &nbsp; foreach my $line (split(/\n/, $buffer)) {<br>&nbsp; &nbsp; &nbsp; if ($line =~<nobr> <wbr></nobr>/^(\w.*):\r$/) {<br>&nbsp; &nbsp; &nbsp; &nbsp; ($interface_name) = ($1);<br>&nbsp; &nbsp; &nbsp; } elsif ($line =~<nobr> <wbr></nobr>/^ +Physical Address(?:\. )+: ([0-9A-Fa-f]{1,2})\-([0-9A-Fa-f]{1,2})\-([0-9A-Fa-f]{1,2})\-([0-9A-Fa-f]{1,2})\<nobr>-<wbr></nobr>  ([0-9A-Fa-f]{1,2})\-([0-9A-Fa-f]{1,2})\r$/) {<br>&nbsp; &nbsp; &nbsp; &nbsp; $mac_address-&gt;{$interface_name} = _format_mac($1, $2, $3, $4, $5, $6);<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; unless ($ipconfig-&gt;close()) {<br>&nbsp; &nbsp; &nbsp; die("Failed to close 'ipconfig<nobr> <wbr></nobr>/all':$!");<br>&nbsp; &nbsp; }<br>&nbsp; } else {<br>&nbsp; &nbsp; die("'$^O' cannot be recognised");<br>&nbsp; }<br>&nbsp; use Data::Dumper;<br>&nbsp; print Dumper($mac_address);<br>}<br> <br>sub _format_mac {<br>&nbsp; my (@octets) = @_;<br>&nbsp; return join(':', map { sprintf('%.2X', hex($_)) } @_);<br>}</tt></small></div> </blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

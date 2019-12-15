@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of phaylon: namespace::clean off to the CPAN</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>namespace::clean off to the CPAN</h1>
+<h2><a href="/user/phaylon/">phaylon</a> on 2007-02-19T23:00:27</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Yesterday (at least I think it was yesterday, excuse the laziness) I released a pragma called 
+<a href="http://search.cpan.org/dist/namespace-clean"
+>namespace::clean</a>. The short explanation for what this module does is this: When use'd, it will build a list of current functions in the package, and install a handler to call after the requesting modules compile time (via 
+<a href="http://search.cpan.org/dist/Filter-EOF"
+>Filter::EOF</a>) in which it removes those entries from the symbol table.</p>
+
+<p>The long explanation is that you can import functions into your namespace, or even declare your own functions, that won't show up as methods on calls on your classes and instances. Previously, it always felt ugly to me to import functions (read: <code>Carp</code>, <code>aliased</code>, <code>Scalar::Util</code> & Co, ...) into a packages namespace, so I called them by their full name, for example, <code>Scalar::Util::weaken()</code>. The same ugliness overwhelms me everytime I put (proper documented) functions in OO packages, so a lot of them end up as methods, even if they don't need to. That's where this module joins the game.</p>
+
+<p>Here is a simple demonstration: Let's define a usual object oriented class:</p>
+
+<pre>package Foo;
+use warnings;
+use strict;
+
+use Carp qw( croak );
+
+sub double {
+    my $number = shift;
+    return $number * 2;
+}
+
+sub new {
+    my ($class, $number) = @_;
+    bless {number => double($number)}, $class;
+}
+
+1;
+</pre>
+
+<p>This package will contain three functions: <code>croak</code>, <code>double</code> and <code>new</code>. But we actually just want <code>new</code> available as a method. Not because of coworkers, since they should refer to the hopefully complete and well written documentation, but to prevent conflicts with sub- and future base-classes.</p>
+
+<p>Anyway, after compile-time the calls to the functions are already bound in the code and the actual symbol table entries aren't needed anymore. So we put a line reading <code>use namespace::clean;</code> in our code at the position where all the functions to remove are defined:</p>
+
+<pre>package Foo;
+use warnings;
+use strict;
+
+use Carp qw( croak );
+
+sub double {
+    my $number = shift;
+    return $number * 2;
+}
+
+use namespace::clean;
+
+sub new {
+    my ($class, $number) = @_;
+    bless {number => double($number)}, $class;
+}
+
+1;
+</pre>
+
+<p>After this, the following will work correctly:</p>
+
+<pre>my $foo = Foo->new(23);
+print $foo->{number}; # prints 46
+</pre>
+
+<p>But these will both return undef:</p>
+
+<pre>my $can_double = $foo->can('double');
+my $can_croak  = $foo->can('croak');
+</pre>
+
+<p>So, that's it. I'd very much appreciate some comments. I'm currently thinking about <code>no namespace::clean;</code> and unimport magick for being able to build excludable parts.</p>
+
+<p><strong>Update:</strong> 0.02 has just entered the PAUSE and will be available soon.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Huh?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2007-02-20T00:37:45</h3>
+<p><blockquote> <div><em>Anyway, after compile-time the calls to the functions are already bound in the code and the actual symbol table entries aren't needed anymore.</em></div> </blockquote>
+
+<p>I don't buy it:</p> <p><blockquote> <div><tt>$ perl -MO=Concise,new<br>sub double {<br>&nbsp; &nbsp; my $number = shift;<br>&nbsp; &nbsp; return $number * 2;<br>}<br> <br>sub new {<br>&nbsp; &nbsp; my ($class, $number) = @_;<br>&nbsp; &nbsp; bless {number =&gt; double($number)}, $class;<br>}<br> <br>main::new:<br>k&nbsp; &lt;1&gt; leavesub[1 ref] K/REFC,1 -&gt;(end)<br>-&nbsp; &nbsp; &nbsp;&lt;@&gt; lineseq KP -&gt;k<br>1&nbsp; &nbsp; &nbsp; &nbsp; &lt;;&gt; nextstate(main 3 -:7) v -&gt;2<br>8&nbsp; &nbsp; &nbsp; &nbsp; &lt;2&gt; aassign[t5] vKS -&gt;9<br>-&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&lt;1&gt; ex-list lK -&gt;5<br>2&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;0&gt; pushmark s -&gt;3<br>4&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;1&gt; rv2av[t4] lK/1 -&gt;5<br>3&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&lt;#&gt; gv[*_] s -&gt;4<br>-&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&lt;1&gt; ex-list lKPRM*/128 -&gt;8<br>5&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;0&gt; pushmark sRM*/128 -&gt;6<br>6&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;0&gt; padsv[$class:3,4] lRM*/LVINTRO -&gt;7<br>7&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;0&gt; padsv[$number:3,4] lRM*/LVINTRO -&gt;8<br>9&nbsp; &nbsp; &nbsp; &nbsp; &lt;;&gt; nextstate(main 4 -:8) v -&gt;a<br>j&nbsp; &nbsp; &nbsp; &nbsp; &lt;@&gt; bless sK/2 -&gt;k<br>-&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&lt;0&gt; ex-pushmark s -&gt;a<br>h&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&lt;1&gt; srefgen sK/1 -&gt;i<br>-&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;1&gt; ex-list lKRM -&gt;h<br>g&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&lt;@&gt; anonhash sKRM/1 -&gt;h<br>a&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;0&gt; pushmark s -&gt;b<br>b&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;$&gt; const[PV "number"] s/BARE -&gt;c<br>f&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;1&gt; entersub[t7] lKS/TARG,1 -&gt;g<br>-&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&lt;1&gt; ex-list lK -&gt;f<br>c&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;0&gt; pushmark s -&gt;d<br>d&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;0&gt; padsv[$number:3,4] lM -&gt;e<br>-&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &lt;1&gt; ex-rv2cv sK/1 -&gt;-<br>e&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&lt;#&gt; gv[*double] s -&gt;f<br>i&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&lt;0&gt; padsv[$class:3,4] s -&gt;j<br>- syntax OK</tt></div> </blockquote>  <p>How does that <code>gv</code> lookup find <code>double()</code> if not in the symbol table?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Huh?</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2007-02-20T01:05:26</h3>
+<p>Hrm, point for you. Bad wording on my side. What's the thing called methods are looked up from then?<nobr> <wbr></nobr>:)</p>
+
+<p>I honestly thought a <code>delete $Foo::{bar}</code> will remove the symbol table entry.</p>
+
+<p>Thanks again!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Huh?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-02-20T23:49:42</h3>
+<p>You misunderstood what chromatic said. He demonstrated that Perl does not have compile-time binding, contrary to what you are saying. Decompiling shows that the invocation of <code>double</code> in the <code>new</code> method is indirected via the package. If you remove the entry for <code>double</code> from the package, the function call will <strong>NOT</strong> work.</p>
+
+<p>Sorry, but your approach won&#8217;t work.</p>
+
+<p>Here&#8217;s a pattern for you to read carefully and chew on:</p> <p><blockquote> <div><tt>package Foo::Bar::Internals;<br> <br>use Carp qw( croak );<br> <br>sub double {<nobr> <wbr></nobr>... }<br> <br>sub Foo::Bar::new {<nobr> <wbr></nobr>... }<br> <br>1;</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Huh?</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2007-02-21T11:31:45</h3>
+<p>So, you're saying what? I can understand that as either</p>
+<ul>
+<li>Bad wording on my side, and it's not removed from the symbol table, but from some other table used for method lookups.</li>
+<li>I'm doing voodoo, because the things I do in the test cases can't work.</li>
+</ul>
+<p>And btw: You call that a pattern? I call that a work-around<nobr> <wbr></nobr>:) And, just FYI, you might want to stay away from patronising phrases like "Here&#8217;s a pattern for you to read carefully and chew on." Because it really decreases my motivation to answer.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Huh?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-02-21T12:44:36</h3>
+<p>You said:</p> <p><blockquote> <div><p>So, you&#8217;re saying what?</p></div> </blockquote>
+
+<p>It&#8217;s bad wording on your part to say the functions are bound in the code, because they&#8217;re not; they&#8217;re always looked up from the symbol table.</p>
+
+<p>Interestingly, what you&#8217;re doing <em>shouldn&#8217;t</em> work &#8211; but it does! Apparently the <code>%main::</code>-type hashes aren&#8217;t actually an interface to the symbol table, they&#8217;re just a one-way mirror:</p> <p><blockquote> <div><tt>sub xx {<br>&nbsp; &nbsp; my $in_stbl = *main::foo{CODE} ? 1 : 0;<br>&nbsp; &nbsp; my $in_hash = main-&gt;can("foo") ? 1 : 0;<br>&nbsp; &nbsp; print "$in_stbl $in_hash\n";<br>}<br> <br>xx();<br> <br>eval "sub foo {1}";<br>xx();<br> <br>delete $main::{foo};<br>xx();<br> <br>eval "sub foo {1}";<br>xx();<br> <br>__END__<br>0 0<br>1 1<br>1 0<br>1 1</tt></div> </blockquote>  <p>In fact you won&#8217;t even get the <tt>Subroutine %s redefined</tt> warning if you have deleted the entry from the hash and redefine the routine.</p>
+
+<p>But this is clearly inconsistent with the documentation. <a href="http://perldoc.perl.org/perlmod.html" title="perl.org">perlmod</a perl.org> says:</p> <p><blockquote> <div><p>The symbol table for a package happens to be stored in the hash of that name with two colons appended. [&#8230;] The value in each entry of the hash is what you are referring to when you use the <code>*name</code> typeglob notation.</p></div> </blockquote>
+
+<p>Obviously not. Smells strongly like a bug to me (at the very least like a doc bug), not like behaviour that should be relied on. Someone alert the porters&#8230;</p>
+
+<p>You said:</p> <p><blockquote> <div><p>You call that a pattern? I call that a work-around<nobr> <wbr></nobr>:)</p></div> </blockquote>
+
+<p>Errm, that&#8217;s what patterns are: <a href="http://blog.plover.com/prog/design-patterns.html" title="plover.com">formulaic workarounds for deficiencies in a language</a plover.com>.</p>
+
+<p>And hey:</p>
+
+<ul>
+<li>It doesn&#8217;t add yet another dependency to my code.</li>
+<li>It is obvious, self-documenting. You don&#8217;t need to read module docs to understand what&#8217;s going on.</li>
+<li>That it works does not contradict any Perl 5 docs.</li>
+</ul>
+
+<p>Besides, if you call that a workaround, then pretty nearly <em>every way of doing OO</em> in Perl 5 is a workaround of some sort. (More precisely, you need some form of pattern for even the simplest OOP approach in Perl 5.) We&#8217;ve just gotten so used to it by now that we don&#8217;t notice.</p>
+
+<p>You said:</p> <p><blockquote> <div><p>you might want to stay away from patronising phrases</p></div> </blockquote>
+
+<p>Maybe I wrote that just because the example I gave is less than obvious in my opinion. I could say you might want to stay away from reading too much into others&#8217; utterances, but that shall be your call.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Huh?</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2007-02-21T13:02:45</h3>
+<p><blockquote><div>Interestingly, what you&#8217;re doing shouldn&#8217;t work &#8211; but it does!</div></blockquote>
+
+<p>Of course. Did you honestly think I sent some code off to CPAN without even _trying_ first?<nobr> <wbr></nobr>:)</p> <p><blockquote><div>Obviously not. Smells strongly like a bug to me (at the very least like a doc bug), not like behaviour that should be relied on. Someone alert the porters&#8230;</div></blockquote>
+
+<p>Maybe I will post it there if nobody else does.</p> <p><blockquote><div>Errm, that&#8217;s what patterns are [&hellip;]</div></blockquote>
+
+<p>That might be what you (and MJD) think, but I clearly see a difference between using an iterator pattern and creating two packages for one class.</p> <p><blockquote><div>Besides, if you call that a workaround, then pretty nearly every way of doing OO in Perl 5 is a workaround of some sort.</div></blockquote>
+
+<p>Well then. To stop the rethoric ride, I'll skip fast forward: <i>Every programm is a pattern and a sum of patterns</i>.</p> <p><blockquote><div>Maybe I wrote that just because the example I gave is less than obvious in my opinion. I could say you might want to stay away from reading too much into others&#8217; utterances, but that shall be your call.</div></blockquote>
+
+<p>Exactly, and the above was my response. It just sounded a bit too much like "Don't do that. Behold! Here's the right way" to me. Besides, if _that_ example is less than obvious, how can you state above that this approach is "obvious, self-documenting" and "You don&#8217;t need to read module docs to understand what&#8217;s going on."?</p>
+
+<p>If I misunderstood something, I'm honestly sorry, I just say how I received it.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Huh?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-02-21T14:47:48</h3>
+<p><blockquote> <div><p> <em>Every programm is a pattern and a sum of patterns.</em> </p></div> </blockquote>
+
+<p>No, it&#8217;s not. A pattern is a common, complex arrangement of language primitives that has to be aligned just so in order to work; which arrangement addresses a particular problem commonly encountered when using the language.</p>
+
+<p> <em>Far</em> from everything in a program does meets this definition. Most notably, the solution to the problem addressed by the program in its essence is not a pattern, by definition, although if it&#8217;s non-trivial you will often employ patterns (ie. artifices) while solving the problem.</p> <p><blockquote> <div><p>I clearly see a difference between using an iterator pattern and creating two packages for one class.</p></div> </blockquote>
+
+<p>Sure, iterators are a profound construct and a workaround for poor Perl 5 semantics isn&#8217;t, but in terms of their &#8220;pattern-ness&#8221; they are equals. It&#8217;s easy to imagine a language which has direct syntactic and semantic support for declaring certain things methods vs functions and public vs private; likewise it&#8217;s easy to imagine a language which has direct syntactic and semantic support for iterators so that you don&#8217;t have to compose them from other primitives.</p> <p><blockquote> <div><p>if <em>that</em> example is less than obvious, how can you state above that this approach is &#8220;obvious, self-documenting&#8221; and &#8220;You don&#8217;t need to read module docs to understand what&#8217;s going on&#8221;?</p></div> </blockquote>
+
+<p>In the example I gave (which I wrote that way to stay close to the one you gave), there&#8217;s only a single sub which kinda gets lost in the noise of 5 other declarations and it might be easy to miss the package name mismatch. If there are 10 subs written with a fully qualified package name and they&#8217;re all grouped together away from the utility functions, then it&#8217;s much easier to notice that something special is going on. That&#8217;s why I claimed that it&#8217;s self-documenting.</p>
+
+<p>I don&#8217;t know how to explain why I claim that you don&#8217;t need to read module docs to understand it, because, well&#8230; you don&#8217;t to read docs where no module is involved and the semantics of the pattern are self-contained. If that&#8217;s not obvious to you, then I don&#8217;t know what I can say to help.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Huh?</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2007-02-21T14:56:26</h3>
+Well, everything's said I guess and it would be useless to repeat it, especially since we're both drifting off in the ad-hominem area.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Huh?</h2>
+<h3><a href="/user/rafael/">rafael</a> on 2007-02-21T14:32:57</h3>
+Replace delete by undef in your example, and it works. You can't delete subs from a stash in Perl 5.8, only undef them. If you use delete, the sub still exists (you can use "exists &amp;foo" to test for it). That can be considered as a bug.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>CPAN modules are not pragmas</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-02-20T20:01:45</h3>
+I wish you had given this normal capitalization and not called it a pragma.  Pragmas by definition are  shipped with core perl.  This may be a useful module, but calling it a pragma only muddies the waters.
+
+
+
+<blockquote>
+
+<h2>Re:CPAN modules are not pragmas</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2007-02-21T11:46:31</h3>
+<p>It hadn't occured to me yet and, in fact, I had to look for a pretty long time before I found the term "default module" in perlglossary for pragma. I think you mean that sentence. That was a fault on my part, so sorry for that.</p>
+
+But there seems to be oil all over the ocean already:
+<a href="http://search.cpan.org/dist/autorequire" title="cpan.org">autorequire</a cpan.org>, <a href="http://search.cpan.org/dist/version" title="cpan.org">version</a cpan.org> (will be ok then in 5.9 I guess),
+<a href="http://search.cpan.org/dist/fake" title="cpan.org">fake</a cpan.org>, <a href="http://search.cpan.org/dist/all" title="cpan.org">all</a cpan.org>, &hellip;
+
+
+
+<blockquote>
+
+<h2>Re:CPAN modules are not pragmas</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-02-21T16:09:05</h3>
+I don't mean to single you out.  You're certainly not the only one to do it.  I think it's better to stick with the standard though, and avoid calling CPAN modules pragmas or naming them all lowercase.
+
+
+
+<blockquote>
+
+<h2>Re:CPAN modules are not pragmas</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2007-02-21T16:17:13</h3>
+<p>No worries, I'm not feeling singled out<nobr> <wbr></nobr>:) Though in my opinion it would have been more confusing to name it Namespace::Clean and affect the local package the way it does. I, and I had the impression that many others too, understand the term 'pragma' more as 'altering behaviour or environment' vs. the 'providing code' situation of library modules.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>This is a bug</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2007-02-21T19:15:30</h3>
+This is a bug that it works. It's only semi-unlikely to get fixed. I've things I'd like to do that need this bug to get fixed so I may spend some time to ensure that this bug "works" appropriately.<br><br>There's two related bugs here. If you localize or delete the stash a function exists in, the GV pointed to by the pp_gv opcode has a pointer to the original stash. This makes it oblivious to wholesale replacement of the stash.<br><br>It appears the other bug is that that the pp_gv opcode has a pointer to the GV and retains it even if the stash no longer contains that GV.<br><br>Both of these bugs are preventing two kinds of dynamisms from working. I've an interest in fixing one and it might make sense to fix both at the same time.<p><blockquote> <div><tt>sub foo { 42 }<br>delete $::main{foo};<br>print foo(); # This had *better* die</tt></div> </blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

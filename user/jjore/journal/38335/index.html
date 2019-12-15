@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjore: Dweomer in YAML::Syck and Ruby</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Dweomer in YAML::Syck and Ruby</h1>
+<h2><a href="/user/jjore/">jjore</a> on 2009-01-24T11:09:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>YAML has a thing called Ã¢â¬Åimplicit typingÃ¢â¬Â where unquoted values are translated into language-specific entities. What you expect is what when you write the number 1, you might get an integer back. You do. What you might not expect is that when you type the word yes, you get a boolean back and not the word.</p>
+
+<p>We are using YAML 1.0 but the documentation for this has fallen off the internet. It can still be retrieved from the internet archive at <a href="http://web.archive.org/web/20041204101603/http://yaml.org/spec/type.html>. YAML 1.1+Ã¢â¬â¢s type system is still expansive but it is also still linked from the yaml spec at <URL:http://yaml.org/type">http://web.archive.org/web/20041204101603/http://yaml.org/spec/type.html>. YAML 1.1+Ã¢â¬â¢s type system is still expansive but it is also still linked from the yaml spec at <URL:http://yaml.org/type</a>.</p>
+
+<p>The following YAML document does all kinds of strange things depending on whether Ruby or Perl is reading and writing it. In general, RubyÃ¢â¬â¢s default library is more magical and requires hand-holding to cope with whatever it did. To force Ã¢â¬ÅordinaryÃ¢â¬Â interpretations, quote everything. Be liberal with it. Quote more than you think a person should ever reasonably be expected to quote.</p>
+
+<p>The following YAML document is 99% magic. The only non-magical things are the strings bool, float, int, and date. Everything else is potentially transmogrified. Everything else is potentially transformed by YAMLÃ¢â¬â¢s implicit typing.</p>
+
+<pre>
+---
+bool:
+  true: [ y, Y, yes, Yes, YES, true, True, TRUE, on, On, ON ]
+  false: [ n, N, no, No, NO, false, False, FALSE, off, Off, OFF ]
+float: [ .inf, +.inf, -.inf, .nan ]
+int: [ 0b10, 010, 0xf, 19:59 ]
+null: [ ~, null ]
+date: [ 2008-10, 2008-10-02T21:21:42Z-08 ]
+</pre>
+
+<p>The canonical representation for booleans in yaml are the unquoted literals y and n but yaml.rb treats them like strings while converting everything else. PerlÃ¢â¬â¢s YAML::Syck defaults to treating things purely as strings unless it is asked to apply implicit typing and then it acts like Ruby. Notice the odd base-60 integer conversion from 19:59 -> 1199. Notice that all integer conversions are valid except binary which as inexplicably left off.</p>
+
+<p>RubyÃ¢â¬â¢s yaml.rb</p>
+<pre>
+y                                              -> 'y'
+Y                                              -> 'Y'
+Yes, Yes, YES, true, True, TRUE, on, On, ON    -> true
+n                                              -> 'n'
+N                                              -> 'N'
+no, No, NO, false, False, FALSE, off, Off, OFF -> false
+19:59 -> 1199
+</pre>
+
+<p>PerlÃ¢â¬â¢s YAML::Syck, $YAML::Syck::ImplicitTyping = 1</p>
+<pre>
+y                                              -> 'y'
+Y                                              -> 'Y'
+Yes, Yes, YES, true, True, TRUE, on, On, ON    -> '1' / 1
+n                                              -> 'n'
+N                                              -> 'N'
+no, No, NO, false, False, FALSE, off, Off, OFF -> '' / 0
+</pre>
+
+<p>Ruby's yaml.rb</p>
+<pre>
+.inf, +.inf  -> Infinity
+-.inf        -> -Infinity
+.nan         -> NaN
+~, null      -> nil
+</pre>
+
+<p>Perl</p>
+<pre>
+.inf, +.inf  -> 'inf' / inf
+-.inf        -> '-inf' / -inf
+.nan         -> 'nan' / nan
+~, null      -> undef
+</pre>
+
+<p>I separated inf, nan, and nil/undef out because their target language implementations are different while the meaning is identical. If you treat the perl strings Ã¢â¬ËinfÃ¢â¬â¢, Ã¢â¬Ë-infÃ¢â¬â¢, Ã¢â¬Ë+infÃ¢â¬â¢, Ã¢â¬ËnanÃ¢â¬â¢ like numbers, they are numified as the equivalent floating point value. Also, RubyÃ¢â¬â¢s nil and PerlÃ¢â¬â¢s undef are really the same thing but they go by different names.</p>
+
+<p>Thought IÃ¢â¬â¢d share. Remember, quote, quote, quote, when in doubt, quote. When in Ruby, always, always convert with to_i, to_s or whatever is appropriate for the data. There are some other issues related to undesired de-quoting by passing data through yaml.rb that make the actual type of a value unpredictable.</p></p>
+
+
+<hr/>
+
+
+
+<h2>yaml 1.2 is saner</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2009-01-24T16:21:17</h3>
+<p>YAML's implicit typing is still a pain, but 1.2 makes things a lot simpler by having far, far fewer implicit types, basically just enough to load JSON properly.</p><p>Sexagesimal is Right Out.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

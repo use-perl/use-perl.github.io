@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjore: Starting to chart a map of where perl locates data</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Starting to chart a map of where perl locates data</h1>
+<h2><a href="/user/jjore/">jjore</a> on 2009-09-09T23:32:46</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>At work, I've got a problem on the back burner which is kind of interesting. We've got some mod_perl processes with big data sets. The processes fork and then serve requests. I've heard from Operations that they're not using Linux's Copy-on-Write feature to the extent desired so I'm trying to understand just what's being shared and not shared.<br/><br/>To that end, I wanted to map out where perl put its data. I made a picture (<a href="http://diotalevi.isa-geek.net/user/josh/090909/memory-0.png>, a strip, showing the visible linear memory layout from 0x3042e0 to 0x8b2990. The left edge shows where arenas are. The really clustered lines to the middle show the pointers from the arenas to the SV heads. The really splayed lines from the middle to the right show the SvANY() pointer from the SV heads to the SV bodies.<br">http://diotalevi.isa-geek.net/user/josh/090909/memory-0.png>, a strip, showing the visible linear memory layout from 0x3042e0 to 0x8b2990. The left edge shows where arenas are. The really clustered lines to the middle show the pointers from the arenas to the SV heads. The really splayed lines from the middle to the right show the SvANY() pointer from the SV heads to the SV bodies.<br</a><br/>I kind of now suspect that maybe the CoW unshared pages containing SV heads because of reference counting are maybe compact or sparse. They sure seem to be highly clustered so maybe it's a-ok to go get a bunch of values between two forked processes and not worry about reference counts. Sure, the SV head pages are going to be unshared but maybe those pages are just full of other SV heads and it's not a big deal. If SV heads weren't clustered then reference count changes could have affected lots of other pages.<br/><br/>Anyway, there's a nice little set of pics at <a href="http://diotalevi.isa-geek.net/user/josh/090909">http://diotalevi.isa-geek.net/user/josh/090909</a>. I started truncating precision by powers of two to get things to visually chunk up more. So when you look at memory-0.png, there's no chunking but when you look at memory-4.png, the bottom 4 bits were zeroed out.<br/><br/>There's a github repo of this at <URL:http://github.com/jbenjore/Internals-GraphArenas/tree/master> for the interested.</p>
+
+
+<hr/>
+
+
+
+<h2>Stacks and lexicals; compaction</h2>
+<h3><a href="/user/nothingmuch/">nothingmuch</a> on 2009-09-10T06:06:20</h3>
+<p>It would be interesting to see how many of these are reused storage allocated on pad variable introduction.</p><p>In principle the static overhead of PADLISTS, etc could be completely shared (once allocated they never change) but the actual SV bodies they store change all the time.</p><p>Maybe priming the callstack by invoking all of the CVs in order to share that stuff could be worth while, though it's probably not that much storage at the end of the day.</p><p>Secondly, Stefan O'Rear has been working on memory compaction, look at his stuff here: <a href="http://github.com/sorear" title="github.com">http://github.com/sorear</a github.com></p><p>and of course there's the recent work trying to make the arenas more pluggable, it would be nice if eventually your efforts could be applied into making smarter allocations (increasing locality of reference between related SVs to reduce page faults or cache misses, for instance).</p>
+
+
+
+<blockquote>
+
+<h2>Re:Stacks and lexicals; compaction</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2009-09-10T21:48:08</h3>
+<p>Sorear's work is interesting. I've used <a href="http://search.cpan.org/dist/Judy" title="cpan.org">http://search.cpan.org/dist/Judy</a cpan.org> to get compact data as well. While writing the scripts for <a href="http://github.com/jbenjore/runops-movie/tree/master/scripts" title="github.com">http://github.com/jbenjore/runops-movie/tree/master/scripts</a github.com> I found I'd often write the code in Perl, then would occasionally share bits of data with some Inline::C.</p><p>But separately, my interest right now is in what happens to Linux's CoW. I've got data that is theorized to be both large and unshared between mod_perl processes. I want it both compact and shared.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Stacks and lexicals; compaction</h2>
+<h3><a href="/user/clintongormley/">clintongormley</a> on 2009-09-11T10:46:49</h3>
+<p>(Note: I know nothing about this, so this may make no sense at all)</p><p>As I understand it, the heap in Perl contains both code and variables, so if, in a forked process, a variable (which happens to share a page with some code) is changed, then that entire page becomes unshared.</p><p>Code seldom needs to change in a new fork.  Would it not be possible to separate code and variables, so that the pages occupied by your code would remain shared?</p><p>I'd imagine that this would be a net win for memory usage in mod_perl processes, no?</p><p>clint</p>
+
+
+
+<blockquote>
+
+<h2>Re:Stacks and lexicals; compaction</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2009-09-11T14:16:20</h3>
+<p>Yes, that would be nice. I didn't map out where compiled perl goes in memory and how much it shares pages with things likely to change. It's likely to be intermingled because it's also on the heap.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

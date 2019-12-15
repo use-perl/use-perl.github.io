@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of LTjake: XBin (de)compression.</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>XBin (de)compression.</h1>
+<h2><a href="/user/LTjake/">LTjake</a> on 2003-03-25T15:24:18</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've been working on Image::<a href="http://www.acid.org/info/xbin/">XBin</a>. XBin is a textmode file format, similar to a raw BIN file, but allows for custom palettes and fonts.</p>
+<p>XBin files can be stored raw (a character byte followed by an attribute byte), or slightly compressed (by grouping identical, sequential elements).</p>
+<p>If the data has been compressed, then the first byte you get is a compression byte. It's layed out like so:</p>
+<p>
+<code> &nbsp; +---+---+---+---+---+---+---+---+<br />
+ &nbsp; | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |<br />
+ &nbsp; +---+---+---+---+---+---+---+---+<br />
+ex&nbsp; 1 &nbsp; 0 &nbsp; 0 &nbsp; 0 &nbsp; 0 &nbsp; 1 &nbsp; 0 &nbsp; 0</code></p>
+<p>
+Bits 6 &amp; 7 indicate the type of compression (i.e. the repeated element):
+<ul>
+<li><strong>00</strong> - No Compression</li>
+<li><strong>01</strong> - Character Compression</li>
+<li><strong>10</strong> - Attribute Compression</li>
+<li><strong>11</strong> - Character &amp; Attribute Compression</li>
+</ul>
+</p>
+<p>The other 6 bits indicate the repeat counter minus one. A repeat counter of 0, is in reality a repeat of 1. Thus, we can have a maximum repeat counter of 64. In the example above: <code>0 0 0 1 0 0</code> is 4, plus one is 5.</p>
+<p>So, given an array of characters (<code>@image</code>) from an XBin file, this is what i came up with to decompress it (push character, attribute pairs onto a new array (<code>$image</code>)):</p>
+<p>
+<code>
+my $image = [];<br />
+my $x = -1;<br />
+while ( ++$x &lt; @image ) {<br />
+ &nbsp; &nbsp;my $char    = $image[$x];<br />
+ &nbsp; &nbsp;my $attr;<br /><br />
+ &nbsp; &nbsp;# get compression bits<br />
+ &nbsp; &nbsp;my $type    = $char &amp; 192;<br /><br />
+ &nbsp; &nbsp;# get counter bits<br />
+ &nbsp; &nbsp;my $counter = $char &amp; 63;<br /><br />
+ &nbsp; &nbsp;# no compression<br />
+ &nbsp; &nbsp;if ( $type == 0 ) {<br />
+ &nbsp; &nbsp; &nbsp; &nbsp;push @$image, [$image[++$x], $image[++$x]] for (0..$counter);<br />
+ &nbsp; &nbsp;}<br />
+ &nbsp; &nbsp;# character compression<br />
+ &nbsp; &nbsp;elsif ( $type == 64 ) {<br />
+ &nbsp; &nbsp; &nbsp; &nbsp;$char = $image[++$x];<br />
+ &nbsp; &nbsp; &nbsp; &nbsp;push @$image, [$char, $image[++$x]] for (0..$counter);<br />
+ &nbsp; &nbsp;}<br />
+ &nbsp; &nbsp;# attribute compression<br />
+ &nbsp; &nbsp;elsif ( $type == 128 ) {<br />
+ &nbsp; &nbsp; &nbsp; &nbsp;$attr = $image[++$x];<br />
+ &nbsp; &nbsp; &nbsp; &nbsp;push @$image, [$image[++$x], $attr] for (0..$counter);<br />
+ &nbsp; &nbsp;}<br />
+ &nbsp; &nbsp;# character &amp; attribute compression<br />
+ &nbsp; &nbsp;else {<br />
+ &nbsp; &nbsp; &nbsp; &nbsp;$char = $image[++$x];<br />
+ &nbsp; &nbsp; &nbsp; &nbsp;$attr = $image[++$x];<br />
+ &nbsp; &nbsp; &nbsp; &nbsp;push @$image, [$char, $attr] for (0..$counter);<br />
+ &nbsp; &nbsp;}<br />
+}
+</code>
+</p>
+<p>This works great -- except I always end up with a few characters more than <code>width * height</code> for the uncompressed data. Perhaps there's a better way to do this algorithm?</p></p>
+
+
+<hr/>
+
+
+
+<h2>FYI</h2>
+<h3><a href="/user/belg4mit/">belg4mit</a> on 2003-03-25T21:33:35</h3>
+<em>by grouping identical, sequential elements</em>
+<p>
+That's commmonly referred to as
+<a href="http://datacompression.info/RLE.shtml" title="datacompression.info">Run Length Encoding</a datacompression.info> (RLE)
+</p><p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

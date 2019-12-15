@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Bermuda XML</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Bermuda XML</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-01-23T10:16:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><em>For those who aren't familiar with Bermuda, it's an object serialization framework.  Just write YAML config files (called "islands") and it writes the Perl code and the XML generation code.  Eventually other output formats will be supported, along with RELAX NG generation and prebuilt test suites that you can drop your own fixtures into.</em></p>
+
+<p>I went home last night and continued <a href="http://use.perl.org/user/Ovid/journal/35458">Bermuda</a> work.  I was planning on just relaxing, but I knew I probably won't have time to touch it again until next week.</p>
+
+<p>Much of yesterday was spent paying off technical debt.  I had spent a lot of "exploring" how to build Bermuda, but this meant that instead of passing around objects internally, I was passing around arbitrary data structures that were evolving along with my understanding.  Now that I better understand those data structures, I'm slowly pulling them out and replacing them with proper objects.  The code is becoming much cleaner, it's easier to use, and I get proper up-front validation.</p>
+
+<p>So far, I can generate decent XML:</p>
+
+<pre><?xml version="1.0" encoding="utf-8"?>
+<address_book version="3" hard-coded="this is from YAML">
+  <card revision="3" href="http://www.example.com/">
+    <name some_attr="foo">John Smith</name>
+    <email>js@example.com</email>
+    <email>js2@example.com</email>
+    <phone>111</phone>
+    <phone>222</phone>
+    <active>yes</active>
+  </card>
+</address_book></pre>
+
+<p>And the island file is pretty simple:</p>
+
+<pre>---
+package: My::AddressBook
+island: address_book
+attributes:
+  version:
+    type: positiveInteger
+  hard-coded:
+    data: 'this is from YAML'
+elements:
+  - card*
+  - island: card
+    method: cards</pre>
+
+<p>Note that the "card" element is a separate island, making it easy to organize things.</p>
+
+<p>The only thing I find really annoying about this is that the "elements" are an even-sized list designed to simulate an ordered hash.  YAML doesn't really support the idea of an array of pairs or ordered hashes, so I'm relying on the even-sized list.  Here it is from the card island:</p>
+
+<pre>elements:
+  - name
+  - type: string
+    attributes:
+        some_attr:
+            method: dummy_attribute
+  - email*
+  - type: string
+  - phone+
+  - method: phone_numbers
+    type: string
+  - active
+  - data: yes</pre>
+
+<p>Can you tell at a glance if that is wrong?   I can't and it's the format I designed!  Each "even" element is a key and each "odd" element is the value (the element description).  I'll be modifying the <tt>Bermuda::YAML</tt> parser to validate things like this, but for right now, it's a tiny annoyance.  I'm just pleased with how well it's going.</p>
+
+<p>Oh, and here's all it takes to render XML for any object you want to throw at it:</p>
+
+<pre>sub render {
+    my ( $self, $island ) = @_;
+    my $xml = XML::LibXML::Document->new( "1.0", "utf-8" );
+    my $root = $xml->createElement( $island->name );
+    $self->_render( $island, $xml, $root );
+    $xml->setDocumentElement($root);
+    return $xml->toString;
+}
+
+sub _render {
+    my ( $self, $island, $xml, $root ) = @_;
+
+    foreach my $attr ( $island->attributes ) {
+        $root->setAttribute( $attr, $attr->value );
+    }
+
+    foreach my $element ( $data->elements } ) {
+        my $node = $xml->createElement( $element->name );
+        if ( $element->is_island ) {
+            $self->_render( $element, $xml, $node );
+            $root->addChild($node);
+        }
+        else {
+            if ( my @attrs = $element->attributes ) {
+                foreach my $attr ( @attrs ) {
+                    $node->setAttribute($attr, $attr->value);
+                }
+            }
+            $node->addChild( $xml->createTextNode( $element->value ) );
+            $root->addChild($node);
+        }
+    }
+    return $xml;
+}</pre>
+
+<p>Not perfect, but not bad.  Needs a bit of cleanup.  I'm just disappointed that I won't have much time to work on it for a while.</p></p>
+
+
+<hr/>
+
+
+
+<h2>alternative YAML</h2>
+<h3><a href="/user/hdp/">hdp</a> on 2008-01-23T14:37:27</h3>
+Would you be less annoyed by a list of single-key hashes?<p><blockquote> <div><tt>elements:<br>&nbsp; - name:<br>&nbsp; &nbsp; &nbsp; type: string<br>&nbsp; &nbsp; &nbsp; attributes:<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; some_attr:<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; method: dummy_attribute<br>&nbsp; - 'email*': { type: string }<br>&nbsp; - 'phone+':<br>&nbsp; &nbsp; &nbsp; method: phone_numbers<br>&nbsp; &nbsp; &nbsp; type: string<br>&nbsp; - active: { data: yes }</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:alternative YAML</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-01-23T14:58:41</h3>
+<p>I like that.  I do think it's clearer than what I had, but the existence of a hash implies that you can have multiple key/value pairs.  Still, I don't <em>think</em> that's an expectation violation since these are island files with<nobr> <wbr></nobr>.bmd extensions and that means people should <em>know</em> they will need to read the docs.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>What's wrong with it?</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2008-01-28T23:34:50</h3>
+Color me stupid, but what's wrong with it?  Or, put another way, what structure are you trying to express?
+
+
+
+<blockquote>
+
+<h2>Re:What's wrong with it?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-01-29T00:00:59</h3>
+<p>What's wrong with what?  If you mean the even-sized list, that should actually be an ordered list of pairs.  That's something which Perl 6 can express, but not Perl 5 (at least, not cleanly).  As a result, I need an even-sized list in the correct format (which sucks), or a list of hashes, each of which only has one key/value pair.  I expect I'll go with the latter.</p>
+
+<p>Or were you referring to something else?</p>
+
+
+
+<blockquote>
+
+<h2>Re:What's wrong with it?</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2008-01-31T19:21:27</h3>
+I'm unable to envision the structure you're trying to express.  I don't understand how the XML and the two YAML snippets relate to each other.<br><br>Some of the assertions confuse me because they seem to be wrong.  Like "YAML doesn't really support the idea of an array of pairs or ordered hashes".  They address this <a href="http://www.yaml.org/spec/1.1/#id863110" title="yaml.org">specifically in the spec</a yaml.org>.  Wouldn't an array of pairs be:<p><blockquote> <div><tt>&nbsp; &nbsp; - key:&nbsp; &nbsp;value<br>&nbsp; &nbsp; - this:&nbsp; that<br>&nbsp; &nbsp; - up:&nbsp; &nbsp; down</tt></div> </blockquote> And why does it need to be ordered?<br><br>If you can show me what you'd like to express, in some made-up magic formatting language, I think I can show you how to express it in YAML.  I'm going to take a stab and say you want this:<p><blockquote> <div><tt>elements:<br>&nbsp; - name:<br>&nbsp; &nbsp; &nbsp; type: string<br>&nbsp; &nbsp; &nbsp; attributes:<br>&nbsp; &nbsp; &nbsp; &nbsp; some_attr:<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; method: dummy_attribute<br>&nbsp; - email*:<br>&nbsp; &nbsp; &nbsp; type: string<br>&nbsp; - phone+:<br>&nbsp; &nbsp; &nbsp; method: phone_numbers<br>&nbsp; &nbsp; &nbsp; type: string<br>&nbsp; - active:<br>&nbsp; &nbsp; &nbsp; data: yes</tt></div> </blockquote> That's assuming the * and + things are part of the actual key name.  It translates into:<p><blockquote> <div><tt>{<br>&nbsp; 'elements' =&gt; [<br>&nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; 'name' =&gt; {<br>&nbsp; &nbsp; &nbsp; &nbsp; 'type' =&gt; 'string',<br>&nbsp; &nbsp; &nbsp; &nbsp; 'attributes' =&gt; {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 'some_attr' =&gt; {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 'method' =&gt; 'dummy_attribute'<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; },<br>&nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; 'email*' =&gt; {<br>&nbsp; &nbsp; &nbsp; &nbsp; 'type' =&gt; 'string'<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; },<br>&nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; 'phone+' =&gt; {<br>&nbsp; &nbsp; &nbsp; &nbsp; 'type' =&gt; 'string',<br>&nbsp; &nbsp; &nbsp; &nbsp; 'method' =&gt; 'phone_numbers'<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; },<br>&nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; 'active' =&gt; {<br>&nbsp; &nbsp; &nbsp; &nbsp; 'data' =&gt; 'yes'<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; }<br>&nbsp; ]<br>};</tt></div> </blockquote> If you can drop the ordering requirement it becomes even simpler:<p><blockquote> <div><tt>elements:<br>&nbsp; &nbsp;name:<br>&nbsp; &nbsp; &nbsp; type: string<br>&nbsp; &nbsp; &nbsp; attributes:<br>&nbsp; &nbsp; &nbsp; &nbsp; some_attr:<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; method: dummy_attribute<br>&nbsp; &nbsp;email*:<br>&nbsp; &nbsp; &nbsp; type: string<br>&nbsp; &nbsp;phone+:<br>&nbsp; &nbsp; &nbsp; method: phone_numbers<br>&nbsp; &nbsp; &nbsp; type: string<br>&nbsp; &nbsp;active:<br>&nbsp; &nbsp; &nbsp; data: yes</tt></div> </blockquote> which translates to<p><blockquote> <div><tt>{<br>&nbsp; 'elements' =&gt; {<br>&nbsp; &nbsp; 'active' =&gt; {<br>&nbsp; &nbsp; &nbsp; 'data' =&gt; 'yes'<br>&nbsp; &nbsp; },<br>&nbsp; &nbsp; 'name' =&gt; {<br>&nbsp; &nbsp; &nbsp; 'type' =&gt; 'string',<br>&nbsp; &nbsp; &nbsp; 'attributes' =&gt; {<br>&nbsp; &nbsp; &nbsp; &nbsp; 'some_attr' =&gt; {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 'method' =&gt; 'dummy_attribute'<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; },<br>&nbsp; &nbsp; 'phone+' =&gt; {<br>&nbsp; &nbsp; &nbsp; 'type' =&gt; 'string',<br>&nbsp; &nbsp; &nbsp; 'method' =&gt; 'phone_numbers'<br>&nbsp; &nbsp; },<br>&nbsp; &nbsp; 'email*' =&gt; {<br>&nbsp; &nbsp; &nbsp; 'type' =&gt; 'string'<br>&nbsp; &nbsp; }<br>&nbsp; }<br>};</tt></div> </blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

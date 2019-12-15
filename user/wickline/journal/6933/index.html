@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of wickline: mozilla custom keyword queries on steriods</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>mozilla custom keyword queries on steriods</h1>
+<h2><a href="/user/wickline/">wickline</a> on 2002-08-06T15:19:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Do you use mozilla?
+    http://mozilla.org/<br/><br/>Do you use keywords?
+    http://www.mozilla.org/docs/end-user/internet-keywords.html<br/><br/>Do you use custom keyword queries?
+    http://www.mozilla.org/docs/end-user/keywords.html<br/><br/>Do you want your custom keyword queries to
+    - relace *all* instances of the token in your URI template?
+    - allow multiple arguments to be place in multiple places?
+    - allow some args to be url-encoded, but not others?<br/><br/>Then you want to take this perl code as a starting point for your own
+CGI script or Apache module. Then set up a custom keyword to call that
+script or module and you're home free (modulus one HTTP transaction per
+call).<br/><br/>See also
+    http://use.perl.org/user/miyagawa/journal/6929
+    http://use.perl.org/user/miyagawa/journal/6930<br/><br/>This code predates the above, but miyagawa's posting reminded me
+that other folks might find use for it...
+    http://bugzilla.mozilla.org/show_bug.cgi?id=124237
+    http://bugzilla.mozilla.org/attachment.cgi?id=69884&action=view<br/><br/>I'm m_mozilla, so feel free to copy/adapt/whatever this code to
+your heart's desire.<br/><br/>WARNING:
+    Slash wraped the long URLs.
+    The tests won't work until you unwrap them.<br/><br/>-matt<br/><br/>#!/usr/bin/perl -w
+$::verbose = 0; # turn on to enable verbose testing (to STDOUT)
+use strict;
+print "testing...\n";
+&test_uri_template_code;
+print "testing complete.\n";
+sub build_uri ($$) { # Q=plain, q=encode
+    my( $uri_t, $query ) = @_;
+    return undef unless defined $uri_t;
+    return $uri_t unless $uri_t =~ m/%[qQ]\d*;/;
+    return &empty_tokens( $uri_t )
+        unless ( defined $query and $query =~ /\S/ );
+    $uri_t =~ s/%([qQ])0*(\d+);/%$1$2;/g;
+    $query =~ s/^\s+|\s+$//g;
+    my @terms = split( /\s+/, $query);
+    my @numeric_tokens = sort { $a <=> $b } (  keys %{{
+        map  { $_ => 1 }  ( $uri_t =~ m/%[qQ](\d+);/g )
+    }}); # <=> sorted uniq numbers from %[qQ](\d+); tokens
+    while ( @terms and @numeric_tokens ) {
+        my $term = shift @terms;
+        my $token = shift @numeric_tokens;
+        $uri_t =~ s{%([qQ])$token;}{  $1 eq 'Q'
+            ?  $term  :  &uri_encode( $term )
+        }ge;
+    } # now we're out of @terms and/or @numeric_tokens
+    return &empty_tokens( $uri_t ) unless @terms;
+    return $uri_t unless $uri_t =~ m/%[qQ]\d*;/;
+    $uri_t =~ s{%([qQ]);}{  $1 eq 'Q'
+        ?               join( '+', @terms )
+        :  uri_encode(  join( ' ', @terms )  )
+    }ge;
+    return $uri_t;
+}
+sub empty_tokens ($) {
+    local $_ = shift; s/%[qQ]\d*;//g; return $_;
+}
+sub uri_encode {
+    return undef unless $_[0];
+    my $txt = shift;
+    # use a real look-up table in mozilla; faster than this:
+    $txt =~ s/([^a-zA-Z0-9~._\-])/$1 eq' '?'+':sprintf("%%%02X",ord($1))/ge;
+    return $txt;
+}
+sub test_uri_template_code {
+    # keywords containing '_x_' have malformed URI templates, and
+    # the test results will need to not treat bad tokens as tokens
+    %::keywords2templates = qw{
+        a                           http://www.alldirect.com/
+        a_x_1                       http://www.alldirect.com/%q
+        a_x_2                       http://www.alldirect.com/%q1
+        a_x_3                       http://www.alldirect.com/%qx
+        a_x_4                       http://www.alldirect.com/%qx;
+        a_x_5                       http://www.alldirect.com/%q0
+        a_x_6                       http://www.alldirect.com/%q01
+        a_x_7                       http://www.alldirect.com/%1;
+        a_x_8                       http://www.alldirect.com/%20;
+        a_x_9                       http://www.alldirect.com/%1$q
+        a_x_10                      http://www.alldirect.com/^%1$q
+        a_x_11                      http://www.alldirect.com/%qabout.asp
+        isbninfo                    http://www.amazon.com/exec/obidos/ASIN/%q1;
+        isbnbuy                     http://www.alldirect.com/book.asp?isbn=%q1;
+        isbnbuy_1                   http://www.alldirect.com/book.asp?isbn=%q;
+        isbnbuy_2                   http://www.alldirect.com/book.asp?isbn=%q01;
+        isbnbuy_3                   http://www.alldirect.com/book.asp?isbn=%q001;
+        isbnbuy_4                   http://www.alldirect.com/book.asp?isbn=%q000000001;
+        isbnbuy_5                   http://www.alldirect.com/book.asp?isbn=%q0;
+        isbnbuy_6                   http://www.alldirect.com/book.asp?isbn=%q00000000;
+        isbnbuy_7                   http://www.alldirect.com/book.asp?isbn=%q00000700;
+        chart                       http://quote.fool.com/Chart/chart.asp?time=%q1;&symbols=%q2;
+        chart_1                     http://quote.fool.com/Chart/chart.asp?time=%q7;&symbols=%q025;
+        chart_2                     http://quote.fool.com/Chart/chart.asp?time=%q7;&symbols=%q;
+        chart_x_1                   http://quote.fool.com/Chart/chart.asp?time=%qq;&symbols=%q;
+        chart_x_2                   http://quote.fool.com/Chart/chart.asp?time=%;&symbols=%0q;
+        chart_reverse               http://quote.fool.com/Chart/chart.asp?time=%q2;&symbols=%q1;
+        chart_reverse_1             http://quote.fool.com/Chart/chart.asp?time=%q001;&symbols=%q000;
+        chart_reverse_2             http://quote.fool.com/Chart/chart.asp?time=%q;&symbols=%q0;
+        bughunt                     http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=%q;&field0-0-1=component&type0-0-1=substring&value0-0-1=%q;&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=%q;&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=%q;
+        bughunt_first_term_only     http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=%q0;&field0-0-1=component&type0-0-1=substring&value0-0-1=%q0;&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=%q0;&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=%q0;
+        bughunt_ordered_terms       http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=%q0;&field0-0-1=component&type0-0-1=substring&value0-0-1=%q1;&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=%q2;&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=%q3;
+        owner_a_bughunt_queryb      http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=%q;&field0-0-1=component&type0-0-1=substring&value0-0-1=%q;&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=%q;&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=%q;&email1=%q0;&emailtype1=exact&emailassigned_to1=1
+        reporter_a_bughunt_queryb   http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=%q;&field0-0-1=component&type0-0-1=substring&value0-0-1=%q;&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=%q;&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=%q;&email1=%q0;&emailtype1=exact&emailreporter1=1
+        anyemail_a_bughunt_queryb   http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=%q;&field0-0-1=component&type0-0-1=substring&value0-0-1=%q;&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=%q;&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=%q;&email1=%q0;&emailtype1=exact&emailassigned_to1=1&emailreporter1=1&emailqa_contact1=1&emailcc1=1&emaillongdesc1=1
+        val_mozilla_page            http://validator.w3.org/check?uri=http%3A%2F%2Fmozilla.org%2F%q;
+        val_mozilla_page_to_html_v  http://validator.w3.org/check?uri=http%3A%2F%2Fmozilla.org%2F%q1;&doctype=%q;
+        drivefromhome_to_a          http://maps.yahoo.com/py/ddResults.py?newaddr=123+Home+Ave&newcsz=12345&taraddr=%Q1;&tarcsz=%q2;
+        drivefrom_a_to_b            http://maps.yahoo.com/py/ddResults.py?newaddr=%Q1;&newcsz=%q2;&taraddr=%Q3;&tarcsz=%q4;
+        trans_parturl_a_from_b_2c   http://fets3.freetranslation.com:5081/?Language=%q2;%2F%q3;&Url=%q1;&Sequence=core
+        trans_parturl_a_from_b_2c_1 http://fets3.freetranslation.com:5081/?Language=%q22;%2F%q33;&Url=%q11;&Sequence=core
+        trans_parturl_a_from_b_2c_2 http://fets3.freetranslation.com:5081/?Language=%q00022;%2F%q033;&Url=%q000011;&Sequence=core
+        trans_parturl_a_from_b_2c_3 http://fets3.freetranslation.com:5081/?Language=%q00022;%2F%q;&Url=%q0;&Sequence=core
+        trans_from_a_2b_parturl_c   http://fets3.freetranslation.com:5081/?Language=%q1;%2F%q2;&Url=%q3;&Sequence=core
+    };
+    my %canonical_testcases = (
+        # for each testcase, [q{query string}, q{expected resuting URI}]
+        'a' => [
+              [ q{doesn't matter what args you put here, they should all be ignored},
+                q{http://www.alldirect.com/},
+            ],
+        ],
+        'isbninfo' => [
+              [ q{0596000529},
+                q{http://www.amazon.com/exec/obidos/ASIN/0596000529},
+            ],[ q{0596000529 additional args ignored. Book title is Creating Applications with Mozilla},
+                q{http://www.amazon.com/exec/obidos/ASIN/0596000529},
+            ],[ q{    0596000529 initial whitespace also ignored},
+                q{http://www.amazon.com/exec/obidos/ASIN/0596000529},
+            ],
+        ],
+        'isbnbuy' => [
+              [ q{0764545884},
+                q{http://www.alldirect.com/book.asp?isbn=0764545884},
+            ],[ q{0764545884 additional args ignored. Book title is Mozilla Source Code Guide with CDROM},
+                q{http://www.alldirect.com/book.asp?isbn=0764545884},
+            ],
+        ],
+        'chart' => [
+              [ q{1mo aapl},
+                q{http://quote.fool.com/Chart/chart.asp?time=1mo&symbols=aapl},
+            ],[ q{3mo aapl},
+                q{http://quote.fool.com/Chart/chart.asp?time=3mo&symbols=aapl},
+            ],[ q{ytd aapl},
+                q{http://quote.fool.com/Chart/chart.asp?time=ytd&symbols=aapl},
+            ],[ q{2yr aapl},
+                q{http://quote.fool.com/Chart/chart.asp?time=2yr&symbols=aapl},
+            ],[ q{all aapl},
+                q{http://quote.fool.com/Chart/chart.asp?time=all&symbols=aapl},
+            ],[ q{ytd msft},
+                q{http://quote.fool.com/Chart/chart.asp?time=ytd&symbols=msft},
+            ],[ q{    1mo    aapl    whitespace and extra args ignored},
+                q{http://quote.fool.com/Chart/chart.asp?time=1mo&symbols=aapl},
+            ],
+        ],
+        'chart_reverse' => [
+              [ q{ aapl  1mo         like above, but for those who prefer reversed syntax},
+                q{http://quote.fool.com/Chart/chart.asp?time=1mo&symbols=aapl},
+            ],
+        ],
+        'bughunt' => [ # bonus: bug 98749 gets fixed too!
+              [ q{custom keywords},
+                q{http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=custom+keywords&field0-0-1=component&type0-0-1=substring&value0-0-1=custom+keywords&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=custom+keywords&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=custom+keywords},
+            ],[ q{not suck},
+                q{http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=not+suck&field0-0-1=component&type0-0-1=substring&value0-0-1=not+suck&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=not+suck&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=not+suck},
+            ],
+        ],
+        'bughunt_first_term_only' => [
+              [ q{tabs     and additional args are ignored},
+                q{http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=tabs&field0-0-1=component&type0-0-1=substring&value0-0-1=tabs&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=tabs&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=tabs},
+            ]
+        ],
+        'owner_a_bughunt_queryb' => [
+              [ q{ben@netscape.com  custom keywords},
+                q{http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=custom+keywords&field0-0-1=component&type0-0-1=substring&value0-0-1=custom+keywords&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=custom+keywords&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=custom+keywords&email1=ben%40netscape.com&emailtype1=exact&emailassigned_to1=1},
+            ],[ q{peterv@netscape.com  white-space: pre},
+                q{http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=white-space%3A+pre&field0-0-1=component&type0-0-1=substring&value0-0-1=white-space%3A+pre&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=white-space%3A+pre&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=white-space%3A+pre&email1=peterv%40netscape.com&emailtype1=exact&emailassigned_to1=1},
+            ],
+        ],
+        'reporter_a_bughunt_queryb' => [
+              [ q{asa@mozilla.org  crash causes},
+                q{http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=crash+causes&field0-0-1=component&type0-0-1=substring&value0-0-1=crash+causes&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=crash+causes&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=crash+causes&email1=asa%40mozilla.org&emailtype1=exact&emailreporter1=1},
+            ],
+        ],
+        'anyemail_a_bughunt_queryb' => [
+              [ q{hewitt@netscape.com  tooltip},
+                q{http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=tooltip&field0-0-1=component&type0-0-1=substring&value0-0-1=tooltip&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=tooltip&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=tooltip&email1=hewitt%40netscape.com&emailtype1=exact&emailassigned_to1=1&emailreporter1=1&emailqa_contact1=1&emailcc1=1&emaillongdesc1=1},
+            ],[ q{bryner@netscape.com}, # leaves normal query part empty, makes bugzilla work for very long time :/
+                q{http://bugzilla.mozilla.org/buglist.cgi?bug_status=UNCONFIRMED&bug_status=NEW&bug_status=ASSIGNED&bug_status=REOPENED&field0-0-0=product&type0-0-0=substring&value0-0-0=&field0-0-1=component&type0-0-1=substring&value0-0-1=&field0-0-2=short_desc&type0-0-2=substring&value0-0-2=&field0-0-3=status_whiteboard&type0-0-3=substring&value0-0-3=&email1=bryner%40netscape.com&emailtype1=exact&emailassigned_to1=1&emailreporter1=1&emailqa_contact1=1&emailcc1=1&emaillongdesc1=1},
+            ],
+        ],
+        'val_mozilla_page' => [
+              [ q{mozorg.html},
+                q{http://validator.w3.org/check?uri=http%3A%2F%2Fmozilla.org%2Fmozorg.html},
+            ],[ q{ports/fizzilla/Cocoazilla.html},
+                q{http://validator.w3.org/check?uri=http%3A%2F%2Fmozilla.org%2Fports%2Ffizzilla%2FCocoazilla.html},
+            ],
+        ],
+        'val_mozilla_page_to_html_v' => [
+              [ q{ports/fizzilla/Cocoazilla.html HTML 4.01 Strict},
+                q{http://validator.w3.org/check?uri=http%3A%2F%2Fmozilla.org%2Fports%2Ffizzilla%2FCocoazilla.html&doctype=HTML+4.01+Strict},
+            ],[ q{ports/fizzilla/Cocoazilla.html XHTML 1.0 Transitional},
+                q{http://validator.w3.org/check?uri=http%3A%2F%2Fmozilla.org%2Fports%2Ffizzilla%2FCocoazilla.html&doctype=XHTML+1.0+Transitional},
+            ],
+        ],
+        'drivefromhome_to_a' => [
+              [ q{999+EndHere+Ave 56789},
+                q{http://maps.yahoo.com/py/ddResults.py?newaddr=123+Home+Ave&newcsz=12345&taraddr=999+EndHere+Ave&tarcsz=56789},
+            ],[ q{666+Brimstone+Ave 00666},
+                q{http://maps.yahoo.com/py/ddResults.py?newaddr=123+Home+Ave&newcsz=12345&taraddr=666+Brimstone+Ave&tarcsz=00666},
+            ],
+        ],
+        'drivefrom_a_to_b' => [
+              [ q{111+StartHere+Blvd 12345  999+EndHere+Ave 56789},
+                q{http://maps.yahoo.com/py/ddResults.py?newaddr=111+StartHere+Blvd&newcsz=12345&taraddr=999+EndHere+Ave&tarcsz=56789},
+            ],[ q{111+StartHere+Blvd 12345  999+EndHere+Ave 56789    all other args ignored},
+                q{http://maps.yahoo.com/py/ddResults.py?newaddr=111+StartHere+Blvd&newcsz=12345&taraddr=999+EndHere+Ave&tarcsz=56789},
+            ],
+        ],
+        'trans_parturl_a_from_b_2c' => [
+              [ q{mozilla.org English Spanish},
+                q{http://fets3.freetranslation.com:5081/?Language=English%2FSpanish&Url=mozilla.org&Sequence=core},
+            ],[ q{mozilla.org English French},
+                q{http://fets3.freetranslation.com:5081/?Language=English%2FFrench&Url=mozilla.org&Sequence=core},
+            ],[ q{mozilla.org English German},
+                q{http://fets3.freetranslation.com:5081/?Language=English%2FGerman&Url=mozilla.org&Sequence=core},
+            ],[ q{mozilla.org English Italian},
+                q{http://fets3.freetranslation.com:5081/?Language=English%2FItalian&Url=mozilla.org&Sequence=core},
+            ],[ q{mozilla.org English Norwegian},
+                q{http://fets3.freetranslation.com:5081/?Language=English%2FNorwegian&Url=mozilla.org&Sequence=core},
+            ],[ q{mozilla.org English Portuguese},
+                q{http://fets3.freetranslation.com:5081/?Language=English%2FPortuguese&Url=mozilla.org&Sequence=core},
+            ],[ q{mx.yahoo.com Spanish English},
+                q{http://fets3.freetranslation.com:5081/?Language=Spanish%2FEnglish&Url=mx.yahoo.com&Sequence=core},
+            ],[ q{de.yahoo.com German English},
+                q{http://fets3.freetranslation.com:5081/?Language=German%2FEnglish&Url=de.yahoo.com&Sequence=core},
+            ],
+        ],
+        'trans_from_a_2b_parturl_c' => [
+              [ q{German English de.yahoo.com},
+                q{http://fets3.freetranslation.com:5081/?Language=German%2FEnglish&Url=de.yahoo.com&Sequence=core},
+            ],[ q{Spanish English mx.yahoo.com},
+                q{http://fets3.freetranslation.com:5081/?Language=Spanish%2FEnglish&Url=mx.yahoo.com&Sequence=core},
+            ],[ q{English Italian mozilla.org},
+                q{http://fets3.freetranslation.com:5081/?Language=English%2FItalian&Url=mozilla.org&Sequence=core},
+            ],[ q{English French mozilla.org},
+                q{http://fets3.freetranslation.com:5081/?Language=English%2FFrench&Url=mozilla.org&Sequence=core},
+            ],
+        ],
+    );
+    for my $keyword ( keys %canonical_testcases ) {
+        for my $pair ( @{$canonical_testcases{$keyword}} ) {
+            &report_on_keyword_with_input( $keyword, @$pair );
+        }
+    }
+    my %additional_testcases = (
+        # like above, but for catching bizarre bugs. As bugs come up,
+        # fix them and add a relevant test case or two in here.
+    );
+    for my $keyword ( keys %additional_testcases ) {
+        for my $pair ( @{$additional_testcases{$keyword}} ) {
+            &report_on_keyword_with_input( $keyword, @$pair );
+        }
+    }
+}
+sub report_on_keyword_with_input {
+    my( $keyword, $query, $expected ) = @_;
+    my $uri_t = $::keywords2templates{ $keyword };
+    my $result = &build_uri( $uri_t, $query );
+    if ( defined $result ) {
+        my $ok = $result eq $expected;
+        if ( $ok and $::verbose ) {
+            print "... Correct URI when expanding:  $keyword $query\n";
+        } elsif ( !$ok ) {
+            print "!!! Unexpected URI when expanding:  $keyword $query\n";
+            print "        looking for:  $expected\n";
+            print "        but I found:  $result\n";
+        }
+    } else {
+        print "!!! Undefined URI when expanding:  $keyword $query\n";
+    }
+}<br/><br/><br/><br/>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Pedant</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2002-08-07T00:24:39</h3>
+<p>
+What's the point of using function prototypes if you use the sigil for calling them?  (Yeah, I do think the ampersand is a very nearly an abomination.)
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Pedant</h2>
+<h3><a href="/user/wickline/">wickline</a> on 2002-08-07T10:53:59</h3>
+<tt>To be honest, I use both for documentation more than anything else.<br>I've benefited from this use, and have yet to be bit by it, so I just<br>keep on doing it...<br> <br>I've used ampersands as a sigil since I started writing perl because<br>it makes it plain that we're talking about a subroutine. It also reads<br>well:<br> <br>&nbsp; &nbsp; &amp;load_data; &amp;collate_records;<br>&nbsp; &nbsp; "...and load data and collate records"<br> <br>It also allows me to have more control when doing a s///g on my own<br>code. &amp;foo is never confused with @foo{'foo',$foo,$foo{$foo},@foo}.<br>If I want to rename a subroutine to something more appropriate, or<br>even just find every place where it's used, I can do so without a<br>bunch of false positives. I also like to use parens around my args<br>when I don't strictly need them... it's free documentation, and also<br>lets me easily select the whole list of args to copy/paste/replace<br>them (BBEdit lets you double click on a paren/bracket/brace to select<br>the whole block, or command-B from within the block).<br> <br>I tend not to use ampersands for functions imported from modules,<br>because I'd rather allow any type checking to proceed and I'm not very<br>likely to be re-naming them. This also makes them look more like built<br>in functions, which is how I'd rather think of those imported subs.<br> <br>I don't always use prototypes. When I do use them, I do it more as a<br>way of telling someone reading the code "hey, this sub takes these args" rather than to tell perl anything about the sub. The prototype<br>plus the initial assignment from @_ can tell someone immediately that<br>you're not using @_ any further, or that you're going to be doing<br>something with "everything left in @_" later on in the subroutine.<br> <br>Yes, I know I'm missing out on some handy error-checking by using the<br>ampersand as a sigil, but I personally find the sigil more useful than<br>the error-checking. I'm much much more likely to be greatful for an<br>unambiguous string to identify calls to my subroutines than I am to be<br>greatful for some arg-checking by perl.<br> <br>In production code, I do document my subs, but sometimes when you're<br>debugging it's easy to just look at the code and ignore the POD. The<br>prototype is just a bonus bit of documentation.<br> <br>Bad habit? Maybe. I work with some folks who are learning perl and so<br>far it seems to work well for them. They don't tend to have problems<br>figuring out what sorts of args to use for a function. They do like<br>that they can see at a glance what is a subroutine call and what is<br>a call to a built-in function (or imported sub).<br> <br>-matt<br> </tt>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

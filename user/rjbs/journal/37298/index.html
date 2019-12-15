@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: when to localize $@?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>when to localize $@?</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2008-08-29T00:42:20</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><html><p>Today I spent a good while trying to figure out why I wasn&#39;t seeing a runtime error from code that looked like this (grossly simplified):</p><pre>eval {     ...     $object->method_that_doesnt_exist;     ...   };   if (my $error = $@) {     log($error);   }
+</pre><p>Fortunately, this is something like the third time I&#39;ve encountered this error in the past six months, and I am now quick to guess at it.  Some of the code in the eval created an object that had a DESTROY handler, and it threw an exception without first localizing $@.  This clobbered the real exception, so by the time the eval block was exited, $@ was empty.  Ugh!</p><p>I learned my lesson the first time: I&#39;m careful, now, to make sure my own DESTROY methods localize $@, because they can be invoked when I least expect it.</p><p>Where else does one have to remember to be Really Careful?  Is there anything that provides sufficient sugar to make this painless? </p></html>
+</p>
+
+
+<hr/>
+
+
+
+<h2>It's a well-known problem</h2>
+<h3><a href="/user/Ed Avis/">Ed Avis</a> on 2008-08-29T09:36:27</h3>
+Yes, this is a well-known problem with eval.  You cannot, as the manual page suggests, do eval {<nobr> <wbr></nobr>... } and then test $@ to see whether there was an error.  The correct incantation is something like<br><br>my $r = eval {<nobr> <wbr></nobr>... };<br>my $error = $@;<br>$error<nobr> <wbr></nobr>//= 'unknown error' if not $r;<br>if ($error) {<nobr> <wbr></nobr>... }<br><br>By well-known I mean known to a tiny minority of cognoscenti, while most perl programmers and the documentation are entirely ignorant of it.  Which is the default situation for any trap or gotcha in the perl language.  But I digress...<br><br>The Error module on CPAN provides syntactic sugar 'try', 'catch', and 'except'.  It handles the case of eval {} in DESTROY half-correctly: an exception is thrown, but the original message is lost.  See &lt;http://rt.cpan.org/Ticket/Display.html?id=38836&gt;.<br><br>The good news is that if you use Error everywhere and have try {} in your destructors instead of eval {}, it appears to work correctly.
+
+
+
+<blockquote>
+
+<h2>Re:It's a well-known problem</h2>
+<h3><a href="/user/Ed Avis/">Ed Avis</a> on 2008-08-29T09:37:57</h3>
+Duuh, I meant<br><br>my $r = eval {<nobr> <wbr></nobr>...; 1 };<br>my $error = $@;<br>$error<nobr> <wbr></nobr>//= 'unknown error' if not $r;<br>if ($error) {<nobr> <wbr></nobr>... }<br><br>Note the trailing '1' in the eval block.<br><br>(It doesn't help that the comment engine here is doing something weird so you lose all your text if you go Back and Forward in Firefox.  And those submit buttons are not buttons at all but look like links.  What's going on?)
+
+
+
+<h2>Re:It's a well-known problem</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2008-08-29T10:48:44</h3>
+<p>Yeah, I generally do that, and definitely suggest that anyone else do it, too.  What I was wondering about, though, is prevention.  People are going to *forget* to do that, and if my destructors localize $@, they won't clobber it.  Where else is there clobbering potential?</p><p>I'm not even sure the destructor in quesiton did call eval.  I guess maybe somewhere down *its* calls.  Blech!</p>
+
+
+
+<blockquote>
+
+<h2>Re:It's a well-known problem</h2>
+<h3><a href="/user/Ed Avis/">Ed Avis</a> on 2008-08-29T11:43:17</h3>
+For prevention, you just have to run perlcritic over your code.  If you're calling other people's code that isn't perlcritic-clean, then 'local $@' in every DESTROY method might save you.  I suppose there should be a perlcritic policy for that too.<br><br>I don't like the way that the perl core has all sorts of traps for the unwary and can seemingly never be fixed for fear of breaking backwards compatibility, but perlcritic provides a useful sticking plaster.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>When? Simple:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-08-29T11:19:58</h3>
+<p>Always.</p><p>If you use <code>eval</code>, there has to be a <code>local $@</code> somewhere nearby. There is no good rule of thumb for where <em>exactly</em> because that depends on the structure of your code. But you have to make sure <code>$@</code> is restored at some point <em>before execution returns from the scope you are controlling</em>. That is the key: do not pass control back to your caller without fixing <code>$@</code> if you used <code>eval</code>.</p>
+
+
+
+<h2>Devel::EvalError</h2>
+<h3><a href="/user/clintongormley/">clintongormley</a> on 2008-08-30T13:40:50</h3>
+You may also want to look at a module recently release by Tye McQueen:<br/><br/>Devel::EvalError<br/><br/><a href="http://search.cpan.org/user/tyemq/Devel-EvalError-0.001002/EvalError.pm" title="cpan.org">http://search.cpan.org/user/tyemq/Devel-EvalError-0.001002/EvalError.pm</a cpan.org><br/><br/>clint
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

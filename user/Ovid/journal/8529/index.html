@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: The Strangest Bug</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>The Strangest Bug</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2002-10-22T16:34:41</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Well, we're stumped.  A site that has previously been working fine with MS SQL Server 2000, IIS 5.0 and Windows 2000 has started to crash and burn ... intermittently.  I've been working on some updates and a section of code that I have never changed is causing the problem.</p>
+
+<p><tt>if ( $page eq $page_control{default}{page} )<br>
+{<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my $loginName = $db->get_user_info($user);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my $message&nbsp;&nbsp;&nbsp;= $db->get_admin_message;<br></tt></p>
+
+<p>It's that last line which is killing us.  I even have it traced down to the actual statement handle execution, internally.  I still don't know why it fails.  That's not the weird part.  Normal debugging methods have failed because when this crashes, everything locks up.  We get no error messages from the database, from IIS, from <em>anything</em>.</p>
+
+<p>I've tried <tt>$|++</tt> and putting in <tt>carp</tt>s before this code to narrow it down.  No dice.  There's nothing in the error logs.</p>
+
+<p>I tried tossing in a <tt>BEGIN</tt> block to dump state information.  No dice.  Still nothing in the error logs.</p>
+
+<p>It's almost as if the program senses that this method call, buried in a conditional a couple of hundred lines after the beginning of execution, is going to lock up so the program decides that it's a waste of even trying to run.  If this program is executed in such a way that the condition is false, everything, including the debug warnings, works fine.  The only way I managed to track down the bug was to dump some test output at the top of the program, put an <tt>__END__</tt> token after the test output and do a binary search with this through the program to narrow down the exact cause of the failure.</p>
+
+<p>Truly, this is the strangest bug I have ever seen.  Frankly, I suspect that this is some weird ISAPI error, but I can't prove it yet.</p>
+
+<p><strong>Update:</strong>  We've narrowed the problem down to one database table that has one record and one field.  We can't select, update, or delete that record, though we were apparently successful in inserting a new record.  I say "apparently" because we still can't select anything from the table to verify it.  We tried dropping and recreating the table, but SQL Server will just timeout when we try and drop it.  Of course, this doesn't answer the question of why a problem with SQL Server will cause ISAPI to stop writing error messages to the logs ...</p></p>
+
+
+<hr/>
+
+
+
+<h2>Win file locking issue?</h2>
+<h3><a href="/user/wickline/">wickline</a> on 2002-10-22T18:54:08</h3>
+What sort of database? Is each table a file?<br> <br>If so...<br> <br>Is it possible that an earlier instance of the script crashed or was interupted while it had that file open? Can you read the file in a text editor, or does NT give you an error?<br> <br>Do you see different behavior depending on whether you read/copy the file on the local machine vs via filesharing?<br> <br>If you can't read the file from a share (and possibly locally), it may be that Win thinks the file is in use, possibly by a crashed/interupted previous instance of the script (or maybe the script was fine, but Win just spaced out and forgot to remove the busy/lock note).<br> <br>In that case, re-booting will solve the problem. Reboot, and you'll be able to read the file again.<br> <br>Warning: if the contents of the file are screwed up, it is possible that the next time your script runs it might fail when trying to read the file and crash, leaving the file in the same messed up state (you can't access it until you reboot), so check the file contents after reboot before you run that script again.<br> <br>I ran into this with DBD::AnyData (CSV files) shortly after moving a project to a new win2K server. I don't know what caused the initial corruption, but from that point on, any time the script tried to touch that file, everything went kaboom and the file was foobar until the next reboot. <br> <br>The only symptom was that one day the script stopped working for most varieties of functionality. It took a bit of digging to find out that it failed on accessing a specific file, and then since we couldn't get in the file, it took a bit longer to realize what was going on.<br> <br>If this is happening to you, there may be other files which were horked at the same time... Any file which was open when the script crashed is suspect. Hopefully only the file-lockeness will be screwed up, but it might take a few reboots to be able to continue debugging to find which file had the corrupted content. You may have to wade through several files that have normal content but just got locked by the script crashing.<br> <br>Or maybe this is nothing like what you're seeing...<br> <br>Good luck<nobr> <wbr></nobr>:)<br> <br>Post to let us curious minds know how it turns out!<br> <br>-matt<br>
+
+
+
+<blockquote>
+
+<h2>Re:Win file locking issue?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2002-10-22T19:37:39</h3>
+<p>The database we're using Microsoft SQL Server 2000.  We stopped and restarted that server and, before anything else could touch the database, we successfully dropped the table.  I've added it back and everything seems to work perfectly.  Of course, we haven't done any load testing on the new table, so it might be a bug waiting for its opportunity to bite.  It's extremely frustrating that we cannot find any logs <em>anywhere</em> which refer to this table or what the problem might be.</p>
+
+<p>I've double-checked the code which updates the table and it appears to correctly commit the transaction, so I don't think anything is hanging up there.  I'm still scratching my head.  If we get more info, I'll post it.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>SQL Server Admin tools</h2>
+<h3><a href="/user/dws/">dws</a> on 2002-10-22T19:16:09</h3>
+The better DBA's I've worked with have been able to extract a healthy pile of clues from the admin tools provided with SQL Server (e.g., who has what locked).
+<p>
+Since you're dealing with a single row in a single table, my number one cause of mystery grief on SQL Server--row locks getting escalated to page locks--probably isn't an issue.</p>
+
+
+
+<blockquote>
+
+<h2>Re:SQL Server Admin tools</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2002-10-22T19:50:57</h3>
+<p> <tt>dws</tt> wrote: <em>The better DBA's I've worked with have been...</em> </p>
+
+<p> <tt>Ovid</tt> replied:  <em>ha, ha, ha, grunt, snort, ha!</em> </p>
+
+<p>We let our "DBA" go on the grounds that we couldn't afford him.  That's true because while he <em>might</em> have been qualified to be an intern, he certainly wasn't qualified to be a senior DBA.  He lied his @$$ off on his resume and when he was hired, no one was capable of evaluating his performance -- not surprising given that this company once hired a CTO who didn't know what FTP was.  Then I returned to the company after a leave of absense and the man who became my boss was hired.  We were astonished at how little our "DBA" knew.  He didn't appear to know SQL very well, did not understand the rules of database normalization and we were forced to redesign everything he came up with.  I can't tell you how frustrating it was trying to explain to our "DBA" that a user name is a rotten primary key (one of his rebuttals:  "If you need to change it, you can just write a script to change all of the instances of it!"<nobr> <wbr></nobr>:-).  This idiot was also, to the best of my knowledge, the highest paid employee in the company.  Some how, some way, I need to develop the chutzpah to pull off a stunt like that.</p>
+
+<p>I wish we had a DBA here, but we've been forced to struggle along without one.  Of course, I also wish we had a QA department.  I wish we had more permanent funding.  I wish, I wish, I wish.</p>
+
+<p>On the other hand, there is kind of a pleasant surrealness working for a high-tech company that heats its office with a wood stove.</p>
+
+
+
+<blockquote>
+
+<h2>noarmuyzed</h2>
+<h3><a href="/user/wickline/">wickline</a> on 2002-10-22T20:43:44</h3>
+"If you need to change it, you can just write a script to change all of the instances of it!"<br> <br>Hmmm...<br> <br>Actually, you could remove a layer of indirection by eliminating the username entirely. That way, if it changes, you don't have to update anything at all. You'll still be able to refer to users by other unique fields. The probability that any two users have the same hire date and birth date is probably sufficiently low<nobr> <wbr></nobr>...and if not, you can just throw in more fields until you eliminate the duplication.<br> <br>Then you just put all those fields into each relevant table instead of the no-longer-needed username (or that stupid extra arbitrary 'id' field you keep mentioning). Huh? What do you mean "normalization"? Listen, this will work... I'm telling you.<br> <br>I guess you should probably put the username back in the table though, because we may still need to refer to it. While it may change (I guess you're right about that) so it probably won't make a good key, we should keep it around. We'll just use all these other fields as our key though.<br> <br>If you need more fields later to eliminate an unexpected future duplication, you just write a script to duplicate all those fields for all the user-related records in all the tables too. In the very unlikely event that two records can't be distinguished by using more and more fields, only then would you have to add your arbitrary 'id' field which would auto-increment as needed.<br> <br>The advantage to this approach is that if/when you ever get to the point that you have to add that extra 'id' field, you'll be able to demonstrate a dramatic decrease in database size and increase in efficiency. You see, at that point, you'll be able to use that 'id' field as the key, and re-work your tables to eliminate scores of fields. Because, you see, if you do it right, you can use just that one 'id' field instead of that big combination of fields.<br> <br>And as every certified MS professional can tell you, space savings and application speed-ups are two important ingredients in the Bonu$$ recipe.<br> <br>-matt, toungue firmly in cheek<br> <br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autarch: Layered APIs</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Layered APIs</h1>
+<h2><a href="/user/autarch/">autarch</a> on 2007-03-12T16:28:55</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+At Socialtext, many of the developers kept internal blogs for a long time. This is a cleaned-up version of something I wrote there that I'd like to make public, because I won't have access to it after today, my last day at Socialtext.
+</p>
+
+<p>
+Some background ...
+</p>
+
+<p>
+This was written back in March of 2006, when we were talking about how to release most of our code base as open source, and trying to figure out what pieces we could hold back as proprietary enhancements. The term "fridge" is a term Chris Dent used a lot, which is the idea that our system should have simple interfaces, like a kitchen appliance such as a fridge.
+</p>
+
+<p>
+------------------------------------------------------------------
+</p>
+
+<p>
+This is something I've been thinking about for a while, primarily because of some thoughts I had when discussing what we could leave out of our OSS offering, and how hard leaving out certain bits would be. I suspect that this has already been described by someone somewhere, but searching for things like "layered api" or "tiered api" on Google does not seem to come up with anything interesting. Maybe I'm just not using the right terms. Anyway ...
+</p>
+
+<p>
+In trying to make each piece of our system more like a fridge, I'm seeing distinctions between various layers of the system, kind of like this:
+</p>
+
+<ul>
+<li>UI</li>
+<li>Services (verbs)</li>
+<li>Data (nouns)</li>
+</ul>
+
+<p>
+The bottom layer, our foundation, is the API we use to for getting and changing data. This layer consists of nouns like "user", "workspace, "page", etc. The classes in this layer are responsible for telling us information about a specific type of noun, and for updating information about those nouns. Nouns depend on the presence of other nouns. For example, in my branch, Socialtext::User depends on Socialtext::Workspace and vice versa. A simple example is that workspaces have a creator, which is a user. Workspaces also have members (with roles), and those members are users.
+</p>
+
+<p>
+These noun classes tend to be fairly dependent on each other in general, and I think that's ok. These classes are all at the same layer, and I think we should expect all of the pieces they represent to be present. In the context of "what should be left out of the OSS offering", I'd say nothing from this layer should be left out. This is the core of our app, and trying to make these pieces pluggable or optional causes cascading complexity throughout all of the higher layers, because they have no stable foundation to build on.
+</p>
+
+<p>
+On the flip side, I suspect it's probably important to make sure that the bottom layer doesn't depend on anything from higher layers. The user class should not depend on the authorization checking service, though the opposite dependency may exist.
+</p>
+
+<p>
+The next layer is services, which are verbs. For example, the formatter is a service, checking authorization is a service, etc. Services will depend on specific pieces of the foundation layer. For example, the authorization checking service depends on the user noun, and possibly on other nouns like workspace, account, role, etc. Services should be more easily pluggable. Again, with authorization, we might have one authorization service that checks against the DBMS, and another that checks against LDAP. We could also have an "always allowed" checker that just says yes to everything.
+</p>
+
+<p>
+Some services may depend on other services. The formatter depends on the authorzation checker to determine how to format inter-workspace links, for example. Rather than removing a service entirely in the OSS offering, we probably want to replace it with some sort of no-op plugin version. For authorization, that'd be the "always says yes" checker. This allows us to say that a service depends on an API of some other service, without depending on an implementation.
+</p>
+
+<p>
+Finally, at the top layer, there are the UI bits. I'd include things like webservices here, and maybe this should be renamed "outward-facing interfaces". These are the interfaces that are exposed via network protocols or command-line tools, as opposed to via API calls in Perl. These interfaces will rely on both services and data. For example, our "heavy" HTML layer uses both services (auth checking, formatter) and data (user, workspace). Each of these layers should be independent. It just seems wrong for the webservice layer to require the HTML layer to exist, or vice versa.
+</p>
+
+<p>
+In terms of leaving pieces out of the OSS release, this is the easiest layer to leave out. Nothing in the code base depends on any particular external interface, so it's absence does not require any special coding.
+</p>
+
+<p>
+Each of these layers may in turn be made out of layered piece as well. For example, on our bottom layer we have a DBMS, Alzabo as a low-level querying/updating interface to that DBMS, and then the Socialtext::* data classes, which provide a higher-level API for that data.
+</p>
+
+<p>
+I think that layering describes a good architectural goal for our app, one which encompasses the idea of componentization quite well, or maybe it's just another take on componentization. Each layer should be made up of well-defined components separated by known APIs. It also helps me think about how to handle dependencies, and highlights tricky areas. Some questions I think are interesting:
+</p>
+
+<ul>
+<li>What level of inter-dependence is okay at the service layer? How can we minimize dependencies at this layer while still keeping the code clean?</li>
+<li>Is it okay that the top layer (UI) often uses the bottom layer (data) directly? On one hand, this seems "unclean". On the other, if we had to have a service layer object for everything we wanted to do with data, we'd have an enormous amount of code, since we'd need querying and updating services for all of our data.
+<ul><li>What does seem to be valuable is adding small services between the UI and data layers in selected areas, like authentication and authorization. Having these as services means that we can make them pluggable, and do them via LDAP, for example. I think there's a middle ground between too many services, which means lots of indirection and extra code, and too few, which makes our app inflexible in the face of certain user requirements.</li>
+ </ul></li>
+<li>What do we do if we think we need for a layer to depend on a higher layer. For example, what if something in the data layer needed a service? For example, what if we want to have the app update group membership data in LDAP?
+ <ul><li>One possible solution I can think of is to allow for explicit hook points in the data layer, and then hook in calls to services.</lik>
+     <li>Another solution would be to move all of the updating APIs to the service layer, so that we had an authz updater as well as an authz checker.</li>
+ </ul>
+</ul>
+
+
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

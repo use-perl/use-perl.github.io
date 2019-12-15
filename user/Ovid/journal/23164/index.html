@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: The agony of debugging</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>The agony of debugging</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-02-13T00:50:48</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I only have time to work on <tt>AI::Prolog</tt> during the weekends, so I was chomping at the bit to tear into it today.  The main problem I faced was simple:  it was horribly broken and I couldn't figure out why.  It's been nagging at me all week.  I was trying to borrow the bits from XProlog that I needed, but the XProlog compiler is useless to me.  That meant I had to figure out my own method of compiling Prolog code and still get it to work with the new internals.  Since the core engines of the Java and Perl versions were the same, I was painstakingly going through and inserting synchronized print statements in them.  It was taking forever, but then I realized how stupid I was being.  I was editing this in vim.  Why not let vim do this for me?  Here's the important bit of my vim plugin:</p>
+
+<pre>noremap <silent> ,pp :call Println()<CR>
+
+func Println()
+  call DoPrintln(line("."))
+endfunc
+
+" other functions call this which is why we have a wrapper
+func DoPrintln(number)
+  let curr_line  = getline(a:number)
+
+  if &ft == "perl"
+    let curr_line  = "print '" . curr_line . "'. \"\\n\"; # XXX debug "
+  elseif &ft == "java"
+    let curr_line  = "System.out.println(\"" . curr_line . "\"); // XXX debug"
+  endif
+
+  if curr_line != getline(a:number)
+    call append(a:number - 1, curr_line)
+  endif
+endfunc</pre>
+
+<p>With that, I can type <tt>,pp</tt> in either a Java or Perl program and it will insert a line in the code which prints the next line of code.  The programs print themselves out while running and it's trivial to create program traces.  That quickly led me to my problem.</p>
+
+<pre>while ($clause = $clause->nextClause) {...}</pre>
+
+<p>That's something I use to walk through lists of clauses to find the clause I need to examine.  Unfortunately, the following held true:</p>
+
+<pre>$clause eq $clause->nextClause;</pre>
+
+<p>Thus leading me into an infinite loop.  So I went to wash the dishes.</p>
+
+<p>I figured the problem was in my new parser, but an hour of playing with that convinced me I was wrong.  So I went and paid all of my bills.</p>
+
+<p>So the new database has to be storing information incorrectly.  Yeah, that's it!</p>
+
+<p>No, that's not it.  So I went and did my taxes.</p>
+
+<p>I came back to the computer, sat down, got up and went and bought some books.  Came back to the computer, sat down, got up and made lunch.  I was stumped.  Every time I touched the damned computer I walked away, frustrated.</p>
+
+<p>Then it dawned on me:  in order to improve performance, I was violating encapsulation and had no way of knowing <em>what</em> was assinging the incorrect data to <tt>nextClause</tt>.  So I found every place in the code where I was assiging to the object hashref directly and converted that to <tt>$clause-&gt;nextClause($newClause);</tt>.  Then I went to <tt>&amp;nextClause</tt> and inserted a test to see if I was assigning a clause as its own next clause and died with a stacktrace.  A few seconds later I found my bug.  I deleted one line of code and the engine worked.</p>
+
+<p>Today or tomorrow I should have a new version uploaded.</p>
+
+<p><strong>Update</strong>:  or maybe I won't.  Just found another bug.  Were it not for the tests, I would've uploaded :/</p></p>
+
+
+<hr/>
+
+
+
+<h2>Program traces</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-02-13T17:48:38</h3>
+Maybe you want to know about <a href="http://search.cpan.org/dist/Devel-Trace/" title="cpan.org">Devel::Trace</a cpan.org>?
+
+
+
+<blockquote>
+
+<h2>Re:Program traces</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-02-13T18:37:54</h3>
+<p>That doesn't work for me.  What I was doing was synchronizing the print statements between Java and Perl and then opening them up side by side in a terminal window.  I then just glanced at them and as soon as they diverged, I nailed the difference.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

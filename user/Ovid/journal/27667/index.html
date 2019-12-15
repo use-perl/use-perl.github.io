@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Renumbering tests</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Renumbering tests</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-11-20T21:42:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Back in the early 90s when I was doing BASIC programming, I was soooo happy when I finally used a system which allowed me to automatically renumber my program lines.  It made programming much easier.  Today, I routinely find myself wedging tests between other tests since I number my tests.</p>
+
+<pre>10_class_trait.t
+15_test_imports.t
+20_trait_overload.t
+30_trait_composition.t
+40_Trait_Config_test.t
+50_Trait_SUPER_test.t
+60_Trait_mod_perl_test.t
+70_Trait_SUPER2_test.t
+80_Class_Trait_Lib_tests.t
+90_trait_rename_does.t
+91_trait_performs.t
+99_trait_errors.t</pre>
+
+<p>Today I got fed up with that and wrote a simple test renumbering program.  You may not find it useful but it does exactly what I need.  Admittedly, tests should run in any order but I have a convention that lower numbered test failures should be addressed first as they're likely the ones causing other test errors.</p>
+
+<p>The following is a bit of a hack and it's certainly not portable, but then, I didn't really right it for anyone else :)</p>
+
+<pre>#!/usr/bin/perl 
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+my $dir      = ".";
+my $test_num = 10;
+my $step     = 10;
+
+GetOptions(
+    "dir=s"   => \$dir,
+    "start=i" => \$test_num,
+    "step=i"  => \$step,
+    "dry"     => \my $dry_run,
+    "svn"     => \my $svn,
+);
+
+unless ( -d $dir ) {
+    die "I cannot find the directory ($dir)";
+}
+
+my @tests = glob "$dir/*.t";
+unless (@tests) {
+    die "No tests found in ($dir)";
+}
+
+@tests =
+  sort grep { /^\d+/ }
+  map { s{^\Q$dir/}{}; $_ } @tests;    # only take numbered tests
+
+my $digits = length( $test_num + ( $step * @tests ) );
+
+foreach my $test (@tests) {
+    my $new_name = $test;
+    $new_name =~ s{^\d+(.*)$}
+                  {
+                     my $name = sprintf "%0${digits}d$1", $test_num;
+                     $test_num += $step;
+                     $name
+                  }e;
+
+    next if $new_name eq $test;
+    my @command = ( "mv", "$dir/$test", "$dir/$new_name" );
+    if ($svn) {
+        unshift @command, "svn";
+    }
+    if ($dry_run) {
+        print "@command\n";
+    }
+    else {
+        system(@command);
+    }
+}</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Test::Manifest</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2005-11-20T22:59:02</h3>
+I wrote Test::Manifest because I think ordering tests by their filename is silly. Not only that, by specifying which tests to run and which order to run them in using a separate file makes it easy to turn off tests while I'm developing.<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Test::Manifest</h2>
+<h3><a href="/user/mr_bean/">mr_bean</a> on 2005-11-21T03:08:44</h3>
+Does this work with Module::Build? I see references to Makefile in the pod?
+
+
+
+<blockquote>
+
+<h2>Re:Test::Manifest</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2005-11-21T04:53:27</h3>
+It will work when somebody patches it for Module::Build, which I don't use (at least not yet).
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>watch for collisions</h2>
+<h3><a href="/user/jmm/">jmm</a> on 2005-11-21T15:30:58</h3>
+In theory, you should never have two tests that have the same name, differing only in the sequence number portion of the name.  If, in practice, you ever did however, the rename could cause problems if the first one processed is being renamed to have the old sequence number of the second one.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

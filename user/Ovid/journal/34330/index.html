@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Desperately Need MySQL Query Optimization Help</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Desperately Need MySQL Query Optimization Help</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-09-04T07:10:37</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Seems the <a href="http://forums.mysql.com/list.php?24">MySQL performance forums</a> don't get huge amounts of traffic.  Can anyone recommend a good forum where I can start asking MySQL tuning questions and actually have a chance of getting them answered?</p>
+
+<p>If you're curious, my current dilemma involves a <a href="http://forums.mysql.com/read.php?24,171044,171044">50 second response time on a simple join</a>.  I've run both <tt>OPTIMIZE</tt> and <tt>ANALYZE</tt> over the  tables in the query and after about an hour and a quarter, the index I list in that post was finally created.  However, it had no affect on query performance and the only difference in the <tt>EXPLAIN</tt> is that it listed the index as another possible key but didn't use it.</p>
+
+<p>In short, I'm stuck.  I don't know what to do next and I have no idea how that index can be applied to our production database without bringing the box to its knees (I have <em>no</em> admin skills).  One person said "just don't use joins" and I might have to for this simple query, but not being able to use joins in SQL means I might as well fall back to a flat file database -- something I honestly feel I could optimize easier than our current MySQL setup :(</p></p>
+
+
+<hr/>
+
+
+
+<h2>join?</h2>
+<h3><a href="/user/lbr/">lbr</a> on 2007-09-04T08:27:28</h3>
+<p>How fast is</p>
+
+<code>
+SELECT authname
+FROM invoices i
+WHERE i.affid = 654248
+AND i.commpaid = 0;
+</code>
+
+<p>You're doing a full table scan on invoices alone, without the join, and that <b>SHOULD</b> be painful.</p>
+
+<p>So, index on affid.</p>
+
+
+
+<blockquote>
+
+<h2>Re:join?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-09-04T09:43:16</h3>
+<p>Bingo!  That reduces the query time down to<nobr> <wbr></nobr>.15 seconds<nobr> <wbr></nobr>:)</p>
+
+<p>I don't understand the EXPLAIN output as well as I should (duh!).  How did you deduce the full table scan on invoice from this?</p> <p><blockquote> <div><tt>+----+-------------+-------+--------+------------------+----------+---------+--<nobr>-<wbr></nobr>  -------------+---------+-------------+<br>| id | select_type | table | type&nbsp; &nbsp;| possible_keys&nbsp; &nbsp; | key&nbsp; &nbsp; &nbsp; | key_len | ref&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; | rows&nbsp; &nbsp; | Extra&nbsp; &nbsp; &nbsp; &nbsp;|<br>+----+-------------+-------+--------+------------------+----------+--------<nobr>-<wbr></nobr>  +----------------+---------+-------------+<br>|&nbsp; 1 | SIMPLE&nbsp; &nbsp; &nbsp; | b&nbsp; &nbsp; &nbsp;| ref&nbsp; &nbsp; | desctype,invoice | desctype | 4&nbsp; &nbsp; &nbsp; &nbsp;| const&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; | 1879054 |&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;|<br>|&nbsp; 1 | SIMPLE&nbsp; &nbsp; &nbsp; | i&nbsp; &nbsp; &nbsp;| eq_ref | PRIMARY&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; | PRIMARY&nbsp; | 4&nbsp; &nbsp; &nbsp; &nbsp;| data.b.invoice |&nbsp; &nbsp; &nbsp; &nbsp;1 | Using where |<br>+----+-------------+-------+--------+------------------+----------+---------<nobr>+<wbr></nobr>  ----------------+---------+-------------+</tt></div> </blockquote>  <p>The reason I thought it was pretty much a problem on the bill table is because I have almost 2 million records with a desctype of zero and I figured MySQL was scanning those linearly.</p>
+
+
+
+<blockquote>
+
+<h2>Re:join?</h2>
+<h3><a href="/user/lbr/">lbr</a> on 2007-09-04T09:46:17</h3>
+Don't look at me, I try to avoid mysql<nobr> <wbr></nobr>:-)
+
+
+
+<h2>Re:join?</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2007-09-04T10:17:30</h3>
+Well, it is not really a full table scan but it is close to this. Explain select says that it needs to scan 1879054 rows out of 3770990. Concerning performance it is pretty much equivalent to the full table scan. Actually if lookup on an index returns ~50% or more of your table it could be even slower that the full table scan.
+
+
+
+<blockquote>
+
+<h2>Re:join?</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2007-09-04T10:24:25</h3>
+Oh, I forgot to add. It is a full table scan on table 'bill', no on table 'invoice'.
+
+
+
+<blockquote>
+
+<h2>Re:join?</h2>
+<h3><a href="/user/lbr/">lbr</a> on 2007-09-04T10:39:04</h3>
+Without knowing anything about mysqls optimizer, that's easy enough to understand.<p>With the original setup, there was a key (and therefore likely an index) on b.desctype, limiting the need for a full tablescan on bills down to "just" half the table.  Which turns out to be slightly less work than a full table scan on invoices.  So now it has a  (long) list of invoice id's it can use the primary key index on invoices to find.</p><p>
+Adding the index on affid, makes it a LOT cheaper to use that than either the full or half table scans.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:join?</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2007-09-05T00:18:59</h3>
+Um, your 50% figure is off slightly.<p>
+
+By about an order of magnitude.</p><p>
+
+The actual figure is highly hardware dependent, but should generally be in the range 5-10%.</p><p>
+
+Cheers,<br>
+Ben</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>wrong indexes</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2007-09-04T09:01:28</h3>
+How many rows in table 'invoice' with affid=654248? I guess not many. How many rows in table 'bill' with desctype=0? I guess a lot. If I guessed right you need an index on 'invoice.affid'. Once you add it mysql's query optimizer will switch order in which it does query. Right now it tries to find all records in table 'bill' with desctype=0 and then it joins result with table 'invoice'. This is slooooooooooow because of too many matching records in table 'bill'.
+<p>
+On second thought you probably should have multicolumn index (i.affid, i.commpaid). In this case whole part 'i.affid = 654248 AND i.commpaid = 0' can be found using this index.</p>
+
+
+
+<blockquote>
+
+<h2>Re:wrong indexes</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-09-04T09:46:34</h3>
+<p>Why the multi-column index?   (if you see my response above, the index on <tt>affid</tt> was enough to solve this).  The multi-column index on affid and commpaid generates the following:</p> <p><blockquote> <div><tt>mysql&gt; explain SELECT authname FROM invoices i WHERE i.affid = 654248 AND i.commpaid = 0;<br>+----+-------------+-------+------+--------------------+-------------------<nobr>-<wbr></nobr>  +---------+-------------+------+-------------+<br>| id | select_type | table | type | possible_keys&nbsp; &nbsp; &nbsp; | key&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; | key_len | ref&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;| rows | Extra&nbsp; &nbsp; &nbsp; &nbsp;|<br>+----+-------------+-------+------+--------------------+-------------------<nobr>-<wbr></nobr>  +---------+-------------+------+-------------+<br>|&nbsp; 1 | SIMPLE&nbsp; &nbsp; &nbsp; | i&nbsp; &nbsp; &nbsp;| ref&nbsp; | idx_invoices_affid | idx_invoices_affid | 10&nbsp; &nbsp; &nbsp; | const,const |&nbsp; &nbsp;98 | Using where |<br>+----+-------------+-------+------+--------------------+--------------------<nobr>+<wbr></nobr>  ---------+-------------+------+-------------+</tt></div> </blockquote>  <p>A single index on just affid generates this:</p> <p><blockquote> <div><tt>mysql&gt; explain SELECT authname FROM invoices i WHERE i.affid = 654248 AND i.commpaid = 0;<br>+----+-------------+-------+------+--------------------+-------------------<nobr>-<wbr></nobr>  +---------+-------+------+-------------+<br>| id | select_type | table | type | possible_keys&nbsp; &nbsp; &nbsp; | key&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; | key_len | ref&nbsp; &nbsp;| rows | Extra&nbsp; &nbsp; &nbsp; &nbsp;|<br>+----+-------------+-------+------+--------------------+-------------------<nobr>-<wbr></nobr>  +---------+-------+------+-------------+<br>|&nbsp; 1 | SIMPLE&nbsp; &nbsp; &nbsp; | i&nbsp; &nbsp; &nbsp;| ref&nbsp; | idx_invoices_affid | idx_invoices_affid | 5&nbsp; &nbsp; &nbsp; &nbsp;| const |&nbsp; &nbsp;15 | Using where |<br>+----+-------------+-------+------+--------------------+--------------------<nobr>+<wbr></nobr>  ---------+-------+------+-------------+</tt></div> </blockquote>  <p>The single column index scans fewer rows (not sure why) and reduces the query to<nobr> <wbr></nobr>.15 seconds from the<nobr> <wbr></nobr>.30 with the multi-column indexes.  Either, of course, is a vast improvement<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:wrong indexes</h2>
+<h3><a href="/user/IlyaM/">IlyaM</a> on 2007-09-04T10:05:36</h3>
+What is the set of possible values for column i.commpaid? If it is a small set (say, it is boolean field which can be set only to 0 or 1) then using index on this column can be slower then just direct scan of rows one by one. I'm not sure why number of rows in explain select is higher though. If I recall correctly this number is just an estimate so could be that mysql gets it slightly wrong for some reason but I'm not sure about this.
+
+
+
+<blockquote>
+
+<h2>Re:wrong indexes</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-09-04T10:42:42</h3>
+<p>It is a boolean value, so just zero or one.  And yes, I was researching 'rows' in the past as a means of easily identifying after the fact whether or not a table had records added or deleted and I recall that this value is indeed not always completely accurate.  Sometimes merely altering data seemed to change that value.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:wrong indexes</h2>
+<h3><a href="/user/ruz/">ruz</a> on 2007-09-04T23:31:40</h3>
+Output of EXPLAIN is provided by planner/optimizer, so it has nothing to do with real number of rows matching conditions. MySQL's optimizer does several random lookups in indexes to estimate number of rows.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>try this one</h2>
+<h3><a href="/user/groditi/">groditi</a> on 2007-09-04T17:23:39</h3>
+SELECT cost_net,b.authname AS b_authname, i.authname AS i_authname
+FROM bill b INNER JOIN invoices i USING(invoice)
+WHERE i.affid = 654248 AND b.desctype = 0 AND i.commpaid = 0;<br/><br/>Now, i think you probably want to have invoice indexed on both sides of the equation, BUT since mysql can only use one index per table I suggest you have an index on i (invoice, affid) and b (invoice)<br/><br/>I don't know how your tables look with data in them or your other queries, but you should probably have less indexes and more indexes that involve more than one column.
+
+
+
+<blockquote>
+
+<h2>Re:try this one</h2>
+<h3><a href="/user/groditi/">groditi</a> on 2007-09-04T17:25:49</h3>
+ugh sorry about that. look below.
+
+
+
+
+
+</blockquote>
+
+
+<h2>try this one</h2>
+<h3><a href="/user/groditi/">groditi</a> on 2007-09-04T17:24:11</h3>
+SELECT cost_net,b.authname AS b_authname, i.authname AS i_authname<br>FROM bill b INNER JOIN invoices i USING(invoice)<br>WHERE i.affid = 654248 AND b.desctype = 0 AND i.commpaid = 0;<br><br>Now, i think you probably want to have invoice indexed on both sides of the equation, BUT since mysql can only use one index per table I suggest you have an index on i (invoice, affid) and b (invoice)<br><br>I don't know how your tables look with data in them or your other queries, but you should probably have less indexes and more indexes that involve more than one column.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

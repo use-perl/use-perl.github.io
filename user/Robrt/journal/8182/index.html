@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Robrt: PerlQt, SOAP, and 104 lines of code</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>PerlQt, SOAP, and 104 lines of code</h1>
+<h2><a href="/user/Robrt/">Robrt</a> on 2002-10-05T02:13:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I finally got around to playing with <a HREF="http://perlqt.sf.net">PerlQt 3</A>.  It's just as cool as I had hoped it would be.  (Except of course for the few things that don't work.)<br/><br/><P>My test case/guinea pig program is a snippet to use <A HREF="http://use.perl.org/">use.perl.org</A>'s <A HREF="http://www.w3.org/TR/SOAP/">SOAP</A> interface  to display journals.  (More information on that interface is available <A HREF="http://use.perl.org/user/pudge/journal/3294" >here</a> and <A HREF="http://use.perl.org/user/pudge/journal/3459" >here</A>.)<br/><br/><P>It's not perfect.  There are some layout issues.  If you click on a link on the RHS, you don't get anywhere.  I couldn't get PerlQt to change to a Waiting cursor while it was retrieving things.  But for a few hours of hacking, it's fun and was a good refresher.<br/><br/><P>
+<BLOCKQUOTE>
+<CODE><br/><br/>#!/pkg/perl-5.8.0/bin/perl -w<BR>
+<BR>
+use strict;<BR>
+use warnings;<BR>
+<BR>
+# -- Configuration --<BR>
+my $uid         = $ARGV[0] || '1414'; # Robrt <- change this default<BR>
+my $host        = 'use.perl.org';<BR>
+my $uri         = "http://$host/Slash/Journal/SOAP";<BR>
+my $proxy       = "http://$host/journal.pl";<BR>
+# --      End       --<BR>
+<BR>
+package JournalPanes;<BR>
+use Qt;<BR>
+use Qt::isa qw(Qt::Widget);<BR>
+use Qt::slots<BR>
+&nbsp;&nbsp;onQuit => [],<BR>
+&nbsp;&nbsp;onRefresh => [],<BR>
+&nbsp;&nbsp;onSelect => ['int'],<BR>
+&nbsp;&nbsp;;<BR>
+use Qt::attributes qw(listbox refresh quit textbox journal label data);<BR>
+use SOAP::Lite;<BR>
+<BR>
+sub NEW {<BR>
+&nbsp;&nbsp;shift->SUPER::NEW(@_);<BR>
+<BR>
+&nbsp;&nbsp;my $layout = Qt::HBoxLayout( this,"hbox" );<BR>
+&nbsp;&nbsp;my $leftlayout = Qt::VBoxLayout( $layout,"left" );<BR>
+&nbsp;&nbsp;my $rightlayout = Qt::VBoxLayout( $layout,"right" );<BR>
+<BR>
+&nbsp;&nbsp;listbox = Qt::ListBox(this);<BR>
+&nbsp;&nbsp;$leftlayout->addWidget(listbox);<BR>
+<BR>
+&nbsp;&nbsp;refresh = Qt::PushButton("Refresh",this);<BR>
+&nbsp;&nbsp;quit = Qt::PushButton("Quit",this);<BR>
+<BR>
+&nbsp;&nbsp;$leftlayout->addWidget(refresh);<BR>
+&nbsp;&nbsp;$leftlayout->addWidget(quit);<BR>
+<BR>
+&nbsp;&nbsp;my $font = Qt::Font();<BR>
+&nbsp;&nbsp;$font->setBold(1);<BR>
+&nbsp;&nbsp;$font->setPointSize(16);<BR>
+<BR>
+&nbsp;&nbsp;label = Qt::Label(this);<BR>
+&nbsp;&nbsp;label->setFont($font);<BR>
+&nbsp;&nbsp;$rightlayout->addWidget(label);<BR>
+<BR>
+&nbsp;&nbsp;textbox = Qt::TextBrowser(this);<BR>
+&nbsp;&nbsp;$rightlayout->addWidget(textbox);<BR>
+<BR>
+&nbsp;&nbsp;this->connect(quit, SIGNAL('clicked()'), SLOT('onQuit()'));<BR>
+&nbsp;&nbsp;this->connect(refresh, SIGNAL('clicked()'), SLOT('onRefresh()'));<BR>
+&nbsp;&nbsp;this->connect(listbox, SIGNAL('highlighted(int)'), SLOT('onSelect(int)'));<BR>
+<BR>
+&nbsp;&nbsp;journal = SOAP::Lite->uri($uri)->proxy($proxy);<BR>
+<BR>
+&nbsp;&nbsp;this->onRefresh;<BR>
+}<BR>
+<BR>
+sub onQuit {<BR>
+&nbsp;&nbsp;Qt::app->quit(); <BR>
+}<BR>
+<BR> 
+sub onRefresh {<BR>
+&nbsp;&nbsp;#  Qt::app->setOverrideCursor( &Qt::WaitCursor );<BR>
+&nbsp;&nbsp;listbox->clear();<BR>
+&nbsp;&nbsp;data = undef;<BR>
+&nbsp;&nbsp;my $entries = journal->get_entries( $uid )->result; # all entries<BR>
+&nbsp;&nbsp;my $data = [];<BR>
+&nbsp;&nbsp;my $i = 0;<BR>
+&nbsp;&nbsp;for (@$entries) {<BR>
+&nbsp;&nbsp;  $data->[$i++] = [ $_->{subject}, $_->{id} ];<BR>
+&nbsp;&nbsp;  listbox->insertItem($_->{subject});<BR>
+&nbsp;&nbsp;}<BR>
+&nbsp;&nbsp;data = $data;<BR>
+&nbsp;&nbsp;#  Qt::Application::restoreOverrideCursor();<BR>
+}<BR>
+<BR>
+sub onSelect {<BR>
+&nbsp;&nbsp;my ($id) = @_;<BR>
+<BR>
+&nbsp;&nbsp;textbox->clear();<BR>
+<BR>
+&nbsp;&nbsp;label->setText( data->[$id][0] );<BR>
+<BR>
+&nbsp;&nbsp;my $jid = data->[$id][1];<BR>
+&nbsp;&nbsp;my $entry = journal->get_entry( $jid )->result;<BR>
+&nbsp;&nbsp;my $body = "$entry->{date}&lt;BR&gt;$entry->{url}&lt;BR&gt;$entry->{nickname}&lt;BR&gt;&lt;HR&gt;$entry->{body}";<BR>
+}<BR>
+<BR>
+package main;<BR>
+use Qt;<BR>
+use JournalPanes;<BR>
+<BR>
+my $a = Qt::Application(\@ARGV);<BR>
+my $j = JournalPanes;<BR>
+$j->resize(470, 300);<BR>
+$a->setMainWidget($j);<BR>
+$j->setCaption("$host Journals");<BR>
+$j->show;<BR>
+exit $a->exec;<BR>
+<BR>
+1;<BR><br/><br/>
+</CODE>
+</BLOCKQUOTE><br/><br/>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

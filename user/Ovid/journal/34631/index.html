@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Mysql bug of the day: right joins</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Mysql bug of the day: right joins</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-10-08T14:11:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Closely related to <a href="http://bugs.mysql.com/bug.php?id=291">this bug</a>, older versions of MySQL don't handle right joins correctly.</p>
+
+<pre>drop table if exists t1,t2,t3;
+create table t1 (i int);
+create table t2 (i int);
+create table t3 (i int);
+insert into t1 values(1),(2);
+insert into t2 values(2),(3);
+insert into t3 values(2),(4);</pre>
+
+<p>That sets things up.  Now let's try the query:</p>
+
+<pre>select t1.i, t2.i, t3.i
+from t1
+inner join t2 on t2.i = t1.i
+right join t3 on t3.i = t2.i;</pre>
+
+<p>On 4.0.18 this returns:</p>
+
+<pre>+------+------+------+
+| i    | i    | i    |
++------+------+------+
+|    1 | NULL |    2 |
+|    2 |    2 |    2 |
+|    1 | NULL |    4 |
+|    2 | NULL |    4 |
++------+------+------+</pre>
+
+<p>On 5.0.38 this correctly returns:</p>
+
+<pre>+------+------+------+
+| i    | i    | i    |
++------+------+------+
+|    2 |    2 |    2 | 
+| NULL | NULL |    4 | 
++------+------+------+</pre>
+
+<p>That's why <a href="http://use.perl.org/user/Ovid/journal/34596">this SQL</a>, after being fixed, still failed on our production server.  I've blown much of today trying to find this bug.  Now that I've found it, I don't know how to fix it using only SQL.</p>
+
+<p>It turns out that it's <a href="http://bugs.mysql.com/bug.php?id=4893">this bug</a> on all versions of MySQL less than version 5.  RIGHT JOINs return incorrect results after INNER JOINs. :(</p></p>
+
+
+<hr/>
+
+
+
+<h2>First thing I'd try</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-10-08T15:00:34</h3>
+<p><blockquote> <div><tt>SELECT i.i1, i.i2, t3.i<br>FROM (<br>&nbsp; &nbsp; SELECT t1.i AS i1, t2.i AS i2<br>&nbsp; &nbsp; FROM t1<br>&nbsp; &nbsp; INNER JOIN t2 ON t2.i = t1.i<br>) i<br>RIGHT JOIN t3 ON t3.i = i.i2;</tt></div> </blockquote>  <p>No idea if this actually fixes the problem. Depends on what the query planner turns it into, I guess.</p>
+
+
+
+<blockquote>
+
+<h2>Re:First thing I'd try</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-10-08T15:12:47</h3>
+<p>4.0.18 doesn't allow subqueries.</p>
+
+
+
+<blockquote>
+
+<h2>Re:First thing I'd try</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-10-08T15:28:52</h3>
+<p>Are you <em>sure</em>? ISTR using them in some 4.x version; maybe it was 4.1? Sigh.</p>
+
+
+
+<blockquote>
+
+<h2>Re:First thing I'd try</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-10-08T15:33:43</h3>
+<p>From <a href="http://dev.mysql.com/doc/refman/5.0/en/subqueries.html" title="mysql.com">the MySQL docs</a mysql.com>:</p> <p><blockquote><div>Starting with MySQL 4.1, all subquery forms and operations that the SQL standard requires are supported, as well as a few features that are MySQL-specific.</div></blockquote>
+
+
+
+<h2>Re:First thing I'd try</h2>
+<h3><a href="/user/vek/">vek</a> on 2007-10-08T15:41:33</h3>
+They added subselects back in 2003 to version 4.1
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>what about LEFT?</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-10-09T04:32:42</h3>
+Clearly the best solution is to upgrade to a recent version.  5.0 has been the stable release for years and has many improvements over older versions.<br><br>Failing that, isn't a RIGHT JOIN just a LEFT JOIN with the table order reversed?  If you list the tables in reverse order and use a LEFT JOIN will it work?
+
+
+
+<blockquote>
+
+<h2>Re:what about LEFT?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-10-09T06:19:08</h3>
+<p>No, because reversing the order gives you this:</p> <p><blockquote> <div><tt>select t1.i, t2.i, t3.i<br>from t3<br>left&nbsp; join t2 on t3.i = t2.i<br>inner join t1 on t1.i = t2.i;</tt></div> </blockquote>  <p>That final INNER JOIN excludes the NULL row we need.</p>
+
+
+
+<blockquote>
+
+<h2>Re:what about LEFT?</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-10-09T09:12:30</h3>
+In that case, the simplest fix is probably a temp table, used in the same way you would use a subquery in a more recent version.
+
+
+
+<blockquote>
+
+<h2>Re:what about LEFT?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-10-09T11:23:45</h3>
+<p>How&#8230; relational.</p>
+
+
+
+<blockquote>
+
+<h2>Re:what about LEFT?</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-10-09T16:48:18</h3>
+It seems a bit unfair to criticize MySQL for something that was literally fixed years ago.  The 4.0 series isn't even supported anymore.
+
+
+
+<blockquote>
+
+<h2>Re:what about LEFT?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-10-09T17:01:37</h3>
+<p>Agreed. It's like taking potshots at Perl 5.005.</p>
+
+
+
+<h2>Re:what about LEFT?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-10-09T18:29:36</h3>
+<p>Huh, that was a criticism of MySQL?</p>
+
+
+
+<blockquote>
+
+<h2>Re:what about LEFT?</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-10-10T01:36:21</h3>
+It sounded that way.  Apologies if I read too much into it.  Sarcasm is a tough call sometimes on message boards.
+
+
+
+<blockquote>
+
+<h2>Re:what about LEFT?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-10-10T04:28:47</h3>
+<p>It just struck me as funny after reading the posts Ovid recently wrote about real relational databases, noting among other things that a select query there returns a bonafide table.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:what about LEFT?</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2007-10-09T12:41:38</h3>
+Surprise, surprise. 4-year old OSS software has bugs. If only there was a solution...<br><br>I understand the frustration since it's sometimes hard to upgrade critical pieces like MySQL or Perl, but how many bugs do you publicly complain about in Perl 5.8.1. Probably not many. You instead use a more recent version without those bugs or you work around them.<br><br>At least you don't have a vendor company forcing you to upgrade. Which means you do it at your own pace and consequences. Only you (meaning whatever company you're working for) decide when the pain of working around these old, fixed bugs becomes too much.<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

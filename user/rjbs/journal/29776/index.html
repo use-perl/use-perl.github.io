@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: painless postfix on mac os</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>painless postfix on mac os</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2006-06-01T12:57:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Sometime during the past year I got a few things working on my Mac that really
+made my life simpler:  offlineimap, mutt, and postfix.  offlineimap is a Python
+program for syncing an IMAP store to a set of Maildirs.  It works
+bidirectionally and its installer is simple and just works.  (Configuration was
+a little weird, but even that is very simple.)  mutt is my MUA of choice, and
+its installation is even simpler.</p>
+
+<p>The thing that gave me some grief was Postfix.  I wanted to have it running so
+that mutt could deliver mail to it, and it would deliver the mail through my
+Pobox SASL account.  I didn't know how to do that, and beyond that, Mac OS X
+doesn't just leave the Postfix daemons running.  I got it working on my last
+laptop and I just set it back up on my new one.  For future reference:</p>
+
+<p>First, set up your hostname in <code>/etc/postfix/main.f</code>; this means finding and
+setting the following options:</p>
+
+<ul>
+<li>myhostname</li>
+<li>mydomain</li>
+<li>myorigin</li>
+</ul>
+
+<p>Next, set up a relay host.  This lets Postfix know that it sends mail through
+another MX, not directly to receiving MXes.  My <code>relayhost</code> section looks like
+this:</p>
+
+<pre>relayhost = [sasl.smtp.pobox.com]
+smtp_sasl_auth_enable = yes
+smtp_sasl_password_maps = hash:/etc/postfix/saslpass
+smtp_sasl_security_options = noanonymous
+</pre>
+
+<p>The relay host is in brackets to indicate that it's actually a host, not a name
+for which to find MXes.  This enables SASL auth in the SMTP client, using your
+map of credentials, and tell Postfix never to send mail without authenticating.</p>
+
+<p>That map file looks like this:</p>
+
+<pre>sasl.smtp.pobox.com myaccount@mydomain.com:NOTreallyMYpassword
+</pre>
+
+<p>Now when Postfix wants to deliver remote mail, it will do so by connecting to
+Pobox's SASL server to do it.  You don't need to worry about what ISP I'm on,
+which is one of the big benefits of using Pobox in the first place.</p>
+
+<p>Finally, your need to tell <code>launchd</code> to keep Postfix running all the time.
+<code>launchd</code> is Mac OS X's answer to inetd, daemontools, cron, and sliced bread.
+You can do this by editing a file undef <code>/System/Library</code>, which is probably
+uncool, but makes life simple.  You could (and probably should) instead install
+a new launch daemon in <code>/Library</code>, but I don't know how to entirely disable the
+one in the system directory.  Once I find out, maybe I'll revise these
+instructions.</p>
+
+<p>The file is <code>/System/Library/LaunchDaemons/org.postfix.master.plist</code>;
+obviously, it's a Property List file.  You could edit it with the PList Editor,
+but it won't want to let you modify the file, and I'd rather use Vim anyway.
+You'll have to remove two entries in the ProgramArguments array: -e and 60.
+Just delete the lines containing them.  They tell Postfix's master daemon that
+it should stop running after an hour.  It's probably good that this is the
+default configuration, as it's one more way in which the default OS X
+installation is not providing network services for malware to exploit.</p>
+
+<p>The daemon configuration only needs that <code>-e 60</code> because it's run on demand.
+(What makes demands of it?  I don't know; possibly nothing.)  You don't want it
+run on demand, if you're using it to send mail all the time, though.  You want
+it to be run when the daemon definition is loaded.  That's easy to:  add a new
+entry in the dict by adding these two lines just above the closing <code>&lt;/dict&gt;</code>:</p>
+
+<pre><key>RunAtLoad</key>
+<true/>
+</pre>
+
+<p>Then you can reload the definition easily in the shell:</p>
+
+<pre>sudo launchctl stop org.postfix.master
+sudo launchctl unload /System/Library/LaunchDaemons/org.postfix.master.plist
+sudo launchctl load  /System/Library/LaunchDaemons/org.postfix.master.plist
+</pre>
+
+<p>You don't need to start it, at the end, because you have it starting when it's
+loaded!</p>
+
+<p>That's it.  Now mail sent through your Mac's sendmail command will go through
+your SASL provider.  You can now use localhost as your outbound SMTP server,
+without relying on your MUA's potentially lousy "outbox" feature when you're
+offline... just remember to <code>sudo postfix flush</code> when you're back on the
+network.</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jonasbn: Workflow 0.32_4 released</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Workflow 0.32_4 released</h1>
+<h2><a href="/user/jonasbn/">jonasbn</a> on 2008-09-04T07:23:17</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I made a rapid release of Workflow (Workflow 0.32_4) - which should address some of our problems, but the number of failing tests are still very high and I see more and more of the same diagnostics.<br/><br/><url:http://www.cpantesters.org/show/Workflow.html#Workflow-0.32_4><br/><br/>So I started to dig into the problems.<br/><br/><ul>
+<li>Processing workflow_action.xml: No _parse_* routine defined on this driver (If it is a filter, remember to set the Parent property. If you call the parse() method, make sure to set a Source. You may want to call parse_uri, parse_string or parse_file instead.) [XML::SAX::RTF=HASH(0x8721d18)] at /home/stro/perl510/lib/site_perl/5.10.0/XML/SAX/Base.pm line 2616.</li>
+<li>Cannot read '/home/david/cpantesting/perl-5.10.0/.cpan/build/Workflow-0.32_4-qVqkc9/t/struct/workflow_sqlite.sql': No such file or directory at TestDBUtil.pm line 93.</li>
+<li>A third one was a failure to build XML::Simple, but I cannot consider that a failure on my side, I think this particular problem of test reports on fails not related to the distribution being testing is being discussed quite intensively on the perl-testers-discuss mailing list right now.</li>
+</ul><br/><br/>Since none of these are emitted from the Workflow code base I did some <i>googling</i> in the first one.<br/><br/><a href="http://www.perlmonks.org/?node_id=512040">One of the links I found</a> <i>googling</i> was at <a href="http://www.perlmonks.org/">Perlmonks</a> so I clicked that right away<br/><br/>Here is the explanation, snipped from Perlmonks, it does however originate from <a href="http://www.nntp.perl.org/group/perl.cpan.testers/2004/04/msg131214.html">a test report</a>:<br/><br/><quote>
+The problem in this case is a bug in the XML::SAX::RTF installer,
+which registers itself in ...lib.../XML/SAX/ParserDetails.ini.
+This ini file is used to determine the default SAX parser and
+since XML::SAX::RTF was installed most recently, it is the default.
+Unfortunately, XML::SAX::RTF is not an XML parser (despite
+generating SAX events) so it should be removed from the
+ParserDetails.ini file.<br/><br/>I have reported this problem to the module maintainer some time
+ago, but I will try again and submit a patch this time.<br/><br/>Thanks for the test.
+Grant
+</quote><br/><br/>I wrote Grant to inquire on the status of the problem. Referring to <a href="http://rt.cpan.org/Public/Bug/Display.html?id=5943">the RT ticket</a> <br/><br/>I installed <a href="http://search.cpan.org/user/erikray/XML-SAX-RTF/">XML::SAX::RTF</a> and I could reproduce the error.<br/><br/>I wrote Andreas KÃÂ¶enig, whom I had just recently met at YAPC::Europe because he had sent me some test reports indicating failure as well and asked him to send me his: <code>XML/SAX/ParserDetails.ini</code><br/><br/>His file did however look different from mine, but the reports looked somewhat the same. Since he did not have XML::SAX::RTF installed. So I started to examine <a href="http://search.cpan.org/src/GRANTM/XML-SAX-0.96/">XML::SAX</a> and I came to the conclusion that this particular snippet is the problem (from <a href="http://search.cpan.org/src/GRANTM/XML-SAX-0.96/SAX/ParserFactory.pm">XML::SAX::ParserFactory</a>).<br/><br/><pre>
+    if (@{$self->{KnownParsers}}) {
+        return $self->{KnownParsers}[-1]{Name};
+    }
+    else {
+        return "XML::SAX::PurePerl"; # backup plan!
+    }
+<pre><br/><br/>So as Grant stated earlier, the most recent <a href="http://search.cpan.org/src/GRANTM/XML-SAX-0.96/">XML::SAX</a> parser installation is the parser used. It is quite an easy fix, take the <a href="http://search.cpan.org/user/grantm/XML-SAX-0.96/SAX/PurePerl.pm">XML::SAX::PurePerl</a> (the topmost in the <code>XML/SAX/ParserDetails.ini</code>) so we do not get behavior based on installation behavior. <br/><br/>The problem is then how do we fix this?<br/><br/>I discussed with another Workflow developer on our mailing list about indicating requirements for modules not used directly by Workflow and that solution is not good and since <a href="http://search.cpan.org/src/GRANTM/XML-SAX-0.96/">XML::SAX</a> is well encapsulated inside <a href="http://search.cpan.org/user/grantm/XML-Simple/">XML::Simple</a> and the parser is well encapsulated within <a href="http://search.cpan.org/src/GRANTM/XML-SAX-0.96/">XML::SAX</a>, we cannot really control this, since it is all a matter of configuration.<br/><br/>So what we might have to do is write a test, which attempts to find out what parser is used and then bail (fail) or continue... this will however still result in failing tests indicating that Workflow fails.<br/><br/>Installation of modules is mostly done by people so the <a href="http://search.cpan.org/src/GRANTM/XML-SAX-0.96/">XML::SAX</a> configuration is our weakest link, I would prefer to rewrite the above snippet to be:<br/><br/><pre>
+    if (@{$self->{KnownParsers}}) {
+		#defaults to XML::SAX::PurePerl
+        return $self->{KnownParsers}[0]{Name};
+    }
+    else {
+        return "XML::SAX::PurePerl"; # backup plan!
+    }
+<pre><br/><br/>So we know we always get <a href="http://search.cpan.org/user/grantm/XML-SAX-0.96/SAX/PurePerl.pm">XML::SAX::PurePerl</a> unless the user has changed the precedence in his/her <code>XML/SAX/ParserDetails.ini</code>.<br/><br/>This will however break a lot of <a href="http://search.cpan.org/src/GRANTM/XML-SAX-0.96/">XML::SAX</a> installations, but the current implementation is stupid and yields unpredictable behavior - and we do not like unpredictable do we?<br/><br/>I have not gotten my head around the <a href="http://search.cpan.org/src/GRANTM/XML-SAX-0.96/">XML::SAX</a> feature system, perhaps this could be used to tweak <a href="http://search.cpan.org/src/GRANTM/XML-SAX-0.96/">XML::SAX</a> into behaving more predictably, but that will require patches to all parser distributions, <a href="http://search.cpan.org/user/grantm/XML-Simple/">XML::Simple</a> and other places beyond my control and I feel like a I am straying from what I intentionally wanted to do, which was releasing Workflow 0.32.<br/><br/>About the other problem, I think this might have to be related to a definition of <i>root</i> directory, but I have not investigated this any further...<br/><br/>This situation calls for a quote from the Coneheads movie trailer (I have never seen the movie)<br/><br/>Coast guard using megaphone addressing refugees on a boat:
+<quote>
+We appreciate your situation, but we have problems of our own
+</quote><br/><br/>I am not sure the quote is correct, but it always pop to mind when situations like this occur.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

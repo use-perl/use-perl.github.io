@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: brian d foy's release</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>brian d foy's release</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2003-03-02T20:03:17</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I am now using <A HREF="http://sf.net/projects/brian-d-foy/">brian d foy's</A> release script, with my own modifications.  Here's a patch, for anyone who cares.  The changes are basically:
+<UL>
+<LI>Determine dist name from make dist output
+<LI>Die if $config data not set
+<LI>Set processor type and file type in config file
+<LI>Allow to continue if CVS check turns up only unknown files
+<LI>Add support for my own journal-posting script
+<LI>Include Changes and README in SF.net posting
+<LI>Clean up a bit, including changing some constant strings to $config values
+</UL>
+The only pudge-specific things in the script now are my own personal preference for release name on SF.net ($ver instead of $module-$ver), the addition of the journal stuff, and the inclusion of README (probably OK for most people) and Changes (which fits a specific format, specifically, everything from the first line to the next line that has non-whitespace in the first column) in SF.net.<br/><br/>Also, if anyone cares, the script requires two modules not listed in its Makefile.PL, ConfigReader::Simple and Test::File, both of which fail tests.<br/><br/>Thanks to brian d foy for the script, it is going to save me a lot of pain.<br/><br/><ECODE>
+[pudge@bourque src]$ diff -u release-0.10/release release-0.10.mod/release 
+--- release-0.10/release        Wed Dec 11 17:38:20 2002
++++ release-0.10.mod/release    Sun Mar  2 14:50:10 2003
+@@ -2,8 +2,6 @@
+ # $Id: release,v 1.20 2002/12/11 22:38:20 comdog Exp $
+ use strict;
+ 
+-use lib qw(/usr/local/src/cpan/build/Crypt-SSLeay-0.45/lib);
+-
+ use CGI qw(-oldstyle_urls);
+ use ConfigReader::Simple;
+ use LWP::UserAgent;
+@@ -14,6 +12,9 @@
+ my $Conf  = '.releaserc';
+ my $Debug = $ENV{RELEASE_DEBUG} || 0;
+ 
++my $local  = $ARGV[0];
++my $remote = $ARGV[1] || $ARGV[0];
++
+ =head1 NAME
+ 
+ release - upload files to CPAN and SourceForge
+@@ -151,6 +152,9 @@
+ # read the configuration
+ my $config  = ConfigReader::Simple->new( $Conf );
+ die "Could not get configuration data\n" unless ref $config;
++for (qw( cpan_user sf_user sf_group_id sf_package_id )) {
++       die "Missing configuration data: $_\n" unless length $config->$_;
++}
+ 
+ # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+ # set up the globals
+@@ -225,6 +229,13 @@
+ 
+ my $messages = `make tardist 2>&1`;
+ 
++if (!$local)
++       {
++       ($local) = $messages =~ /^gzip.+?\b(\S+\.tar)$/m;
++       $local .= '.gz';
++       $remote = $local;
++       }
++
+ print "done\n";
+ }
+ 
+@@ -254,17 +265,19 @@
+ 
+ print "Checking state of CVS... ";
+ 
+-my @cvs_update = `cvs update 2>&1`;
++# i don't want cvs update to happen automatically, so added -n -- pudge
++my @cvs_update = `cvs -n update 2>&1`;
+ chomp( @cvs_update );
+ 
+-my @cvs_states = qw( C M U A ? );
++my @cvs_states = qw( C M U P A ? );
+ my %cvs_state;
+ my %message    = (
+-       C   => 'These files have conflicts',
+-       M   => 'These files have not been checked in',
+-       U   => 'These files were missing and have been updated',
+-       A   => 'These files were added but not checked in',
+-       '?' => q|I don't know about these files|,
++       C    => 'These files have conflicts',
++       M    => 'These files have not been checked in',
++       U    => 'These files need to be updated',
++       P    => 'These files need to be patched',
++       A    => 'These files were added but not checked in',
++       '?'  => q|I don't know about these files|,
+        );
+ 
+ foreach my $state ( @cvs_states )
+@@ -279,20 +292,27 @@
+ 
+ local $" = "\n\t";
+ my $rule = "-" x 50;
+-my $count;
++my($count, $question_count);
+ 
+ foreach my $key ( sort keys %cvs_state )
+        {
+        my $list = $cvs_state{$key};
+        next unless @$list;
+-       $count += @$list;
++       $count += @$list unless $key eq '?';
++       $question_count += @$list if $key eq '?';
+ 
+-       print "\t$message{$key}\n\t$rule\n\t@$list\n\n";
++       print "\n\t$message{$key}\n\t$rule\n\t@$list\n";
+        }
+ 
+-die "\nERROR: CVS is not up-to-date: Can't release files\n"
++die "\nERROR: CVS is not up-to-date ($count files): Can't release files\n"
+        if $count;
+ 
++if ($question_count) {
++       print "\nWARNING: CVS is not up-to-date ($question_count files unknown); ",
++             "continue anwyay? [Ny] " ;
++       die "Exiting\n" unless <> =~ /^[yY]/;
++}
++
+ print "CVS up-to-date\n";
+ }
+ 
+@@ -303,9 +323,9 @@
+ 
+ my @Sites = qw(pause.perl.org upload.sourceforge.net);
+ 
+-my $local  = $ARGV[0];
+-my $remote = $ARGV[1] || $ARGV[0];
+ my( $release ) = $remote =~ m/^(.*?)(?:\.tar\.gz)?$/g;
++# i want just the version -- pudge
++$release =~ s/^.+-([\d.]+)$/$1/;
+ print "Release name is $release\n";
+ 
+ foreach my $site ( @Sites )
+@@ -411,7 +431,8 @@
+ 
+ print $content if $Debug;
+ 
+-if( $content =~ m/welcomes.*comdog/i )
++my $sf_user = $config->sf_user;
++if( $content =~ m/welcomes.*$sf_user/i )
+        {
+        print "Logged in!\n";
+        }
+@@ -427,7 +448,7 @@
+ # visit the Quick Release System form
+ {
+ my $request = HTTP::Request->new( GET =>
+-       'https://sourceforge.net/project/admin/qrs.php?package_id=&group_id=36221'
++       'https://sourceforge.net/project/admin/qrs.php?package_id=&group_id=' . $config->sf_group_id
+        );
+ $cookies->add_cookie_header( $request );
+ print $request->as_string, "-" x 73, "\n" if $Debug;
+@@ -439,6 +460,9 @@
+ ########################################################################
+ # release the file
+ {
++my @time = localtime();
++my $date = sprintf "%04d-%02d-%02d", $time[5] + 1900, $time[4] + 1, $time[3];
++
+ print "Connecting to SourceForge QRS... ";
+ my $cgi = CGI->new();
+ my $request = HTTP::Request->new( POST =>
+@@ -448,13 +472,13 @@
+ $cgi->param( 'MAX_FILE_SIZE', 1000000 );
+ $cgi->param( 'package_id', $config->sf_package_id  );
+ $cgi->param( 'release_name', $release );
+-$cgi->param( 'release_date',  '2002-10-08' );
++$cgi->param( 'release_date',  $date );
+ $cgi->param( 'status_id', 1 );
+ $cgi->param( 'file_name',  $remote );
+-$cgi->param( 'type_id', 5002 );
+-$cgi->param( 'processor_id', 8000 );
+-$cgi->param( 'release_notes', '' );
+-$cgi->param( 'release_changes', '' );
++$cgi->param( 'type_id', $config->sf_type_id || 5002 );
++$cgi->param( 'processor_id', $config->sf_processor_id || 8000 );
++$cgi->param( 'release_notes', get_readme() );
++$cgi->param( 'release_changes', get_changes() );
+ $cgi->param( 'group_id', $config->sf_group_id );
+ $cgi->param( 'preformatted', 1 );
+ $cgi->param( 'submit', 'Release File' );
+@@ -463,7 +487,7 @@
+ $request->content( $cgi->query_string );
+ 
+ $request->header( "Referer",
+-       "https://sourceforge.net/project/admin/qrs.php?package_id=&group_id=36221"
++       "https://sourceforge.net/project/admin/qrs.php?package_id=&group_id=" . $config->sf_group_id
+         );
+ print $request->as_string, "\n",  "-" x 73, "\n" if $Debug;
+ 
+@@ -479,4 +503,68 @@
+ print "File Released\n";
+ }
+ 
++JOURNAL: {
++print "Submitting to journal... ";
++my $url = submit_useperl_soap();
++if ($url)
++       {
++       print "submitted: $url\n";
++       }
++else
++       {
++       print "unknown error.\n";
++       }
++}
++
+ print "Done.\n";
++
++
++sub get_readme {
++       open my $fh, '<README' or return '';
++       my $data = do {
++               local $/;
++               <$fh>;
++       };
++       return $data;
++}
++
++sub get_changes {
++       open my $fh, '<Changes' or return '';
++       my $data = <$fh>;  # get first line
++       while (<$fh>) {
++               if (/^\S/) { # next line beginning with non-whitespace is end
++                       last;
++               }
++               $data .= $_;
++       }
++       return $data;
++}
++
++sub submit_useperl_soap {
++       use File::Temp 'tempfile';
++       my $script = quotemeta(
++               '/Users/pudge/Applications/BBEdit 7.0/BBEdit Support' .
++               '/Unix Support/Unix Filters/use perl submit'
++       );
++
++       my($name) = $remote =~ m/^(.*?)(?:\.tar\.gz)?$/g;
++       my $cpan_url = 'http://www.cpan.org/authors/id/' . $config->cpan_user;
++       my $sf_url = 'http://sourceforge.net/project/showfiles.php?group_id=' . $config->sf_group_id;
++       my $changes = get_changes();
++
++       my($fh, $filename) = tempfile();
++       print $fh <<EOT;
++$name Released
++$name has been released.  Download it from <A HREF="$cpan_url">the CPAN</A> or <A HREF="$sf_url">SF.net</A>.
++
++(Note: it may take time for the release to propogate to the various download mirrors.)
++
++Changes:
++$changes
++EOT
++
++       chomp(my $output = (`cat $filename | $script 2>&1`)[-1]);
++       return $output;
++}
++
++__END__
+</ECODE>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

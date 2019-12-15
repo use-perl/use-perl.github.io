@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of chromatic: Caching Design Decisions in Everything</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Caching Design Decisions in Everything</h1>
+<h2><a href="/user/chromatic/">chromatic</a> on 2003-08-12T03:58:53</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><a href="http://everydevel.com/">Everything</a> is optimized for writing, so reading can be a little slow.  I've been fixing this while trying not to ruin the features that make it so powerful.</p>
+
+<p>Any good web application that has to serve more than one user per second and serves dynamic content has to have a good caching scheme, or at least spend ridiculous amounts of money on hardware.  The classic rule-of-thumb tradeoff applies.  To run faster, you'll probably have to use more memory.</p>
+
+<p>(Some of my recent tricks have actually been designed to improve speed and reduce the memory footprint.  Anytime you can take care of shared memory pages, do it!  I think the parent process size is now larger, but much, much more is actually shared across children, so that the overall effect is incredibly better.)</p>
+
+<p>The node cache was an earlier attempt to save memory and time.  Any time the engine needed to fetch a node, it would go to the cache.  The simple approach is to keep a cache in each child process, using an LRU scheme with a tunable maximum cache size.    Because each child kept its own cache, each child could potentially cache the same nodes.  Each child would pay the memory cost of caching that many nodes, too.  Worse, there's no child affinity, so the best the cache could do is when several users were all accessing the same nodes multiple times.</p>
+
+<p>My clever "let's make it a little faster without rewriting too much code" scheme, compil-o-cache, compiled dynamic content and saved it in otherwise-unused keys in cached nodes.  For frequently accessed nodes, this would save the fetching, parsing, and compiling steps, at the expense of looking in the cache.</p>
+
+<p>Of course, that eliminated one entire class of optimizations.  Sharing hashes between children is not difficult, with some of the caching modules out there.  Sharing actual code references is harder.  Even if you can do it, at some point, it defeats the purpose, as you'll have to recompile on each cache fetch or keep a secondary cache, or something along those lines.</p>
+
+<p>I've largely solved the need to store compiled code in the cache, so now we can consider other options for improving the cache.</p>
+
+<p>One good option remains the caching modules.  I've never used them, but there's a simplicity and appeal there.  Keeping the cache in sync with updates going on in the database could be tricky, though.  Another option is moving the caching to the database layer.  We could use DBD::Proxy to connect to a layer around the database that caches nodes.  That might mean parsing SQL, however, to determine which queries are requesting nodes and which queries are updating nodes.  It also means running another process on the server, which isn't onerous as much as it is just one more thing to install and monitor.</p>
+
+<p>It may turn out that we don't really need improved caching, though I really doubt that's the case.</p>
+
+<p>These are the reasons I don't fall asleep well.  Scary, isn't it?  Suggestions that don't involve graham crackers and warm milk are welcome.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Simple Caching modules</h2>
+<h3><a href="/user/ask/">ask</a> on 2003-08-12T04:21:22</h3>
+I tend to use a variation of this module:<br> <br>http://svn.develooper.com/combust/trunk/lib/Combust/Cache.pm<br> <br>(use "anon" for username, no password).<br> <br>It's quite fast, not a lot of code, supports complex data structures, meta data and a couple of other things.<br> <br>(Develooper::DB::db_open is an Apache::DBI like dbh caching thing).<br> <br>
+&nbsp; &nbsp; - ask
+
+
+
+<h2>caching</h2>
+<h3><a href="/user/inkdroid/">inkdroid</a> on 2003-08-12T13:37:08</h3>
+This would make a nice topic for an article Chromatic.
+
+
+
+<h2>caching modules</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2003-08-12T18:41:11</h3>
+I did a talk on caching modules at OSCON a couple of years back.  I've been meaning to write it up into an article for a while now.  The basic results of my benchmarking were that IPC::MM, BerkeleyDB (native locking), Cache::Mmap, and MLDBM::Sync are the fastest at sharing data.  DBD::Proxy was a neat idea, but has terrible performance.  You'd be better off just doing an extra fetch to check a cache table.
+
+
+
+<h2>Memcached</h2>
+<h3><a href="/user/jamiemccarthy/">jamiemccarthy</a> on 2003-08-29T04:03:26</h3>
+Got <a href="http://www.danga.com/memcached/" title="danga.com">memcached</a danga.com>?
+
+<p>Seriously, for caching of simple key-value pairs, it rocks. It's superfast and dead simple.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Memcached</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2003-08-29T04:45:58</h3>
+<p>Jay Bonci's looking into this.  Can I store objects as the values?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Memcached</h2>
+<h3><a href="/user/jamiemccarthy/">jamiemccarthy</a> on 2003-08-29T13:43:52</h3>
+The server only stores scalars. But the MemCachedClient.pm API automatically does a Storable::freeze() if you pass in any nonscalar value, and automatically thaw()s it on the flipside.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

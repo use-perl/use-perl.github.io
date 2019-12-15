@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of LTjake: a harmless sort?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>a harmless sort?</h1>
+<h2><a href="/user/LTjake/">LTjake</a> on 2005-04-01T16:03:10</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><code>tholbroo</code> had mentioned to me that if I'm doing a regular <code>sort</code> on Class::DBI objects, I can save a lot of time by doing a <a href="http://www.stonehenge.com/merlyn/UnixReview/col06.html">Schwartzian transform</a>. I didn't think that there would be much of a penalty on small sets, but I decided to do some benchmarking (using the CPANTS DB):</p>
+<pre>
+package CPANTS::Distro::Kwalitee;
+
+use strict;
+use warnings;
+
+use base qw( Class::DBI );
+
+__PACKAGE__->connection( 'dbi:SQLite:dbname=cpants.db' );
+__PACKAGE__->table( 'kwalitee' );
+__PACKAGE__->columns(
+	All => qw(
+		distid
+		kwalitee
+		extractable
+		extracts_nicely
+		has_buildtool
+		has_manifest
+		has_meta_yml
+		has_proper_version
+		has_readme
+		has_test_pod
+		has_test_pod_coverage
+		has_tests
+		has_version
+		is_prereq
+		no_cpants_errors
+		no_pod_errors
+		no_symlinks
+		proper_libs
+		use_strict
+	)
+);
+
+package main;
+
+use strict;
+use warnings;
+
+use Benchmark qw( cmpthese );
+
+my @distros = CPANTS::Distro::Kwalitee->retrieve_all;
+@distros    = @distros[ 0..99 ];
+
+printf( "Sorting %d rows...\n", scalar @distros );
+
+cmpthese(
+	1000,
+	{
+		regular_sort  => \&regular_sort,
+		schwartz_sort => \&schwartz_sort
+	}
+);
+
+sub regular_sort {
+	@distros = sort {
+		$a->kwalitee <=> $b->kwalitee
+	} @distros;
+}
+
+sub schwartz_sort {
+	@distros = map {
+		$_->[ 0 ]
+	} sort {
+		$a->[ 1 ] <=> $b->[ 1 ]
+	} map {
+		[ $_, $_->kwalitee ]
+	} @distros;
+}
+
+__END__
+C:\cdbibench>perl bench.pl
+Sorting 100 rows...
+               Rate  regular_sort schwartz_sort
+regular_sort  102/s            --          -47%
+schwartz_sort 195/s           90%            --
+</pre>
+<p>Interesting. <code>tholbroo</code>++</p></p>
+
+
+<hr/>
+
+
+
+<h2>That's not surprising</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2005-04-01T16:12:14</h3>
+If the expense of re-computing the sort key exceeds the expense of caching the sort key, then the ST wins.  You merely need a "long enough" list and an "expensive enough" sort key computation.
+
+
+
+<h2>Sort in the database</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2005-04-01T17:05:56</h3>
+Sort your data in the database.  This will be faster.  It also scales better when you just want part of the result set, because you can use LIMIT (or whatever your DB supports).
+
+
+
+<blockquote>
+
+<h2>Class::DBI considered a hinderance</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-04-03T00:38:28</h3>
+<p>Yeah, what autarch said.</p>
+
+<p>This is why gave up Class::DBI &#8211; it very nearly forces you to do on the Perl side what should be done at the SQL level because it makes it way too difficult to do the latter. First you run into a wall of no documentation, then you often have to put up with annoying verbiage. After reading the source for 15 minutes, I think the following will do what you need:</p> <blockquote><div> <tt>CPANTS::Distro::Kwalitee-&gt;set_sql(<br>&nbsp; &nbsp; all_by_kwalitee =&gt; 'SELECT __ESSENTIAL__ FROM __TABLE__ ORDER BY kwalitee',<br>);<br>my @distros = CPANTS::Distro::Kwalitee-&gt;sth_to_objects( 'all_by_kwalitee' );</tt> </div></blockquote> <p>Note that <code>sth_to_objects()</code> is not documented anywhere. The code <em>should</em> work, but I cannot tell since I&#8217;m not going to spend another 15 minutes setting up all the knobs and handles that testing Class::DBI code requires. If it does not work, the least-effort approach will require more red tape. Compare to plain DBI to get an AoH, which is clearly documented and took me 40 seconds to write:</p> <blockquote><div> <tt>my $distros = $dbh-&gt;selectall_arrayref( 'SELECT * FROM kwalitee ORDER BY kwalitee', { Slice =&gt; {} } );</tt> </div></blockquote> <p>Plain DBI is at times crufty, but at least it doesn&#8217;t get in your way. As a bonus, it has much less overhead. Class::DBI is seductive, and will whisper in your ear that you that you don&#8217;t need to get your hands dirty with all that SQL, but in practice I&#8217;ve found it fails to deliver. Last not least, Class::DBI&#8217;s dependencies are legion.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Try Sort::Key</h2>
+<h3><a href="/user/salva/">salva</a> on 2005-04-09T16:58:52</h3>
+Hi,<br> <br>You can try Sort::Key that I released some days ago on CPAN, its like the Schwartzian transform, but implemented in C so a bit faster.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

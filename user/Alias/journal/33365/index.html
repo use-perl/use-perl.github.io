@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Ask use.perl.org - Class Tree + Driver API ?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Ask use.perl.org - Class Tree + Driver API ?</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2007-05-29T16:52:08</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Class trees are great. If your problem is <a href="http://search.cpan.org/perloc?PPI">complex and suitably hierarchal</a> they provide the conceptual skeleton you need to solve the problem completely. I use class trees a lot.<br/><br/>Driver APIs are also great. They let you wrap an abstracted <a href="http://search.cpan.org/perldoc?Email::Send">simple API</a> over the top of a concept that has <a href="http://search.cpan.org/perldoc?SMS::Send">highly diverse implementations</a> and hide the implementation details away.<br/><br/>They also let you reduce design risk. Introducing a driver API lets you drop in an alternative implementation at a later date with little to no pain, and even have the new (better, brighter, cooler) implementation co-exist with the old one. So upgrades can be rolled out across a subset of current users. I use driver APIs a lot.<br/><br/>Of course, if you could take both things that are themselves great, and COMBINE the two into some sort of "Driver Class Tree API" it should be stupendously awesome!<br/><br/>Except it isn't. In fact, it sucks rather hard. And I'm not sure how to make it suck less.<br/><br/>For example, I have a non-CPAN class tree for modeling SQL queries. It's code-generated for each application with the appropriate code to generate the SQL for the database for that project and does some other magical stuff I can only do easily because I'm using code-gen.<br/><br/>Suffice to say I'm really happy with it, since it allows things like this magically across arbitrary table structures.
+<code>
+my $query = MyApp::Entity::Person->select;
+$query->condition( 'age', '==', 30 );
+$query->condition( 'children.friends.school.teachers.pets.name', '==', 'Fido' );
+$query->orderby( '+name' );
+my $adam = $query->first( $dbh );
+</code><br/><br/>Now, much like a number of other CPAN modules that originated in my code-gen system, I'd love to abstract it out to CPAN one day.<br/><br/>But this class tree (there's about 15 classes) only works for one database. The "agnostic" version that gets generated has stuff like "if ( postgres ) { ... }" all through it, which obviously doesn't scale.<br/><br/>But how do I make the class structure work when 13 of those 15 classes may need to be subclasses/modified by the driver?<br/><br/>How do you typically add "driverness" to a class tree without resorting to ugly things like:
+<code>
+sub condition {
+  my $self = shift;
+  my $condition_class = $self->driver_class('Condition');
+  my $condition = $condition_class->new( @_ );
+  push @{$self->{conditions}}, $condition;
+  return 1;
+}
+</code><br/><br/>Anyone got a better solution?</p>
+
+
+<hr/>
+
+
+
+<h2>Re: Ask use.perl.org - Class Tree + Driver API ?</h2>
+<h3><a href="/user/cosimo/">cosimo</a> on 2007-05-29T19:23:02</h3>
+<p>
+Hi Alias,
+</p>
+
+<p>
+I don't know if I understood completely what you are trying to accomplish, but I think I have developed a similar system, that is used to access different data sources (txt, ftp, http, sql, AS/400,<nobr> <wbr></nobr>...) with a single interface.
+Sql class in particular has the behaviour you mention, in that it supports Postgres, Mysql, Oracle, DB2, Sybase, Informix,<nobr> <wbr></nobr>...
+</p>
+
+<p>
+In my case, I have a "Driver" class with many subclasses like Pg, Oracle, Sybase, MSSQL,<nobr> <wbr></nobr>... that are embedded in a $self-&gt;{driver} member.
+</p>
+
+<p>
+When I need to specialize behaviour for (example) Postgres, I never test for driver name, but rather for a special "feature" (missing or implemented) by the database.
+</p>
+
+<p>
+An example is worth 1000 words:
+</p> <p><blockquote> <div><tt>sub get_first_10_records<br>{<br>&nbsp; &nbsp; my $self = $_[0];<br> <br>&nbsp; &nbsp; # Get underlying driver class (don't care if Pg, Mysql,<nobr> <wbr></nobr>...)<br>&nbsp; &nbsp; my $drv&nbsp; = $self-&gt;driver();<br>&nbsp; &nbsp; my $sql&nbsp; = 'SELECT * FROM hgttg';<br>&nbsp; &nbsp; my $has_ph = $drv-&gt;supports('placeholders');<br>&nbsp; &nbsp; my $has_limit = $drv-&gt;supports('limit');<br> <br>&nbsp; &nbsp; if($has_ph)<br>&nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; &nbsp; $sql<nobr> <wbr></nobr>.= ' WHERE answer=?';<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; else<br>&nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; &nbsp; $sql<nobr> <wbr></nobr>.= ' WHERE answer=42';<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; if($has_limit)<br>&nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; &nbsp; $sql<nobr> <wbr></nobr>.= ' LIMIT 10';<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; my @recs = $self-&gt;fire_query($sql, 42);<br> <br>&nbsp; &nbsp; if(!$has_limit)<br>&nbsp; &nbsp; {<br>&nbsp; &nbsp; &nbsp; &nbsp;@recs = splice(@recs, 0, 10);<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; return(\@recs);<br>}</tt></div> </blockquote>  <p>
+Don't get me wrong. This example is not very exciting, but I think the concept behind is interesting. Checking for features *across* all driver classes, creating a "common denominator" approach, rather than specializing by class.
+</p>
+
+<p>
+Sorry if I have totally missed the point...<nobr> <wbr></nobr>:-)
+</p>
+
+
+
+<h2>DBIx::Class</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2007-05-30T05:27:44</h3>
+I'm probably over-simplifying your problem, but I think that the solution adopted by DBIx::Class is a nice brain fit.  Under Catalyst, I would say something like:<p><blockquote> <div><tt>my $query = $c-&gt;model('Entity::Person');<br>$query = $query-&gt;search({age =&gt; ['==', 30]});<br>$query = $query-&gt;search({mumble...&nbsp; =&gt; ['==', 'Fido']});<br>$query = $query-&gt;search(undef, {order_by =&gt; 'name ASC'});<br>my $adam = $query-&gt;first;</tt></div> </blockquote> where I don't know how to write the "mumble" part off the top of my head, but it's probably accomplished with related_resultset calls.  Interestingly, DBIx::Class has managed to keep the "driverness" to a very small set of variations in the DBIx::Class::Storage subclasses.<br>
+
+
+
+<blockquote>
+
+<h2>Re:DBIx::Class</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-05-31T07:32:54</h3>
+Unfortunately, yes this oversimplifies the problem.<br><br>It solves the problem by getting rid of the class tree altogether and using Perl structures.<br><br>Here's another example of the sort of stuff I'm doing.<br><code><br># We need a certain type of person<br>my $query   = MyApp::Entity::Person-&gt;Fetch;<br>$query-&gt;condition('OptimizedFor', '==', 'fun');<br>$query-&gt;condition(<br>
+&nbsp; &nbsp; &nbsp; &nbsp; MyApp::SQL::Collection-&gt;OR(<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; MyApp::SQL::Clause-&gt;new('Lame', 'is null'),<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; MyApp::SQL::Clause-&gt;new('Age', 'new('Name', '!in', 'Adam', 'Bob', 'Whatever'),<br>
+&nbsp; &nbsp; &nbsp; &nbsp; )<br>);<br><br># What projects are they in<br>my $projects = $query-&gt;traverse('FoundedProjects');<br>$projects-&gt;orderby('+Name');<br>$projects-&gt;limit(10);<br>my @projects = $projects-&gt;fetch( $dbh );<br><br># Lets save that query so we can send it to bob,<br># who is using the same application, but with Oracle.<br>$projects-&gt;save_as( 'WatchList.dat' );<br></code><br><br>As you can see, the SQL objects not only let me build up arbitrary nested structures, and create new queries with existing ones as subselects/joins, but the queries also serialize to a logical form, regardless of the database they will be executed on.<br><br>So it's basically an abstract tree for the queries of various types, that ignores the actual table names and column names (which might vary) and ignores the implementation method (for example, on Oracle, limit is implemented via a subselect).<br><br>This is where the main issue of Tree + Driver kicks in...
+
+
+
+<blockquote>
+
+<h2>Re:DBIx::Class</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2007-05-31T07:33:49</h3>
+Ack, my "less than" condition in the nested structure broke it<nobr> <wbr></nobr>:(<br><br>But you get the point.<br><br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

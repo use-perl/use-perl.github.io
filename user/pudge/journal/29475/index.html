@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: Stupid Mac::Glue Tricks: PODxt Sampling</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Stupid Mac::Glue Tricks: PODxt Sampling</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2006-04-29T17:46:46</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>The PODxt guitar amp/fx modeler was recently updated with a bunch of new stuff, including a bass expansion pack.  Well, I play bass and guitar, and I liked the idea of not having to buy a Bass PODxt to go with my regular one.  So I got the expansion pack to test it out, and wrote this program to do it.<br/><br/>It requires the following steps, apart from having all the proper modules and software installed:
+<ul>
+<li>Create glues for QuickTime Player, MidiPipe, and Sound Studio (the latter only if you want to record the result)
+<li>Set your default audio output to the PODxt
+<li>If recording, set Sound Studio's audio input to the PODxt
+<li>In System Preferences, set the PODxt to do reamping (cmd-3)
+<li>Create a MidiPipe file that has a MIDI In named 'MidiPipe Input 1' and has MIDI Out set to the PODxt, and save it in the same directory as this program, with a '.mipi' extension
+<li>In <tt>main_loop()</tt>, set the programs you want to try out; the demo here first loops over some programs, then switches to a blank program, then tries out a bunch of different amps by themselves
+<li>If you want each program to be announced with speech, set the <tt>$SPEECH</tt> variable to true
+<li>Run the program, as 'podxt-soundtest.plx path/to/someaudiofile.aif', where the audio file is a recording of clean guitar/bass; it will save the files in 'path/to/someaudiofile-samples/'
+</ul><br/><br/>That's basically it.  It will play the given sound file through the PODxt for each program or amp you tell it you want to hear.  This can easily be extended to also sample anything else in the PODxt: different effects, different settings for the effects, and so on, using the MIDI CC Reference guide (for example, amp changes are CC #11, stomp box changes are CC #75, modulation changes are CC #58, etc.).  I figure I will use this quite a bit as I pick up recording again soon, so I can quickly and easily sample different amps and effects to find the sound I want.<br/><br/><pre>#!/usr/bin/perl
+# podxt-soundtest.plx
+use strict;
+use warnings;<br/><br/>use File::Basename;
+use File::Spec::Functions qw(catdir catfile);
+use FindBin '$Bin';
+use Mac::Errors '$MacError';
+use Mac::Glue ':all';
+use Mac::Speech;
+use Time::HiRes 'sleep';<br/><br/>my $DEBUG = 1;
+my $RECORD = 1;
+my $SPEECH = 0;<br/><br/>use constant {
+	CC		=> 176,
+	PROGRAM		=> 192,<br/><br/>	AMP_ENABLE	=> 111,
+	AMP_SELECT	=> 11,
+};<br/><br/>my @voice = qw(Damien Diane Vicki Victoria);
+my $midi_port  = 'MidiPipe Input 1';
+my $sound_file = shift;
+my($sound_name, $sound_dir) = fileparse($sound_file, qr/\..+/);
+my($qt_player, $midi_pipe, $sound_studio, $voice, $speech, $recording, $movie, $done);<br/><br/>init();
+main_loop();
+finish();<br/><br/>sub main_loop {
+	for my $n (111, 32 .. 79) {
+		doit(program => $n);
+	}<br/><br/>	# blank program
+	midi({ program => 127 });<br/><br/>	for my $n (73 .. 100) {
+		doit(amp => $n);
+	}
+}<br/><br/>sub doit {
+	my($what, $which) = @_;
+	get_sound_files();
+	start_recording();<br/><br/>	say($what, $which);
+	midi({ $what, $which });
+	play();<br/><br/>	stop_recording();
+	save_recording($what, $which);
+}<br/><br/>sub finish {
+	print "Done.\n";
+	exit;
+}<br/><br/>
+sub init {
+	$qt_player  = new Mac::Glue 'QuickTime Player';
+	$midi_pipe  = new Mac::Glue 'MidiPipe';
+	$sound_studio = new Mac::Glue 'Sound Studio' if $RECORD;<br/><br/>	if ($SPEECH) {
+		my $V;
+		for (@voice) {
+			last if $V = $Mac::Speech::Voice{$_};
+		}
+		$speech = NewSpeechChannel( $V );
+	}<br/><br/>	if ($DEBUG) {
+		$qt_player->ERRORS(1);
+		$midi_pipe->ERRORS(1);
+		$sound_studio->ERRORS(1) if $RECORD;
+	}<br/><br/>	$sound_studio->launch if $RECORD;<br/><br/>	my($pipe) = fileparse($0, qr/\..+/);
+	$midi_pipe->open(catfile($Bin, $pipe . '.mipi'));<br/><br/>	$qt_player->activate;
+	open_sound_file();<br/><br/>	# preload voice
+	if ($SPEECH) {
+		SpeakText($speech, '');
+		sleep 0.1 while SpeechBusy();
+	}<br/><br/>	$movie = $qt_player->obj(movie => 1, window => 1);
+	$done  = $movie->prop('done');
+}<br/><br/>sub midi {
+	my($params) = @_;
+	my $opts = {
+		toPort	=> $midi_port
+	};<br/><br/>	if (defined $params->{program}) {
+		$opts->{withData} = [ PROGRAM, $params->{program} ];<br/><br/>	} elsif (defined $params->{amp}) {
+		$opts->{withData} = [ CC, AMP_ENABLE, 0 ];
+		$midi_pipe->MIDISend(%$opts);
+		$opts->{withData} = [ CC, AMP_SELECT, $params->{amp} ];
+	}<br/><br/>	$midi_pipe->MIDISend(%$opts);
+}<br/><br/>sub say {
+	return unless $SPEECH;
+	my($what, $which) = @_;<br/><br/>	my $text = "$what number $which";
+	print "$text\n";<br/><br/>	midi({ program => 127 });<br/><br/>	SpeakText($speech, $text);
+	sleep 0.1 while SpeechBusy();
+}<br/><br/>sub play {
+	$movie->start;
+	while (1) {
+		last if $done->get;
+		sleep 0.5;
+	}
+	sleep 1.5;
+}<br/><br/>sub get_sound_files {
+	if ($RECORD) {
+		$recording = $sound_studio->make(new => 'document');
+	}<br/><br/>	open_sound_file();
+}<br/><br/>sub open_sound_file {
+	$qt_player->obj(file => $sound_file)->open;
+}<br/><br/>sub start_recording {
+	return unless $RECORD;
+	$recording->record;
+}<br/><br/>sub stop_recording {
+	return unless $RECORD;
+	$recording->stop;
+}<br/><br/>sub save_recording {
+	return unless $RECORD;
+	my($what, $which) = @_;<br/><br/>	my $dir = catdir($sound_dir, $sound_name . '-samples');
+	mkdir $dir;<br/><br/>	sleep 5;
+	$recording->save(
+		in	=> $recording->obj(file => catfile($dir, "$what-$which.aiff")),
+		as	=> enum('AIFF')
+	);
+	sleep 5;
+	$recording->close;
+}
+</pre><br/><br/></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

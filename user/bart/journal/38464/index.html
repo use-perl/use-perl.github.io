@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of bart: Why is CPAN.pm such a pig?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Why is CPAN.pm such a pig?</h1>
+<h2><a href="/user/bart/">bart</a> on 2009-02-11T21:23:43</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Running the CPAN shell on ActivePerl 5.8.x on Windows XP, I can see in <a href="http://technet.microsoft.com/en-us/sysinternals/default.aspx">Process Explorer</a> that the bare CPAN shell uses a whopping 195MB of RAM (size of working set: 120MB). I mean... wauw!!</p>
+
+<p>That does not even include the programs, including perl, that are invoked from <code>make</code>, that actually test or install stuff. No, just the bare shell.</p>
+
+<p>WTF is going on? Does the CPAN shell perhaps try to keep the whole module database in RAM? And if so: why? It's not as if looking up a distro by module name is <em>so</em> system critical, that it requires a sub-millisecond response time. So a slightly slower system, that greps through the data on file, would work just as well.</p>
+
+<p>Fact is: memory consumption is 3 times lower before the metadata is first loaded. And it doesn't ever go down again... (As if it could.)</p>
+
+<p>CPAN is now using several times more RAM than the average computer had, when CPAN.pm first came out. I doubt it used that much RAM, in those days.</p>
+
+<p>p.s. For some bizarre reason, Strawberry Perl 5.10.x uses "only" 120MB. I have no idea why.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Because it is</h2>
+<h3><a href="/user/ferreira/">ferreira</a> on 2009-02-11T21:42:25</h3>
+<blockquote><div><p> <em>
+Does the CPAN shell perhaps try to keep the whole module database in RAM?
+</em></p></div> </blockquote><p>
+Yes, that's how it does some of the query commands it implements. It has been so for a long time now. And yes, under-powered computers may have problems with that. (But it can be worse - CPANPLUS is much heavier or at least was, a long time ago when I tried it.)
+</p><p>
+CPAN.pm has an experimental support for the module database in a SQLite db, as implemented by CPAN::SQLite. It decreases the memory consumption. You can try that.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Because it is</h2>
+<h3><a href="/user/Yanick/">Yanick</a> on 2009-02-12T15:34:45</h3>
+<p> <i>Re: CPANPLUS </i> </p><p>
+It's been also quite a long time since I've looked at how much RAM CPANPLUS takes, but the last time I did, it was raking an impressive 500M.  Which, of course, makes it almost impossible to use interactively on the 512M of RAM of my poor machine.  </p>
+
+
+
+<blockquote>
+
+<h2>Re:Because it is</h2>
+<h3><a href="/user/kane/">kane</a> on 2009-02-13T11:09:32</h3>
+<p>CPANPLUS uses far less on my machine, but YMMV; for those strapped for ram, there's the option to use an SQLite backend.</p><p>To enable it, simply follow the following steps from the default shell:</p><p>### set SQLite as the backend<br>CPAN Terminal&gt; s conf source_engine CPANPLUS::Internals::Source::SQLite</p><p>### update any dependencies (will install sqlite drivers if you need them)<br>CPAN Terminal&gt; s selfupdate dependencies</p><p>### save configuration<br>CPAN Terminal&gt; s save</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>What Strawberry does</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-02-11T23:59:30</h3>
+<p>Strawberry comes bundled with CPAN::SQLite on by default, which is why it uses less memory.</p><p>This still has problems though, because the process that fills up the SQLite database loads the entire database into memory ANYWAY, instead of processing streamwise.</p>
+
+
+
+<blockquote>
+
+<h2>Re:What Strawberry does</h2>
+<h3><a href="/user/bart/">bart</a> on 2009-02-13T22:37:10</h3>
+Ah, I already thought I saw a different behaviour pattern in memory usage for Strawberry Perl: the bulk of memory is not used by the CPAN shell script, but by a script launched from it, for loading the database. The latter script uses up to 120-150MB, which is already better, but yet better still because the script exits after half a minute or so. The CPAN shell itself uses less: 60MB virtual (35MB working set). It still is a lot, but at least, it's already 3 times less than the default in ActivePerl.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Small Device Issue</h2>
+<h3><a href="/user/awwaiid/">awwaiid</a> on 2009-02-12T16:28:46</h3>
+<p>I ran into this as a problem when using CPAN on my openmoko (Debian), which has only 128mb of ram. It only seemed to be a problem the first time I ran cpan, after that it seems better.</p><p>But for that first time I had to shut down everything (X-Windows, phone services, etc) to get it working.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

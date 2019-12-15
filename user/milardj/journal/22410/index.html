@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of milardj: My pet solution:  Web framework</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>My pet solution:  Web framework</h1>
+<h2><a href="/user/milardj/">milardj</a> on 2004-12-22T02:35:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+Amongst other things I intend to use this journal to discuss the design of existing and new projects and frameworks I have worked on.  I tend to design in a vacuum these days (at my old job I was usually hooked up with a partner during design which I found to be educational and led to stronger designs - we both approached the problem from different angles and the design really benefited from that) and I miss having a feedback loop to point out missed opportunities and more effective strategies.
+</p>
+<p>
+I'm a full time programmer who also operates a consulting/contracting company (very small scale) on the side.  About 2 1/2 years ago I was contracted to create a web app which would allow:
+</p>
+<ul>
+<li>Uploading of data files (typically market research results) into a database
+<li>Definition and generation of crosstab reports
+<li>Definition and generation of regular reports
+<li>Project, user, and client management
+</ul>
+<p>
+I decided on a framework that would be driven by XML.  I borrowed the run mode concept from C::A and defined an XML file that would control the "steps" needed for each run mode:
+</p>
+
+<ECODE>
+    <rm name="login" next="main.html" on-error="login.html">
+         <step handler="login"/>    
+    </rm>
+</ECODE>
+
+"steps" could be predefined sql actions (see below) or delegated to a handler as shown above.
+
+"handlers" are defined in another xml file and are subroutines that are passed the CGI instance and the database handle:
+
+<ECODE>
+<handler name="login">
+    sub {
+           my ($cgi,$dbh) = @_;
+           #-- Do some stuff
+
+           return $cgi;
+        }
+</handler>
+</ECODE>
+<p>
+I decided on this approach because I found that a lot of the perl code I needed as handlers were only a couple of lines long and I didn't feel the need to create a package.
+</p>
+<p>
+In a questionable decision I decided to just pass the CGI instance throughout the framework.  Any part of the framework could add new params to the instance or modify existing params.  At the very least I should have created a wrapper to CGI.  That is one of the items on my To Do list.
+</p>
+As mentioned previously "steps" could also be predefined SQL actions:
+
+<ECODE>
+    <rm name="foo_search" next="foo.html">
+         <step type="get" action="get_foo" using="foo_table.xml"/>
+    </rm>
+</ECODE>
+
+Where foo_table.xml contains all the SQL related to the foo table:
+
+<ECODE>
+<sql name="get_foo">
+        <statement>
+                  Select col1, col2, col3 from foo
+        </statement>
+        <where>
+                 where x = ? and y = ? and z= ?
+        </where>
+        <values>
+            <column db_name="col1" alias="cgi_param_name1"/>
+            <column db_name="col2" alias="cgi_param_name2"/>
+            <column db_name="col3" alias="cgi_param_name3"/>
+        </values>
+        <bind>
+            <column alias="x_alias"/>
+            <column alias="y_alias"/>
+            <column alias="z_alias"/>
+        </bind>
+        <struct alias_key="col1+col2" type="nested" cgi_param="foo_struct"/>
+    </sql>
+</ECODE>
+<p>
+When RM.pm (the module which processes the run modes) sees a SQL step (type = get|delete|insert|update) it calls DAO.pm which is responsible for database interactions.  DAO will execute the SQL and determine how to bundle up the result set.
+
+In this case because we defined the <ECODE><struct> </ECODE> tag we are telling DAO that we want a more complex data structure returned.  The struct tag instructs DAO.pm to return a hash where the key is the concatenation of the columns defined by the key attribute.  The structure would be passed in $cgi with the param name "foo_struct" as defined by the cgi_param attribute in the <ECODE><struct></ECODE> tag.
+</p>
+
+If our result set is:
+
+<ECODE>
+COL1      COL2    COL3
+AAAA      11111   11111
+AAAA      22222   12121
+</ECODE>
+
+Then our return structure is:
+
+<ECODE>
+{ "AAAA~11111" => { "COL1" => AAAA
+                    "COL2" => 11111
+                    "COL3" => 11111 },
+  "AAAA~22222" => { "COL1" => AAAA
+                    "COL2" => 22222
+                    "COL3" => 12121}
+}
+</ECODE>
+
+If we specify type="nested" then the return structure is:
+
+<ECODE>
+{
+	"AAAA" => {
+				11111 => {
+						    "COL1" => AAAA
+                            "COL2" => 11111
+                            "COL3" => 11111
+					     },
+
+				22222 => {
+						    "COL1" => AAAA
+                            "COL2" => 22222
+                            "COL3" => 12121
+					     },
+              }
+}
+</ECODE>
+<p>
+By default, if no <ECODE><struct></ECODE> tag is defined, then each column is added to the $cgi instance where param name is equal to the alias attribute.
+</p>
+Run mode definitions can also import other defined run modes:
+
+<ECODE>
+
+    <rm name="something_common">
+            <step handler="always_need_this"/>
+            <step handler="and_this"/>
+   </rm>
+    <rm name="foo_search" next="foo.html">
+         <step type="get" action="get_foo" using="foo_table.xml"/>
+         <step include="something_common"/> 
+    </rm>
+</ECODE>
+
+We can also iterate run modes (or steps) when needed.  For example say we have a multi select box and we want to execute a step for each highlighted option:
+
+<ECODE>
+<rm name="delete_user" foreach="delete_user_list" set="user_id" next="userMgr.html">
+        <step type="delete" action="delete_user" using="user_table.xml"/>
+    </rm>
+</ECODE>
+<p>
+This run mode will iterate through $cgi->param("delete_user_list") set $cgi->param(-name=>"user_id", -value=>current id) and perform a delete for each user.
+</p>
+
+We can also iterate at the step level if some steps have to be executed for a list and some only once:
+
+<ECODE>
+rm name="delete_user" next=" userMgr.html">
+        <step foreach="delete_user_list " 
+                  set="user_id" 
+                 type="delete" 
+               action="delete_user" 
+                using="user_table.xml"/>
+        <step handler="foobar"/>
+    </rm>
+</ECODE>
+
+<p>
+So in summary - every interaction with the server is defined by a run mode.  A run mode can consist of 0 or more steps (if 0 then we are essentially only setting the next page to serve up).  Each step can consist of a predefined database interaction or be delegated to a handler.
+</p>
+<p>
+I've found this to work very well for my purposes and I've been able to add many screens without having to write any new code at all.  The SQL xml files are auto-generated by another program I wrote so some new screens (for example search/result/detail screens) can be created by simply defining the templates and by defining the run modes and steps.  Since they all follow the same pattern I simply copy the existing run modes, change the template name, change the action names, and I'm done.
+</p>
+
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

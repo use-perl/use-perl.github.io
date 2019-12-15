@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Template::Tiny 0.06 - Nesting without using regex recursion</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Template::Tiny 0.06 - Nesting without using regex recursion</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2009-12-12T14:21:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>For an incremental cost of zero extra statements, and less than 1k of memory, I've managed to successfully implement support for nested IF/UNLESS/ELSE statements!<br/><br/>Starting from the premise that the regular expression engine already had support for recursion, I was somewhat dismayed to discover I didn't have access to recursion because it wasn't available in older Perls.<br/><br/>Suggestions from Google were that in a pinch you can do something similar using negative look-behind assertions (similar to tricks I've used before to do rather elegant and fast unescaped-quote scanning in PPI).<br/><br/>Alas, delving through the man pages I find that I don't have support for look-behind assertions either if I want 5.004 support (and that's always a nice-to-have in ::Tiny modules, although not essential).<br/><br/>So, how to do recursive conditions.<br/><br/>The slightly odd answer is that you can emulate the same kind of negative look-behind using a slightly crazier negative look-ahead assertion (which I DO have access to).<br/><br/>The new condition regex looks something like this (where $LEFT and $RIGHT are fairly complex whitespace-chomping expressions for [% and %])
+<code>
+my $CONDITION = qr/
+	$LEFT (IF|UNLESS) \s+ ( $EXPR ) $RIGHT
+	(?!
+		.*?
+		$LEFT (?: IF | UNLESS )
+	)
+	( .*? )
+	(?:
+		$LEFT ELSE $RIGHT
+		(?!
+			.*?
+			$LEFT (?: IF | UNLESS )
+		)
+		( .+? )
+	)?
+	$LEFT END $RIGHT
+/xs;
+</code><br/><br/>So basically, look for the IF block, which ISN'T followed by another IF block, then an option ELSE block (which isn't followed by an IF block), followed by an END block.<br/><br/>Superficially, this doesn't really make sense, because you only match things at the deepest level.<br/><br/>Actually, it's even worse, because it ONLY matches the last and/or deepest IF block. So lets first at least deal with all of them by doing multiple passes.
+<code>
+1 while $copy =~ s/
+	$CONDITION
+/
+	eval {
+		$1 eq 'UNLESS'
+		xor
+		!! # Force boolification
+		$_[0]->expression($stash, $2)
+	} ? $3 : $4;
+/gsex;
+</code>
+The key part there is the "1 while". This keeps passing over the string until we've run out of last and deepest conditions.<br/><br/>The only real problems here are that substiting in multiple passes runs the risk of an infinite loop, and we're processing the conditions from bottom to top and deepest to shallowest.<br/><br/>The infinite loop isn't a problem here (fortunately) because we never add new content to the file, only cut parts out. The expression evaluation stuff is done in a separate regex.<br/><br/>And the fact the conditions run in the opposite order isn't a problem either because we've already said that the stash MUST be immutable and side effects aren't allowed (although if anyone tries to cheat on this point, they're going to get weirded out).<br/><br/>So there's full (and infinitely deep) support for nested conditions, for pretty much no cost. This leaves the 60k of spare room largely free, which is good because FOREACH support is going to be much much harder than IF/UNLESS/ELSE.<br/><br/>The main problem here is that all the blocks end with the same terminator [% END %] (which means it's really hard to process different statements separately).<br/><br/>I do, however, have some interesting new ideas on how I might deal with this problem now that I have the negative-lookahead+while trick down pat.<br/><br/>Work continues...</p>
+
+
+<hr/>
+
+
+
+<h2>5.004?</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2009-12-12T20:01:54</h3>
+<p>5.004?  Are you serious?  If you're doing it as an exercise in personal torture, ok, but hell, both 5.004_05 and 5.005_03 are past their 10 year "use by" date.  I'd be interested to know if you've seen a 5.004 or even 5.005 in the wild that's actually being used for development, as opposed to just running some old code nobody touches anymore, and where an upgrade, or parallel Perl install, is not feasible.</p>
+
+
+
+<blockquote>
+
+<h2>Re:5.004?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-12-12T20:26:57</h3>
+<p>I last used a 5.004 system for production purposes 3 years ago, but it was serious crufty and if it wasn't a charity stuck in a bad situation I would have insisted on an upgrade.</p><p>I do know there's still a few 5.005 machines floating around, usually IRIX systems running old stuff.</p><p>5.004 support is a nice to have, but can be sacrificed if needed. I'm more interested in the 5.005 support (although ONLY in the Tiny modules, everything else I'm happy to move to 5.6.1).</p>
+
+
+
+<h2>Re:5.004?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-12-13T00:01:05</h3>
+<blockquote><div><p> <em>If you're doing it as an exercise in personal torture....</em></p></div> </blockquote><p>I thought <a href="http://use.perl.org/user/Alias/journal/39983" title="perl.org">Template::Tiny was for Padre</a perl.org>, which I'd love to see running on IRIX with Perl 5.004.</p>
+
+
+
+<blockquote>
+
+<h2>Re:5.004?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-12-13T03:21:08</h3>
+<p>The needs of Padre have created the specific demand, but all<nobr> <wbr></nobr>::Tiny module gets used in a similar way. Just because it's needed for one thing, doesn't mean you make solutions only for that thing.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:5.004?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-12-13T11:10:30</h3>
+<blockquote><div><p>5.004? Are you serious?</p></div> </blockquote><p>He also said that loading the module should consume no more than 100kb. I would think 5.004 is a lesser constraint than that one; clearly he is serious. (Although combining both constraints&#8230; well, real Turing tar pits are even more compelling, so&#8230;)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

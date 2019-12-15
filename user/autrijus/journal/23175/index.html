@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autrijus: Day 13: Continuations</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Day 13: Continuations</h1>
+<h2><a href="/user/autrijus/">autrijus</a> on 2005-02-13T19:27:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>First, a heads-up: the source tree in the repository is broken right now, due to the newly introduced "Eval" monad.  I'll fix it tomorrow 
+when I wake up.
+<p>
+Some random things I've done today:
+<ul>
+<li>Separates the one() junction into two sets, the none() set and the one() set, unified on autothreading.</li>
+<li>Division by zero is caught. (viirya)</li>
+<li>Lexical pads.</li>
+<li>Parsec now maintains a Env state, so it can serve as a compiler as well.</li>
+<li>Compile-time evaluation of runtime code is now possible, which nicely complements eval"".</li>
+</ul>
+<p>
+Today is by far the most challenging day, because I started tackle the control flow as specified in <a href="http://dev.perl.org/perl6/synopsis/S04.html">Synopsis 4 (Blocks and Statements)</a> and  <a href="http://dev.perl.org/perl6/synopsis/S06.html">Synopsis 6 (Subroutines)</a>.  Perl6 is extremely flexible in this regard, with following features:
+<ul>
+<li>Access to outer lexical contexts via $OUTER::</li>
+<li>Access to outer dynamic contexts via $CALLER::</li>
+<li>Skipping dynamic contexts via leave()</li>
+<li>Selective exception handling via closure traits, eg. CATCH and CONTROL</li>
+<li>Tail-recursive Y combinator, via &?SUB and &?BLOCK</li>
+</ul>
+<p>
+Also, although Larry didn't say if Perl6 will have a multiple-entrant call_cc(), because it comes for free with Haskell, I decided to throw it in as a primitive.
+<p>
+To that end, I surveyed various literature on this subject; among the most helpful ones are Ken Shan's "Shift to Control" and "A Monadic Framework for Subcontinuations" from Dybvig, Jones and Sabry.  After several hours of tweaking and prototyping, I settled on this definition of Eval monad and the associated Env data type:
+<pre>
+type Eval x = ContT Val (ReaderT Env IO) x
+data Env = Env { envContext :: Cxt
+               , envPad     :: Pad
+               , envClasses :: ClassTree
+               , envEval    :: Exp -> Eval Val
+               , envCC      :: Val -> Eval Val
+               , envBody    :: Exp
+               , envDepth   :: Int
+               , envID      :: Unique
+               }
+</pre>
+<p>
+That is, each ongoing evaluation keeps an unique ID of the current dynamic context, its current continuation, body of expression, recursion depth,  a lexical pad of symbols, and its caller's evaluation environment (and it's caller's caller's, etc...)
+<p>
+The "envEval" field is the current evaluator, which is responsible to turning an expression into a value.  Normally it just points to the "evaluate" function in Eval.hs; however, once we start dealing with sublanguages inside Perl6 (grammar and rules, for example), it may come handy as we can freely swap evaluation engines for any (dynamic and/or lexical) contexts.
+<p>
+The "ReaderT" means that it can freely enter a lexical scope by "shadowing" the pad with some new symbols; direct modification of the pad contents is disallowed. (At least in FP6; in full Perl6 I'll do it with IORefs.)
+<p>
+The "ContT" part provides us with "shiftT" and "resetT" primitives.  Together they represent the sort of delimited continuation we need for calling and returning from subroutines.  To enter a scope, we do this:
+<pre>
+\f -> do
+    uniq <- liftIO $ newUnique
+    rv <- callCC $ \cc -> resetT $ do
+        local (\e -> e
+            { envCaller = Just e
+            , envCC = cc
+            , envDepth = 1 + envDepth e
+            , envID = uniq } ) f
+</pre>
+That is, we populate the inner environment context with relevant information from the outer one, and run the inner evaluation (represented by "f") using an unique identifier.  The upshot of this is one can freely leave() any of its parent's contexts, by passing an abnormal return value to "shiftT".
+<p>
+The abnormal return value contains a predicate, and we apply it to each upward context's environment, shifting past each intermediate resetT delimiters.  Once it matches a context (usually by testing against its unique ID), it returns on its behalf, which is exactly what we want.
+<p>
+Proper use of shiftT and resetT is "safe", because they won't return from a function more than once. 
+<p>
+On the other hand, one can "return" on behalf of any outer context by calling its "envCC", which will run until its destined end (usually end of program or eval "" -- but who knows), and then the original context is resumed again, "return"ing normally this time, resulting in one function returned twice.  That is admittedly highly bizzare, but that also means we can implement our own delimited continuations in Pugs, without the constraint of shiftT/resetT above.
+</p>
+
+
+<hr/>
+
+
+
+<h2>I know you are speaking english...</h2>
+<h3><a href="/user/zatoichi/">zatoichi</a> on 2005-02-14T03:08:36</h3>
+But I have no idea what you just said.   lol
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

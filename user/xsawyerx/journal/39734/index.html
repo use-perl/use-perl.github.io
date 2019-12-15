@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of xsawyerx: Extensive POE Testing PT. 2 - Testing, Ordered</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Extensive POE Testing PT. 2 - Testing, Ordered</h1>
+<h2><a href="/user/xsawyerx/">xsawyerx</a> on 2009-10-09T14:32:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><address>A special thanks goes here to Adam Kennedy for sending me on this path and giving me ideas. Adam, I wanted to thank you personally but couldn't catch you on IRC, so thanks! :)</address>
+
+<p>I tried to cover in my <a href="http://use.perl.org/user/xsawyerx/journal/39727">last post</a> the basic guidelines I have for testing in <a href="http://search.cpan.org/perldoc?POE">POE</a>. Testing in <a href="http://search.cpan.org/perldoc?POE">POE</a> is different since we want to test a flow and not just subroutines. This time I want to try go over the first type of tests that I find necessary. It's called <b>ordered tests</b> - at least that's how I call it.</p>
+
+<p>This method was first hinted at me by the great Adam Kennedy who used it in his <a href="http://search.cpan.org/perldoc?POE::Declare">POE::Declare</a> module. Basically it describes the following scenario: I have a <a href="http://search.cpan.org/perldoc?POE::Sesson">POE::Session</a> event flow and I want to make sure that every event is run at the specific order.</p>
+<pre>
+package MyPackage;
+use MooseX::POE;
+use Test::More;
+
+# this is taken from POE::Declare's t/04-stop.t
+my $order = 0;
+sub order {
+    my $position = shift;
+    my $message  = shift;
+    is( $order++, $position, "$message ($position)" );
+}
+
+# then we can do this (written in MX::POE)
+event 'eg' => sub {
+    order( 0, 'Started eg event' );
+};
+</pre>
+
+<p>Now, each event could run this subroutine with a number indicating the order of this event in our overall flow of the session. Here, for example, with the <code>order( 0, 'event name' )</code> code if any event is running at a time that wasn't meant for it, it will fail.</p>
+
+<p>However, it has a few disadvantages:</p>
+<ul>
+<li>If any of the events repeat, it creates a problem. You'll have to set up a system to check which iteration of the event it is and execute the correct <code>order()</code></li>
+<li>What if you're yelding the kernel for two events and you aren't sure which one will run first?</li>
+<li>What if it doesn't matter which one will run first?</li>
+<li>What about running two sessions of the same object? It has the exact same events, with the exact same code. It will fail for sure.<li>
+</ul>
+
+<p>My suggestion: allow a test that checks for event dependency. Instead of saying "this runs first", you could say "this runs ONLY after that" and "this - this runs only after these two". That would allow to have an order based on a sequence of events. Each event can only come after different events.</p>
+
+<p>This is what the next post will discuss.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Single sequential run is what it's for</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-10-12T01:09:58</h3>
+<p>The reason I prefer my syntax to your dependency based on is that mine is easier to write and maintain, or so I find.</p><p>Of course, I completely acknowledge that it is intended for simple situations where the order is easily knowable.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Single sequential run is what it's for</h2>
+<h3><a href="/user/xsawyerx/">xsawyerx</a> on 2009-10-12T06:50:17</h3>
+<p>Actually, my framework supports this specific type of tests and it looks very similar to the way you do it:</p><blockquote><div><p> <tt>use MooseX::POE;<br>with 'POE::Test::Simple'; # again, working title<br>event 'next' =&gt; sub {<br>&nbsp; &nbsp; $_[OBJECT]-&gt;order( 2, 'Running next' );<br>};</tt></p></div> </blockquote><p>Only difference is mine is a Moose role that adds the <code>order</code> as a method of the session object. I started by implementing your method as a role and then noticed I need more options so I added more bells and whistles (which I'm now writing about).</p><p>However, I'm working on removing the necessity of this method (and hopefully the others) by automatically hooking up to events from the metaclass. All the numbering and test logic could be put in an overridden attribute. Rough example available on <a href="http://use.perl.org/user/xsawyerx/journal/39739" title="perl.org">PT 3</a perl.org>.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

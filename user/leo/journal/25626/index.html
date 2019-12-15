@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of leo: Continuations and return context</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Continuations and return context</h1>
+<h2><a href="/user/leo/">leo</a> on 2005-07-10T21:17:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><b>A correction foremost</b></p?
+`
+<p>A remark WRT the paragraph mentioning type checking
+in my <a href="http://use.perl.org/user/leo/journal/25491">first
+ewaa journal</a>. It was caused by me
+misinterpreting the type conversion specs in <a 
+        href="http://svn.perl.org/parrot/trunk/docs/pdds/pdd03_calling_conventions.pod">pdd03</a>. We are
+now doing full type conversion, which makes argument
+passing strictly positional. That's very likely the
+expectation of our <a 
+        href="http://svn.perl.org/parrot/trunk/docs/req/model_users.pod">users</a>  anyway. In the old scheme calling a
+subroutine:</p>
+
+<p><code>foo(pmc b, str a)   # pseudosyntax to denote argument
+types</code></p>
+
+<p>just worked, despite the sub was defined as:</p>
+
+<code>.sub foo<br>
+        .param str a<br>
+        .param pmc b</code>
+
+<p>Looks weird, but was really used, probably more by
+accident then for some good reason. Now you get the first
+argument converted to a string and the second as a new
+string PMC.</p>
+
+<p><b>Continuations and return context</b></p>
+<p>As Dan describes in his <a
+        href="http://www.sidhe.org/user/dan/blog/archives/000423.html">blog</a>,
+there is not much difference between a subroutine call and
+the invocation of a continuation. Both can return results to
+the caller. A nice example provided by <a 
+        href="http://www.bofh.org.uk/">Piers</a> from Parrot's <a
+href="http://svn.perl.org/parrot/trunk/t/op/gc.t">tests</a>
+(yeah, number 13) contains something like:</p>
+
+<p><code>x = choose([1, 3, 5])<br>
+        y = choose([1, 5, 9])<br>
+        if (x * y != 15)<br>
+        fail()</code>
+</p>
+<p>Above is vastly simplified, because the <i>choose</i>
+function calls capture their continuations and call a
+<i>try</i> closure that either backtracks via the saved
+<i>fail </i> hook or delivers the next item from the passed
+in choices array. Anyway the interesting thing (for a proper
+implementation of continuations) is, that there are
+mupltiple continuations that like to return either the next
+<i>x</i> or <i>y</i>, when invoked indirectly via the
+<i>fail</i> function. These continuations are not only
+returning to different program locations they are also
+returning different results.</p>
+<p>In the source we got this line:</p>
+<p><code>our_cc($P3)   # $P3 being one of the next choices</code></p>
+<p>where eventually the next result for <i>choose</i> is
+to be returned to the main program. It looks like a plain
+subroutine call, but invokes the passed in continuation and
+ends up, where one of the <i>choose</i> calls had left off.</p>
+
+<p>This means that creating a full continuation still needs
+to copy the context structure (which contains also the current
+return results location). A return continuation
+can just contain a pointer to the refered context.</p>
+
+<p>After having implemented this all now, the rather
+complicated tests (p6rules, streams), which are using
+continuations as well as coroutines are passing within my
+branch (I didn't look at other failing tests yet, but just
+converting explicit register usage for call setup to new
+conventions should fix almost all). These tests are of
+course passing in Parrot svn trunk true, but now (for the
+most common case of invoking a return continuation) no
+context is copied at all, it's just a matter of putting the pointer
+of the captured context into the interpreter.</p>
+
+<p>The official way to do <i>call/cc</i> is still
+unchanged, it's:</p>
+
+<code> .include "interpinfo.pasm"<br>
+        cc = interpinfo .INTERPINFO_CURRENT_CONT</code>
+
+
+<p>This usually means that you need a helper subroutine,
+where you capture the continuation (and pass it along
+somewhere for later usage), it's OTOH a well defined usage of
+continuations in e.g. <i>scheme</i>. When things are
+settling, I'm sure that we can provide some shortcuts for
+capturing continuations inside the same sub (or context)
+too.</p>
+
+<p>And implementing <i>want</i> or similar is of course
+simple now, as the <i>get_results</i> opcode is emitted
+before the subroutine invocation, and is therefore available
+for plain function returns as well as for continuations that
+return a result. Both can return what the caller
+<i>want</i>s, because the information is present in the
+context.</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

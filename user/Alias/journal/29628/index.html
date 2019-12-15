@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: File::HomeDir API incompatible change soon</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>File::HomeDir API incompatible change soon</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2006-05-18T03:05:17</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Well, moved into new Sydney place ok. All the hard drives survived the moved ok.<br/><br/>The new place is a totally stereotypical geek share house.<br/><br/>"Hi, come on in. So, the switch is over there, and there's wireless, but a bit weak upstairs. The two X-Boxs are over there. Oh, and we're ordering takeout"<br/><br/>Yep :)<br/><br/>Should be a great place to settle back into living in Sydney for 6 months or a year or something.<br/><br/>In CPAN news, we cracked the big 10,000 modules WAY faster than I expected, thanks to someone unleashing a dozen new Kwiki modules on the world. And thanks to everyone else that released as well.<br/><br/>In addition, I've realised that I'm going to have to change the File::HomeDir API, seeing as there are some situations where the user has nothing whatsoever that could be construed as a "home directory".<br/><br/>So all methods are going to need to change to return <i>undef</i> in this case. Note that this doesn't change the fact that File::HomeDir will -d and confirm a directory exists before returning it, it just means you are going to need to work out for everything that uses it how to deal with no-homedir situations, and this will force people into it.<br/><br/>I've filed about 15 rt.cpan.org bugs with the people that use it I can detect, so they (and you) have a couple of months before I make the actual change.<br/><br/>Hopefully there won't be too much trouble, as currently File::HomeDir just dies in the situations that have no home directory.</p>
+
+
+<hr/>
+
+
+
+<h2>Why undef?</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-05-18T15:21:11</h3>
+How is returning undef better than dying?  It sounds like a step backward to me.  Is there a reason for that choice?<br>
+
+
+
+<blockquote>
+
+<h2>Re:Why undef?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2006-05-18T16:49:32</h3>
+A die would indicate an exception, something we <b>don't</b> expect to happen.<br><br>In fact, File::HomeDir <b>already</b> has a number of these in it. Generally, it's things like failing to find a directory where it is expecting one. If someone hacked their OS X directories to something unusual, you might see it.<br><br>However, as I push outwards to try and cover more platform and situations, I'm finding that lack of a home directory is much <b>much</b> more common than I had thought (or than the original author thought as well I suspect).<br><br>It's reached the point where I think people are going to <b>have</b> to think about dealing with it in order to have their module available to a reasonable group of platforms.<br><br>For example, if you try to install a module on OS X as root, well then there's no home directory for it, and tests are going to fail. Currently, they die, so they fail at File::HomeDir itself. Any problems further up will so far have been masked.<br><br>But in any case, not having a home directory isn't looking like an exception-to-the-rule at all.<br><br>So we have two possibilities.<br><br>1. Die and tell people that they need to care.<br>2. Return false.<br><br>If we do 1. then people will need to do something like this <b>every</b> time you call a File::HomeDir method.<br><code><br>my $home = eval { File::HomeDir-&gt;my_home; };<br>if ( $@ ) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; # Trap the no homedir case, and rethrow the rest<br>
+&nbsp; &nbsp; &nbsp; &nbsp; if ( $@ =~<nobr> <wbr></nobr>/does not have a home directory/ ) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; # handle that case<nobr> <wbr></nobr>...<br>
+&nbsp; &nbsp; &nbsp; &nbsp; } else {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; die $@;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>}<br></code><br>If you DON'T trap the case, it dies.<br><br>That code is pretty evil. So the alternative of a "normal" false return is better.<br><br>We can't return the normal boolean false null string, because that is going to be legal as "current dir" in some expressions, or otherwise not error properly.<br><code><br>my $home = File::HomeDir-&gt;my_home;<br>my $conf = "$home/.foo";<br></code><br>IF we use a null list, then this gets broken...<br><code><br>my $conf = File::Spec-&gt;catdir(<br>
+&nbsp; &nbsp; &nbsp; &nbsp; File::HomeDir-&gt;my_home,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; '.foo',<br>
+&nbsp; &nbsp; &nbsp; &nbsp; );<br></code><br>Which leaves <i>undef</i>. It will work in boolean cases...<br><code><br>my $home = File::HomeDir-&gt;my_home<br>
+&nbsp; &nbsp; &nbsp; &nbsp; or die "You don't have a home directory";<br></code><br>But also, it will create plentiful warnings or outright exceptions get thrown when it is used but isn't checked.<br><br>So it's mostly a case of looking out for the both the DarkPAN and people writing new code. If there is a lot of code out there that currently assumes a true return, then returning <i>undef</i> is the best combination of "induces failures" + "compact to code against" I can think of.<br><br>I'd be open to something better though
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

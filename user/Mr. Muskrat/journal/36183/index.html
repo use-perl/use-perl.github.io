@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Mr. Muskrat: Flash Socket Policy Changes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Flash Socket Policy Changes</h1>
+<h2><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2008-04-17T23:41:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>At work we have this web based app that uses Flash to open a socket and pass along any data it receives to the JavaScript.  Everything was working well until Flash rolled out 9,0,124,0.  Now our app cannot make the socket connection (to the same domain that hosts the SWF) because we don't have a policy file. So I read all the articles they provided and followed their directions to get one set up (with a process set up on port 843 to hand out the policy file).</p>
+<p>So I try out our web based app only to see this show up:
+<pre>
+Web Based App::securityErrorHandler: [SecurityErrorEvent type="securityError" bubbles=false cancelable=false eventPhase=2 text="Error #2048: Security sandbox violation: http://someserver/flash.swf cannot load data from someserver:12345."]
+</pre></p>
+<p>So I installed the debug version of Flash Player and configured my mm.cfg with 'PolicyFileLog=1' so that Flash will create a log with the profile information in it (profilelog.txt ).  What do I see in profilelog.txt?
+<pre>
+OK: Root-level SWF loaded: http://someserver/flash.swf
+OK: Searching for <allow-access-from> in policy files to authorize data loading from resource at xmlsocket://someserver:12345 by requestor from http://someserver/flash.swf
+Warning: [strict] Ignoring policy file at xmlsocket://someserver:843 due to incorrect syntax.  See http://www.adobe.com/go/strict_policy_files to fix this problem.
+</pre></p>
+<p>I reread all of the articles and go through the steps of creating the policy file only this time I use their example file:
+<pre>
+<?xml version="1.0"?>
+<!DOCTYPE cross-domain-policy SYSTEM "/xml/dtds/cross-domain-policy.dtd">
+
+<!-- Policy file for xmlsocket://socks.example.com -->
+<cross-domain-policy> 
+
+   <!-- This is a master socket policy file -->
+   <!-- No other socket policies on the host will be permitted -->
+   <site-control permitted-cross-domain-policies="master-only"/>
+
+   <!-- Instead of setting to-ports="*", administrator's can use ranges and commas -->
+   <!-- This will allow access to ports 123, 456, 457 and 458 -->
+   <allow-access-from domain="swf.example.com" to-ports="123,456-458" />
+
+</cross-domain-policy>
+
+
+</pre>
+I hit the web app again.  I was expecting it to be accepted but still throw the securityErrorHandler.   Instead I received the same exact error!  Their example policy file is invalid!  I then tried to remove the comments and blank lines but that was still invalid.</p>
+<p>Next I tried using one that I found on the net:
+<pre>
+<?xml version="1.0" encoding="UTF-8"?>
+<cross-domain-policy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.adobe.com/xml/schemas/PolicyFile.xsd">
+        <allow-access-from domain="someserver" to-ports="12345"/>
+        <site-control permitted-cross-domain-policies="master-only"/>
+</cross-domain-policy>
+</pre>
+Of course it too was invalid.</p>
+<p>I tried every possible combination that I can think of and nothing worked.  So I made a call to Adobe tech support.  Once I had the guy understanding what was happening he had me pull up the app and look at the profilelog.txt.  The only thing is that it worked this time.  Yeah, that's right folks, apparently calling tech support will fix it automatically.  (Even if that were true, it would be totally impractical.)</p>
+<p>After I hung up, I SCPed the file to another server and tried to get it working there. No luck.  I received the invalid syntax error every time in profilelog.txt.  I've tried everything but simply couldn't get it working on the second server.</p>
+<p>So my boss tells me that we'll just make sure that we ship a version of the Flash Player that does work.  Great!  I'll just back out all of my changes, uninstall Flash 9,0,124,0 and install the old Flash Player.  Except that I can't get any old version of the Flash Player to install in IE.  It'll only install 9,0,124,0!</p>
+<p>Finally I decided that I had better reinstate the files to the development server since it looks like we do have to get this thing working.  Guess what?  I can't get it to work on the original server again.</p>
+<p>*sigh*</p></p>
+
+
+<hr/>
+
+
+
+<h2>Solution found</h2>
+<h3><a href="/user/Mr. Muskrat/">Mr. Muskrat</a> on 2008-05-16T14:01:42</h3>
+For those of you finding this via Google (or another search engine), a solution to my problem was found.  You can read about it here:  <a href="http://use.perl.org/user/Mr.+Muskrat/journal/36193" title="perl.org">http://use.perl.org/user/Mr.+Muskrat/journal/36193</a perl.org>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

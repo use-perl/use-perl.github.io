@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ferreira: Abusing &quot;Memoize&quot;</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Abusing &quot;Memoize&quot;</h1>
+<h2><a href="/user/ferreira/">ferreira</a> on 2008-03-05T20:13:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+A few days ago, I was writing a code (namely the <a href="http://search.cpan.org/dist/Path-Classy">Path-Classy</a> dist) and stared at the code that produced the file size in raw bytes or "humanized" (28300 or 28K).
+</p>
+
+<pre>
+sub _format_size {
+  my ($sz, $opt) = @_;
+
+  my $format = $opt->{format};
+  if ( $format eq 'h' ) {
+    require Numbers::Bytes::Human;
+    return Number::Bytes::Human->new->format( $sz );
+  }
+  else { # raw bytes
+    return $sz;
+  }
+}
+</pre>
+
+<p>
+Of course, loading <code>Number::Bytes::Human</code> and creating a instance every time <code>$f->size({ format => 'h' })</code> was invoked seemed overkill. But saving the <code>N::B::H</code> into a class/instance variable seemed overkill too: it has nothing to do with <code>Path::Classy</code> (which are <code><a href="http://search.cpan.org/perldoc?Path::Class">Path::Class</a></code>) objects but for that instant relationship to format a file property, size.
+</p>
+<p>
+Hey, that's a chance to use <a href="http://search.cpan.org/perldoc?Memoize">memoization</a>, splitting the formatter creation into a function and then memoizing it (so that we don't need to create a [reusable] object with the same capabilities over and over), we come to this code.
+</p>
+<pre>
+use Memoize;
+
+sub _size_formatter {
+  require Number::Bytes::Human;
+  return Number::Bytes::Human->new;
+}
+memoize('_size_formatter');
+
+sub _format_size {
+  my ($sz, $opt) = @_;
+
+  my $format = $opt->{format};
+  if ( $format eq 'h' ) {
+    return _size_formatter->format( $sz );
+  ...
+</pre>
+
+<p>
+That looked elegant to me. To make it even more tight (and to require yet another CPAN module ;-) ), using <code><a href="http://search.cpan.org/perldoc?Attribute::Memoize">Attribute::Memoize</a></code> seemed right. It avoids the need to repeat the function name in the <code>memoize</code> call and it anticipated the wrapping up of the sub to BEGIN time (a free bonus of <code><a href="http://search.cpan.org/perldoc?Attribute::Handlers">Attribute::Handlers</a></code> in the backstage).
+</p>
+
+<pre>
+use Attribute::Memoize;
+
+sub _size_formatter :Memoize {
+  require Number::Bytes::Human;
+  return Number::Bytes::Human->new;
+}
+</pre>
+
+<p>
+That's it! Efficient code, localized behavior, no need for extra variables. Will people understand that for maintenance? I hope so.
+</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

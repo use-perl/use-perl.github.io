@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of clkao: fun with microperl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>fun with microperl</h1>
+<h2><a href="/user/clkao/">clkao</a> on 2006-04-17T22:00:51</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I got dragged into an <a href="http://www.porta2030.net/">art project</a> for helping out firefighting messaging between some <a href="http://usa.asus.com/products4.aspx?l1=12&l2=44&l3=0&model=460&modelmenu=1">small mipsel devices</a> running linux.
+
+<p>
+The distribution comes with <a href="http://search.cpan.org/src/NWCLARK/perl-5.8.8/README.micro">microperl</a> in its package system, however it wasn't built with select() by default, which makes it pretty much useless for writing network applications.  So I was hoping to cross-compile standard perl and modules to mips, but it seemed really painful.  I gave up and ended up just enabling HAS_SELECT for the cross-compiled microperl.
+<p>
+Now I have to use Socket.pm to actually do the networking bit.  It turned out lots of crucial bits are written in xs, so I reimplemented them in pure perl.  (Ya, I know it's bad to pack platform-dependent structure manually)
+<p>
+So I have a tiny application controlling a local led display and buttons IO device, as well as broadcasting and processing events over network, all in a few hours after I get the microperl and socket working!
+<p>
+Anyway, it's quite fun hacking and I am looking forward to the show itself!
+</p>
+
+
+<hr/>
+
+
+
+<h2>what fun -- embedded Perl!</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2006-04-24T16:58:53</h3>
+That sounds like quite a project. Do let us know how it turns out, links to reviews, after-reports, etc.
+
+<p>Using MicroPerl for embedded is a great idea. Microperl, not just for bootstrapping anymore.</p>
+
+
+
+<h2>microperl &amp;amp; sockets</h2>
+<h3><a href="/user/yoleg/">yoleg</a> on 2007-03-07T07:56:10</h3>
+Hello clkao,<br/><br/>I am also interested in using Microperl with some networking functions. How did you port the functionalities from Socket.pm to Perl?
+Did you write them in C? from what I read in your post, you seem to have rewritten in Perl...
+When you write that it's not such a good thing to do it from perl because it's platform-dependent, does this refer to the CPU type or to the OS itself.<br/><br/>My goal is to add some local UNIX socket functionality (sockaddr_un) inside Microperl to be able to accept incoming connections from this socket from a C program. This allows me to send commands via the socket to the main Perl program, that is running as a userspace daemon (rather than spending quite some time to load the Perl interpreter each time, especially because I'm on a embedded platform).
+Do you still have the code you wrote in early 2006, so that I can try to base my work on this? That would be a great starting point!<br/><br/>Thanks...
+
+
+
+<blockquote>
+
+<h2>Re:microperl &amp;amp; sockets</h2>
+<h3><a href="/user/yoleg/">yoleg</a> on 2007-03-09T16:22:09</h3>
+Hello,<br>
+<br>
+I finally could make it work by using the following code (that allows my code to be rather platform-independant, if I fill in properly the first bunch of variables):<br>
+<br>
+<code>
+my $PF_UNIX=1;<br>
+my $AF_UNIX=$PF_UNIX;<br>
+my $SOCK_STREAM=2;&nbsp;&nbsp;&nbsp;<i># 1 for ix86, 2 for MIPS</i> <br>
+my $SOMAXCONN=128;<br>
+my $sun_path_SIZE=2;<br>
+my $sun_family_SIZE=108;<br>
+<br>
+<br>
+<br>
+<i>#my $uaddr = sockaddr_un($SOCKFILE);&nbsp;&nbsp;&nbsp;# Create a UNIX socket (local)... not used because this requires Socket.pm... instead, we will pack the sockaddr_un structure manually as done below</i> <br>
+<br>
+<br>
+sub is_little_endian {<br>
+&nbsp;&nbsp;&nbsp;return (unpack('c', pack('s', 1)));<br>
+}<br>
+<br>
+my $sun_path_pack = "I";<br>
+($sun_path_SIZE == 1) &amp;&amp; ($sun_path_pack = "C");<br>
+($sun_path_SIZE == 2) &amp;&amp; ($sun_path_pack = (is_little_endian() ? "v" : "n"));<br>
+($sun_path_SIZE == 4) &amp;&amp; ($sun_path_pack = (is_little_endian() ? "V" : "N"));<br>
+ <br>
+<i># This contains $AF_UNIX (it is the<nobr> <wbr></nobr>.sun_family field of sockaddr_un) +<nobr> <wbr></nobr>.sun_path field of sockaddr_un</i> <br>
+<b>$uaddr = pack($sun_path_pack . " a" . $sun_family_SIZE, $AF_UNIX, $SOCKFILE);</b>
+</code>
+<br> <br> <br>
+My $uaddr then contains the right struct to create the socket...<br>
+<br>
+$SOMAXCONN is used later to avoid depending on Socket.pm only for SOMAXCONN<br>
+The rest of the variables:<br>
+<code>
+$PF_UNIX=1;<br>
+$SOCK_STREAM=2;<br>
+$SOMAXCONN=128;<br>
+</code><nobr> <wbr></nobr>...are taken from the #defines of my cross-compiler, and:<br>
+<code>
+$sun_path_SIZE=2;<br>
+$sun_family_SIZE=108;<br>
+</code><nobr> <wbr></nobr>...are extracted from the size of the fields inside sockaddr_un.<br>
+<br>
+To automate the discovery of the above variables, the following C file can be cross-compiled to dump the right variables on the target environment (a MIPS for me):<br>
+<br>
+<code>
+#include &lt;stdio.h&gt;<br>
+#include &lt;sys/socket.h&gt;<br>
+#include &lt;sys/un.h&gt;<br>
+<br>
+#ifndef UNIX_PATH_LEN<br>
+#define UNIX_PATH_LEN (sizeof(((struct sockaddr_un *) 0)-&gt;sun_path))<br>
+#endif<br>
+<br>
+int main (int argc, char **argv) {<br>
+&nbsp;&nbsp;&nbsp;<br>
+&nbsp;&nbsp;&nbsp;struct sockaddr_un *sample_un_sock;<br>
+&nbsp;&nbsp;&nbsp;<br>
+#ifdef SOCK_STREAM<br>
+&nbsp;&nbsp;&nbsp;printf("SOCK_STREAM=%u\n", SOCK_STREAM);<br>
+#endif<br>
+#ifdef SOMAXCONN<br>
+&nbsp;&nbsp;&nbsp;printf("SOMAXCONN=%u\n", SOMAXCONN);<br>
+#endif<br>
+#ifdef PF_UNIX<br>
+&nbsp;&nbsp;&nbsp;printf("PF_UNIX=%u\n", PF_UNIX);<br>
+#endif<br>
+&nbsp;&nbsp;&nbsp;printf("OFFSET for<nobr> <wbr></nobr>.sun_path in sockaddr_un=%u\n", (void *)&amp;(sample_un_sock-&gt;sun_path) - (void *)sample_un_sock);<br>
+&nbsp;&nbsp;&nbsp;printf("SIZE for<nobr> <wbr></nobr>.sun_path in sockaddr_un=%u\n", UNIX_PATH_LEN);<br>
+&nbsp;&nbsp;&nbsp;printf("OFFSET for<nobr> <wbr></nobr>.sun_family in sockaddr_un=%u\n", (void *)&amp;(sample_un_sock-&gt;sun_family) - (void *)sample_un_sock);<br>
+&nbsp;&nbsp;&nbsp;printf("SIZE for<nobr> <wbr></nobr>.sun_family in sockaddr_un=%u\n", sizeof(sample_un_sock-&gt;sun_family));<br>
+&nbsp;&nbsp;&nbsp;return 0;<br>
+}<br>
+</code>
+<br>
+Also, for cross-compiling Perl (using miniperl instead of microperl), there is a nice text describing a cross-Configure (using ssh and scp for example), to generate a config.sh matching with a remote target (for further cross-compilation).<br>
+This can be found in the Cross-compilation section of the<nobr> <wbr></nobr>./INSTALL text file (in perl-5.8.8)<br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

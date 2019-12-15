@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rurban: parrot packfile alignment to keep cross-platform portability</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>parrot packfile alignment to keep cross-platform portability</h1>
+<h2><a href="/user/rurban/">rurban</a> on 2009-02-21T20:14:13</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I thought that having portable parrot bytecode (pbc) is a good idea,
+similar to portable perl5 bytecode (B::Bytecode). And parrot was designed for bytecode portability. So it should be better than perl5 plc. And it is.
+
+<p>
+
+Anyway, it does not work since a while. Some random notes for debugging this:
+<p>
+
+We support 32-bit and 64-bit architectures, that makes a wordsize
+(integer) and ptrsize of 4 and 8, and the floats can be 8-byte
+(double), 12-byte (long double on i386) and 16-byte (long double
+elsewhere).  <p>
+
+The trouble with portability is besides the required bitshuffling when
+reading foreign pbc files, the trouble of what to do with deprecated
+features (new parrot reading old file), and new features (old parrot
+reading new file).  <p>
+
+And interestingly better architectures require a ptr alignment > 1. 
+Sparc 32-bit requires 4-byte ptr alignment, Sparc 64-bit requires
+8-byte ptr alignment. You can reset this with a compiler flag but 
+it is not recommended for performance reasons.<p>
+
+This hits us when writing code on our simple i386 platform with a ptr
+alignment of 1 and a wordsize of 4. <br>
+The 64-bit sparc just does cursor++ (a opcode_t ptr) running through the file. 
+cursor is 8-byte there, 4 byte here. So we have to take care in the 
+writer also to properly align code, because it must be easily readable 
+on the foreign machine also.<p>
+
+The section I'm tempted to adding to the pdd31_bytecode.pod is:<p>
+<blockquote>
+<h3>=head4 8-byte ptr_alignment</h3><p>
+
+We should be aware that some systems such as a Sparc/PPC 64-bit use strict
+8-byte ptr_alignment per default, and all (opcode_t*)cursor++ or
+(opcode_t*)cursor += advances must ensure that the cursor ptr is 8-byte aligned.
+We enforce 16-byte alignment at the start and end of all segments and for all strings,
+but not in-between, esp. with 4-byte integers and 4-byte opcode_t pointers.
+<p>
+Which means that for a 32-bit (4-byte) pbc on a 8-byte ptr_alignment machine
+the pmc designer should take care that integers and opcode_t pointers appear
+pairwise in the frozen format, so that the 16-byte padding at the end of a
+segment already happens on an already 8-byte aligned pointer (xxx0 or
+xxx8), and not on a 4-byte ptr (xxx4 or xxxc) alignment. Operations
+on aligned pointers are much faster than on un-aligned pointers.
+<p>
+</blockquote>
+
+With #define TRACE_PACKFILE 1 in include/parrot/packfile.h you can
+enable debugging output for the packfile reader, the parrot utils
+pbc_dump accept a --debug flag to use this. But you can also use the
+debugger to check alignment problems.
+
+<p>
+
+There's nice table in the PPC manual which I need often, because when
+staring at the ALIGN'ed ptr's you have to see errors, which will
+happen if start reading at the wrong point. Un-aligned.<p>
+
+<code>
+  Operand    Length  Addr if aligned (in bits, 0b)<br>
+  Byte       8 bits  xxxx   any                   <br> 
+  Halfword   2 byte  xxx0   even <br>
+  Word       4 byte  xx00   0 4 8 c <br>
+  Doubleword 8 byte  x000   0 8 <br>
+  Quadword  16 byte  0000   0              <br> 
+</code>
+
+So look for any ending hexbyte but 0 and 8 for your ptr's to see 8-byte 
+misalignment, and 0 for proper 16-byte alignment.<p>
+
+The interesting point, which I first got wrong, is that the ptr alignment
+(we guarantee 16-byte ptr alignment) is for the cursor stepper
+cursor++ to advance the ptr in memory not to the next char, but the
+to next word = opcode_t.<p>
+
+This is the macro (WRONG), which automates the cursor stepper.  To
+makes things complicates we already copied the contents into memory,
+so the base address is not 0 but <tt>pf->src</tt> and the alignment must be
+guaranteed for all three ptrs involved: the base <tt>pf->src</tt>, the cursor
+(current position) and the offset, the relative position in the file,
+<tt>cursor - pf->src</tt>.<p>
+
+<code>
+#define ALIGN_16(st, cursor) \              <br> 
+    (cursor) += ROUND_16((const char *)(cursor) - (const char *)(st))/sizeof (opcode_t) 
+</code>
+<p>
+
+cursor += advances the pointer by the alignment calculation in the
+macro. But this does not do ptr alignment!  The ptr must already be
+properly aligned in terms of the native ptrsize. So on 32-bit (4-byte) there 
+must be 0 4 8 or c as last hexdigit in the cursor and the offset.
+The padding can only 0, 1, 2 or 3.<br>
+On 64-bit (8-byte) there must be 0 or 8 as last hexdigit in the cursor 
+and the offset. The padding can only 0 or 1.
+<p>
+
+My padding tables for ALIGN_16:<p>
+<code>
+ptrsize=8   pad         <br> 
+    0   0              <br> 
+    8   1              <br> 
+</code>
+<p>
+<code>
+ptrsize=4   pad              <br> 
+     0   0              <br> 
+     4   1              <br> 
+     8   2              <br> 
+     c   3              <br> 
+</code>
+<p>
+
+The other problems are simply looking innocent steppers, like this in 
+PF_fetch_string() (WRONG):<p>
+<code>
+    size = ROUND_UP_B(size, wordsize);              <br> 
+    *((const unsigned char **) (cursor)) += size; 
+</code>
+or this from PF_fetch_op() (CORRECT):<p>
+<code>
+    o = (pf->fetch_op)(*((const unsigned char **)stream));              <br> 
+    *((const unsigned char **) (stream)) += pf->header->wordsize;
+</code>
+<p>
+
+Here we cast the ptrsize stream down to 1 to be able to advance misaligned 
+pointers, but upwards in the directory segment we should be aligned again.
+And PF_fetch_op() and PF_fetch_integer() only guarantee 4-byte alignment, 
+not 8-byte as needed on 64-bit strict PowerPC.<p>
+
+Strings are the most potential problem to destroy alignment, because
+they may be mod 1, mod 2 or mod 3 byte long, any size. But strings are
+safer because we ensure proper ptrsize alignment for them. 4-byte
+integers and pointers are more problematic because on 8-byte machine
+we easily get misalignment in uneven integer or pointer pairs.<p>
+
+So look for uneven ptrs, also when thaw'ing pmc data. 
+This must also be aligned! <p>
+ 
+Did you see catch the error above? No? Me neither, but there is one, and 
+it is hidden in the ROUND_UP_B macro, which is not 32/64-bit proof. It 
+only works on the native platform.<p>
+
+And don't whine about this stupid machines. They are right, even if
+its just a 64-bit sparc which is that strict (ptr alignment 8,
+remember), unaligned code is shorter, but much slower.<p>
+
+So it's better to catch unaligned data while compiling or even running
+(as on the sparc), than running slow and misaligned.
+<p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

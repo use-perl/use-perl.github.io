@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Refactoring with Moose Roles</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Refactoring with Moose Roles</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-03-16T09:31:48</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I recently wrote about <a href="http://use.perl.org/user/Ovid/journal/38586">alternatives to inheritance</a>.  One strategy we're employing from that post is to convert our multiple inheritance to use <tt>Moose</tt> roles.  Consider the following convoluted class hierarchy.  Numbers designate "abstract" classes and letters designate "concrete" classes (those class to be used directly).</p>
+
+<pre>             +---------+
+             |    0    |
+             +---------+
+            /           \
+           /             \
+      +---------+   +---------+
+      |    1    |   |    2    |
+      +---------+   +---------+
+      /         \   /         \
+     /           \ /           \
++---------+  +---------+  +---------+
+|    A    |  |    3    |  |    B    |
++---------+  +---------+  +---------+
+            /     |     \
+           /      |      \
++---------+  +---------+  +---------+
+|    C    |  |    D    |  |    E    |
++---------+  +---------+  +---------+</pre>
+
+<p>So we have five concrete classes and three "abstract" classes.  Now that's a mess, but from what I've seen, it's not terribly unusual when you get larger systems.  Deadlines, unclear design goals or lack of knowledge about multiple inheritance issues can lead to such design choices.</p>
+
+<P>For example, what happens if abstract classes 1 and 2 both provide an <tt>update</tt> method?  Which do you call?  Can both of them safely alter the state without interfering with the other?  Should you only call one?  Should you call both?  If you must call both, is the order relevant?</p>
+
+<p>Diamond inheritance is also "fun".  What happens if 2 implements <tt>save</tt>, but 0 also implements it?  With Perl's standard "leftmost/depth-first" method resolution, the save method in 0 will be called, not 2.  C3 method resolution order can help, but not everyone uses that.</p>
+
+<P>The cognitive overload is probably the worst thing about this.  When you call <tt>D-&gt;save</tt>, you know you've inherited from 3, but you also need to know that 3 has inherited from 1 and 2 and each of those has, in turn inherited from 0.  To be really safe, you have to root around in all of those classes, understanding the code flow and how everything interacts.  What's worse, particularly with Perl, is that generally the public methods are documented, so if you don't actually read the code of the class you're inheriting from, you might silently override a private method.  Oops.</p>
+
+<p>That last issue is symptomatic of the real killer.  Multiple inheritance often leads to <em>silent</em> bugs.  You don't see them until you're trying to figure out why a dependent system is not finding the data it needs.</p>
+
+<p>So let's see what a "refactored" version of this might look like:</p>
+
+<pre>                          +---------+
+          +---------------|    0    |---------------+
+         /                +---------+                \
+        /                   /  |  \                   \
+       /            +------+   |   +------+            \
+      /            /           |           \            \
+     /            /            |            \            \
++---------+  +---------+  +---------+  +---------+  +---------+
+|  A (1)  |  |  B (2)  |  |C (1,2,3)|  |D (1,2,3)|  |E (1,2,3)|
++---------+  +---------+  +---------+  +---------+  +---------+</pre>
+
+<P>In the code above, 1, 2 and 3 have factored out into roles and we have single inheritance with only a single level in the inheritance hierarchy.  So you edit "D" and you see this:</p>
+
+<pre>package D;
+
+use Moose;
+extends 'Base0';
+with qw< Role1 Role2 Role3 >;</pre>
+
+<p>Right off the bat, you gain a ton of information which multiple inheritance silently hides from you.  You see most of the other packages which directly impacts your code.  Further, as you might recall, I suggested that 1 and 2 might both implement an <tt>update</tt> method.  With the above code, that will be a <em>compile time</em> failure since Moose can't determine which <tt>update</tt> method you want.  This leads to an interesting "gotcha" with Moose roles:</p>
+
+<pre>package D;
+
+use Moose;
+extends 'Base0';
+with 'Role1';
+with 'Role2';
+with 'Role3';</pre>
+
+<p>You should think long and hard about having separate <tt>with</tt> statements.  If you have one <tt>with</tt> statement and list all of the roles, method composition detects conflicts.  With separate <tt>with</tt> statements, subsequent role application will not check for these conflicts, eliminating a strong compile-time benefit.  However, it does allow you to use roles in a similar fashion to Ruby's "mixins", so this might make your socks roll up and down.</p>
+
+<P>There's also another interesting issue:</p>
+
+<pre>package D;
+
+use Moose;
+extends 'Base0';
+with qw< Role1 Role2 Role3 >;
+
+sub update { ... }</pre>
+
+<p>If you already have a method defined which the roles provide, Moose assumes that you know what you're doing and will not add the <tt>Role1::update</tt> method to your class.  This is consistent with Perl 6's behavior.  Unfortunately, I think this is a misfeature and can lead to silent failures in your code.  However, this is still better than the multiple inheritance situation because you can at least see more easily in your code all of the other classes (or roles) which directly impact what you're doing.</p>
+
+<p>In short, using roles to eliminate multiple inheritance simplifies class hierarchies and makes explicit which code alters the behavior of the class you're writing.  By providing all of this information up front rather than <a href="http://i82.photobucket.com/albums/j275/publius_ovidius/Geek%20Stuff/graph-4.png">burying it several levels deep in parent classes</a>, you reduce the amount of work a developer must do to understand class behavior.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Just because I don't know...</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2009-03-16T14:23:25</h3>
+<p>We're also assuming that the user of Role1 and Role2 has control over those roles.</p><p>What if I want to use Role1 from AuthorA and Role2 from AuthorB, and both roles have an update() method?</p><p>How do I resolve that? Even still, at least the problem will be up front.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Just because I don't know...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-03-16T14:30:03</h3>
+<p>If <tt>AuthorA</tt> and <tt>AuthorB</tt> are separate classes, just use the correct roles and exclude the methods you don't want.  If they're separate instances, use runtime role application:</p><blockquote><div><p> <tt>Role1-&gt;meta-&gt;apply($author_a)<br>&nbsp; unless $author_a-&gt;meta-&gt;does_role('Role1');<br>Role2-&gt;meta-&gt;apply($author_b)<br>&nbsp; unless $author_b-&gt;meta-&gt;does_role('Role2');</tt></p></div> </blockquote><p>That's a little ugly, but it's safer than <em>not</em> checking for the use of the role.  If you know that the role(s) will only be applied at runtime once and only once, you can skip the <tt>does_role</tt> check.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

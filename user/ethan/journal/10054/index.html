@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: tango2mp3</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>tango2mp3</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2003-01-18T14:48:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'll admit: I am a great fan of the Tango Argentino as it has been traditionally played, sung and recorded in Argentina for almost 100 years. <a href="http://www.todotango.com">todotango</a> has a new playlist with ten random songs on their webside each day so naturally I scan this list to catch a few worthwhile songs.<br/><br/>Unfortunately, the audio is only available in either .wma or .ram format, both not exactly pleasant to convert. With the help of Perl, the CPAN, mplayer and lame it was a finger snap to set up a script that - fed with a digit specifcying the song - downloads the .wma song, extracts the meta data of the song for the id3-tags and converts the whole thing into mp3. Some people might be put off by the low audio quality (as mp3 it is around 50kbs / 22.05kHz)...but that just belongs to a real tango argentino. Lo-Fi obligatory.<br/><br/><code><br/><br/>#! /usr/bin/perl -w<br/><br/>use strict;
+use URI;
+use LWP::Simple;
+use HTML::TableContentParser;<br/><br/>our $PATH = "/mp3/oddities/tango argentino";<br/><br/>my $exit;
+while (@ARGV) {<br/><br/>    my $param = get_wma(shift) or 
+        $exit |= 1, next;
+    my $err = encode_wma($param);
+    warn "Error on file $param-&gt;{wma}\n" if $err;
+    $exit |= $err;<br/><br/>}
+exit $exit;
+    
+sub get_wma {
+    my $w = shift;
+    my $q = do {
+        my $uri = URI-&gt;new;
+        $uri-&gt;query_form(
+            id      =&gt; $w,
+            f       =&gt; 'wax',
+            amkyw   =&gt; 'arg',
+        );
+        $uri-&gt;query;
+    };<br/><br/>    my $src = get("http://www.todotango.com/english/download/play.asp?$q")
+        or warn "Skipping: $w does not exist\n", return;
+    if (!is_success(getstore("http://www.todotango.com/audio/wax/$w.wma", 
+                             "$w.wma"))) {
+        warn "Skipping: $w.wma is not downloadable\n";
+        return;
+    }
+    
+    my $table = HTML::TableContentParser-&gt;new-&gt;parse($src)-&gt;[2];
+    local $_ = $table-&gt;{rows}-&gt;[0]-&gt;{cells}-&gt;[0]-&gt;{data};
+    my ($title, $comment, $artist) = m!&lt;b&gt;(.*?)&lt;/b&gt;.*\((Music:.*)\).*((?:Orchestra|Singer):?\s.*?)&lt;br&gt;!s;
+        
+    # year better matched separately: it's not always there
+    my ($year) = m!((?:19|20)\d{2})!;<br/><br/>    my ($music, $lyric) = $comment =~ m!Music:(.*?)- Lyric:(.*)!;
+    s/^\s+//g, s/\s+$// for $music, $lyric;
+    $artist =~ s/Singer: ?//;
+   
+    my $param;
+    $param-&gt;{title}     = $title;
+    $param-&gt;{artist}    = $artist;
+    $param-&gt;{comment}   = "$music/$lyric";
+    $param-&gt;{year}      = $year || '';
+    $param-&gt;{wma}       = "$w.wma";
+    $param;
+}
+    
+sub encode_wma {
+    my $arg = shift;
+    my $target = "$PATH/$arg-&gt;{artist} - $arg-&gt;{title}.mp3";
+    my @mply_args = (qw/mplayer -ao pcm/, $arg-&gt;{wma});
+    my @lame_args = (qw/lame -h -v/, 
+                     '--tt' =&gt; $arg-&gt;{title},
+                     '--ta' =&gt; $arg-&gt;{artist},
+                     '--ty' =&gt; $arg-&gt;{year},
+                     '--tc' =&gt; $arg-&gt;{comment},
+                     '--tg' =&gt; 'Tango',
+                     'audiodump.wav',
+                     $target);
+    warn "Invoking: \n", join " ", @mply_args, "\n\n";
+    system @mply_args;
+    warn "Invoking: \n", join " ", @lame_args, "\n\n";
+    return system @lame_args;
+}<br/><br/></code>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

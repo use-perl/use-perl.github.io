@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Benchmarking AI::Prolog versus tiny_prolob.rb</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Benchmarking AI::Prolog versus tiny_prolob.rb</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-05-22T07:35:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><strong>The Background</strong></p>
+
+<p><tt>AI::Prolog</tt> generated a fair amount of interest when it came out, but it had some serious limitations.  First, it was far too slow for "serious" work.  Second, you had to know Prolog and embed that in Perl.  I could have gotten around the second problem, but the first problem remained even after I heavily optimized <tt>AI::Prolog</tt>.  Further, because you had to embed a Prolog interpreter in Perl, you couldn't use Perl data structures.  This, needless to say, was frustrating for many people.</p>
+
+<p>By playing around with <a href="http://eigenclass.org/hiki/tiny+prolog+in+ruby">tiny_prolog.rb</a>, I've had to learn a bit of ruby (well, a lot, really), and I've noticed that this predicate logic implementation is fairly fast.  I say "predicate logic" because it's pure ruby, no Prolog!  (Though you can see Prolog's roots).  This means I could potentially port it to Perl.  Adam Kennedy, though, wondered <a href="http://use.perl.org/comments.pl?sid=39725&cid=62986">if this predicate logic implementation is fast enough for "useful" work</a>.</p>
+
+<p>That's an excellent question.  A long time ago he asked me about this for some work he was doing with a client and I warned him that <tt>AI::Prolog</tt> was going to be too slow for their needs.  This might be overcome now, though, depending on what the needs are (still not fast enough for your needs, though, Adam.  Sorry 'bout that).</p>
+
+<p><strong>The Benchmark</strong></p>
+
+<p>Note:  for the benchmarks below, uncomment the 'print/puts' lines and drop iterations to 1 to see that they're logically equivalent.</p>
+
+<p>In Prolog, one of the classic benchmarks is something called the 'naive reverse'.  This is a predicate used to reverse a list and it's O(n^2) with the length of the list it's applied to.  With a 30 element list, it takes 496 <em>logical inferences</em> to compute.  "Logical Inferences Per Second" (LIPS) is how logic programs are usually benchmarked.  Today, serious Prolog implementations run at many millions of LIPS [1] and if you need that sort of power, use a real language that specializes in this (even toy implementations in Scheme and other languages cannot approach this dedicated power).  However, you may not need this sort of power.</p>
+
+<p>So taking a look at Perl, here's the benchmark with <tt>AI::Prolog</tt>:</p>
+
+<pre>use AI::Prolog;
+
+my $benchmark = <<"END_BENCHMARK";
+append([],X,X).
+append([X|Xs],Y,[X|Z]) :- append(Xs,Y,Z).
+nrev([],[]).
+nrev([X|Xs],Zs) :- nrev(Xs,Ys), append(Ys,[X],Zs).
+END_BENCHMARK
+
+my $prolog = AI::Prolog->new($benchmark);
+my $query  = 'nrev([1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0],X).';
+for (1 .. 100) {
+    #use Data::Dumper;
+    $prolog->query($query);
+    while (my $result = $prolog->results) {
+        #print Dumper($result);
+    }
+}</pre>
+
+<p>This takes about 28 seconds to run on my Solaris box at work.  At 496 logical inferences to reverse that list and doing this 100 times, we get the following:</p>
+
+<pre>( 496 * 100 ) / 28 ~~ 1770 LIPS</pre>
+
+<p>Translating this to ruby:</p>
+
+<pre>require 'tiny_prolog'
+
+append = pred 'append'
+
+append[nil, :A, :A].fact
+
+append[cons(:A, :X), :Y, cons(:A, :Z)] <<= append[:X, :Y, :Z]
+
+nrev = pred 'nrev'
+
+nrev[nil,nil].fact
+nrev[cons(:X, :XS), :ZS] <<= [ nrev[:XS,:YS], append[:YS, list(:X), :ZS] ]
+
+for foo in 1..100
+    resolve nrev[list(1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0), :X] do |env|
+#        puts env[:X]
+    end
+end</pre>
+
+<p>As this takes approximately 7.5 seconds, we get:</p>
+
+<pre>( 496 * 100 ) / 7.5 ~~ 6610 LIPS</pre>
+
+<p><strong>The Conclusion</strong></p>
+
+<P>The Ruby code is almost four times faster than the Perl.  This is due, in part, because the Perl code is based on w-Prolog and x-Prolog, two Prolog systems originally written in Java and not optimized for dynamic languages.  As a result, since we know that Perl tends to run faster than Prolog and since I've already seen quite a number of areas I can optimize (though I'm not doing that right now), I fully expect that I can produce a Perl predicate logic implementation that may be as much as an order of magnitude faster than <tt>AI::Prolog</tt> and may even allow Perl data structures.</p>
+
+<p>Further, the resulting code is simpler, easier to understand, and parts of it may even be suitable for porting to C.  We might actually be in a position of being able to do small scale logic programming in Perl.  Whether this actually proves to be of benefit to anyone remains to be seen.  Of course, for heavy lifting, you'd still need to fall back on something serious like Prolog, Oz or Mercury.</p>
+
+<p>That being said, I'm leaving on holiday for a over a week, so don't hold your breath.  But then, you know that about me by now :)</p>
+
+<P><small>1.  By way of comparison, my iBook solves the <a href="http://eigenclass.org/hiki/einstein-riddle-solved-in-ruby">zebra  puzzle</a> in about 30 seconds in Ruby, but in far less than a second with <a href="http://www.swi-prolog.org/">SWI-Prolog</a>.</small></p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

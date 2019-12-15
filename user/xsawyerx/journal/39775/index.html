@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of xsawyerx: Extensive POE Testing PT. 5 - Testing, Seq-Ordered and Count</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Extensive POE Testing PT. 5 - Testing, Seq-Ordered and Count</h1>
+<h2><a href="/user/xsawyerx/">xsawyerx</a> on 2009-10-20T08:39:52</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><address>dngor corrected me on some errors in the last post. they were fixed.</address>
+
+<p>This is a short post in my series. It simply shows how to combine (using POE::Test::Helpers) both <b>sequence ordered</b> tests and <b>event counting<b> tests at the same time.</p>
+
+<pre>
+# drawing from a previous example:
+package Session;
+use MooseX::POE;
+use Test::More;
+with 'POE::Test::Helpers'; # actual title
+
+has '+seq_ordering' => ( default => sub { {
+    START => 1,
+    next  => 4,
+    more  => 4,
+    last  => { 1 => [ 'START', 'next', 'more' ] },
+    STOP  => [ 'START', 'next', 'more', 'last' ],
+} } );
+
+my $count = 0;
+sub START           { $_[KERNEL]->yield('next') }
+event 'next' => sub { $_[KERNEL]->yield('more') };
+event 'more' => sub {
+    $count++ < 3 ? $_[KERNEL]->yield('next') :
+                   $_[KERNEL]->yield('last');
+};
+event 'last' => sub { 1 };
+
+# adding the runner
+package main;
+use Test::More tests => 6;
+use POE::Kernel;
+
+Session->new();
+POE::Kernel->run();
+</pre>
+
+<p>Here we can see how our test requirements are declared:</p>
+<ul>
+  <li><i>START</i> runs only once</li>
+  <li><i>next</i> runs four times</li>
+  <li><i>more</i> runs four times</li>
+  <li><i>last</i> runs once</li>
+  <li><i>last</i> runs ONLY after <i>START</i>, <i>next</i> and <i>more</i></li>
+  <li><i>STOP</i> runs only after all the other events</li>
+</ul>
+
+<p>That comes out to 6 tests. That's what we wrote in the Test::More plan and this is the result:</p>
+<pre>
+$ perl -Ilib t/articles/2.t 
+1..6
+ok 1 - Correct sequence for last
+ok 2 - Correct sequence for STOP
+ok 3 - (next) Correct number of runs
+ok 4 - (START) Correct number of runs
+ok 5 - (last) Correct number of runs
+ok 6 - (more) Correct number of runs
+</pre>
+
+<p>We can see that it only tested <i>last</i> and <i>STOP</i> for <b>sequence ordering</b> (or <b>event dependency</b>). Also, it only checked the number of correct runs on <i>next</i>, <i>START</i>, <i>last</i> and <i>more</i>.</p>
+
+<p>You might notice the test output didn't come out in the same order the events ran. That's because it takes them from the attribute we set, which is a hash and hence, has no order.</p>
+
+<p><b>What next?</b><br/>
+While I'm working on releasing it today to Github and hopefully soon enough to CPAN as well, I still have a few things to go over. There's one more type of tests that I found the most important for me and it's pretty sweet. I intend to write another post or two on that. Then I'm going to present the framework (it should already be on CPAN by that time) and show a pretty insane race condition we found at $work and tested using this framework. Stay tuned!</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

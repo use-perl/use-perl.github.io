@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: why sigils are great</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>why sigils are great</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2008-09-05T00:11:25</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><html><p>Last night at <a href="http://abe.pm.org/">ABE.pm</a>, I was talking a little bit with The
+Gang about some of the things I came to believe while doing the same thing in
+multiple languages.  In explaining some of the issues I have with Ruby, both
+the scope of variables and the resolution of methods, this example came to me:</p><pre>class X
+  def x; return 10; end
+
+  def y
+    if false
+      x = 100
+    end
+
+    return x
+  end
+
+  def z
+    return x
+  end
+end
+
+obj = X.new
+
+puts "result of obj.y: #{obj.y.inspect}"
+puts "result of obj.z: #{obj.z.inspect}"
+</pre><p>This will print:</p><pre>result of obj.y: nil
+result of obj.z: 10
+</pre><p>When <code>obj.y</code> is called, a variable called <code>x</code> is <em>not</em> assigned to, because the
+assignment happens in a conditional branch that is not entered.  Nonetheless,
+the assignment to the variable creates the variable, because variables are not
+block scoped and because variables need not be explicitly declared.  This means
+that when <code>return x</code> is reached, <code>x</code> is a local variable with no assigned
+value.  That variable, which is <code>nil</code>, is returned.</p><p>When <code>obj.z</code> is called, nothing has defined <code>x</code> in the method&#39;s scope, so Ruby
+resolves it as a method call on the current target, <code>obj</code>.  In other words, the
+<code>x</code> in the method <code>z</code> is the same as <code>self.x</code>.</p><p>Of course, good method and variable names goes a long way to making this less
+of an issue, but &#34;Can&#39;t we just agree to not introduce bugs?&#34; isn&#39;t a great
+safety net.</p><p>In Perl 6, the <code>y</code> method would be something like:</p><pre>method y {
+  if false { my $x = 100 }
+  return $x;
+}
+</pre><p>...but that&#39;s a syntax error, because Perl has block scope.  To return the
+variable you&#39;d say:</p><pre>method y {
+  my $x;
+  if $bool { $x = 100 }
+  return $x;
+}
+</pre><p>To return the result of a method on self, you&#39;d say:</p><pre>method y {
+  if $bool { my $x = 100 }
+  $self.x;
+}
+</pre><p>...and if you have a lot of stuff operating on <code>$self</code> and want to avoid a
+bunch of that typing, you could write:</p><pre>method y {
+  if $bool { my $x = 100 }
+
+  given $self {
+    # (pretend we have lots of code here that we save typing on)
+    return .x;
+  }
+}
+</pre><p>It&#39;s always clear whether we&#39;re dealing with a variable (there&#39;s a <code>$</code> or other
+variable-marking sigil) or a method (there&#39;s an invocant or a lone dot, which
+acts something like a method-call sigil).</p><p>I think that Ruby&#39;s use of sigils is great.  Its sigil-for-scope makes much
+more sense given Ruby&#39;s &#34;everything is an object&#34; variables.  I just wish that
+they had a sigil for local scope variables.</p><p>This would actually be a huge improvement on a current problem.  See, Ruby 1.9
+is going to have block-level scope.  Unfortunately, this will sometimes change
+how code worked.</p><pre>value = 10;
+array.each { |value| do_something }
+</pre><p>This code (in Ruby) will clobber <code>value</code>, because the <code>value</code> in the proc is
+not created in a distinct scope from the <code>value</code> to which 10 was assigned.
+When Ruby 1.9 is adopted, this code will change.  The two value variables will
+be distinct, and the first <code>value</code> will not be clobbered.</p><p>If block scope had been introduced <em>with a new sigil</em> this would have been
+avoided.  Your old code would be:</p><pre>*value = 10;
+array.each { |*value| do_something }
+</pre><p>Well, of course it&#39;s clear that these would be the same!  They both have the
+(hypothetical) function-scope sigil.  Ruby 1.9 wouldn&#39;t break this, because
+instead of changing the way sigil-free local variables worked, it would let you
+have a block-local variable if you asked for it:</p><pre>%value = 10;
+array.each { |%value| do_something }
+</pre><p>That first variable could use a star, too.  The important thing is that the
+smaller-scoped variable would be marked as only existing in its block-local
+scope.  Of course, running out of sigils is a risk, but I&#39;d rather see Ruby 3.0
+require twigils than have backcompat issues like this.</p></html>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Bad analogy....</h2>
+<h3><a href="/user/dstar/">dstar</a> on 2008-09-05T10:54:39</h3>
+<p>I think your complaint boils down to "Ruby doesn't have 'use strict;'", combined with "Ruby can't tell the difference between a local variable and a method call". The perl 5 code that's actually equivalent to the ruby code is</p><p>sub y {<br>
+&nbsp; &nbsp; if false { $x = 100 }<br>
+&nbsp; &nbsp; return $x;<br>}</p><p>-- Note the lack of 'my' in the method; this would 'work' if use strict wasn't in effect, assuming of course that $x didn't exist elsewhere in the program. A call to y would return undef unless the program had assigned to $x anywhere else -- which is a) probably not what you expect and b) the reason every perl program I write starts with 'use strict'.</p><p>Ruby doesn't have _that_ problem, but it has the probably more confusing problem you pointed out (and I'm glad I know that now, as I've never run into that issue, and I would never have figured it out if I didn't already know it); the idea that referencing a variable _in a branch that's not taken_ causes it to spring into existence is counter-intuitive at best (enough so, in fact, that I'm wondering whether that's intentional, or a bug in ruby, now that I know about it...).</p><p>The second complaint is a feature, not a bug; it was a deliberate design decision, as I understand it.</p>
+
+
+
+<h2>More accurately...</h2>
+<h3><a href="/user/educated_foo/">educated_foo</a> on 2008-09-05T20:49:38</h3>
+<p>It's not so much "why sigils are great" as "why bizarro heuristics for guessing variable bindings suck."  Python's rules for introducing new variable bindings are stupid, but simple.  Perl's are explicit and reasonable.  Ruby's make me want to strangle kittens.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

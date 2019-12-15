@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of scrottie: Refactoring Perl 4ish code as its written into bad OO</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Refactoring Perl 4ish code as its written into bad OO</h1>
+<h2><a href="/user/scrottie/">scrottie</a> on 2007-07-29T07:24:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>On one of my projects, I'm working with a programmer who started on Perl 4 and (I'm guessing) most did smaller scripts when he does write Perl so never had strong motivation to pick up OO and Perl OO [1].  The program keeps getting larger and larger, and there are more and more of the "we need multiple different Xes that we can plug in and switch between".  That's totally cool.  So I've been doing some ad hoc architecture stuff.  Some recent rants were probably preci... triggered by this.  
+<br><br>
+Bitching that Perl programmers need to learn design, I was thinking more of myself. [2]
+<br><br>
+Anyway, I'm writing about this to try to hash out my feelings on the matter, give the obvious a chance to occur to me, and collect opinions. [3]
+<br><br>
+The program was one big block of code in a .pl.  Data was shuffled back and forth between the database as numerous points, and cut-and-paste had set in, replicating queries to do different things.  Some of the queries used a whole bunch of variables -- by used I mean read and/or wrote, so passing all of the variables back and forth to a subroutine would have been tedious, verbose, and error prone.  Oh, I forgot to mention.  They were constantly undergoing change.  So I did something evil.  I moved the queries off to a module and I used PadWalker and Data::Alias like so:
+<br><br>
+<code>
+sub state_history {
+    # query #4<br/><br/>    my $self = shift;<br/><br/>    my $pad = PadWalker::peek_my(1);
+    alias my $device_id        = ${ $pad->{'$device_id'} };
+    alias my $sequence         = ${ $pad->{'$sequence'} };
+</code>
+I've been repeating this snippet of code all over.  I guess I've been wanting comments on it for a long time... not just comments, insights.  If you're not familiar with those modules, here's what it does.  It searches up the call stack for our caller's set of lexical variables (evil!).  It picks out certain ones by name.  Then it makes full aliases to variables of the same name in our context.  Being full aliases, they're fully read-write.  So this trick let me remove all of the queries, remove all of the duplicates (there were comments about which one each was... the first observed, a copy of the second observed etc).  I could replace the cut and paste code with just a call:  $logger->state_history().  No arguments had to go any way, but data magically flows back and forth as if the code had never been removed.
+<br><br>
+For a while, I was wondering to myself, can I get away with this?  As more time went by, my resolve to fix it drained.  Then I was asked to (tasked with... heh) make other code pluggable which involved splitting off a large chunk of code from the main program and, as it's to be pluggable, it almost certainly should be a package/object (but not absolutely).  I have two choices here, ignoring that.
+<br><br>
+Option 1.  I can change all of the variables from $foo to $self->{foo}.  That you have to go through and change those is something I personally don't like about Perl in that it takes human to do these sorts of refactors and I see that as a much larger drawback then seeing at a glance, Hungarian notation style, what _kind_ of variable it is.  That aside, you lose the strict vars checking -- if I fail to declare $self->{foo} or don't get the scope right, I've created a bug.  fields.pm can partially help with that.  But moving a big chunk of code out of a main program and then trying to figure out who should own which variables, which need to be passed, which can go to the constructor, etc is error prone and I need all of the help I can get.  And then my previous hack with walking the stack wouldn't work any more, as $self->{foo} is something vary different from $self.  But on the up side, and this is a major plus, I could visitor-pattern style pass the whole object in to the logger and let it pick out the class fields it wants.  It amounts to about the same thing but with a lot less magic and that's important since we're dealing with someone new to OO.  I actually accidentally got him copying the PadWalker thing.  I'm so fucking going to hell.
+<br><br>
+Option 2.  Do the lexical object trickery.  I'm severely tempted here because I kind of like doing this anyway, just for the reasons of having strict vars work right.  I insert some AUTOLOAD mojo that takes methods and redispatches them to coderefs stored in the blessed hash.  That looks something like this:
+<code>
+sub AUTOLOAD {
+    our $AUTOLOAD; my $method = $AUTOLOAD; $method =~ s/.*:://;
+    return if $method eq 'DESTROY';
+    our $self = shift;
+    if(! exists $self->{$method}) {
+      my $super = "SUPER::$method";
+      return $self->$super(@_);
+    }
+    $self->{$method}->(@_);
+}
+</code>
+The constructor for the object that uses that looks like this:
+<code>
+sub new {
+    my $package = shift;
+    my %args = @_;
+    my %self;
+    my $instance1;
+    my $instance2;
+    $self{foo} = sub {
+        $instance++;
+    };
+    $self{foo} = sub { ... };
+    bless \%self, $package;
+}
+</code>
+I have another version of the AUTOLOAD routine that gets exported from a module you can use.  This cut and paste-able version is for simplicity of discussion.  So, when a method gets called in the package, it isn't found (because basically only new() is defined), so AUTOLOAD runs, and it finds the field in the hash with the name of the method, presumes it to be a code reference, and runs it.  This approach lets me continue to move code around with a minimal number of changes.  It also tickles my fancy.
+<br><br>
+Then there's option 3, which is way the other direction:  make it  just a package, not an object.  Exporter could rig up our variable sharing for us, and we could package/local/our variables.  That would make it really easy to share stuff with main.  If we 'our' up the variables, of which there are a large number, then PadWalker thing in the logger would still work.  Downside would be that two different modules couldn't be loaded at the same time (which I don't think will be needed, for whatever that's worth), and I'd have to do that silly thing of walking through the symbol table undef'ing things to clean the package out before loading another module in.
+<br><br>
+Oh yeah.  I forgot the worst part of it.  Splitting off code means a certain amount of API between the two, the main script and this pluggable part, has to be created.  So the main package keeps doing things like $ob->something() but the object does main::func().  I don't want to make up an adapter class and confuse things and I really don't want to start passing around closures.  That's a topic for another time.  Worse, the main program has forked, so inside of the big huge block of code which has a big pile of accumulated lexical state, I keep doing things like *func = sub { ... stuff ... } and that's what gets called from the other module.  I'm counting on each connection running in its own fork to be able to pull that stunt. 
+<br><br>
+I need to do something fast, cheap, and it looks like "good" is going to be sacrificed.  I can live with that I guess.  It's a dumb problem, really.  I don't want for a solution -- I have an abundance of them.  But I guess that's the problem in itself.  Which sucks least?  Or I am missing something and making this excessively difficult?  Or am I trying excessively hard to make it easier than it was meant to be?
+<br><br>
+Footnote 1: Let's face it, when you're used to writing procedural code, OO is a major adjustment.  As with any other major career change, it takes some serious jarring to precipitate the switch.  In this case, he's busy, doing most of the work, and working under a deadline with lots of pressure so I can't try to pull an authority card and force him to learn stuff.
+<br><br>
+Footnote 2: Honestly, that was discussed on MUD with a friend, without much though on either of our part, and I probably waved my hand and said something suggesting Perl was at fault and Java would save me, if I were using it, which would have been meant half seriously, mostly just using "Java" as a swear word to vet my frustrations.  Anyway.
+<br><br>
+Footnote 3:  Perhaps PerlMonks would be a better venue if I actually wanted code advice.  But then I'd have to explain it a lot better.  And I'm not sure I want the real answers anyway.  I guess I want to keep it mostly abstract.
+<br><br>
+-scott</p>
+
+
+<hr/>
+
+
+
+<h2>The goggles, they do nothing!</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-07-30T15:51:39</h3>
+<p>Dear goodness, that sounds like a Frankensteinian creation.</p> <p><blockquote> <div><p>passing all of the variables back and forth to a subroutine would have been tedious, verbose, and error prone.</p></div> </blockquote>
+
+<p>Sounds like you might want a parameter object. (See <i>Refactoring</i>.)</p> <p><blockquote> <div><p>No arguments had to go any way, but data magically flows back and forth as if the code had never been removed.</p></div> </blockquote>
+
+<p>Evil. And not in a good way. Evil evil evil.</p> <p><blockquote> <div><p>I have two choices here, ignoring that.</p></div> </blockquote>
+
+<p>Option 4: write regular classes, but using <a href="http://search.cpan.org/dist/Class-InsideOut/" title="cpan.org">Class::InsideOut</a cpan.org> instead of blessed hashref style. Then you retain the benefits of the <i>vars</i> stricture.</p> <p><blockquote> <div><p>So the main package keeps doing things like $ob-&gt;something() but the object does main::func().</p></div> </blockquote>
+
+<p>Agh. I&#8217;m not sure what to recommend here, except to say I think the existing structure is decidedly awful. Probably what you want to do is push all the code in the main program into a class of its own, then leave just a stub for the main program that does some setup and then enters a loop or calls <code>$worker-&gt;run</code> or whatever.</p>
+
+<p>It&#8217;s hard to give informed and useful recommendations without you showing any code, though.</p>
+
+
+
+<blockquote>
+
+<h2>Re:The goggles, they do nothing!</h2>
+<h3><a href="/user/scrottie/">scrottie</a> on 2007-08-01T06:22:25</h3>
+<br>Heh...<br><br>Re: Sounds like you might want a parameter object. (See Refactoring.), yeah.  I considered that.  I looked at different ways I could group the data into different objects and decided that, by necessity, it's all too mixed together so I'd wind up with one big one.  And I didn't want to change everything from $foo to $ob-&gt;foo.  And then three different modules would be using all of the variables, so having a parameter object wouldn't be much of a win over just making them "global", or exporting them all out and forgetting about lexicals.<br><br>Re: No arguments had to go any way, but data magically flows back and forth as if the code had never been removed, yeah.  I thought the ideal lied more between "not have to change anything" (that case) and "have to change everything" (no time for that, and not that attractive anyway).  Where's your Perl refactoring browser when you need it?<br><br>Re: Option 4: write regular classes, but using Class::InsideOut instead of blessed hashref style. Then you retain the benefits of the vars stricture... true.  That was worthy of mention.  But then I'm changing all of these thousands of variable references.  I could probably regex it in vi but still... and as it turns out, I have five variables that are shared between the main program and this object (care of references passed to the constructor).<br><br>Re:  Agh. I&#8217;m not sure what to recommend here, except to say I think the existing structure is decidedly awful. Probably what you want to do is push all the code in the main program into a class of its own... yeah, that does need to happen.  The larger problem is it's really hard to refactor a program that really needs a lot of different refactors.  I'm trying to do one thing at a time.  But moving the main program into objecthood will get rid of the $ob-&gt;meth vs main::func() dycotomy.<br><br>I can't seem to get straight what the larger problem is.  So far...<br><br>1. Fast/Cheap/Good (not Good in this case)<br><br>2. Where to start refactoring something that needs a lot of refactorings<br><br>3. Changing little code at a time and possibily doing bad refactorings in the name of not breaking too much vs. breaking everything but doing it "right".<br><br>4. Am I digging myself into a pit here (so to speak) even though I'm successfully seperating out code and isolating variables (localization of reference, etc)?<br><br>5. Showing this programmer who is new to OO evil hacks or showing that moving some code into an object in Perl requires extensive rework on that code (or some balance of the two).<br><br>Dunno.  I'll post what I actually did in a bit here.  The only thing I'm sure of is that I'm going to hell.<br><br>-scott<br><br>
+
+
+
+<blockquote>
+
+<h2>Re:The goggles, they do nothing!</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-01T07:07:02</h3>
+<p>It&#8217;s hard to refactor a large ball of mud into something sane, I&#8217;ll give you that. Doing that with the occasional evil hack is OK, so long as its use is only transitory; by the end of the process, the code should be straightforward. If you are left with deep magic in code whose purposes are quite pedestrian, chances are you did something wrong.</p>
+
+<p>As for the coworker: for one thing, moving code towards an OO design <em>inevitably</em> requires a pretty extensive rework. The language is a red herring here; OO is simply very different from procedural code. And in fact, the transition from procedural to OO is also a red herring; levering code into a different paradigm is always an extensive rework, no matter what you start with and where you&#8217;re going. The lesson to impart is rather that OO requires less work if you do it right <em>from the start</em>.</p>
+
+<p>And for another, I don&#8217;t believe in hiding knowledge from people. But if you show them evil tricks, it is your duty to educate them about the dangers of said trickery. Ideally you should also educate them about better ways, and why in this particular instance you picked the evil technique instead. The idea is to teach a deeper understanding so they can learn to make sound judgements on their own.</p>
+
+<p>In any case, I don&#8217;t envy your position&#8230; I advise to explain the concept of <a href="http://www.martinfowler.com/bliki/TechnicalDebt.html" title="martinfowler.com">technical debt</a martinfowler.com> to management, and otherwise just hope for the best.</p>
+
+
+
+<blockquote>
+
+<h2>Re:The goggles, they do nothing!</h2>
+<h3><a href="/user/scrottie/">scrottie</a> on 2007-08-01T07:38:58</h3>
+<br>Re: moving to OO requiring extensive rework, true enough.  Re: language being a red herring, I don't care for $foo vs $self-&gt;{foo} or $foo{$self}, but if anything, Perl gives me too many options (ref swiss army chainsaw)<nobr> <wbr></nobr>;)<br><br>Re: technical debt, the client in question is a startup that's strategically trying not to run out of money before the code is done.  But there's one bit of difficulty -- the code isn't done until an external agency decides its done.  I should have listed that in my "the real problem" list... they know.  They've been educated.  That's another difficult trade-off -- I have to build for the future (or help them to) but there's no point in doing that if that future doesn't exist.  Thoughts on that one most welcome.  Oh, then there's the "add features and attract investors" angle.<br><br>-scott
+
+
+
+<blockquote>
+
+<h2>Re:The goggles, they do nothing!</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-08-01T08:13:55</h3>
+<p>Augh. If they racked up too much technical debt, it may in fact be impossible to complete the technical downpayment before it causes financial bankruptcy&#8230;</p>
+
+<p>I don&#8217;t have any easy solutions.</p>
+
+<p>And yeah, Perl&#8217;s overly-DIY OO system is the one serious weakness I see, despite the oft-mentioned fact that it can also be a strength. When real work is on the table you don&#8217;t want to start fiddling with a construction set first.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

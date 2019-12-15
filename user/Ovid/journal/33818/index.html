@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: What's loaded?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>What's loaded?</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-07-16T16:05:51</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>In a similar vein to <a href="http://use.perl.org/user/Ovid/journal/28749">this post</a>, I once again need to see which modules are loaded.  However, even with Sean Burke's excellent <a href="http://search.cpan.org/dist/Module-Versions-Report/">Module::Versions::Report</a>, I can't tell if modules without version numbers are different, so I hacked up my <tt>Loaded.pm</tt> (first link), to generate md5 sums if no version number is present -- very common with in-house code -- but also to let me filter my version lists:</p>
+
+<pre>package Loaded;
+
+use strict;
+use warnings;
+use Module::Info;
+use Digest::MD5 'md5_hex';
+
+##############################################################################
+
+=head1 NAME
+
+Loaded -- identify which modules are loaded
+
+=head1 SYNOPSIS
+
+ use Test::More 'no_plan';
+ use Loaded;
+ # all your tests
+ END { diag Loaded::versions() }
+
+=head1 DESCRIPTION
+
+This module allows you to dump out a list of loaded module versions at any
+point in a program (typically at the end).  This is useful when you debugging
+subtle problems.  Dump the version lists from separate installations to a file
+and run C<diff> on them.
+
+However, sometimes modules (particularly in-house code) doesn't have version
+numbers.  When that happens, we just try to read the code and call
+C<Digest::MD5::md5_hex()> on it.
+
+You can pass a string to the import list and only modules whose name matches
+that string (as a regex) will be loaded:
+
+ use Loaded '^Template::';   # get versions of all loaded Template:: modules
+
+ END { diag Loaded::versions() }
+
+=cut
+
+my $TARGET;
+
+sub import {
+    my $class = shift;
+    my ($regex) = @_;
+    $TARGET = qr/$regex/ if @_;
+}
+
+sub versions {
+    my @modules;
+    my $max = 0;
+    while ( my ( $module, $path ) = each %INC ) {
+        $module =~ s/\.pm$//;
+        $module =~ s/\//::/g;
+        next if $module =~ /^::/;
+        next if __PACKAGE__ eq $module;
+        next if $TARGET && $module !~ $TARGET;
+
+        if ( length $module > $max ) {
+            $max = length $module;
+        }
+        push @modules => [ $module, get_identifier( $module, $path ) ];
+    }
+    @modules = sort { $a->[0] cmp $b->[0] } @modules;
+    $max += 2;
+    no warnings 'uninitialized';
+    return join "\n", map { sprintf "%-${max}s %s", @$_ } @modules;
+}
+
+sub get_identifier {
+    my ( $module, $path ) = @_;
+
+    my $mod = Module::Info->new_from_loaded($module);
+    my $version = $mod ? $mod->version : '';
+    return $version if $version;
+
+    open my $fh, '<', $path
+      or return "Could not determine version";
+    my $text = do { local $/; <$fh> };
+
+    # attempt to account for line endings.  May be a stupid idea.
+    $text =~ s/[\n\r]//g;
+    return md5_hex($text);
+}
+
+1;</pre>
+
+<p>Sample partial output:</p>
+
+<pre># Regexp::Common::net             2.105
+# Regexp::Common::number          2.108
+# Regexp::Common::profanity       2.104
+# Regexp::Common::whitespace      2.103
+# Regexp::Common::zip             2.112
+# SQL::Stripper                   4c8c58da79dddb6eb8760980c4446f5e
+# Scalar::Util                    1.19
+# SelectSaver                     1.01
+# Storable                        2.15
+# Sub::Uplevel                    0.09
+# Symbol                          1.06
+# Test::Class::Base               4a4587ee0b4a6b7fe9753f3e73cf9aeb
+# Test::Database                  c8263967ebe0a2295b7bb2802d515266</pre></p>
+
+
+<hr/>
+
+
+
+<h2>I'd take a patch</h2>
+<h3><a href="/user/jesse/">jesse</a> on 2007-07-16T18:27:29</h3>
+I'd love to see these features in Module::Version::Report, which is now my problem child<nobr> <wbr></nobr>;)
+
+
+
+<blockquote>
+
+<h2>Re:I'd take a patch</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-07-16T19:14:42</h3>
+<p>Your's?  I see that Ruslan U. Zakirov maintains it and he/she has a bestpractical.com email address.  Is this some strange alias or something?<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:I'd take a patch</h2>
+<h3><a href="/user/jesse/">jesse</a> on 2007-07-16T19:18:56</h3>
+Ruslan works for me. I _believe_ that both he and I are comaint on PAUSE. But it's in my (BPS's) repo and we do a lot of that 'collective code ownership' thing.
+
+
+
+<blockquote>
+
+<h2>Re:I'd take a patch</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-07-16T21:29:57</h3>
+<p>So, next question then.  Why do you walk the symbol table instead of consulting <tt>%INC</tt>? Is this in case someone diddles <tt>%INC</tt>?  That seems a bit strange, so I'm assuming that you've seen something I've missed.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I'd take a patch</h2>
+<h3><a href="/user/jesse/">jesse</a> on 2007-07-16T21:36:22</h3>
+It predates me, but my guess is:<br><br>DB sub Foo::bar { 1}<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; DB print YAML::Dump(\%INC);
+
+
+
+<blockquote>
+
+<h2>Re:I'd take a patch</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-07-17T07:46:30</h3>
+<p>Now I'm really confused.  The snippet you have isn't valid Perl<nobr> <wbr></nobr>:/  What's the DB mean there?  Something related to strange things with the debugger and the DB package?  The rest I understand and think it's a non-issue (if you're manually creating a namespace, then the version check is irrelevant as you'll pick that up in code you already have).</p>
+
+
+
+<blockquote>
+
+<h2>Re:I'd take a patch</h2>
+<h3><a href="/user/jesse/">jesse</a> on 2007-07-17T15:40:10</h3>
+Sorry. the  bits were me copying and pasting sample code from the debugger.<br><br>It's not _manually_ created code I'm concerned about. It's runtime-generated code. Packages that are automatically instantiated by other code.  M::V::R isn't just "what versions are loaded" but also "what's loaded", which can often be a very useful bit of debugging information itself.
+
+
+
+<blockquote>
+
+<h2>Re:I'd take a patch</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-07-17T15:51:54</h3>
+<p>Reminds me of another debugging tool I've thought about:</p> <p><blockquote> <div><tt>use Package::Recreate 'recreate';<br> <br>print recreate($some_package);</tt></div> </blockquote>  <p>That would then walk through the package's symbol table and attempt to create a string that's equivalent to the code of a loaded package.  It would likely be very fragile, though, hence using it as a debugging tool.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I'd take a patch</h2>
+<h3><a href="/user/jesse/">jesse</a> on 2007-07-17T16:02:32</h3>
+That could be interesting as part of a "build a mock package" toolkit.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>And the even bigger dream...</h2>
+<h3><a href="/user/Eric Wilhelm/">Eric Wilhelm</a> on 2007-07-21T10:16:03</h3>
+I was attempting to answer the "what's loaded from where" question.<br><br><a href="http://scratchcomputing.com/svn/Devel-TraceDeps/trunk/" title="scratchcomputing.com">http://scratchcomputing.com/svn/Devel-TraceDeps/trunk/</a scratchcomputing.com><br><br>Inspired by chromatic's Devel::TraceUse and driven by a desire to get more info than Module::ScanDeps...  ALL it needs is a front-end. (TM)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Whiteknight: Prepping the Design</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Prepping the Design</h1>
+<h2><a href="/user/Whiteknight/">Whiteknight</a> on 2008-05-28T01:36:37</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Had a good talk with chromatic today after #parrotsketch, and I think I have enough information to get started with the garbage collector now. I've been hesitant to lay any code because there are so many options and questions and unknowns about the design, and I didn't want to waste time moving in the wrong direction. Now, I think, I know what direction to start moving in. I'm going to flesh out a few ideas in this post, so forgive me the length.<br/><br/>The current GC system gives each object a flag field that can be one of three colors: White (not checked, probably dead), Grey (Checked, but it's children aren't checked) and Black (Checked, all children are checked). To perform a GC run, all the memory items start out as white, except for a special "Root" set of items, which start as grey. At each step, we turn the children of the nodes to grey, and turn the nodes themselves to black. We continue in this way, following pointers, until There are no more grey nodes, and hence there are no unchecked children. All the nodes that are black are to be kept, and all the nodes that are still white can be freed. This is a pretty standard GC scheme.<br/><br/>However, we run into performance problems because each node contains a flag, and we must travel to each individual node and manipulate each individual flag in order to mark them as white. Then, when we want to re-run the collector, we need to traverse the list again, setting all the "black" nodes to "white" again. This is very inefficient.<br/><br/>Before talking any further, let me introduce the idea of a node "header". A header is a linked list node with a pointer to a data object. Headers are used for a number of reasons: To allow data objects to be moved in memory, to enable Copy-on-write and to help the GC keep track of items as they are marked and traversed. When we create a new object, like a new PMC, we create a header node for it.<br/><br/>Chromatic suggested the idea of using a card-marking scheme where we keep the flags in an array separate from the nodes themselves. Instead of marking a flag on the node itself, we mark bits in a bitmap in this array. With three possible "colors" for each node, that's two bits per flag, and 4 flags per byte and 16 flags in an ordinary 32-bit integer. We know the "order" of our memory chunks because we know the order that the headers appear in. The first flag corresponds to the first  header in the list, the second to the second, and so on. This scheme is all well and good until you consider that one of the nodes in the middle of the bitmap is dead, and the rest are not. This is going to involve a complex operation where we have to "remove" one two-bit flag from the middle of an integer, and shift the remainder forward. This could be, potentially, a huge number of bit-wise logic and shift operations, unless I get creative in the way they are arranged. Even though these instructions are arithmetic and therefore fast, stringing together enough of them will cause a noticable slowdown. Using a linked list for the bitmaps instead of an array would help with the insertions and deletions, using a secondary bitmap to mark which bits in the primary bitmap are "active" is another interesting possibility. Either way, we would be required, basically, to play conservatively. If a certain bitmap contained more then a certain X% black objects, we would blindly declare all nodes in the bitmap to be good, even if a couple of them aren't. Combined with a generational scheme (where the older nodes appear at the front of the list), we call this the "dense prefix", and ignore it. The small amount of memory we can reclaim by killing white objects in the dense prefix is outweighed by the performance penalty to find them and remove them from the bitmap. This is an interesting scheme, and if I can work out some of the details, it could turn out to be very efficient.<br/><br/>I had an idea where we scrap the flags entirely, and instead create three linked lists: a white, a grey, and a black. Instead of checking and manipulating flags, we determine object status by checking the location of that object's header. If a header is in the black list, that object is black, etc. Before we start a new GC run, instead of having to mark each item individually as "white" to start, we would simply move the entire white list to the black list (2 pointer updates). Headers form a linked list, and if we want to allow the headers to be movable, they need to be doubly-linked lists (each node has a forward and a backward link). Moving headers from one list to another is where we incur our performance penalties: Worst case scenario, a move would require 6 pointer updates, only 5 if we always appended to the end of the target list. However, if we followed the idea of using a dense prefix, we could move nodes in groups, and then only need to update the pointers at the ends of the group, not the pointers on each individual node. We could do this by identifying runs of nodes with the same status, or by picking a certain number of nodes in a row Y and moving the whole group if a certain percentage of them are still black. Without flags, of course, it's going to be difficult to determine what the status of the object is. Plus, when we traverse the objects to determine status, we must do it through the object pointer tree, and not through the header list. This means it will be very very difficult to identify runs or groups of consecutive header nodes without relying on some kind of implicit scheme using complex recursion. In the end, it might be completely impractical to do anything in groups, and we would be stuck working with one node at a time (which, as we have seen, can be expensive).<br/><br/>These are just two schemes that we talked about today. Of the two, I think chromatic's is the best by virtue of having the fewest potentially-expensive operations. Of course, even that is going to require me to get creative to avoid some of the worst-case pitfalls. I'm going to try my hand at implementing both schemes, I think, and if I manage to create both successfully, benchmark them against each other to find a winner. Likely, I'll come up with some kind of hybrid approach (card marking with different header lists to mark generations) that takes ideas from both for a maximally efficient algorithm. <br/><br/>I'm going to lay out some basic data structures tonight and tomorrow, and send them to chromatic for approval. With that, I am going to build my initial allocators and deallocators (which, it turns out, are spread all over creation). i'm scheduled to have those done by friday, I'm hoping to get them set up sooner then that.</p>
+
+
+<hr/>
+
+
+
+<h2>Fascinating</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2008-05-28T04:52:40</h3>
+A couple of comments from a GC amateur:<br><br>* You talk about the expense of shifting in the flag-array model.  Does order really matter?  Couldn't you just swap the tail of the array into place?<br><br>* Java exploits the idea of rarely checking the 'tenured generation' (your dense prefix) to save time.  But that implementation bleeds into the programmer's world because you now need to worry about when your filehandle PMCs get collected, for example.  If they take a long time to be collected, you can exhaust the available filehandles for the process even if your code is correct.  Will Parrot suffer this same problem?<br><br>I appreciate the detail you are putting in your journal posts!<br>
+
+
+
+<blockquote>
+
+<h2>Re:Fascinating</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2008-05-28T14:44:22</h3>
+I remember reading that Perl 6 will have another mechanism to indicate that things should be specifically triggered at end-of-scope, but I can't seem to find anything written about it now.<br><br>Maybe someone more versed in the Perl 6 specs or docs knows?
+
+
+
+
+
+</blockquote>
+
+
+<h2>Why shift at all?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-05-28T13:37:35</h3>
+<p>Why do you need to remove anything from the flag array? Nodes are not freed until after the final pass over the list, so it would appear that there is no reason to make sure that array indices continue to correspond to list positions after freeing.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why shift at all?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-05-28T17:41:06</h3>
+<p>I presume you're talking about the card-marking scheme.  I don't believe there's any need to add or remove entries, as each bit in the bitmap represents one header in the pool.</p>
+
+<p>(I know Aristotle understand this, but if anyone else finds this idea confusing, think of the most space-compact way to store a list of used telephone numbers within a prefix.  You only need 10,000 bits to store all of the available numbers from 989-0000 to 989-9999.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why shift at all?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-05-28T19:15:49</h3>
+<p>Yes, I was talking about the card-marking scheme. (Well, it would be two bits per pool header in this case.)</p>
+
+<p>So if there is indeed no need to remove entries from the bitmap, why did Andrew mention bit-shifting it?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why shift at all?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-05-28T19:35:36</h3>
+<p><blockquote> <div><em>So if there is indeed no need to remove entries from the bitmap, why did Andrew mention bit-shifting it?</em></div> </blockquote>
+
+<p>I don't know; I think there was some miscommunication about that part.  I'm following up with him now.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why shift at all?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-05-28T20:17:19</h3>
+<p>Ah, OK. I thought he was summarising a discussion that had already taken place.</p>
+
+
+
+<h2>Re:Why shift at all?</h2>
+<h3><a href="/user/Whiteknight/">Whiteknight</a> on 2008-05-28T20:27:29</h3>
+Good comments, all. Let me see if I can better explain what I meant, and in the process not expose myself to be a complete buffoon.<br><br>First to terminology: In my post, as well as here in this comment, I'm generally referring to "headers" as a simple linked-list header object that is used internally to the GC to keep track of the memory objects that we see and mark. The "PMC header", defined as "struct PMC" will be referred to as just a "PMC". The current GC uses a structure "Gc_gms_hdr" as a header, defined in Parrot/smallobject.h.<br><br>The GC headers form a linked-list with a definite, if arbitrary, order. The flags that I was envisioning (and this could easily have been a point of miscommunication) would follow the ordering of the GC headers, not the PMC headers. This has a few benefits that I can think of, most importantly that the solution can be carried across all pools uniformly, without having to edit fields in half a dozen different header structures.<br><br>Let's say we have 5 memory objects with GC headers:<br><br>| Obj_A | Obj_B | Obj_C | Obj_D | Obj_E |<br><br>And a 10-bit bitmap with corresponding flags:<br><br>| FA | FB | FC | FD | FE |<br><br>During a GC run, we find element C to be dead, so we deallocate the storage. We could possibly add it to the Arena's free list, or we could even return the memory to the operating system. Either way, the space is not to be managed by the GC anymore, so the GC header is deallocated (or recycled, or whatever). So, we can remove the header from the list:<br><br>| Obj_A | Obj_B | Obj_D | Obj_E |<br><br>Our flags now are messed up, because we have 5 flags corresponding to 4 nodes in our list, and a "hole" where the flag for object C used to be:<br><br>| FA | FB | XX | FD | FE |<br><br>We either leave the hole as is and attempt to fill it later by inserting a newly created node where object C's header used to be (1), or we bit-shift the flags FD and FE forward by two bits to fill the hole (2):<br><br>1) | FA | FB | FG | FD | FE |<br><br>2) | FA | FB | FD | FE |<br><br>If the cardmarking we are doing is in relation to the PMC headers and not the GC headers as I had supposed, then we obviously need to use a different system entirely, one where we likely don't need to rearrange flags at all.<br><br>If I'm thinking of things in an exactly opposite way to how other people are thinking about it, maybe some more clarification is needed on my part.
+
+
+
+<blockquote>
+
+<h2>Re:Why shift at all?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-05-28T21:26:33</h3>
+<p>There was no communication issue, it was clear what you meant.</p>
+
+<p>My point is: deleting Obj_C does not change the order of the following elements; you do not iterate over the bitmap another time after the deallocation pass; on the next GC cycle you reinitialise the bitmap to all-white. So in fact there is no need to do anything about holes at all.</p>
+
+<p>If there is some reason that you actually do need to resynchronise the bitmap with the list, then you could exploit the fact that you use two bits but only have three states, to assign the left-over fourth state to mean &#8220;deleted.&#8221; Then if you need to iterate another time within the same GC cycle you can simply skip those indices. And if you need to reuse the information from the bitmap in the <em>next</em> GC cycle, you can simply copy the bitmap while skipping the indices with &#8220;deleted&#8221; markers, instead of either shifting very long bit strings or increasing the conceptual complexity of the GC with new entities (&#8220;dense prefix&#8221;).</p>
+
+
+
+<blockquote>
+
+<h2>Re:Why shift at all?</h2>
+<h3><a href="/user/Whiteknight/">Whiteknight</a> on 2008-05-28T21:40:36</h3>
+This whole conversation has pointed out to me a conceptual error on my part, and I thank you for that. Two facts occur to me that I hadn't really considered:<br><br>1) If we can identify a dead object from the list before the end of the GC run and can remove it from the list at that point, there is no sense flagging it at all: It's position inside the list serves as an implicit flag that the object is not dead.<br><br>2) We don't identify an object as "dead" until the GC run is finished. This means that the lists are not being manipulated through additions or deletions before the end of the GC run. Hence, the order of the nodes stays the same, the order of the flags stays the same, and nothing needs to be moved around.<br><br>I was trying to allow for a possibility where the GC operated in increments, and a run would not need to be completed in one shot but a partial-run could happen and then be resumed at a later time. However, in this situation we can assume that objects that are created before a GC run has completed can be stored separately from the objects which are currently being marked. There are certainly a lot of other problems with doing things this way, however, and I may need to reconsider it entirely.
+
+
+
+<blockquote>
+
+<h2>Re:Why shift at all?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-05-29T02:39:57</h3>
+<p><blockquote> <div><em>However, in this situation we can assume that objects that are created before a GC run has completed can be stored separately from the objects which are currently being marked.</em></div> </blockquote>
+
+<p>We probably have to assume that in any incremental scheme, which suggests to me that all new GCable entities created while a GC run is active need to go on the live list automatically as soon as they get pulled off of the free list.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

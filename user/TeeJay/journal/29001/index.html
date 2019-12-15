@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of TeeJay: Funky perl in my scheduler</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Funky perl in my scheduler</h1>
+<h2><a href="/user/TeeJay/">TeeJay</a> on 2006-03-15T18:18:25</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've pretty much completed the scheduler I have been developing - I just need to polish the web gui and integrate log4perl properly.<br/><br/>Anyway - one of the things it does is run commands either as perl via do() or via system().<br/><br/>It captures stderr/stdout through copying the current filehandles for each, and reopening them to files, reopening the copied filehandles again after running a command. That bit is fairly simple, but allows me to slurp in the stderr output after running the command or if the whole process running the command dies unexpectedly. In a scheduler with dozens of jobs to run, many of them in development this is incredibly useful:<br/><br/>###<br/><br/>    open(OLD_STDERR,">&STDERR") or warn "Failed to save STDERR";
+    open(STDERR,">$stderr_filename") or warn "Failed to redirect STDERR";
+    open(OLD_STDOUT,">&STDOUT") or warn "Failed to save STDOUT";
+    open(STDOUT,">$stdout_filename") or warn "Failed to redirect STDOUT";<br/><br/>    print "$$\n"; # don't want an empty file
+    warn "$$\n"; # don't want an empty file<br/><br/>   # do stuff ...<br/><br/>    open(STDOUT,">&OLD_STDOUT") or warn "Failed to restore STDOUT";
+    open(STDERR,">&OLD_STDERR") or warn "Failed to restore STDERR";<br/><br/>
+###<br/><br/>The tricky bit this morning was handling scripts that 'exit' when executed within do. I want to capture that exit and continue, but any other exits should happen normally. <br/><br/>The only solution that actually worked was to copy  a glob of CORE::GLOBAL::exit to somewhere, set the glob to sub that warns/logs the exit, with time and pid, before continuing, and then copy the original exit glob back :<br/><br/>###
+    eval {
+	*real_exit = *CORE::GLOBAL::exit;
+	*CORE::GLOBAL::exit = sub { warn localtime() ." pid : $$ attempted to exit! caller : ", join(', ',caller()),"\n"; };
+	$ok = do "$filename";
+	$error = "couldn't parse $filename: $@" if $@;
+	$error = "couldn't do $filename: $!"    unless defined $ok;
+	$error = "couldn't run $filename"       unless $ok;
+	*CORE::GLOBAL::exit = *real_exit;
+    };
+###<br/><br/>Getting it working was helped immensely by Nik and Davorg on #london.pm following Nik's talk at the last tech meet where he demonstrated how to over-ride stuff in a script that is being run.</p>
+
+
+<hr/>
+
+
+
+<h2>local()</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2006-03-15T19:55:00</h3>
+First of all, thanks for sharing -- that's useful stuff.  But have you considered local() instead of copying something and then copying it back at the end?<blockquote> <div><tt>eval {<br>&nbsp; &nbsp; local *CORE::GLOBAL::exit = sub {<br>&nbsp; &nbsp; &nbsp; &nbsp; warn localtime()<nobr> <wbr></nobr>." pid : $$ attempted to exit! caller : ", join(', ',caller()),"\n";<br>&nbsp; &nbsp; };<br>&nbsp; &nbsp; $ok = do "$filename";<br>&nbsp; &nbsp; $error = "couldn't parse $filename: $@" if $@;<br>&nbsp; &nbsp; $error = "couldn't do $filename: $!"&nbsp; &nbsp; unless defined $ok;<br>&nbsp; &nbsp; $error = "couldn't run $filename"&nbsp; &nbsp; &nbsp; &nbsp;unless $ok;<br>};</tt></div> </blockquote> <p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:local()</h2>
+<h3><a href="/user/TeeJay/">TeeJay</a> on 2006-03-15T20:08:06</h3>
+yes I tried it - despite having being in an anon block inside an eval it didn't descope for some reason - possibly I fluffed it, but exits ended up getting caught in unexpected places elsewhere in the program.
+
+
+
+<blockquote>
+
+<h2>Re:local()</h2>
+<h3><a href="/user/broquaint/">broquaint</a> on 2006-03-16T11:46:38</h3>
+Dom's code won't work because core subroutines can only be overridden at compile-time. Also you don't need to store a copy of <tt>*CORE::GLOBAL::exit</tt> as it can always be found in <tt>CORE::exit</tt> (although you can't take a reference to it so just use a wee closure e.g <code>*CORE::GLOBAL::exit = sub { CORE::exit $_[0] };</code>).
+
+
+
+<blockquote>
+
+<h2>Re:local()</h2>
+<h3><a href="/user/broquaint/">broquaint</a> on 2006-03-16T11:51:49</h3>
+I'm an idiot. Dom's code should work since the code in the the context of the <tt>do</tt> will be evaluated at compile-time.
+
+
+
+<h2>Re:local()</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2006-03-16T19:19:48</h3>
+Oooh, crap, I didn't know that.<nobr> <wbr></nobr>:-(  Thanks for pointing it out.
+
+<p>-Dom</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>system calls with filehandle magic...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2006-03-16T06:08:17</h3>
+What you are doing sounds quite a bit like what IPC::Run3 does.<br><br>Is it missing something, or does it do something in a way that doesn't work for you? Have you heard of it?<br>
+
+
+
+<blockquote>
+
+<h2>Re:system calls with filehandle magic...</h2>
+<h3><a href="/user/TeeJay/">TeeJay</a> on 2006-03-16T09:43:57</h3>
+It kind of evolved, I'd be tempted to replace it with IPC::Run but only if it others exactly the same stuff without adding complexity.<br><br>Although, to be honest - it's working very nicely now
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

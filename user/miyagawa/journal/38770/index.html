@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of miyagawa: DBD::SQLite and Unicode</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>DBD::SQLite and Unicode</h1>
+<h2><a href="/user/miyagawa/">miyagawa</a> on 2009-04-07T23:51:22</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Attention to anyone using DBD::SQLite and $dbh->{unicode} attribute set to 1.<br/><br/>This module has <a href="http://rt.cpan.org/Public/Bug/Display.html?id=25371">a long standing bug</a> where it assumes passed strings internal encoding is UTF-8 when inserting values into the database and I'm trying to fix it.<br/><br/><code>
+use DBI;
+use Encode;<br/><br/>my $utf8_string = "This is \x{30c6}\x{30b9}\x{30c8}"; # "Test" in Japanese
+my $utf8_bytes    = encode_utf8($string);
+my $lat1_string = "H\xe9llo World"; # HÃÂ©llo<br/><br/>my $dbh = DBI->connect("DBI:SQLite:...", ...);
+$dbh->{unicode} = 1;<br/><br/>my $sth = $dbh->prepare("INSERT INTO foo (bar) VALUES (?)";<br/><br/>$sth->execute($utf8_string); # (1) Good
+$sth->execute($utf8_bytes); # (2) ???
+$sth->execute($lat1_string);  # (3) ???
+</code><br/><br/>Current version of DBD::SQLite (prior to 1.21) assumes given string's INTERNAL encoding as UTF-8 and stores the octet stream into the database without calling encode_utf8 nor utf8::upgrade, so this makes #2 PASS and #3 FAIL (invalid UTF-8 octet in the database), which is not correct.<br/><br/>My patch solves this, and #2 $utf8_bytes will be now double encoded and FAIL, but #3 PASS with correct UTF-8 octet stream.<br/><br/>That #2 FAIL might break your (potentially-already-broken) app, when you try to save UTF-8 encoded strings into the database under 'unicode' option, but I believe this is a right fix to make it FAIL.<br/><br/><a href="http://svn.ali.as/cpan/trunk/DBD-SQLite/t/rt_25371_asymmetric_unicode.t> is a failing test by Juerd and <URL:http://fisheye2.atlassian.com/changelog/cpan/trunk/DBD-SQLite?cs=6077> is my patch to fix that. This patch still passes all tests, including 12_unicode.t and 20_blobs.t, and this makes DBD::SQLite's unicode option compatible to what DBD::mysql's mysql_enable_utf8 option does, etc.<br">http://svn.ali.as/cpan/trunk/DBD-SQLite/t/rt_25371_asymmetric_unicode.t> is a failing test by Juerd and <URL:http://fisheye2.atlassian.com/changelog/cpan/trunk/DBD-SQLite?cs=6077> is my patch to fix that. This patch still passes all tests, including 12_unicode.t and 20_blobs.t, and this makes DBD::SQLite's unicode option compatible to what DBD::mysql's mysql_enable_utf8 option does, etc.<br</a><br/>Note that if you REALLY want to save the octet bytes without being encoded into UTF-8, you can still define the table with BLOB column type and <a href="http://search.cpan.org/user/adamk/DBD-SQLite-1.20/lib/DBD/SQLite.pm#Database_Handle_Attributes">use 3-arg bind_param like explained in DBD::SQLite POD</a>. That 'unicode' section continues to be entirely correct with this patch.<br/><br/>Let me know your input in #dbd-sqlite on irc.perl.org. Testing your app with my patch and reporting it back would be highly appreciated too.</p>
+
+
+<hr/>
+
+
+
+<h2>Release tarball</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-04-08T02:09:25</h3>
+<p>There's now also a dev release for these changes</p><p><a href="http://svn.ali.as/cpan/releases/DBD-SQLite-1.22_01.tar.gz" title="svn.ali.as">http://svn.ali.as/cpan/releases/DBD-SQLite-1.22_01.tar.gz</a svn.ali.as></p>
+
+
+
+<h2>A big thank you!</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2009-04-08T09:01:29</h3>
+<p>Hi, thanks for fixing this bug. I can now get rid of many hacky utf8::upgrade calls<nobr> <wbr></nobr>:).</p><p>Does this also encode/upgrade the query itself, in case someone uses a literal value instead of a placeholder? I forgot to add that to the test.</p>
+
+
+
+<blockquote>
+
+<h2>Re:A big thank you!</h2>
+<h3><a href="/user/miyagawa/">miyagawa</a> on 2009-04-08T09:15:28</h3>
+<p>I just fixed the method to encode text passed to sth_execute (that's what I think my patch does at least, based on my low XS-fu<nobr> <wbr></nobr>:))</p><p>You could update/patch the test to include the query itself so that we can improve? Thanks!</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

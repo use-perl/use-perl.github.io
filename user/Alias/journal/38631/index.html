@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Why META.yml is not (currently) YAML (or JSON)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Why META.yml is not (currently) YAML (or JSON)</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2009-03-12T00:44:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>The whole META.yml thing is really something of a cluster-fuck. In retrospect it was problem a bad idea to base our key piece of machine-to-machine metadata on a brand new format that was still in flux and didn't have a proper specification.<br/><br/>Problems still persist today. Most of them follow the theme of "In theory, theory is the same as practice, but in practice it isn't".<br/><br/>While in theory, META.yml is YAML, in practice, it isn't.<br/><br/>I've listed some of the issues below, in general moving from theory problems to practical problems.<br/><br/><i>1. YAML (still) doesn't exist yet.</i><br/><br/>The "specification" is still a pre-release. YAML is still effectively not "done", although the situation is far better now than in the past. Even as late as the 1.1 specification, the specification was based on an implementation (in the case of 1.1 I believe it was based on libyaml, or YAML::XS as we know it).<br/><br/><i>2. The META.yml specification specifically mandates incorrect (albeit accidentally valid) YAML.</i><br/><br/>The META.yml specification clearly specifies a YAML "header" in the form
+<code>
+The first line of a META.yml file should be a valid YAML document header like "--- #YAML:1.0".
+</code>
+The problem here is that isn't a "full" YAML header, it's just a document header with a comment. That YAML fragment hasn't been legal since way back when YAML was first invented.<br/><br/>According to the YAML specification, the above fragment should actually look like this.
+<code>
+%YAML 1.1
+---
+</code>
+We can also see that META.yml is based on the "1.0" (which, of course, was basically an "final draft alpha") specification of YAML, which is now deprecated to the point of being basically useless. YAML has been in this non-final final-draft phase for 5 years.<br/><br/>And of course, even the 1.0 specification of YAML didn't use #YAML:1.0, it specifies the use of "%YAML:1.0" (which is of course different to the current "final draft").<br/><br/>As an aside, it's this odd #YAML syntax that YAML::Syck "corrects" by silently and destructively modifying the original parse string. But that's another story (look for the nosyck test-skips in the YAML::Tiny test suite). I probably should just file a bug for that.<br/><br/><i>3. There are no YAML parsers</i><br/><br/>To my knowledge, nobody has managed to write a specification-compliant YAML parser yet. libyaml doesn't count, because the (1.1?) specification is based on it, rather than the other way around.<br/><br/>This isn't for lack of trying of course. Ingy alone has managed to release four different YAML parsers on the CPAN.<br/><br/>I've done one and a half myself (YAML::Tiny + Parse::CPAN::Meta) and I only was willing to have a shot at it by stripping out most of the junk to derive a "YAML Tiny" specification.<br/><br/>The one saving grace here is that all the YAML parsers have at least managed to maintain the same API for non-streaming reading and writing, so they are largely interchangeable.<br/><br/><i>4. There is no YAML support in the Perl core.</i><br/><br/>The configure_requires fix for the CPAN toolchain dependency defect requires a META.yml parser in the core to be comprehensively considered to be "complete".<br/><br/>This is the main strategic reason behind the creation of YAML::Tiny, to deal with small and straight forward YAML'ish files by defining a minimum usable subset and just parsing that, without buying into all the bigger formatting, specification, etc problems.<br/><br/>To my knowledge, none of the "YAML Parsers" meet the standards of the P5P team for inclusion in the Perl core, leaving the YAML::Tiny-based Parse::CPAN::Meta to fill the gap.<br/><br/>And of course, worse, once 5.10.1 is out and Parse::CPAN::Meta is in the core, it then becomes the "official" way to parse META.yml, which locks META.yml in to being based on the "YAML Tiny" specification, rather than the full YAML specification (whether the META.yml specification likes it or not).<br/><br/><i>5. YAML is (debatably) not a superset of JSON</i><br/><br/>I don't hold a position in this argument, but I have read a number of blog posts and the like from JSON/JavaScript people saying that YAML isn't actually really a superset of JSON, it's just kinda sorta a superset if you don't look at it too hard.<br/><br/>The main people that consider JSON to be a subset of YAML is the YAML team.<br/><br/><i>6. META.yml doesn't really support Unicode</i><br/><br/>I've been saying for years that the back-compatibility period we should be targeting is about 10 years. While nobody (including myself about half the time) wants to crystallise this as policy, it does more or less turn out to be correct. We recently dropped back-compatibility for 5.005, and from perlhist you can see the release date of the 5.005_03 release that was more or less the primary target of back-compatibility member of the 5.005 series.
+<code>
+5.005_03      1999-Mar-28
+</code><br/><br/>We now target 5.6.1 (or thereabouts) which was released around 8 years ago, and with 5.6 usage still at around 10% or so, I can imagine we'll hold at this level for another year or so before we move on to 5.8.1.<br/><br/>Since Unicode wasn't truly rock solid until 5.8.5 (2004-Jul-19), this still leaves us with a few years yet until Unicode is truly universal. Based on past trends, I'd expect to see Unicode become truly compulsory around 2011/12.<br/><br/>Until then, this leaves us with a problem in that META.yml files containing unicode will need to be readable by Perl versions (and toolchains) without proper Unicode support.<br/><br/><b>So what the hell do we do?</b><br/><br/>Personally, I'd like to see a two-phase approach.<br/><br/>In the first phase, we just accept that META.yml has issues and work around them. Clarify the META.yml specification to be based on the YAML Tiny subset of YAML, without support for Unicode characters (or at least discouraging them).<br/><br/>In the second phase, some time around Perl 5.10.3 or 5.12 or wherever, make Perl 5.8.5 the oldest supported version of Perl, and make a new META.json based on the actual JSON spec. Write a JSON::Tiny (or equivalent) and put it into the core.<br/><br/>Have PAUSE generate a synthetic META.json file based on META.yml for every existing distribution without support for it, and store it outside the tarball (in the same way we store README outside the tarball).<br/><br/>And, in the mean time, upgrade CPAN(PLUS).pm to support server-pushed minimum CPAN client checking. Which is to say, add support for the clients being able to the repository what the minimum-supported Perl/CPAN(PLUS) versions are, so that older clients know they need to upgrade not only the toolchains, but the clients themselves.
+</p>
+
+
+<hr/>
+
+
+
+<h2>fighting words :-)</h2>
+<h3><a href="/user/dagolden/">dagolden</a> on 2009-03-12T01:10:26</h3>
+<p>Well, now we have something for people to debate over beers in Birmingham.</p><p>In seriousness -- since we're about at the point where toolchain hackers are going to unleash MYMETA.yml on the world, maybe we should take a collective deep breath and decide if that's in fact what we want.</p><p>There are benefits to re-using the META.yml spec and format.  (In part, it makes MYMETA.yml easy to implement -- I added support for it to CPAN.pm in about 3 lines of code.)  On the other hand, maybe it makes sense to implement MYMETA.* in a well-specified, well-implemented format as a stepping stone towards transitioning away from META.yml.</p><p>Where should people's marginal effort go?</p><p>-- dagolden</p>
+
+
+
+<blockquote>
+
+<h2>Re:fighting words :-)</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-03-12T03:24:18</h3>
+<p>&gt; Where should people's marginal effort go?</p><p>To start with, it should go towards finding a consensus.</p><p>People doing things their own way, and have that ultimately become the default way (locking in any defects as 'official') is what gets us into half our messes in the first place.</p>
+
+
+
+<blockquote>
+
+<h2>Re:fighting words :-)</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-03-12T03:30:07</h3>
+<p>Clarification: I don't mean to suggest we should do design by committee, but that at the point when people's self-driven new ideas reach the point at which said person starts to suggest that everyone should adopt them, we put those ideas in front of the inquisition and pick out the bugs.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>PAUSE switches to YAML::XS</h2>
+<h3><a href="/user/LaPerla/">LaPerla</a> on 2009-03-12T08:02:42</h3>
+PAUSE started to parse the META.yml files with YAML::XS today to get the ball rolling. The request for the move came from RJBS and I think it's a road worthwhile to explore. One should also link to his <a href="http://rjbs.manxome.org/rubric/entry/1736" title="manxome.org">blog</a manxome.org> in this context.
+
+
+
+<h2>XML</h2>
+<h3><a href="/user/slanning/">slanning</a> on 2009-03-12T09:24:01</h3>
+<p>Why not use XML? I guess there's not enough glory: it already exists and works!</p>
+
+
+
+<blockquote>
+
+<h2>Re:XML</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-03-12T10:32:44</h3>
+<p>The key limiting factor is that whatever we use, we need support in the Perl core.</p>
+
+
+
+<blockquote>
+
+<h2>Re:XML</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-03-12T19:03:05</h3>
+<p>No, we don't.  We only need something capable of parsing these meta files <em>before</em> we install non-core modules.</p><p>All the core really <em>needs</em> is a way to bootstrap the process of installing other modules, distributions, or bundles.</p>
+
+
+
+<blockquote>
+
+<h2>Re:XML</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-03-13T00:23:44</h3>
+<p>This is a simple dependency chain.</p><p>1. <i>All the core really needs is a way to bootstrap the process of installing other modules, distributions, or bundles.</i></p><p>Correct. Thus...</p><p>2. To bootstrap the installation of other modules, you need a new enough toolchain.</p><p>3. To be able to get a new enough toolchain, you need configure_requires (that was the entire point of having it)</p><p>4. To determine configure_requires, you need to be able to read META.yml</p><p>Therefore...</p><p>5. You need a way to read META.yml in the core.</p><p>The particular format for the pre-configure script metadata can be anything we like, as long as it isn't a security risk and won't suffer from the halting problem.</p><p>But you still need the parser in the core.</p>
+
+
+
+<blockquote>
+
+<h2>Re:XML</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-03-13T01:48:56</h3>
+<blockquote><div><p> <em>You need a way to read META.yml in the core.</em></p></div> </blockquote><p>If that were true, no installation of a Perl version which lacks this reader in the core would be able to install Perl modules which require the reader.  As that's obviously not the case....</p><p>Alternate solution: make the <em>first</em> thing a pristine, freshly configured, built-from source Perl distribution downloads when you want to install something a single bundle which contains just enough hand-selected code to allow upgrading the installation process.  Do this through <a href="http://search.cpan.org/perldoc?CPAN::FirstTime" title="cpan.org">CPAN::FirstTime</a cpan.org>, perhaps.</p><p>Then you can drop the idea that you have to put <em>more</em> in the core to be able to remove things from the core.</p>
+
+
+
+<blockquote>
+
+<h2>Re:XML</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-03-13T10:54:39</h3>
+<p><i>If that were true, no installation of a Perl version which lacks this reader in the core would be able to install Perl modules which require the reader.</i></p><p>This is pretty much exactly what happens when you take a fresh Perl 5.8.8 install and try to install anything that needs Module::Build.</p>
+
+
+
+<h2>Re:XML</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-03-13T10:57:09</h3>
+<p>I should also note you COULD take the path you suggest.</p><p>But then none of those extra modules you need during FirstTime-time would themselves be allowed to use any new toolchain modules.</p><p>Which is technically a valid solution, but would require everyone involved in the toolchain to agree on a fixed back-compat set of core toolchain modules they would restrict themselves to.</p><p>The alternative (putting it in the core) allows all those modules to be upgraded as well and doesn't create a two-class system.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:XML</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2009-03-12T11:45:19</h3>
+<p>Both JSON and XML are well established, fully specced and popular formats (XML more so, but there is a lot of JSON out there too). Picking one over the other should be based on a couple of key points where I think JSON far outshines XML:</p><p>1) Like Alias said, which ever we pick needs to make it's way into the Core. For XML if we we'd need to pick a subset since a full XML parser is big and complicated. JSON in comparison is easy and simple. A JSON parser would be small and stand a better chance of making it into the Core.</p><p>2) XML isn't really easy on the eyes and isn't a format that a lot of Perl programmers like. JSON looks very similar to the array/hash literal syntax that we are already used to and the simplicity is nice. No debating over whether something should be an attribute or a child element. It's just lists and hashes.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

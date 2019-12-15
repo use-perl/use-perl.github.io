@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: optimizing for the weird case</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>optimizing for the weird case</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2006-11-29T03:53:53</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Holy cow!</p>
+
+<pre>knight!rjbs:~/code/pep/Email-Simple/tags/1.996$ perl -I lib readmail headers.msg 
+just started                :   1360    28328
+after require File::Slurp   :   2228    28704
+after slurping              :  12192    38656
+after require Email::Simple :  12248    38656
+after construction          : 129368   159816
+</pre>
+
+<p>If you try to build an Email::Simple from a message with 10,000 unique headers,
+be prepared to give up some RAM.  It's not quite as bad if you just have 10,000
+values for one header:</p>
+
+<pre>knight!rjbs:~/code/pep/Email-Simple/tags/1.996$ perl -I lib readmail oneheader.msg 
+just started                :   1360    28328
+after require File::Slurp   :   2228    28704
+after slurping              :  11040    37504
+after require Email::Simple :  11096    37504
+after construction          :  87380   114852
+</pre>
+
+<p>Still, this is nuts...</p>
+
+<pre>knight!rjbs:~/code/pep/Email-Simple/tags/1.996$ ls -l *head*msg
+-rw-r--r-- 1 rjbs rjbs 5092896 Nov 28 08:29 headers.msg
+-rw-r--r-- 1 rjbs rjbs 4504001 Nov 28 08:56 oneheader.msg
+</pre>
+
+<p>It should not take 100 MB to store five meg message in an object!</p>
+
+<p>The latest trunk of Email::Simple makes this just a bit better:</p>
+
+<pre>knight!rjbs:~/code/pep/Email-Simple/trunk$ perl -I lib readmail headers.msg
+just started                :   1364    28328
+after require File::Slurp   :   2232    28704
+after slurping              :  12196    38656
+after require Email::Simple :  12260    38656
+after construction          : 114444   144892
+
+knight!rjbs:~/code/pep/Email-Simple/trunk$ perl -I lib readmail oneheader.msg
+just started                :   1364    28328
+after require File::Slurp   :   2232    28704
+after slurping              :  11044    37504
+after require Email::Simple :  11112    37504
+after construction          :  74184   101656
+</pre>
+
+<p>That's hardly a big improvement, though.  Reading the message in as a
+reference, a new feature in the trunk, doesn't help much either: the memory
+usage isn't in the body storage or copying, it's in the data structures used to
+store the header.  Despite the massive data structure, I decided that my first
+"simple" fix would be to replace this code:</p>
+
+<pre>for (split /$mycrlf/, $$head) {
+  #  ... parse the field ...
+}
+</pre>
+
+<p>With this "better" code:</p>
+
+<pre>my $head_txt = $$head;
+while ($head_txt =~ m/\G(.+?)$mycrlf/g) {
+   my $line = $1;
+   # ... parse the field ...
+}
+</pre>
+
+<p>What made it better?  Well, position-marking regex are less commonly used, so
+surely they're an efficiency trick, right?  Well, no.  Actually, I thought this
+would help me approximate a lazy split, moving from one record separator to the
+next as I process each line.  The problem is that I apparently can't use a
+pattern with <code>/g</code> on a dereferenced scalar.  I need to make a copy in memory,
+which takes up a lot of space.  In fact, if I'm going to copy it, I might was
+well just split!  So, back to looking for useful improvements.</p>
+
+<p>Email::Simple headers are stored as three data structures, two hashes and an
+array, which are called the <em>head</em>, the <em>header names</em>, and the <em>order</em>.  The
+head has one entry for each header-name; the value is an arrayref of every
+value for that header, in the order they should appear in the header.  The
+order a list of header names, including duplicates, in the order in which they
+appear.  The header names, bizarrely, relate the lowercased version of a header
+to the latest casing of it to appear in the input... this is almost certainly a
+bug introduced when fixing other problems with the header.  Still, it means
+that this message:</p>
+
+<pre>Foo: Alfa
+foo: Bravo
+Bar: Charlie
+FOO: Delta
+Baz: Foxtrot
+Baz: Gulf
+bar: Hotel
+</pre>
+
+<p>is stored like this:</p>
+
+<pre>$head = {
+  Bar =&gt; [ qw(Charlie) ],
+  bar =&gt; [ qw(Hotel)   ],
+  Baz =&gt; [ qw(Foxtrot Gulf) ],
+  Foo =&gt; [ qw(Alfa) ],
+  FOO =&gt; [ qw(Delta) ],
+  foo =&gt; [ qw(Bravo) ],
+};
+
+$order = [ qw(Foo foo Bar FOO Baz Bar) ];
+
+$header_names = {
+  bar =&gt; 'Bar',
+  baz =&gt; 'Baz',
+  foo =&gt; 'FOO',
+}
+</pre>
+
+<p>That's a lot of repeated data!  Given all those unique headers in our first
+test message, we're going to have to store every header name four times: once
+in the head, once in the order, and twice in the header names. <br />
+Given all those repeated headers, we're still going to store the header name
+10,003 times -- once for the entry in the head, twice in the header names (once
+lowercased and once verbatim), and ten thousand times in the order.</p>
+
+<p>I guess it's nice to have a super-fast lookup, but how many headers are there
+really going to be, in a normal message, that you want to have such heavy
+duplication for optimization?  Is hash lookup really going to be faster in real
+time than a linear search by name acros a hundred headers?  If you have ten
+thousand headers (for... some reason), would you rather that searching take a
+few milliseconds longer, if it costs you fifty megs of RAM?  My wager, here, is
+that you'd rather optimize for the common case and save plenty of memory for no
+noticeable change.</p>
+
+<p>So, I replaced the head, the order, and the header names with "headers."  It's
+just a reference to an array of pairs.  The above message is now:</p>
+
+<pre>my $headers = [
+  Foo =&gt; 'Alfa',
+  foo =&gt; 'Bravo',
+  Bar =&gt; 'Charlie',
+  FOO =&gt; 'Delta',
+  Baz =&gt; 'Foxtrot',
+  Baz =&gt; 'Gulf',
+  bar =&gt; 'Hotel',
+];
+</pre>
+
+<p>Nice and simple.  How does it compare memory-wise?</p>
+
+<pre>~/code/pep/Email-Simple/trunk$ perl -I lib readmail headers.msg
+just started                :   1364    28328
+after require File::Slurp   :   2232    28704
+after slurping              :  12196    38656
+after require Email::Simple :  12260    38656
+after construction          :  57804    82732
+
+~/code/pep/Email-Simple/trunk$ perl -I lib readmail oneheader.msg 
+just started                :   1364    28328
+after require File::Slurp   :   2232    28704
+after slurping              :  11044    37504
+after require Email::Simple :  11108    37504
+after construction          :  52756    78232
+</pre>
+
+<p>Not great; an eight meg message probably shouldn't take forty megs.  Still,
+savings twenty to sixty megs isn't a bad start.  I think I'll cut a development
+release (which will secretly require the newest Email::MIME, for forward compat
+reasons) and see what bugs are shaken out.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>how this affects normal messages</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-11-29T03:59:52</h3>
+I thought I'd mention that this has, predictably, very little effect on normal messages, like those I used in previous profiling.  These messages had 50 headers and 10,000 body lines:<blockquote> <div><tt>~/code/pep/Email-Simple/trunk$ perl -I lib readmail big.msg&nbsp; &nbsp; &nbsp;227@225624:1086<br>just started&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>:&nbsp; &nbsp;1364&nbsp; &nbsp; 28328<br>after require File::Slurp&nbsp; &nbsp;:&nbsp; &nbsp;2232&nbsp; &nbsp; 28704<br>after slurping&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>:&nbsp; 17876&nbsp; &nbsp; 44336<br>after require Email::Simple<nobr> <wbr></nobr>:&nbsp; 17940&nbsp; &nbsp; 44336<br>after construction&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>:&nbsp; 25776&nbsp; &nbsp; 52152<br>~/code/pep/Email-Simple/trunk$ perl -I lib readmailref big.msg&nbsp; 227@225652:1087<br>just started&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>:&nbsp; &nbsp;1364&nbsp; &nbsp; 28328<br>after require File::Slurp&nbsp; &nbsp;:&nbsp; &nbsp;2232&nbsp; &nbsp; 28704<br>after slurping&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>:&nbsp; 17876&nbsp; &nbsp; 44336<br>after require Email::Simple<nobr> <wbr></nobr>:&nbsp; 17940&nbsp; &nbsp; 44336<br>after construction&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>:&nbsp; 17960&nbsp; &nbsp; 44336</tt></div> </blockquote>
+
+
+
+<h2>/o</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2006-11-29T06:12:54</h3>
+Change this
+<code>
+while ($head_txt =~ m/\G(.+?)$mycrlf/g) {
+</code>
+to
+<code>
+while ($head_txt =~ m/\G(.+?)$mycrlf/go) {
+</code>
+I'm assuming the <tt>$mycrlf</tt> never changes, right?
+
+
+
+<blockquote>
+
+<h2>Re:/o</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-11-29T13:47:51</h3>
+I'm afraid that mycrlf does.  It's the line ending that's used in the given email.  There are two regex involved:  $crlf and $mycrlf.  The former matches any valid line ending, the latter matches those which are expected in this header.<br><br>If I use $crlf, I should be safe, and that is constant.  Switching to use that and enabling<nobr> <wbr></nobr>/o didn't really help, though.<br><br>Here's the better thing, though.  It seems that I was wrong in my belief that I couldn't use a<nobr> <wbr></nobr>/g pattern on a dereferenced string.  I don't know why I couldn't get it working yesterday, but now I can.  I'm back to using the<nobr> <wbr></nobr>/g pattern, with no copy of the string, and memory usage is further down:<blockquote> <div><tt>~/code/pep/Email-Simple/trunk$ perl -I lib&nbsp; readmail headers.msg<br>
+&nbsp; just started&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>:&nbsp; &nbsp;1360&nbsp; &nbsp; 28328<br>
+&nbsp; after require File::Slurp&nbsp; &nbsp;:&nbsp; &nbsp;2228&nbsp; &nbsp; 28704<br>
+&nbsp; after slurping&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>:&nbsp; 12192&nbsp; &nbsp; 38656<br>
+&nbsp; after require Email::Simple<nobr> <wbr></nobr>:&nbsp; 12256&nbsp; &nbsp; 38656<br>
+&nbsp; after construction&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;<nobr> <wbr></nobr>:&nbsp; 48268&nbsp; &nbsp; 66844</tt></div> </blockquote>
+
+
+
+<h2>Will that really help?</h2>
+<h3><a href="/user/Limbic Region/">Limbic Region</a> on 2006-11-29T17:39:22</h3>
+See <a href="http://perlmonks.org/index.pl?node_id=586721" title="perlmonks.org">Questions concerning<nobr> <wbr></nobr>/o regex modifier</a perlmonks.org> for details.
+
+
+
+<blockquote>
+
+<h2>Re:Will that really help?</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-11-29T18:04:25</h3>
+In this instance, anyway, it did not.  Perhaps it would if I tested under an older perl.<br><br>MJD once gave me and/or the internet an explanation of when it helped, and it was a much smaller case than I had previously thought, so now I usually don't even think about it.<nobr> <wbr></nobr>:-/
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>continued regexps on scalar references</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-11-29T15:17:53</h3>
+<em>The problem is that I apparently can't use a pattern with<nobr> <wbr></nobr>/g on a dereferenced scalar.</em><br><br>You certainly can.  I use this technique extensively in CAM::PDF to incrementally parse a PDF document into a DOM.  I pass a scalar reference to the content from one sub to the next.<br><br>Without delving too deep into your code, I believe the important bit that you are missing is the "c" flag on the regexp.<br>
+
+
+
+<blockquote>
+
+<h2>Re:continued regexps on scalar references</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-11-29T15:51:03</h3>
+Well, I re-added my<nobr> <wbr></nobr>/g regexp (as noted in another comment) this morning, and it worked, even when matching against $$string.  I did not add<nobr> <wbr></nobr>/c, though.  I don't know what I did wrong yesterday!<br><br>I didn't know about<nobr> <wbr></nobr>/c, though.  It doesn't appear to be documented in perlre, although it's hard to search for one character things, sometimes.  It does appear in perlreref.<br><br>I'm glad to know about it, but it should not be an issue here:  at no point should the regex fail and then need to match again.<br><br>Thanks!
+
+
+
+
+
+</blockquote>
+
+
+<h2>uniting the array and hash in the symbol table</h2>
+<h3><a href="/user/groditi/">groditi</a> on 2006-11-29T16:38:15</h3>
+is there any reason why before, when you have the hash and array you didnt just mess a little with the symbol table to effectively make them point to the same variables, almost cutting memory use in half (well there is still the sort order array...) without having to give up your initial strategy for easy lookups?
+
+
+
+<blockquote>
+
+<h2>Re:uniting the array and hash in the symbol table</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-11-29T17:05:10</h3>
+What do you suggest "the same variables" are that they should point to?
+
+
+
+<blockquote>
+
+<h2>Re:uniting the array and hash in the symbol table</h2>
+<h3><a href="/user/groditi/">groditi</a> on 2006-11-29T17:38:31</h3>
+Sorry. I completely slipped, morning coffee not quite kicked in. my apologies.. i thought you wre doing something completely different
+
+
+
+<h2>Re: self referencing data structure</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2006-11-29T18:12:40</h3>
+Is it possible to use one big structure, where each of the three structures you want are sub-parts of it?
+<p>
+As you construct the second and third parts, you can reference the first copy:</p><blockquote> <div><tt>my %a;<br>$a{b} = { c =&gt; 'd' };<br>$a{e}[0] = $a{b};</tt></div> </blockquote>Then, dumping it out, you see:<blockquote> <div><tt># Notice the self reference...<br>$VAR1 = {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 'e' =&gt; [<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;{<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;'c' =&gt; 'd'<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;}<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;],<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 'b' =&gt; $VAR1-&gt;{'e'}[0]<br>&nbsp; &nbsp; &nbsp; &nbsp; };</tt></div> </blockquote>Alternatively, perhaps you could keep just one copy of the structure, and have methods to look up value different ways as-needed, without having whole other structures pre-built, if they if they might not be used.
+<p>
+  Mark</p>
+
+
+
+<blockquote>
+
+<h2>Re: self referencing data structure</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-11-29T18:44:25</h3>
+I looked at doing this, but managing all the references seemed like a colossal pain, and would still use a fair amount of memory over storing one simple structure with less cached lookups.<div class="quote">Alternatively, perhaps you could keep just one copy of the structure, and have methods to look up value different ways as-needed, without having whole other structures pre-built, if they if they might not be used.</div>That's what I did, effectively.  There is on structure, an array of pairs, and methods that let you do the normal things.  You can say "give me the values with name Foo" and it does.  It just uses a linear search.<br><br>Since Email::Simple 2 will have a Header object with a known interface, a more memory-hungry but faster implementation can be trivially substituted.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

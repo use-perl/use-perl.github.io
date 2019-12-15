@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Padre::Task 2.0 - Making Wx + Perl threading suck faster</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Padre::Task 2.0 - Making Wx + Perl threading suck faster</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2010-06-03T03:37:29</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Some time <i>Real Soon Now</i>, I'll be landing the shiny new second-generation Padre Task API (which is used for background tasks and threading control) onto trunk.<br/><br/>A few people have asked me to give a quick high level overview on how it works, so this will be a quick bottom to top pass over how Padre will be doing threading.<br/><br/>The first-generation <a href="http://search.cpan.org/perldoc?Padre::Task">Padre::Task</a> API was true frontier programming. While some of us knew <a href="http://search.cpan.org/perldoc?Wx">Wx</a> and others knew Perl's <a href="http://search.cpan.org/perldoc?threads">threads</a> a bit, nobody really had any idea how the two interact. Indeed, the proliferation of bugs we found suggests that <a href="http://search.cpan.org/perldoc?Padre">Padre</a> has really been the first major application to use both at the same time.<br/><br/><a href="http://search.cpan.org/user/smueller/">Steffen MÃÂ¼ller</a> boldly led the Padre team into this wilderness, putting together a solid threading core loosely inspired by the <a href="http://search.cpan.org/perldoc?Process">Process</a> API. He nursed a ton of bug reports and tracked upstream fixes in Wx.pm.<br/><br/>Some of the code was a bit ugly in places, and the threads burned a ton of memory, but it worked and worked well. It worked well enough that <a href="http://search.cpan.org/user/bramble/">Andrew Bramble</a> was later able to extend it to add Service support for long running background tasks with bidirectional communication.<br/><br/>But while we've reduced some of the worst of the memory problems with the "slave driver" methodology, the API has been at the end of its natural life for a while now. It's hard to write new background tasks without knowing both Wx and threads, which limited access to only three or four people.<br/><br/>The goals for the new Padre::Task 2.0 are threefold.<br/><br/>Firstly, to allow the creation of the three distinct background jobs we need in Padre, in a way that doesn't abuse either Wx or Perl's threads mechanism. These three background job types are Task (Request,Wait,Response), Stream (Request,Output,...,Response) and Service (Request,Input,Output,...,Response).<br/><br/>Second, to allow the implementation to have (or have in the future) the theoretically smallest possible memory consumption beyond the minimum overheads imposed by Perl's threading model.<br/><br/>Third, to allow the creation of Wx + threads tasks without the need to learn either Wx or threads. This should open up background tasks to the main body of Padre contributors, beyond the elites, and spur great improvements in Padre's ability to take full advantage of multi-core developer machines.<br/><br/>A fourth bonus goal is to allow us to migrate Padre's backgrounding implementation to something other than threads in the future, without having to change any of the code in the actual tasks next time around. This should also allow the people that don't like Perl threads and want us to use something else to move their arguments from bikeshedding to actual proof-by-code.<br/><br/>After several months of experimenting, I've gone with a somewhat unusual implementation, but one that is completely workable and meets the criteria.<br/><br/>The core of this implementation is a communications loop that allows messages from the parent thread to a child thread, and back again.<br/><br/>The odd thing about this particular communications loop is that the two halves of the loop are done using utterly different underlying mechanisms.<br/><br/>The parent --> child link is done using Perl threads shared variables, in particular Thread::Queue.<br/><br/>Each Padre thread is created via a a Padre::TaskThread parent abstraction, which governs the creation of the real threads.pm thread, but also provides a <a href="http://search.cpan.org/perldoc?Thread::Queue">Thread::Queue</a> "inbox" for each thread. This is inspired by the Erlang micro-threading model for message passing, but is way way heavier.<br/><br/>In this manner, the top level task manager can keep hold of just the queue object if it wants, feeding messages into the queue to be extracted at some unknown place in another thread it has no control over.<br/><br/>Once spawned, each worker thread immediately goes into a run-loop waiting on messages from its message queue. Messages are simply RPC invocations, with the message name being a method name, and the message payload becoming method parameters.<br/><br/>Every thread has the ability to clone itself if passed an empty Padre::TaskThread object to host it. This gets a little weird (you end up passing shared Thread::Queue objects as a payload inside of other shared Thread::Queue objects) but the end result is that you don't have to spawn Perl threads from the parent thread, you can spawn them from child threads but retain the parent's ability to send messages to them regardless of the location on the thread spawn graph they are actually running.<br/><br/>The end result of this trickery is that we can replicate the slave driver trick from the first-generation API. By spawning off an initial pristine thread very early in the process, when the memory cost is small, we can create new threads later by spawning them off this "master" thread and retain the original low per-thread memory cost.<br/><br/>And while we don't do it yet, we can be even tricksier if we want. If we have a thread that has had to load 5, 10, or 20 meg of extra modules, we don't need to load them again. Instead, we could choose to clone that child directly and have a new thread with all the same task modules pre-loaded for us.<br/><br/>The second half of this communications loop is the up-channel, which is done using a totally different Wx mechanism. For communicating messages up to the parent, the Wx documentation recommends the creation of different messages types for each message, and then the use of a thread event.<br/><br/>This care and feeding of Wx turns out to be difficult in practice for non-elites, because you end up registering a ton of different Wx event types, all of which need to be stored in Perl thread-shared variables. And each message needs to be pushed through some target object, and the choice of these can be difficult.<br/><br/>Instead, what we do instead is to register a single event type, and a single global event "conduit". As each message is received by the conduit, it filters down to just appropriately enveloped events and pass only those along to the task manager. The task manager removes the destination header and routes it to the correct task handle in the parent.<br/><br/>Again, messages are done as RPC style calls, with a message type being the method to call, and the payload being the params.<br/><br/>This lets you do a reasonable simple form of cross-thread message passing (at least from the child to the parent anyway).
+<pre>
+sub in_child {
+    my $self = shift;
+    $self->message('in_parent', 'Some status value');
+}<br/><br/>sub in_parent {
+    my $self   = shift;
+    my $status = shift;
+}
+</pre>
+We've also put a Padre::ThreadHandle layer over the task itself to do eval'ing and other cleanliness work, in the same way we put a Padre::PluginHandle over every plugin object to protect us against them.<br/><br/>This handle adds some extra value as well, automatically notifying the task manager when a task has started and stopped, and generally keeping everyone sane.<br/><br/>Within this communications loop lives the actual tasks.<br/><br/>The Task API forces work into a very rigid structure. The rigid rules on behaviour is the cost of allowing all the threading magic to happen without the task having to know how it happens.<br/><br/>The basic API looks something like this.
+<pre>
+package Some::Task;<br/><br/>use strict;
+use base 'Padre::Task';<br/><br/># Constructor, happens in the parent at an arbitrary time before the job is run.
+sub new {
+    my $class = shift;
+    my $self  = bless { @_ }, $class;
+    return $self;
+}<br/><br/># Get ready to serialize, happens in the parent immediately before being sent
+# to the thread for execution.
+# Returns true to continue the execution.
+# Returns false to abort the execution.
+sub prepare {
+    return 1;
+}<br/><br/># Execute the task, happens in the child thread and is allowed to block.
+# Any output data should be stored in the task.
+sub run {
+    my $self = shift;
+    require Big::Module;
+    $self->{output} = Big::Module::something($self->{input});
+    return 1;
+}<br/><br/># Tell the application to handle the output, runs in the parent thread after
+# the execution is completed.
+sub finish {
+    my $self = shift;
+    Padre::Current->main->widget->refresh_response( $self->{output} );
+    return 1;
+}
+</pre>
+To fire off this task, in the widget which commissioned this background work you just do something like this.
+<pre>
+sub refresh {
+    my $self = shift;<br/><br/>    require Some::Task;
+    Some::Task->new(
+        input => 'some value',
+    )->schedule;
+}<br/><br/>sub refresh_response {
+    my $self   = shift;
+    my $output = shift;<br/><br/>    $self->wx_thingy->SetValue($output);
+}
+</pre>
+As you can see here, at no point do you need to care about threads, or event handling, or that kind of thing. You wrap a task class around the blocking part of your app, have the finish push the answer through to your wx component, and then handle it in the wx component.<br/><br/>Of course, this is still a little fidgety. So I'm currently in the process of adding a secondary layer for the common case where the task is created primarily for the purpose of a single parent owner.<br/><br/>The new API layer simplifies things even more. The task takes an "owner" param that represents the Wx component that commissioned it. It does some weaken/refaddr based indexing magic to map the task to the owner object, and then makes sure there is a default finish method to route the answer automatically back to the owner.<br/><br/>The neat part about this is that it takes care of synchronisation problems automatically. If the task finish is called at a time when the Wx component has been destroyed, the answer is automatically dropped and ignored.<br/><br/>The owner can also explicitly declare that the answers from any tasks currently in flight are no longer relevant, and those will be dropped as well.<br/><br/>With the new helper code, your task is shrunk to the following.
+<pre>
+package Some::Task;<br/><br/>use strict;
+use base 'Padre::Task';<br/><br/>sub run {
+    my $self = shift;
+    require Big::Module;
+    $self->{output} = Big::Module::something($self->{input});
+    return 1;
+}<br/><br/>1;
+</pre>
+And the code in the owner component is just this...
+<pre>
+sub refresh {
+    my $self = shift;<br/><br/>    # Ignore any existing in-flight tasks
+    $self->task_reset;<br/><br/>    # Kick off the new task
+    $self->task_request(
+        task  => 'Some::Task',
+        input => 'some value',
+    );
+}<br/><br/>sub task_response {
+    my $self   = shift;
+    my $task   = shift;
+    my $output = $task->{output} or return;
+    $self->wx_thingy->SetValue($output);
+}
+</pre>
+This is not the 100% final API look and feel, but it demonstrates the volume of code that you will need to write to do something in the background in the Task 2.0 API.<br/><br/>There's also some interesting opportunities to make it smaller again for very simple cases, by using the generic eval task to inline the execution code.
+<pre>
+sub refresh {
+    my $self = shift;<br/><br/>    # Ignore any existing in-flight tasks
+    $self->task_reset;<br/><br/>    # Kick off the new task
+    $self->task_request(
+        task  => 'Padre::Task::Eval',
+        input => 'some value',
+        run   => <<'END_TASK',
+            my $self = shift;
+            require Big::Module;
+            $self->{output} = Big::Module::something($self->{input});
+            return 1;
+END_TASK
+    );
+}<br/><br/>sub task_response {
+    my $self   = shift;
+    my $task   = shift;
+    my $output = $task->{output} or return;
+    $self->wx_thingy->SetValue($output);
+}
+</pre>
+This would mean we don't need a task class at all, which could be useful in cases where we want to avoid generating lots of tiny 10 line task classes,
+or where we want to generate the background code on the fly at run-time.<br/><br/>The downside would be that because the work is bunched inside a single task class, we lose the chance to do worker thread specialisation (where the workers track which tasks they have loaded into memory, so further tasks of the same type can be assigned to them in preference to other threads).<br/><br/>Perhaps we support all the different ways, so that we can pick and choose which option is best on a case by case basis and change them over time. That would certainly fit the Padre rule of "something is better than nothing, don't worry too much about having to break it later".<br/><br/>The downside of this approach, of course, is that breakage. The new Task API will basically kill any plugin currently doing their own background tasks.<br/><br/>The upside, of course, is that once they are fixed these plugins can do those background tasks much more efficiently that before.<br/><br/>The new Task 2.0 API will land in Padre 0.65, which should be out in about 2 weeks.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

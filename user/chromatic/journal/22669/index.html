@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of chromatic: Quieter Test Output</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Quieter Test Output</h1>
+<h2><a href="/user/chromatic/">chromatic</a> on 2005-01-12T02:43:39</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I never really understood the point of <a href="http://search.cpan.org/user/petdance/Test-Harness-2.44/bin/prove"><code>prove</code></a>;  I write my tests as normal Perl programs, launchable from the command line.  <code>perl <em>t/testname.t</em></code> does most of what I want to do.</p>
+
+<p>With more than 24 tests in a file, though, I often promised myself to write or find someday a variant test harness that ignored successes and reported only failures or an all clear message.</p>
+
+<p>I looked at the code of <code>prove</code> today to find where to add it, but again, it doesn't seem to do anything I really need and there was no way to add it.  I moved on to <a href="http://search.cpan.org/perldoc?Test::Harness::Straps">Test::Harness::Straps</a>.  I don't know if anyone's ever actually <em>used</em> this module (and it's admittedly a bit of a mess inside, though the long-promised Test::Builder refactoring may make it easier to write), but it took 67 lines of code to do what I needed (and a little more) in a well-factored way.</p>
+
+<p>I call it <code>qtest</code>:</p>
+
+<pre>#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use Test::Harness::Straps;
+
+my $strap = Test::Harness::Straps->new();
+
+for my $file (@ARGV)
+{
+	next unless -f $file;
+
+	my %results = $strap->analyze_file( $file );
+
+	if ($results{passing})
+	{
+		report( sprintf('All (%d) tests passed in %s',  $results{seen}, $file));
+	}
+	elsif ($results{skip_all})
+	{
+		report( sprintf('All (%d) tests skipped in %s', $results{seen}, $file));
+	}
+	else
+	{
+		report( find_failures( $file, \%results ) );
+	}
+}
+
+sub report
+{
+	my $message = shift;
+	print "$message\n";
+}
+
+sub find_failures
+{
+	my ($file, $results) = @_;
+	my $report           = create_header($file, @{$results}{qw( max seen ok )});
+	my $count            = 0;
+
+	for my $test ( @{ $results->{details} } )
+	{
+		$count++;
+		next if $test->{ok};
+		$report .= create_test_result( $count, @{ $test }{qw( name reason ) } );
+	}
+
+	return $report;
+}
+
+sub create_header
+{
+	my ($file, $expected, $seen, $passed) = @_;
+	my $failed                            = $seen - $passed;
+	return sprintf "File '%s'\nExpected %d / Seen %d / Okay %d / Failed %d\n",
+		@_, $failed;
+}
+
+sub create_test_result
+{
+	my ($number, $name, $reason)   = @_;
+	$name                          =~ s/^-\s*//;
+	$reason                      ||= '';
+	$reason                        = " ($reason)" if $reason;
+	return sprintf "\tTest #%d: %s%s\n", $number, $name, $reason;
+}</pre>
+
+<p>In practice, I may tweak the formatting somewhat.  It might be nice to report skips and surprisingly-passing TODO tests, too.  I also might want a flag to end after the first failure, to solve the problem of cascading failures rolling off of the screen.  Still, this was a lot simpler than I thought and already makes my life easier.</p></p>
+
+
+<hr/>
+
+
+
+<h2>The Point of Prove</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-01-12T02:57:02</h3>
+<p> <tt>prove</tt> was based on a program that I wrote a long time ago to manage my tests better.  I sent that off to Andy and it got warped into <tt>prove</tt>.  Unfortunately, the one thing that I miss that I had code which would allow me to run <em>sets</em> of tests, based upon patterns on the command line.  Thus, when working on stuff that touched "products", I might run a particular test program, or I might run all test programs with "prod" in the name.  When I was done, I'd run the full test suite.  It was very handy.  Now I don't find it quite as useful, though I still use it.</p>
+
+<p>What I think is curious, though, is that <a href="http://use.perl.org/user/Ovid/journal/14370" title="perl.org">I made reference to this back in 2003</a perl.org> and you had a response about wanting to filter out successful tests and possibly using <tt>Test::Harness::Straps</tt> to do it<nobr> <wbr></nobr>...</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Point of Prove</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2005-01-12T05:09:20</h3>
+<p>I don't understand why you need <code>prove</code> to run sets of tests, unless it's for the nice summary at the end, which does seem like an advantage.</p>
+
+<p>(I just realized that that may be what you like as I started to type "my shell expands patterns just fine, so I don't need another program to do it for me".  I think that's the conceptual part I didn't understand.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:The Point of Prove</h2>
+<h3><a href="/user/phillup/">phillup</a> on 2005-01-12T06:03:11</h3>
+I'm not sure about his reasoning... but I use it a lot.<br> <br>My entire test suite takes about 30 seconds (dual 2.8 GHz Xeon system)... and growing (since I only have about 10 percent coverage on three years of programming). That is long enough to get me out of the zone if I have to do it too much.<br> <br>So... I run prove, the setup routines, and the particular tests I'm focusing on. The setup routines take about 5 seconds and the individual tests run in about 2 seconds. Which, is short enough not to take me off task (too often<nobr> <wbr></nobr>;-)).
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:The Point of Prove</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2005-01-26T18:09:16</h3>
+Really, prove was more based on smoke that I wrote at work.<br/><br/>Why should you use prove?  Here are some reasons!<br/><br/><a href="http://petdance.com/perl/use-prove-lt.pdf" title="petdance.com">http://petdance.com/perl/use-prove-lt.pdf</a petdance.com>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Test::Verbose</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2005-01-12T13:15:27</h3>
+You really want to look at Test::Verbose - it does exactly what prove should have been (via the "tv" command line) and has -q, -qq, and -qqq options to achieve exactly what you desire here. Moreover, it logs its full output to a file so you can scan that if you want more detail of what has happened.<br> <br>It's a shame that Test::Verbose is greatly overlooked. I find it absolutely indispensable.
+
+
+
+<blockquote>
+
+<h2>Re:Test::Verbose</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2005-01-12T19:08:53</h3>
+<p>You're right, that is pretty close to what I want.  I've just sent Barrie a patch to add Module::Build support.</p>
+
+<p>Thanks for the pointer.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>I don't understand your dislike of &quot;prove&quot;</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2005-01-12T13:33:06</h3>
+I like to be able to run the tests for my modules without waiting to copy them into the staging area, which is pointless for a pure-Perl module.  So I can simply cd into the t directory, then repeatedly say "prove -I../lib *.t", and alter that to a specific test or add -v.  It's like "make test", but a dozen times more convenient.
+<p>
+It's also a lot easier than typing the equivalent</p><blockquote><div> <tt>perl -MTest::Harness -e 'runtests(@ARGV)' *.t</tt> </div></blockquote>which I also had used in some of my early docs on testing.  Thank goodness we hide that complexity now, replacing that all with "prove *.t".
+<p>
+I really appreciate that "prove" came along.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I don't understand your dislike of &quot;prove&quot;</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2005-01-19T04:00:10</h3>
+Yeah, for me, it's just like using an alias for a slightly longer alternative.  Aliases are good.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

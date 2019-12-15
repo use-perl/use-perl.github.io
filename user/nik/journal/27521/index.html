@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of nik: SVN::Web, Template::Plugin::{Subst, MultiFilter}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>SVN::Web, Template::Plugin::{Subst, MultiFilter}</h1>
+<h2><a href="/user/nik/">nik</a> on 2005-11-09T11:03:52</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>As described in an earlier entry, new versions of <a href="http://search.cpan.org/dist/SVN-Web/">SVN::Web</a> escaped over the weekend.  First there was 0.40, which contained the bulk of the new code.  Then 0.41 followed when I realised I'd made a few packaging cock ups.</p>
+
+<p>One of the things you can do with the new version is pass SVN commit messages through multiple TT filters.  Each filter can decorate the commit message in some way -- recognise URLs, e-mail addresses, RT ticket numbers, subversion revision numbers, etc, and convert them in to hyperlinks.</p>
+
+<p>Say you've written "Fixes rt#1234" in your commit message.  You'd like "rt#1234" to link straight to your bug database.</p>
+
+<p>I thought that would be easy.  Obviously, in straight Perl it's just the equivalent of:</p>
+
+<pre>
+$msg =~ s/rt#(\d+)/<a href="/rt.cgi?t=$1">$1</a>/;
+</pre>
+
+<p>I was quite surprised that TT doesn't offer this functionality.  The built in <tt>replace</tt> method/filter doesn't cut it, as it doesn't handle backreferences.  The TT:</p>
+
+<pre>
+[% msg.replace('rt#(\d+)', '<a href="/rt.cgi?t=$1">$1</a>') %]
+</pre>
+
+<p>results in the literal <tt>$1</tt> being inserted into the output instead of the expected back reference.</p>
+
+<p>The two popular suggestions in the TT list archives are to either use s/// directly in a <tt>[% PERL %]</tt> block, or write a custom filter to do the specific search and replace.</p>
+
+<p>But <tt>[% PERL %]</tt> blocks might not be enabled in every TT install.  And writing multiple filters (one to recognise RT tickets, one for subversion revision numbers, one for Sourceforge tickets, ...) would rapidly get boring.</p>
+
+<p>Hence, <a href="http://search.cpan.org/dist/Template-Plugin-Subst/">Template::Plugin::Subst</a>.  With it, you can write:</p>
+
+<pre>
+[% msg.subst('rt#(\d+)', '<a href="/rt.cgi?t=$1">$1</a>') %]
+</pre>
+
+<p>and it will do the right thing.  And as well as working as vmethod, it also works as a filter, so you can use that syntax instead.</p>
+
+<p>The other thing that TT can't easily and cleanly do is stack multiple filters together, ignoring the ones that aren't installed.</p>
+
+<p>SVN::Web ships with a config file that specifies a number of TT plugins to filter log messages through (to convert them to HTML, and make various things in the log clickable).  These include plugins that might not be installed.  In TT you can't say "Run all these filters, ignoring the ones that aren't installed".  Trying to use a missing plugin (sensibly) generates a run-time error.</p>
+
+<p>So, SVN::Web's <a href="http://jc.ngo.org.uk/user/nik/cgi-bin/svnweb/index.cgi/jc/view/nik/CPAN/SVN-Web/trunk/lib/SVN/Web.pm">log_msg_filter()</a> implements this functionality.  And the default SVN::Web configuration file can safely specify several different plugins, without the user having to worry about whether or not they're installed.  Without them, everything works, and if they are installed then the user gets a slightly nicer output.</p>
+
+<p>At the moment this is hardcoded in to SVN::Web, but I plan on releasing Template::Plugin::MultiFilter in the near future so that others can easily use this functionality.</p></p>
+
+
+<hr/>
+
+
+
+<h2>example config lines</h2>
+<h3><a href="/user/finn/">finn</a> on 2006-05-12T23:33:28</h3>
+It would be helpful if you could post the exact lines in the config.xml file that will result in the transformation of rt#1234 in to a link. (Or better yet, include them in the documentation.) The SVN::Web documentation and this post point in the right direction, but a specific example would be great for those of us not as familiar with the particularities of Template Toolkit.
+
+
+
+<blockquote>
+
+<h2>Re:example config lines</h2>
+<h3><a href="/user/finn/">finn</a> on 2006-05-12T23:34:20</h3>
+config.yaml, I meant.
+
+
+
+<blockquote>
+
+<h2>Re:example config lines</h2>
+<h3><a href="/user/nik/">nik</a> on 2006-07-04T15:36:19</h3>
+Assuming you have Template::Plugin::Subst installed, the following in config.yaml will do it.<blockquote> <div><tt>log_msg_filters:<br>&nbsp;<nobr> <wbr></nobr>...<br>&nbsp; - name: Subst<br>&nbsp; &nbsp; filter: filter<br>&nbsp; &nbsp; opts:<br>&nbsp; &nbsp; &nbsp; pattern: 'rt#(\d+)'<br>&nbsp; &nbsp; &nbsp; replacement: '&lt;a href="http://rt.cpan.org/NoAuth/Bug.html?id=$1"&gt;rt#$1&lt;/a&gt;'<br>&nbsp;<nobr> <wbr></nobr>...</tt></div> </blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Burak: reftype() lazziness</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>reftype() lazziness</h1>
+<h2><a href="/user/Burak/">Burak</a> on 2009-09-10T03:24:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+I was doing a lot of <code>foo() if ref($thing) eq 'ARRAY'</code> or <code>foo() if ref($thing) eq 'HASH'</code> (even something idiotic like <code>foo() if ref($thing) && "$thing" =~ m{.+?=HASH(0x.+?)}</code>) checks inside a pet project of mine. So thought about making it in an elegant way instead. I mean <code>ref($thing)->array</code> or even <code>ref($thing)->is_array</code> seemed much better as a syntactic sugar. However <code>ref()</code> is clearly not the way to go for the implementation as it fails to identify the underlying type of objects. So, the obvious choice is <code>Scalar::Util::reftype</code>. I've named the module <a href="http://search.cpan.org/dist/Scalar-Util-Reftype/">Scalar::Util::Reftype</a>. In a way, I can say that it's similar to <code>File::stat</code>. Btw, <code>Scalar::Util::reftype</code> has one oddity: unlike <code>CORE::ref</code> it returns undef if you pass a non-ref parameter to it. So, instead of <code>foo() if reftype($thing) eq 'ARRAY'</code> one must say <code>foo() if defined reftype($thing) && reftype($thing) eq 'ARRAY'</code> or just <code>foo() if reftype($thing) && reftype($thing) eq 'ARRAY'</code> to prevent an annoying warning:
+</p>
+
+<code>
+C:\>perl -MScalar::Util=reftype -wle "my $x; print reftype($x) eq 'ARRAY'"
+Use of uninitialized value in string eq at -e line 1.
+
+</code>
+
+It also can not detect <code>Regexp</code> (<code>CORE::ref</code> can, as long as it's not blessed):
+
+<code>
+C:\>perl -MScalar::Util=reftype -wle "my $x = qr//; print reftype $x"
+SCALAR
+
+C:\>perl -wle "my $x = qr//; print ref $x"
+Regexp
+
+C:\>
+
+</code>
+
+<p>
+Fortunately, perl 5.10 comes with <code>re::is_regexp</code> to detect if an object is based on a regex or not. But what about older perls? We can remedy the situation with the help of <a href="http://search.cpan.org/dist/Data-Dump-Streamer/lib/Data/Dump/Streamer.pm">Data::Dump::Streamer::regex</a> under at least perl 5.8.x. Unfortunately Data::Dump::Streamer seems to fail under anything older than that. I wasn't aware that <code>re::is_regexp</code> is a new functionality until reached "<a href="http://perlmonks.org/?node_id=665339">ref() and Regexp</a>" discussion on PerlMonks. 
+</p>
+
+<p>
+I also checked <code>ref</code> documentation. As of perl 5.10 it lists these reference types:
+
+<code>
+SCALAR
+ARRAY
+HASH
+CODE
+REF
+GLOB
+LVALUE
+FORMAT
+IO
+VSTRING
+Regexp
+</code>
+
+Only perl 5.10's ref seems to detect VSTRING refs and since they are deprecated and the usage seems to be rare, the module does not support them. Also FORMAT is only available in perl 5.8 and newer. But frankly, I can't imagine anyone creating refs/objects based on LVALUE, FORMAT or VSTRING (hmmm... maybe only TheDamian). So, they exist only for the sake of compatibility. For the Regexp type, I've just added a dynamic dependency on Data::Dump::Streamer if <code>Scalar::Util::Reftype</code> is tried to be installed under anything older than perl 5.10. 
+<p>
+
+<p>
+The interface is simple. Just <code>use</code> the module to get a brand new <code>reftype</code> function:
+</p>
+
+<code>
+    use Scalar::Util::Reftype;
+    
+    foo() if reftype( "string" )->hash;   # foo() will never be called
+    bar() if reftype( \$var    )->scalar; # bar() will be called
+    baz() if reftype( []       )->array;  # baz() will be called
+    xyz() if reftype( sub {}   )->array;  # xyz() will never be called
+    
+    $obj  = bless {}, "Foo";
+    my $rt = reftype( $obj );
+    $rt->hash;        # false
+    $rt->hash_object; # true
+    $rt->class;       # "Foo"
+</code>
+
+<p>
+<code>reftype</code> will create an object based on the parameter you specified and it is possible to call test methods on the return value. It currently has these test methods:
+</p>
+
+<code>
+scalar 
+array 
+hash 
+code 
+glob 
+lvalue 
+format 
+ref 
+io 
+regexp 
+scalar_object 
+array_object 
+hash_object 
+code_object 
+glob_object 
+lvalue_object 
+format_object 
+ref_object 
+io_object 
+regexp_object
+class
+</code>
+
+<p>
+Here, <code>class</code> can be thought as analogous to Scalar::Util' s blessed function. It returns the package/class name of the reference if it happens to be a blessed reference. The rest of the methods test if the parameter matches the type they define. 
+</p>
+
+<p>
+Oh, I've also overloaded the object <code>Scalar::Util::Reftype:reftype</code> returns, to be sure that it will not be used in boolean contexts. If one makes such a thing, then the code will suffer the consequences :)
+</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>One level too-removed</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2009-09-10T17:05:46</h3>
+<p>I'm biased - I wrote UNIVERSAL::ref. I think you should be writing $thing-&gt;is_array instead of ref($thing)-&gt;is_array or Scalar::Util::reftype($thing)-&gt;is_array. That is, the thing itself should be responsible for telling you about itself and not some external bit of code.</p><p>I trend toward the Smalltalk end of the idea spectrum and I'd prefer that $thing be able to respond for itself. Outsourcing introspection prevents $thing from being able to intelligently decide to answer the question *differently* sometimes.</p><p>Also, when you're writing your -&gt;is_array code, are you accounting for things that aren't arrays but act like them because of overloading?</p><blockquote><div><p> <tt>package<nobr> <wbr></nobr>...;<br>use overload '@{}' =&gt; 'act_like_an_array';</tt></p></div> </blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

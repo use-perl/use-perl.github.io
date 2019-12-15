@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Subroutine Signatures</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Subroutine Signatures</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2004-12-04T19:38:26</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I finally got off my rear and started serious work on subroutine signatures.  This now works:</p>
+
+<pre>use Sub::Signatures;
+
+sub foo($bar) {
+  print "$bar\n";
+}
+
+sub foo($bar, $baz) {
+  print "$bar, $baz\n";
+}
+
+foo(1);     # prints 1
+foo(2,3);   # prints 2, 3
+foo(2,3,4); # fatal error</pre>
+
+<p>I capture the information necessary to do dispatch based upon typing, but the dispatch is currently only based on the number of arguments.  Note that this works for subroutines <em>and</em> methods.    Naturally, I have a TODO list:</p>
+
+<ul>
+<li>Ignore prototyped subs</li>
+<li>Allow typing</li>
+<li>Can we make the typing optional?</li>
+<li>How do we handle variadic subs? (I have ideas here)</li>
+<li>Better error messages</li>
+</ul>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Cool!</h2>
+<h3><a href="/user/scottj/">scottj</a> on 2004-12-05T00:30:30</h3>
+I really like this idea.  I haven't ever minded the standard subs in perl, but this enhanced functionality will save time AND improve readaility.  Very nice.
+
+
+
+<blockquote>
+
+<h2>Re:Cool!</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-12-05T01:08:41</h3>
+<p>Thanks.  I really hope it works as well as it appears to.  I think I will have an alpha for the CPAN either tonight or tomorrow.  I now have it set up to handle method dispatch "loosely" based on the number of args or a "string" mode where it dispatches on the number <em>and</em> type (<tt>ref</tt>) or args.</p>
+
+<p>My tests for the latter:</p> <blockquote><div> <tt>use Test::More 'no_plan';<br>use Test::Exception;<br> <br>my $CLASS;<br>BEGIN<br>{<br>&nbsp; &nbsp; $ENV{DEBUG} = 1;<br>&nbsp; &nbsp; chdir 't' if -d 't';<br>&nbsp; &nbsp; unshift @INC =&gt; '../lib';<br>&nbsp; &nbsp; $CLASS = 'Sub::Signatures';<br>&nbsp; &nbsp; use_ok($CLASS, 'strict') or die;<br>}<br> <br>sub foo(ARRAY $bar) {<br>&nbsp; &nbsp; return sprintf "arrayref with %d elements" =&gt; scalar @$bar;<br>}<br> <br>ok defined &amp;foo,<br>&nbsp; &nbsp; 'We can have typed subs with one argument';<br>is foo([6,6,6]), "arrayref with 3 elements",<br>&nbsp; &nbsp; '... and they should behave as expected';<br> <br>throws_ok {foo(0)}<br>&nbsp; &nbsp; qr/Could not find a sub matching your signature/,<br>&nbsp; &nbsp; '... but it will die if the signature does not match';<br> <br>sub foo(HASH $bar)<br>{ $bar-&gt;{this} = 1; $bar }<br> <br>is_deeply foo({ that =&gt; 2}), {this =&gt; 1, that =&gt; 2},<br>&nbsp; &nbsp; '... and we can even specify different types.';<br> <br>sub bar($bar) {<br>&nbsp; &nbsp; $bar;<br>}<br> <br>ok defined &amp;bar,<br>&nbsp; &nbsp; 'We do not have to specify the type if it is a scalar';<br>throws_ok {bar([qw/an array ref/])}<br>&nbsp; &nbsp; qr/Could not find a sub matching your signature/,<br>&nbsp; &nbsp; '... but we had better not pass a non-scalar to it';<br> <br>sub match($bar, Regexp $foo) {<br>&nbsp; &nbsp; return $bar =~ $foo;<br>}<br> <br>ok match('this', qr/hi/),<br>&nbsp; &nbsp; '... and we can overload the methods as much as we like';</tt> </div></blockquote> <p>Note the last sub in particular.  In "strict" mode, there's a lot of type checking that just goes bye-bye because you never have to worry about whether or not you have the correct data type.  Since this is Perl, "strong typing" is limited to the types that <tt>ref</tt> returns.  Of course, that also means you can do this:</p> <blockquote><div> <tt>sub print_all_params (CGI $q) {<br>&nbsp; &nbsp; print $q-&gt;params;<br>}</tt> </div></blockquote> <p>Currently, if you have a subclass that fails.  I might work around this at some point but I'm not sure.  That depends upon whether or not people use this.  This module will never get beyond alpha unless I know it's being used and is solid.</p>
+
+<p>My major concern right now is that my tests are "vanilla" Perl.  I've not hit anything unexpected, but someone will.  I've been making notes on the things that will cause problems and will (hopefully) either write good tests for them or document the heck out of them.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>How reliable is it?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2004-12-05T16:21:21</h3>
+<p>Please just tell me it isn't based on source filters&hellip;<nobr> <wbr></nobr><tt>:-)</tt> Otherwise, it's not for me.</p>
+
+<p>But if it is and you are actually willing to use a filter beast in production, take a look at <a href="http://www.netalive.org/swsu/archives/2004/09/reformed_perl_t.html" title="netalive.org">reformed-perl</a netalive.org>, which mostly forestalls your effort (though it's mainly OO-centrically) and includes more doodads. I don't know how refined it really is, but collaboration or something is probably be better than independent developments.</p>
+
+
+
+<blockquote>
+
+<h2>Re:How reliable is it?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-12-05T17:31:23</h3>
+<p>I found myself writing enough about source filters that I <a href="http://use.perl.org/user/Ovid/journal/22152" title="perl.org">made a new journal entry to deal with this topic</a perl.org>.</p>
+
+<p>As for reformed-perl, it looks interesting and solves some problems with Perl 5's OO, but it's doing far more than I had intended and I suspect people would be less likely to use my more modest approach if bundled with that code.  Personally I'd just use something like Class::MethodMaker with Sub::Signatures and get most of the benefits.  Of course, if they want to borrow my code, they can.</p>
+
+<p>The final nail in the coffin would be their test suite, which I reproduce here in its entirety:</p> <blockquote><div> <tt>use Test::More tests =&gt; 1;<br> <br>BEGIN { use_ok( 'reform' ); }</tt> </div></blockquote> <p>I'm not saying their code is bad, but I think the philosophy is different enough that keeping this work separate is warranted.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

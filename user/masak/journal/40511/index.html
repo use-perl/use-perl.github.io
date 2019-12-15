@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of masak: Where in the world is the package lexpad?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Where in the world is the package lexpad?</h1>
+<h2><a href="/user/masak/">masak</a> on 2010-08-22T21:39:58</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><i>(This post isn't very punny. For those of you who need puns to survive, try to figure out why jnthn++ named the IRC logs "the hottest footwear" recently. The answer, as with all good puns, is highly unsatisfying.)</i></p>
+
+<p>My quest for a Perl 6 implementation takes me ever deeper into the esoterics of lexpads, runtimes, and a far-more-than-everything-you-needed-to-know mindset. Today some random firings in my brain turned into the following conversation on #perl6.</p>
+
+<p>During the conversation, I proposed two theories, both of which turned out to be wrong. (pmichaud++ shone the necessary light both times.) Being wrong felt less important than getting my mental model fixed.</p>
+
+<p>I first thought of presenting the results of the below conversation as a simple tutorial ("How <code>our</code> declarations work. The complete guide."), but now I think that the conversation, minimally edited, manages to be such a tutorial on its own.</p>
+
+<p>Besides, blogging things in their raw and undigested form is a sign of the times. Enjoy!</p>
+
+<p><code>
+&lt;masak&gt; I have a question. is there a need for a special "package lexpad" containing 'our'-declared variables, or can the package lexpad simply be equated to the topmost lexpad in the package?<br>
+<br>
+&lt;masak&gt; my suspicion is the latter, but I might be missing something.<br>
+<br>
+&lt;pmichaud&gt; the package lexpad can't be the same as the top most lexical<br>
+<br>
+&lt;pmichaud&gt; <b>module XYZ { my sub abc() { ... } };   # abc should not appear in the package</b><br>
+<br>
+&lt;masak&gt; oh!<br>
+<br>
+&lt;masak&gt; right.<br>
+<br>
+&lt;masak&gt; so, separate one, then.<br>
+<br>
+&lt;jnthn&gt; Additionally, lexpads are meant to be static by the time we hit runtime, and you're allowed to shove stuff into the package dynamically. Not quite sure how those two hold together.<br>
+<br>
+&lt;pmichaud&gt; well,  <b>module XYZ { ... }</b>   creates a lexical XYZ entry that holds the package entries<br>
+<br>
+&lt;jnthn&gt; Aha!<br>
+<br>
+&lt;pmichaud&gt; and it's just a hash, really.<br>
+<br>
+&lt;masak&gt; does inserting the package lexpad below the outside lexpad (and above the topmost lexpad) make sense? that way, Yapsi wouldn't need any special opcodes for doing 'our'-variable lookups.<br>
+<br>
+&lt;pmichaud&gt; the package lexpad is an entry in the outside lexpad, yes.<br>
+<br>
+&lt;pmichaud&gt; I'm not sure it encapsulates the nested lexpad, though.<br>
+<br>
+&lt;masak&gt; hm.<br>
+<br>
+&lt;masak&gt; if it doesn't, I don't really see how it's visible from inside the package.<br>
+<br>
+&lt;masak&gt; I've more or less convinced myself that sandwiching it between outer and topmost is what I want to do for Yapsi.<br>
+<br>
+&lt;pmichaud&gt; <b>our &xyz</b>  can make an entry in both the package and in the lexical.<br>
+<br>
+&lt;pmichaud&gt; this is what rakudo does now.<br>
+<br>
+&lt;pmichaud&gt; we have to do similar things for methods already, too.<br>
+<br>
+&lt;masak&gt; sure. it makes entries in both.<br>
+<br>
+&lt;pmichaud&gt; by having entries in both, that's how it's visible inside the package<br>
+<br>
+&lt;masak&gt; hm, indeed.<br>
+<br>
+&lt;masak&gt; no need to have the package lexpad visible from inside.<br>
+<br>
+&lt;pmichaud&gt; anyway, sandwiching might work too.  haven't quite gotten to that point in Rakudo thinking yet.  And it can get a bit tricky with multis.<br>
+<br>
+&lt;masak&gt; no need to sandwich it in, either. it can sit in limbo outside the tree of scopes.<br>
+<br>
+&lt;pmichaud&gt; oh, I know why it perhaps shouldn't (or should) be visible:<br>
+<br>
+&lt;pmichaud&gt; <b>my $x = 'lexical';   module XYZ { say $x;  { our $x = 'package'; } }</b><br>
+<br>
+&lt;masak&gt; ...yes?<br>
+<br>
+&lt;pmichaud&gt; I'm pretty sure "say $x" needs to grab the 'lexical' $x, not the one that might be "sandwiched" in a package.<br>
+<br>
+&lt;masak&gt; of course.<br>
+<br>
+&lt;masak&gt; that falls out from ordinary scope nesting and shadowing.<br>
+<br>
+&lt;masak&gt; innermost block binds its lexical to the container in the package lexpad.<br>
+<br>
+&lt;masak&gt; so, that speaks out against sandwiching.<br>
+<br>
+&lt;masak&gt; pmichaud++
+</code></p>
+
+<p>So there you go. There's a separate package scope, and it isn't sandwiched.</p>
+
+<p><i>(Answer: The missing link is the "IR clogs" meme from #parrot. I can hear you groaning... I did warn you.)</i></p></p>
+
+
+<hr/>
+
+
+
+<h2>Let me guess&amp;#8230;</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2010-09-03T14:12:47</h3>
+<blockquote><div><p>try to figure out why jnthn++ named the IRC logs &#8220;the hottest footwear&#8221; recently</p></div> </blockquote><p>IRC logs &#8594; I.R. Clogs &#8594; infra-red clogs?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Let me guess&amp;#8230;</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2010-09-03T14:17:09</h3>
+<p>Ah d&#8217;uh, you gave the solution at the end. Pfff.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

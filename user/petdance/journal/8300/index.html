@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of petdance: Enforcing strict &amp;amp; warning as a .t file</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Enforcing strict &amp;amp; warning as a .t file</h1>
+<h2><a href="/user/petdance/">petdance</a> on 2002-10-10T16:39:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><A HREF="http://use.perl.org/user/acme/journal/8298">Acme found that he had files that didn't use strict</A>.  I found that, too, and I wrote a .t file for it.  Here it is:<br/><br/><ECODE>
+#!/usr/bin/perl -w<br/><br/>use strict;
+use File::Spec;
+use File::Find::Rule;<br/><br/>use Test::More 'no_plan';<br/><br/>my $base = (shift || $ENV{TWROOT} || '.');<br/><br/>my $rule = File::Find::Rule->new;
+$rule->or( $rule->new->directory->name('CVS')->prune->discard,
+           $rule->new->file->name( '*.pl','*.pm','*.t' ) );
+my @files = $rule->in( $base );<br/><br/>for my $file ( @files ) {
+    check( $file );
+}<br/><br/>sub check {
+    my $filename = shift;<br/><br/>    my $dispname = File::Spec->abs2rel( $filename, $base );<br/><br/>    local $/ = undef;<br/><br/>    open( my $fh, $filename ) or return fail( "Couldn't open $dispname: $!" );
+    my $text = <$fh>;
+    close $fh;<br/><br/>
+    # Search for strict and warnings.  You can get around this just by
+    # having the text in comments, but that's not the point.
+    ok( $text =~ /use strict;/,             "$dispname uses strict" );
+    ok( $text =~ /use warnings;|perl -w/,   "$dispname uses warnings" );
+}
+</ECODE></p>
+
+
+<hr/>
+
+
+
+<h2>Ergh</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2002-10-10T17:22:27</h3>
+<p>
+I was about to ask why you didn't use <code>like()</code> instead of <code>ok()</code>.  Then I realized exactly how verbose a failure message would be.  Good thinking.
+</p>
+
+
+
+<h2>Oooh</h2>
+<h3><a href="/user/acme/">acme</a> on 2002-10-10T18:13:42</h3>
+I almost posted my code - which is eerily similar to yours. I actually count the number of files in a BEGIN block and hence get a test plan, but the code is basically the same. Ain't testing great<nobr> <wbr></nobr>;-)
+
+
+
+<blockquote>
+
+<h2>Re:Oooh</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2002-10-10T18:26:26</h3>
+<i>
+I almost posted my code - which is eerily similar to yours. I actually count the number of files in a BEGIN block and hence get a test plan, but the code is basically the same. Ain't testing great<nobr> <wbr></nobr>;-)
+</i>
+<p>
+Yes, testing IS great.<nobr> <wbr></nobr>:-)
+</p><p>
+I don't count the files because I don't know how many tests per file I'm going to have, and I may actually have a different number of tests for each file.
+</p><p>
+One of the things I was talking with Farmer Schwern about at YAPC::NA was the possibility of having a count of tests, with a variable number of subtests.  Something like:</p><blockquote><div> <tt>1..4<br>ok 1 - Loaded<br>ok 2 - Built list of files to check<br>block 3 - Starting foo.pl<br>ok 1 - Did this in foo.pl<br>ok 2 - Did something else<br>ok 3 - Did another thing<br>ok block 3<br>block 4 - Starting foo.pm<br>not ok 1 - foo.pm doesn't have warnings<br>ok 2 - foo.pm has strict<br>not ok block 4</tt> </div></blockquote>There are a total of 4 top-level tests, with subtests under top-level tests #3 and #4.
+<p>
+Please don't bother picking on specifics of that implementation: I made it up off the top of my head.  The key here is that in some cases you may not know the TOTAL number of tests including subtests, but you do know the number of files to be checking.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>But does it *really* use strict?</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2002-10-10T19:45:19</h3>
+How about catching the cheating programmers who put the string "use strict" somewhere in their program?<blockquote><div> <tt>#use strict;<br>#Andy says to use strict, but i don't like it</tt> </div></blockquote>Module::Info can do that<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:But does it *really* use strict?</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2002-10-10T19:56:17</h3>
+It's a known issue.  Note:<blockquote><div> <tt># Search for strict and warnings.&nbsp; You can get around this just by<br># having the text in comments, but that's not the point.<br>ok( $text =~<nobr> <wbr></nobr>/use strict;/,&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"$dispname uses strict" );<br>ok( $text =~<nobr> <wbr></nobr>/use warnings;|perl -w/,&nbsp; &nbsp;"$dispname uses warnings" );</tt> </div></blockquote> <p>
+The code is to catch mistakes, not malfeasance.  There's also nothing stopping you from doing</p><blockquote><div> <tt>use strict;<br>no strict;</tt> </div></blockquote>At that point, it's a management issue, not a technical one.
+
+
+
+<blockquote>
+
+<h2>Re:But does it *really* use strict?</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2002-10-16T02:49:33</h3>
+False negatives are also a problem, FWIW.<blockquote><div> <tt>#!/usr/bin/perl -Tw<br>use&nbsp; strict;</tt> </div></blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

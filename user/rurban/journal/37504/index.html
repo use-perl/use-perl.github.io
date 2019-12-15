@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rurban: oplines - win-win memory AND speed</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>oplines - win-win memory AND speed</h1>
+<h2><a href="/user/rurban/">rurban</a> on 2008-09-21T20:10:57</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've already wrote that some time ago, forgot where, probably p5p, but got no responses.
+Today I tried it again on irc #p5p and ended writing a simple statistic script and the beginning of the OPLINES branch.<br/><br/>The patch is working but the tests results look irreal. Uploaded to <a href="http://rurban.xarch.at/software/perl/oplines1.tar.gz><br">http://rurban.xarch.at/software/perl/oplines1.tar.gz><br</a><br/>My 1st testscript is poor and fails mostly (<URL:http://pasta.test-smoke.org/50>, but I will fix it and run over more files to get better stats.
+My 2nd is better:<br/><br/><code>
+#! perl<br/><br/>=pod<br/><br/>=head1 NAME<br/><br/>oplines - ops per line + nextstate win stats for TRY_OPLINES patch<br/><br/>=head1 SYNOPSIS<br/><br/>  oplines.pl <filenames...><br/><br/>=head1 DESCRIPTION<br/><br/>Theory:<br/><br/>Move cop_line from COP to BASEOP, and reduce the need for nextstate 
+ops, which will be an overall win in memory and speed for typical 
+undense code, less than 4 ops per line.<br/><br/>A cop has 5 ptrs more than a BASEOP, so the memory win will be like 
+following:
+  4 ops/line avg.
+  90% nextstate COP win per lines
+  
+=> on 32bit: 4*4=16 byte per line. for 10k src => 200-160k=40k memory win.
+   + 4k runtime win (need less nextstate cops)
+   
+   on 64bit you try.
+   
+The unknown factors: 
+  a) typical # of ops per line  
+  b) nextstate win:    
+    * typical # of nextstate cops per 1000-line file.
+      minus # of really needed nextstate cops (lexcops) per 1000-line file.<br/><br/>2008-09-21 21:41:06 rurban<br/><br/>=cut<br/><br/>use Config;
+use lib ".";<br/><br/>my ($sumfiles, $sumlines, $sumops, $sumnextstates, $sumlexstates);
+my ($files, $lines, $ops, $nextstates, $lexstates);<br/><br/>open PM, "> B_Stats.pm";
+while (<DATA>) { print PM "$_"; };
+close PM;<br/><br/>for my $file (@ARGV) {
+  $s = `$^X -c -MB_Stats $file`;
+  my @s = split /\t/, $s;
+  if (@s > 4 and $s[0] =~ /\d+/) {
+      ($files, $lines, $ops, $nextstates, $lexstates) = @s;
+      $sumfiles      += $files;
+      $sumlines      += $lines;
+      $sumops        += $ops;
+      $sumnextstates += $nextstates;
+      $sumlexstates  += $lexstates;
+  }
+}
+print "files:       $sumfiles\n";
+print "lines:       $sumlines\n";
+print "ops:         $sumops\n";
+my $opsratio = $sumlines ? $sumops/$sumlines : 0;
+my $copratio = $sumnextstates/($sumfiles+$sumlexstates);
+print "ops/line:    ",sprintf("%0.2f",$opsratio),"\n";
+print "cops:        ",sprintf("%0.2f%",$copratio), "  (lex+filecops=",
+      $sumfiles+$sumlexstates," / nextstates=$sumnextstates)\n";
+my $runtimewin = $sumnextstates - ($sumfiles+$sumlexstates);
+my $opsize  = 3*$Config{ptrsize}+4+$Config{intsize};
+my $copsize = $opsize + 4*$Config{ptrsize} + 8;
+my $memwin = ($Config{ptrsize} * $copsize * $runtimewin) # win the cops
+  - ($sumops * $Config{intsize});       # minus the added line_t cop_line
+print "memory win:  $memwin byte  (",
+  ($Config{ptrsize} * $copsize * $runtimewin)," - ",($sumops * $Config{intsize}),")\n";
+print "runtime win: $runtimewin ops ",sprintf("%0.2f%",($runtimewin*100/$sumops)),"  ($sumnextstates - ",$sumfiles+$sumlexstates,") \n";<br/><br/>__DATA__
+use B::Utils qw(walkallops_simple);
+use B qw(OPf_PARENS);
+my ($files, $lines, $ops, $nextstates, $lexstates);<br/><br/>sub count_ops {
+    my $op = shift;
+    $ops++; # count also null ops
+    if ($op->isa('B::COP')) {
+        $nextstates++;
+	$lexstates++ if ($$op and (($op->flags != 1)
+				  or $op->label));
+    }
+}<br/><br/>CHECK {
+  ($files, $lines, $ops, $nextstates, $lexstates) = (0,0,0,0,0);
+  ($oldfile, $oldlines) = ("",0);
+  walkallops_simple(\&count_ops);
+  $files = scalar keys %INC;
+  for (values %INC) {
+      open IN, "<", "$_"; while (<IN>) { $lines++; }; close IN;
+  }
+  print "$files\t$lines\t$ops\t$nextstates\t$lexstates\n";
+}
+1;
+</code><br/><br/>
+So how is the practice?<br/><br/>As it looks like an avg sample has 0.5-2 ops/line (but pod needs to be skipped), and about 100-200 times more pure linecops than really needed cops (block entry, new files). So the win seems to be dramatic (8% speed win for the op traversal). But I have to inspect the cops more firmly now.<br/><br/><code>
+./oplines *.pl
+files:       245
+lines:       85756
+ops:         59263
+ops/line:    0.69
+cops:        11.23%  (lex+filecops=494 / nextstates=5549)
+memory win:  652628 byte  (889680 - 237052)
+runtime win: 5055 ops 8.53%  (5549 - 494)
+</code><br/><br/><code>
+$ ./oplines.pl $(find lib ext -name \*.pm)
+files:       12051
+lines:       5042732
+ops:         6629648
+ops/line:    1.31
+cops:        39.15%  (lex+filecops=15334 / nextstates=600266)
+memory win:  76429440 byte  (102948032 - 26518592)
+runtime win: 584932 ops 8.82%  (600266 - 15334)
+</code><br/><br/>IMPLEMENTATION<br/><br/>The parser emits lots of nextstate cops to track linenumbers: These cops can be omitted and the lines stored in the current op PL_op, not PL_curcop anymore. 
+The parser can be simplified a lot for the PL_curcop cases.
+Also find_cops() is not needed anymore in most cases, where just the line # is needed, but it is still needed for getting the current filename.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Relative speed win?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-09-22T00:53:00</h3>
+<p>What sort of relative wall-clock speed win is this going to result in for typical non-io-bound code?</p><p>0.01% ?</p><p>0.1% ?</p><p>1% ?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Relative speed win?</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2008-09-22T06:37:14</h3>
+<p>It's ten percent fewer ops, but the <code>nextstate</code> op is reasonably slim on its own -- about the same size as the <code>and</code> and <code>or</code> ops, slightly smaller than <code>enter</code> and <code>leave</code>, and significantly smaller than everything else in <em>pp_hot.c</em>.  By rough estimate, without accounting for memory use, cache flushing, and other external features, a 3% improvement would thrill me.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>corehackers</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-07-17T07:17:23</h3>
+<p>Someone put this on the <a href="http://corehackers.perl.org/wiki/" title="perl.org">corehackers wiki</a perl.org>; any interest in creating a GitHub branch to continue this work?</p>
+
+
+
+<blockquote>
+
+<h2>Re:corehackers</h2>
+<h3><a href="/user/rurban/">rurban</a> on 2010-08-28T12:16:10</h3>
+<p>I believe it was in my github perl as oplines branch, but got lost.</p><p>Only my local-op branch is there.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

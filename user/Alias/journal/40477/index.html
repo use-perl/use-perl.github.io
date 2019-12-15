@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Protesting the Moose with sugary alternatives</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Protesting the Moose with sugary alternatives</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2010-08-03T05:09:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>At work, we've been experimenting with Moose because in our enormous and complex codebase we think we can probably benefit a lot from the extra rigour that it brings.<br/><br/>Before I continue, let me note that ours is a typical mod_perl enterprise setup with 6gig of memory per machine, so any memory consumed before the Apache fork is essentially free.<br/><br/>So none of the issues people (including me) have with startup code and memory consumption apply in this case, and I won't be addressing performance issues in this post.<br/><br/>The consensus of the half-dozen people at work is how Moose tries to look like a declarative extension, but doesn't actually act like it.<br/><br/>The following is what Moose seems to have been aiming for.
+<pre>
+package Foo;<br/><br/>use Moose;<br/><br/>extends 'Bar';
+with    'Role1';
+with    'Role2';<br/><br/>has this => (
+    is  => 'ro',
+    isa => 'Str',
+);<br/><br/>has that => (
+    is  => 'ro',
+    isa => 'Str',
+);<br/><br/>1;
+</pre><br/><br/>Unfortunately, this is what we've had to do instead.
+<pre>
+package Foo;<br/><br/>use Moose;<br/><br/>BEGIN { # When we use Catalyst
+    extends 'Bar';
+}<br/><br/>has this => (
+    is  => 'ro',
+    isa => 'Str',
+);<br/><br/>has that => (
+    is  => 'ro',
+    isa => 'Str',
+);<br/><br/>with    'Role1';
+with    'Role2';
+no Moose;
+__PACKAGE->meta->make_immutable;
+</pre><br/><br/>This "real Moose" code totally spoils the dream of what we felt like we were going to get when we started to play with it.<br/><br/>Most of our current options for fixing this amount to either.<br/><br/>a) Add this extra dependency that will unscrew one of the other of the problems (namespace::autoclean)<br/><br/>b) Use this SECOND heavy sugar layer on top of the FIRST sugar layer, on top of Class::MOP.<br/><br/>Is fixing the syntax or writing light weight sugar really so hard?<br/><br/>As a kind of protest, I tried it for myself and managed to create <a href="http://search.cpan.org/perldoc?MooseX::Atom">MooseX::Atom</a>.<br/><br/>This still has some flaws, but the current equivalent of the above would just be this.
+<pre>
+package Foo;<br/><br/>use MooseX::Atom [
+    extends => 'Bar',
+    with    => 'Role1',
+    with    => 'Role2',
+    has     => [
+         this => (
+             is  => 'ro',
+             isa => 'Str',
+         ),
+    ],
+    has     => [
+         that => (
+             is  => 'ro',
+             isa => 'Str',
+         ),
+    ]
+];<br/><br/>1;
+</pre><br/><br/>You can do the same thing for roles with <a href="http://search.cpan.org/perldoc?MooseX::Role::Atom">MooseX::Role::Atom</a>.<br/><br/>Now clearly, this might have some issues. It's the work of an hour and not a whole lot of thought.<br/><br/>But it's still light and clean, with all the class spec in one place up the top where people are used to seeing the declarative stuff in Perl modules.<br/><br/>Perhaps something like this might be a little better...
+<pre>
+package Foo;<br/><br/>use MooseX::Hash {
+    extends => 'Bar',
+    with    => [ 'Role1', 'Role2' ],
+    default => { is => 'ro' },
+    has     => {
+        this => { isa => 'Str' },
+        that => { isa => 'Str' },
+    },
+);<br/><br/>1;
+</pre>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Moose Notes</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2010-08-03T07:15:48</h3>
+<p>I wasn't aware that the <tt>extends</tt> needs to be in a BEGIN block unless you really do have code which needs to happen at BEGIN time.  Am I wrong?  (Could be).</p><p>Also, <tt>with</tt> accepts a list and using multiple <tt>with</tt> statements should be avoided unless you have a very, very good reason to do so.  A single with statement is like this:</p><blockquote><div><p> <tt>with qw(Does::Role1 DoesRole2);</tt></p></div> </blockquote><p>Using it like that gets you the method conflict resolution.  Using separate <tt>with</tt> statements is not only overly verbose, but it composes each role in <em>separately</em>.  Since a role method is silently discarded if the class provides a method of the same name, if <tt>Does::Role1</tt> provides a <tt>munge</tt> method and <tt>Does::Role2</tt> also tries to provide it, you will never get <tt>Does::Role2</tt>'s method composed in if you use <tt>with</tt> separately, but you will get a proper conflict when you use them at the same time.</p><p>Also, if you want to provide a default <tt>is</tt> for the <tt>has</tt>, make it 'ro' instead of 'rw'.  It tends to be far more correct and makes it harder for people to accidentally alter the object's state in incompatible ways.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Moose Notes</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-08-03T07:39:23</h3>
+<p>Eek, roles behaviour differently depending on whether you do them separately or together?</p><p>Yet another reason to be annoyed<nobr> <wbr></nobr>:(</p>
+
+
+
+<blockquote>
+
+<h2>Re:Moose Notes</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2010-08-03T07:53:57</h3>
+<p> <em>Eek, Perl's built-ins behave differently depending on whether or not you call them in scalar context?  Yet another reason to be annoyed!<nobr> <wbr></nobr>;)</em> </p><p>Seriously, it will take you about 3 seconds to get used to this behaviour of the <tt>with</tt> function and it's behaviour <em>you want</em>.</p><p>If you must write an alternative to the Moose API, I strongly recommend that you use Moose for a few months to get really comfortable with it and make sure you understand the design implications.  Moose is great and well worth the learning curve.  Just make sure that if you provide an alternate API that you understand why decisions have been made the way that they have.  Breaking the rules is far more likely to be successful if you know why you're breaking them<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Moose Notes</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-08-03T08:01:26</h3>
+<p>It's not a case of getting used to it.</p><p>It's that it's a gotcha that the API should never have allowed.</p><p>And our team HAS been using Moose for several months. MooseX::Atom is the summary of all the bits of it we don't like.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Moose Notes</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2010-08-03T16:42:29</h3>
+<blockquote><div><p> <i>
+Eek, roles behaviour differently depending on whether you do them separately or together?
+<br>
+It's that it's a gotcha that the API should never have allowed.
+</i></p></div> </blockquote><p>
+Actually there are very good reasons why there are two ways to compose roles.
+</p><p>
+The ideal way to compose roles is to do it all at once like Ovid showed. This takes better advantage of conflict checking because it first creates a composite role of all the roles passed to <code>with</code> and <i>then</i> applies that role to the class.
+</p><p>
+The second way is to have multiple <code>with</code> statements. This way is not really recommended because it bypasses the conflict checking, which, oddly enough, is exactly why it is useful. As dagolden said, Moose expects you to know what you're doing.
+</p><p>
+This is (IMO) very perlish as we suggest (in the docs) that you do it correctly, but we know that the real world is messy, so we allow you the option of the not-so-correct way if you need it.
+</p><blockquote><div><p> <i>
+b) Use this SECOND heavy sugar layer on top of the FIRST sugar layer, on top of Class::MOP.
+</i></p></div> </blockquote><p>
+Funny, doesn't MooseX::Atom qualify as exactly that?
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Moose Notes</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-08-03T23:38:22</h3>
+<p>No, this does NOT count as "heavy".</p><blockquote><div><p> <tt>Perl&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;3,120 K<br>Perl + Moose&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 11,840 K<br>Perl + MooseX::Atom&nbsp; &nbsp; &nbsp;11,852 K</tt></p></div> </blockquote>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:Moose Notes</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2010-08-03T15:49:53</h3>
+<blockquote><div><p>I wasn't aware that the extends needs to be in a BEGIN block unless you really do have code which needs to happen at BEGIN time. Am I wrong? (Could be).</p></div></blockquote><p>You're not wrong. Extending the parent class needs to happen at compile time in Catalyst because as dagolden mentions elsewhere Catalyst choose once upon a time to support <code>sub foo : Path(/) { }</code> syntax. The nature of that syntax and how Perl goes about making it "work" requires your class hierarchy to be resolved at compile time<nobr> <wbr></nobr>... hence the BEGIN.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>About the compile time thing</h2>
+<h3><a href="/user/melo/">melo</a> on 2010-08-03T08:04:15</h3>
+<p>I wonder if the newly released Devel::BeginLift is a way to solve the problem.</p><p>I like your MooseX::Atom, but I rather see the problems you mentioned solved without having to rewrite all of my Moose code.</p>
+
+
+
+<blockquote>
+
+<h2>Re:About the compile time thing</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-08-03T08:47:02</h3>
+<p>Me too</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>MooseX::Declare</h2>
+<h3><a href="/user/jnareb/">jnareb</a> on 2010-08-03T08:07:04</h3>
+<a href="http://p3rl.org/MooseX::Declare" title="p3rl.org">MooseX::Declare</a p3rl.org> doesn't do what you want?
+
+
+
+<blockquote>
+
+<h2>Re:MooseX::Declare</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-08-03T08:48:18</h3>
+<p>That would fall into the category of</p><p>"b) Use this SECOND heavy sugar layer on top of the FIRST sugar layer, on top of Class::MOP."</p>
+
+
+
+<h2>Re:MooseX::Declare</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-08-03T09:01:20</h3>
+<p>To further clarify based entirely on memory load overhead (using only require, so without any work done in import methods).</p><blockquote><div><p> <tt>Perl&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;3.1 meg<br>Perl + Moose&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 11.8 meg<br>Perl + MooseX::Declare&nbsp; &nbsp; 21.6 meg</tt></p></div> </blockquote>
+
+
+
+
+
+</blockquote>
+
+
+<h2>semantics vs syntax</h2>
+<h3><a href="/user/dagolden/">dagolden</a> on 2010-08-03T15:34:44</h3>
+<p>First, as a minor nit, you can declare multiple attributes at once, which is a little less repetitive.</p><blockquote><div><p> <tt>has [qw( this that )] =&gt; ( is&nbsp; =&gt; 'ro', isa =&gt;'Str' );</tt></p></div> </blockquote><p>As for "with", do you understand in what cases you need to put "with" after you declare your attributes?  Even if <b>you</b> do, does everyone on your team (now and in the future)?</p><p>The thing I've come to appreciate about Moose is that <b>it expects you to know what you're doing</b>.  E.g. you compose roles after attributes when roles require those attributes.</p><p>Using sugar to put the roles "on top" (visually) with delayed composition makes it easier for people to <i>not think</i> about what they're doing.  In many cases, laziness is great -- there are lots of things we'd rather not think about.  But roles are not subclasses.  They're not mix-ins.  They have different semantics.</p><p>It seems to me like the designers of Moose have aimed to make the declarative syntax match the semantics pretty closely.  <b>Moose isn't trying to be sugary -- it's trying to be transparent</b>.  As each declaration is processed, the class evolves as per the declaration.  That's a pretty good approach for keeping people out of trouble from lazy thinking about how Moose actually works.</p><p>To be clear, I do think the idea of a thin layer of sugar on top of Moose makes a lot of sense, particularly for things like autoclean and immutability, where you have more specific goals or constraints than Moose itself.</p><p>[As I understand it, the reason that Catalyst needs "extends" in a BEGIN block is because of the way that Catalyst uses Perl attributes on subroutines (which, despite the name, have nothing to do with Moose attributes).  That's a Catalyst design choice, not a Moose one.  Once the project committed to using subroutine attributes, they got all the warts that go with that.]</p><p>-- <a href="http://www.dagolden.com/" title="dagolden.com">dagolden</a dagolden.com> </p>
+
+
+
+<blockquote>
+
+<h2>Re:semantics vs syntax</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-08-04T01:11:13</h3>
+<p>The idea of encapsulation is the very reason that we have most APIs.</p><p>The idea that you don't NEED to know how something is implemented is always going to be better, as long as that lack of knowledge does not compromise the integrity of the systems or lead to perverted incentives.</p><p>What good is a car that requires an intimate understanding of the underlying engine and brakes and gearbox. It might be handy if you are an enthusiast of a racing car driver or pushing the limits in some other dimension.</p><p>What good is a toilet that requires you understand the sewerage system?</p><p>But for the masses, encapsulation and the hiding away of knowledge is the primary goal. Encapsulation creates specialisation, which creates productivity, which creates prosperity.</p>
+
+
+
+<blockquote>
+
+<h2>Re:semantics vs syntax</h2>
+<h3><a href="/user/dagolden/">dagolden</a> on 2010-08-04T01:36:50</h3>
+<p>It sounds like you're talking about encapsulation from the standpoint of users and APIs, which is different.  Or, rather, it's the same but applied to Moose itself rather than what someone is designing using Moose.</p><p>Unlike users, the designers of a system must understand the dynamics of the design.  That can't be safely abstracted away.  Role composition is a design activity that involves satisfying certain constraints and avoiding certain conflicts in order to get the desired behaviors.</p><p>My point was that the Moose API is very transparent about these design decisions and the temporal order in which they are carried out.  The Moose API could have provided visual sugar which obscured the temporal order, but it did not.  I think that's the right design decision for a very complex tool like Moose.</p><p>MooseX::Atom provides an alternate approach that appears to optimizes visual clarity over design clarity.  That's a valid choice if you prioritize the other way.</p><p>-- <a href="http://www.dagolden.com/" title="dagolden.com">dagolden</a dagolden.com> </p>
+
+
+
+<h2>Re:semantics vs syntax</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2010-08-11T05:17:05</h3>
+<p>The composition order of roles is not an implementation detail of Moose; it&#8217;s a design concern of the creator of the class into which the roles get composed. To ask for it to be abstracted away is like calling maths is badly designed because <code>3 + 5 * 2</code> yields different results based on the order in which you evaluate the terms.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>I regularly take advantage of the runtime has().</h2>
+<h3><a href="/user/elliot/">elliot</a> on 2010-08-03T15:37:24</h3>
+I've got a bunch of places where I generate attributes at module run time. This is useful when attributes have things in common.
+<p>
+Theoretically, Moose could use Hooks::EndOfScope like namespace::clean, but having a dividing line in the middle of a module can be useful.
+</p><p>
+If someone would get his act together, we'd have a non-dev release of Perl::Critic::Moose out that can check a lot of this stuff for you, e.g. that you don't use with() multiple times.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

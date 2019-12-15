@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of doubi: Callbacks done, weird 64bit libffi issue?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Callbacks done, weird 64bit libffi issue?</h1>
+<h2><a href="/user/doubi/">doubi</a> on 2010-07-16T04:30:10</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>The week has been frustrating, funny, yet ultimately fruitful.</p>
+<b>Research, enhancing C function signatures</b>
+<p>I had callbacks to Perl almost working at the start of the week, but couldn't seem to get variables updated 'in place'. The example function I was using to test callbacks, the C standard <code>qsort</code>, takes as its arguments a pointer to an array, the number of items in the array, the size in bytes of one item, and a reference to a function which will be passed two items from the array at a time and decide how to sort them. It returns void, and the original array ends up sorted.</p>
+<p>I had the arguments passing to Perl and returning all right, but couldn't see how to update the array itself, so I spent a long time reading the C source for Python's ctypes to try and figure where or how it did so. I learned a lot, about Python internals in general and about its ctypes implementation.</p>
+<p>Python's calling interface for ctypes is <em>much</em> more complex than what I've made so far, and is summarized <a href="http://svn.python.org/projects/external/ctypes/source/callproc.c">here</a> [0]. One of the things this allows is use of <code>paramflags</code> tuples when creating functions. These describe the parameters, allowing assigning names and default values to parameters of a C function, as well as marking them as 'output' parameters, so functions like <code>qsort</code> can be made to <em>return</em> the reordered array, which is much more intuitive behaviour, for Python or Perl.</p>
+<p>Despite reading for a few days I couldn't quite figure the answer to how arguments were updated in place. I was about to start a root-and-branch reworking of Ctypes::_call to match the Python equivalent and hope the answer became apparent in the process. Before doing so though, I went back and tinkered with my own callbacks work a bit more, and got it working! Working, that is, until trying to destroy a Ctypes::Callback object.</p>
+<b>64bit oddness</b>
+<p>All tests in callbacks.t were passing, but <code>make test</code> was still reporting a FAIL, resulting in a failure of <code>ffi_closure_free</code>. For a while I thought the callback data object had been corrupted somehow between being created and DESTROY being called, but going back to the creation of the closure, I noticed some funky weirdness:</p>
+<pre>
+457         if((status = ffi_prep_cif
+(gdb)
+466         if((status = ffi_prep_closure_loc
+(gdb) p *cb_data->cif
+$5 = {abi = FFI_SYSV, nargs = 2, arg_types = 0xb18df0, 
+    rtype = 0x7ffff695f490, bytes = 0, flags = 10}
+(gdb) p *closure
+$6 = {tramp = '\000' <repeats 12 times>, cif = 0x0, fun = 0, user_data = 0x0}
+(gdb) n
+473         cb_data->sig = sig;
+(gdb) p *closure
+$7 = {tramp = "I\273\036\362\225\366\377\177\000\000I\272\020",
+    cif = 0xe3ff49f800007fff, fun = 0xb18dc0, user_data = 0x7ffff6b631d2}
+(gdb) p cb_data->cif
+$8 = (ffi_cif *) 0xb18dc0
+(gdb) p *closure->cif
+Cannot access memory at address 0xe3ff49f800007fff
+(gdb) 
+</pre>
+<br /><p>Hm. A little later while stepping through <a href="http://github.com/atgreen/libffi/blob/master/src/x86/ffi64.c#L493">ffi_prep_closure_loc</a> [1], I noticed this line:</p>
+<pre>511       tramp[11] = 0xe3ff;                   /* jmp *%r11    */</pre><br />
+<p>Hm! Looks as if that data is being written over into the next field of the ffi_closure struct, the pointer to ffi_cif. tramp is defined as <code>char tramp[FFI_TRAMPOLINE_SIZE]</code> in ffi.h. From that, the relevant part of ffitarget.h would seem to be:</p>
+<pre>#if defined (X86_64) || (defined (__x86_64__) && defined (X86_DARWIN))
+#define FFI_TRAMPOLINE_SIZE 24
+#define FFI_NATIVE_RAW_API 0
+#else
+#ifdef X86_WIN32
+#define FFI_TRAMPOLINE_SIZE 13
+#else
+#ifdef X86_WIN64
+#define FFI_TRAMPOLINE_SIZE 29
+#define FFI_NATIVE_RAW_API 0
+#define FFI_NO_RAW_API 1
+#else
+#define FFI_TRAMPOLINE_SIZE 10
+#endif
+...</pre><br />
+<p>I was developing under 64bit Linux. It's clear that for some reason the ffi_closure struct was formed with a trampoline size of 13, despite that looking at the above I'd have thought it should have been 24. But regardless, writing to tramp[11] should have been ok, right? The only other clue I could find was further up <code>ffi_prep_closure_loc</code>, where tramp is defined as a pointer to unsigned short (2 bytes) whereas the tramp field of the ffi_closure object is an array of 1 byte chars. I don't know enough about how libffi works to guess if this is an oversight - probably not, as changing it to char results in an Illegal Instruction when <code>qsort</code> calls the closure.</p>
+<b>You can haz Callbacks</b>
+<p>In any case, the issue doesn't arise on 32bit Linux or WinXP, so I shall enquire on the libffi mailing list and meanwhile get on with my life (of code). As you can see in the <a href="http://gitorious.org/perl-ctypes/perl-ctypes/blobs/callbacks/t/callbacks.t">callbacks test script</a> [2], you can now make a callback like this:</p>
+<pre>my $cb = Ctypes::Callback->new( \&cb_func, 'i', 'ii' );</pre><br />
+<p>and using it goes something like this:</p>
+<pre>$qsort->(\$arg, $#array+1, Ctypes::sizeof('i'), $cb->ptr);</pre><br />
+<p>Note the reference to $arg in this example. If you don't want $arg to be changed, use Perl's regular pass-by-value operation.</p>
+<p>Having got a better understanding of what <code>paramflags</code> provide and how they work, I definitely want to add their functionality. In implementing the next item on the agenda (Type objects) I'll have to revamp a lot of the API anyway and have the specification of argument types done via lists rather than strings (to allow saying 'i' or 'c_int'), so it'll be worth looking at whether I shouldn't incorporate the paramflags thing while I'm working on that. Although maybe that'd be a bit much to do all at once.</p>
+<p>Can't wait to get on to Array objects. They might be a bit tricky, with having to keep track of which sub-objects belong to which array and maybe sharing the same memory and such (depending on what the details of the Py implementation are), but it'll be really cool not to have to pack / unpack arrays by hand anymore.</p>
+<ol>
+<li>Function objects (Done)</li><li>Library objects (Done)</li><li>Callbacks (Done)</li><li>Type objects</li><li>Pointers (check they work)</li><li>Structs / unions</li><li>paramflags</li><li>Constants</li><li>Special library defaults for Strawberry Perl (request from kthakore / SDL)</li><li>Thread safety</li><li>Header inspection</li><li>Setup scripts (auto-generation of wrapper modules from headers)</li>
+</ol>
+<br /><br />
+[0] <a href="http://svn.python.org/projects/external/ctypes/source/callproc.c">http://svn.python.org/projects/external/ctypes/source/callproc.c</a><br />
+[1] <a href="http://github.com/atgreen/libffi/blob/master/src/x86/ffi64.c#L493">http://github.com/atgreen/libffi/blob/master/src/x86/ffi64.c#L493</a><br />
+[2] <a href="http://gitorious.org/perl-ctypes/perl-ctypes/blobs/callbacks/t/callbacks.t">http://gitorious.org/perl-ctypes/perl-ctypes/blobs/callbacks/t/callbacks.t</a></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

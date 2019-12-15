@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jdavidb: Suggestions for merlyn's mirror CPAN program</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Suggestions for merlyn's mirror CPAN program</h1>
+<h2><a href="/user/jdavidb/">jdavidb</a> on 2002-10-16T16:27:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've been running my CPAN.pm shell sessions with a file:// URL for awhile now, thanks to merlyn's recent CPAN mirror program (which pulls the bare minimum to create a usable CPAN repository: only the most recent modules).  I noticed today though that CPAN.pm is still going to my previous first choice repository to download and compare checksums.</p>
+
+<p>So, I added the following:</p>
+<ul>
+<li>Declare an %authors hash just before the while gzreadline loop</li>
+<li>After calling my_mirror on the module distribution file, get just the directory name with dirname, and add it to the hash as a key</li>
+<li>For each key in the hash, call mirror (not my_mirror) on "authors/id/$key/CHECKSUM"</li>
+</ul>
+
+<p>Here's the actual patch, but you might prefer just the description:</p>
+<pre>
+--- mirrorcpan.perl.old	2002-10-16 11:03:32.000000000 -0500
++++ mirrorcpan.perl	2002-10-16 11:19:58.000000000 -0500
+@@ -47,6 +47,7 @@
+ +"rb")
+   or die "Cannot open details: $gzerrno";
+ my $state = 1;
++my %authors;
+ while ($gz->gzreadline($_) > 0) {
+   if ($state == 1) {        # in header
+     $state = 2 unless /\S/;
+@@ -59,6 +60,18 @@
+ 
+   my ($module, $version, $path) = split;
+   my_mirror("authors/id/$path");
++  my $authordir = dirname $path;
++  $authors{$authordir} = 1;
++}
++
++foreach my $authordir (keys %authors) {
++  my $path = "authors/id/$authordir/CHECKSUMS";
++  my $source = URI->new_abs($path, $REMOTE)->as_string;
++  my $dest = catfile($LOCAL, $path);
++  mirror($source, $dest);
++  # we use mirror instead of my_mirror because my_mirror presumes a
++  # file is up to date if it exists, but CHECKSUMS will change
++  # contents but not names
+ }
+ 
+ ## finally, clean the files we didn't stick there
+</pre>
+
+<p>This is being tested even as I speak.  It may not work for you.  It may not work for me.  It may only work the first time I run it. :)</p>
+
+<p><b>update</b>: Actually I screwed up and tested a version that called my_mirror instead of mirror.  Had a misunderstanding in the call semantics of my_mirror that made the version above not work (fixed).  Of course, now you're making connections to check each CHECKSUMS file to see if it changed, which is pretty lame.  Maybe someone can come up with a better idea.</p>
+
+<p>Question: why are the my_mirror and clean_unmirrored subroutines wrapped in a BEGIN block?  I understand why they are in a block, but why does it have to be compiled first?</p></p>
+
+
+<hr/>
+
+
+
+<h2>comment from the author</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2002-10-16T19:27:38</h3>
+<blockquote><div> <i>
+ I noticed today though that CPAN.pm is still going to my previous first choice repository to download and compare checksums.
+</i> </div></blockquote>
+Are you <i>sure</i> you have the <a href="http://www.stonehenge.com/merlyn/LinuxMag/col42.listing.txt" title="stonehenge.com">latest version</a stonehenge.com>?  There's code specifically in there to download the CHECKSUMS file to prevent exactly such an action:<blockquote><div> <tt>&nbsp; &nbsp; if ($path =~ m{^authors/id}) { # maybe fetch CHECKSUMS<br>&nbsp; &nbsp; &nbsp; my $checksum_path =<br>&nbsp; &nbsp; &nbsp; &nbsp; URI-&gt;new_abs("CHECKSUMS", $remote_uri)-&gt;rel($REMOTE);<br>&nbsp; &nbsp; &nbsp; if ($path ne $checksum_path) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my_mirror($checksum_path, $checksum_might_be_up_to_date);<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; }</tt> </div></blockquote>I added this code because I noticed the same behavior you reported when I was offline (at 30,000 feet, actually {grin}). I do recall some preliminary version of minicpan being circulated about... maybe you picked that up from somewhere.
+
+
+
+<h2>Yes, you must have the old version</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2002-10-16T19:40:13</h3>
+I just noticed that the
+<a href="http://www.perlmonks.org/index.pl?node_id=188527" title="perlmonks.org">Perlmonks</a perlmonks.org> version is the buggy preliminary version.  Please use <a href="http://www.stonehenge.com/merlyn/LinuxMag/col42.html" title="stonehenge.com">the final version</a stonehenge.com> instead.
+
+
+
+<blockquote>
+
+<h2>Re:Yes, you must have the old version</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-10-16T20:03:54</h3>
+<p>Thank you!  Turns out my solution didn't work, anyway.  It went downloaded all the CHECKSUMS files<nobr> <wbr></nobr>... then deleted them!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Yes, you must have the old version</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2002-10-16T20:37:28</h3>
+<blockquote><div> <i>
+It went downloaded all the CHECKSUMS files<nobr> <wbr></nobr>... then deleted them!
+</i> </div></blockquote>
+Heh!  That's exactly what the very next version did for me.
+<p>
+At least you were on the right track.  Another 42 minutes or so, and you'd have ended up with my final version.
+</p><p>
+The key was not running <tt>mirror</tt> needlessly.  I ended up with a multi-stage algorithm, described in the accompanying text.  The result is that I don't try to mirror any CHECKSUMS for which I already have a local version <b>and</b> none of its associated files have been updated either, and that I don't ever mirror the CHECKSUMS more than once in a session.  That keeps the fetches to a minimum.  It's really rather slick in operation.  I can update my mini-cpan over a 28.8 connection from a hotel with just a minute or two of overhead, plus the download times of the actual <tt>tar.gz</tt> files.  (Now if only <a href="/user/brian_d_foy/" title="perl.org">some people</a perl.org> would avoid putting entire MP3s in their test suite... {grin}.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Yes, you must have the old version</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2002-10-16T21:21:13</h3>
+There isn't anyway to avoid putting an entire MP3 in Mac::iTunes because there's no way to put half of one there.<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Yes, you must have the old version</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2002-10-16T21:38:28</h3>
+It could be a *tiny* MP3 though.  10 seconds of silence or something. {grin}
+
+
+
+<blockquote>
+
+<h2>Re:Yes, you must have the old version</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2002-10-16T22:39:10</h3>
+It could be smaller, but it can't be silence.  Besides not adequately testing things, I don't have permission to use silence. John Cage's lawyers recently settled a case over a one-minute track of silence.
+
+
+
+<blockquote>
+
+<h2>Re:Yes, you must have the old version</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-10-17T13:23:40</h3>
+<p>Maybe you can come up with a GPL-ed alternative to silence.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

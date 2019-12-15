@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jarich: File::Temp, binary mode and text files</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>File::Temp, binary mode and text files</h1>
+<h2><a href="/user/jarich/">jarich</a> on 2008-02-26T05:50:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+In my day job, amongst other things, I write training materials and run courses for Perl Training Australia.  We've only recently added File::Temp to our course notes, and since we allow our attendees to use either our portable training server (Linux) or their desktop (often Windows) we've hit a problem.
+</p>
+<p>
+File::Temp's tempfile isn't portable for text files.  This is because it opens them using sysopen and the O_BINARY flag (where available).  This means that newlines printed to the file aren't converted into the operating system's preferred end of line character(s).
+</p>
+<p>
+This shouldn't have been a surprise, it's in the documentation:
+</p>
+<blockquote>
+<p><b>BINMODE</b></p>
+<p>
+The file returned by File::Temp will have been opened in binary mode if such a mode is available. If that is not correct, use the binmode() 	function to change the mode of the filehandle.
+</p>
+<p>
+Note that you can modify the encoding of a file opened by File::Temp also by using binmode().
+</p>
+</blockquote>
+<p>
+However the binmode documentation rightly points out:
+</p>
+<blockquote>
+<p>
+For the sake of portability it is a good idea to always use it when appropriate, and to never use it when it isn't appropriate.
+</p>
+</blockquote>
+<p>
+I know I can tell the Windows students to write:
+</p>
+<pre>
+binmode($tmp_fh, ":crlf" );
+</pre>
+<p>
+after their call to tempfile(), but it's still not going to be portable.  Creating a tempfile doesn't look like it should be a special case, and in my experience, it's usually safe to tell (fairly
+computer and operating system savvy) students that if it looks portable, it should be.
+</p>
+<p>
+Is there a layer I can give to binmode to tell it to go back to treating the file as a text file with all the special magic regarding newlines that should happen?  I essentially want a: <code>binmode($tmp_fh, ":default");</code>
+</p>
+<p>
+I can always write File::Temp::Text which doesn't use O_BINARY but that's another, non-standard, module for the students to have to install.
+</p>
+<p>
+I originally brought this question up on <a href="http://www.perlmonks.org/?node_id=670208">PerlMonks</a>
+but I'm still hoping for a magic answer that lets me teach students a portable way of handling temporary text files where the file name is available.  (Yes, I know about open with an undef filehandle).
+</p>
+<p>
+Any hints?
+</p>
+<p>Thanks, jarich</p></p>
+
+
+<hr/>
+
+
+
+<h2>PerlIO::eol</h2>
+<h3><a href="/user/phillup/">phillup</a> on 2008-02-26T17:43:01</h3>
+<p><div class="quote">Is there a layer I can give to binmode to tell it to go back to treating the file as a text file with all the special magic regarding newlines that should happen? I essentially want a: binmode($tmp_fh, ":default");</div> Could you use <a href="http://search.cpan.org/user/audreyt/PerlIO-eol-0.14/eol.pm" title="cpan.org">PerlIO::eol</a cpan.org>?
+
+
+
+<h2>Do you need portable code?  Or portable tempfiles?</h2>
+<h3><a href="/user/dagolden/">dagolden</a> on 2008-02-26T22:21:34</h3>
+I'm not sure I understand the concern as long as the temporary files are actually temporary -- meaning that they aren't going to persist past the program or be transferred to another machine.  So what if the newlines are LF instead of CRLF?  As long as Perl treats it all as "\n" when reading and writing, isn't that good enough?<br><br>-- dagolden<br>
+
+
+
+<blockquote>
+
+<h2>Re:Do you need portable code? Or portable tempfile</h2>
+<h3><a href="/user/jarich/">jarich</a> on 2008-02-26T22:41:39</h3>
+<p>
+One of my common uses of temporary files is to allow me to make changes to a whole file, know that that all succeeded and then replace said file.  For example, to reverse each line in a file I might write:
+</p> <p><blockquote> <div><tt># Reverses each line in a file<br>use File::Temp qw(tempfile);<br>use File::Copy qw(move);<br>use Fatal qw(open close move);<br> <br># Open files<br>my $filename = shift or die "Usage: $0 filename";<br>open(my $in, "&lt;", $filename);<br>my ($tmp_fh, $tmp_name) = tempfile();<br> <br># Read line in, remove newline, reverse and print it<br>while(&lt;$in&gt;) {<br>&nbsp; &nbsp; &nbsp; &nbsp; chomp;<br>&nbsp; &nbsp; &nbsp; &nbsp; print {$tmp_fh} scalar(reverse($_)), "\n";<br>}<br> <br># Close files.&nbsp; If no errors here, then everything succeeded!<br>close $in;<br>close $tmp_fh;<br> <br># Move temp-file over original<br>move($tmp_name, $filename);</tt></div> </blockquote>  <p>
+This is a case of using a temporary file - temporarily - but wanting to keep the result permanently.  Sure it's a contrived example (one of the exercises from our class in fact), but it should show why not treating \n correctly becomes a problem in the end result.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

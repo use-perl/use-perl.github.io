@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jozef: Scope::Guard for db rollback</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Scope::Guard for db rollback</h1>
+<h2><a href="/user/jozef/">jozef</a> on 2008-07-17T10:15:51</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>For the first time I used
+<a href="http://search.cpan.org/perldoc?Scope::Guard">Scope::Guard</a>
+and I like the idea.
+I used it to always issue database rollback if something goes wrong, some
+exception, in DBIx::Class ResultSet function. Then when calling this function
+I can wrap it in <code>eval {};</code> block and don't need to care about
+the begin/commit/rollback stuff.<br/><br/><pre>
+sub do_some_database_stuff : ResultSet {
+    my $rs   = shift;
+    
+    # begin transaction
+    $rs->result_source->schema->txn_begin;<br/><br/>    # trigger rollback if we leave the function unexpecticly
+    my $make_sure_we_rollback = Scope::Guard->new(sub{
+        local $@;    # we don't want txn_rollback to mess up the $EVAL_ERROR
+        $rs->result_source->schema->txn_rollback;
+    });<br/><br/>    #
+    # insert, deletes, updates ...
+    #<br/><br/>    # commit transaction when all passed
+    $rs->result_source->schema->txn_commit;
+    $make_sure_we_rollback->dismiss;
+    
+    return $some_created_rows;
+}
+</pre>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Manually doing local $@</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2008-07-17T12:26:33</h3>
+<p>I think that any module doing things similar to Scope::Guard (Perl::AtEndOfScope, etc) that doesn't deal with, or even mentions, the risks with eval/die isn't really doing its job.</p><p>I say this because it's not really obvious that there might be a problem, but the consequences when things go wrong are subtle and dire (silenced exceptions go untrapped).</p><p>Dealing with exceptions being thrown is simply a complication inherent to the problem being solved.</p><p>(btw Perl::AtEndOfScope does this correctly now)</p>
+
+
+
+<h2>How many times has this been written?</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2008-07-18T00:25:54</h3>
+<p>I wrote ReleaseAction years ago.  ReleaseAction was not the first - Abigail wrote End well before I wrote that.  And now I've just learned of 2 more modules that do the same thing!</p>
+
+
+
+<blockquote>
+
+<h2>Re:How many times has this been written?</h2>
+<h3><a href="/user/jozef/">jozef</a> on 2008-07-18T07:50:56</h3>
+<p>Well there are just too many modules in CPAN... The Scope::Guard was shown in "Perl Hacks: Tips &amp; Tools for Programming, Debugging, and Surviving" book as hack #88.</p><p>In the "See Also" of Scope::Guard there are even more of "those kinds" - Hook::LexWrap, Hook::Scope, Sub::ScopeFinalizer, Object::Destroyer<nobr> <wbr></nobr>...</p><p>Which one is the "best"?</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

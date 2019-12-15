@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Sub::Signatures stumper</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Sub::Signatures stumper</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2004-12-12T23:40:28</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I wound up with a serious problem using <a href="http://search.cpan.org/user/ovid/Sub-Signatures-0.11/">multi-method dispatch and subroutine signatures</a>.  What happens when I hit the following?</p>
+
+<pre>use Sub::Signatures 'strict';
+
+sub foo(SomeClass $bar) {
+    $bar->bang;
+}
+
+sub foo(OtherClass $bar) {
+    $bar->bang;
+}</pre>
+
+<p>If <tt>SomeClass</tt> and <tt>OtherClass</tt> are related to one another via inheritance, I have no way of guaranteeing which is related to which at compile time and this complicates dispatching.  In Java, this is not a problem because class relationships are set at compile time and cannot change.  Thus, this works:</p>
+
+<pre>public String foo(Klonk some_var) {
+    some_var.wibble();
+}
+
+public String foo(SubclassOfKlonk some_var) {
+    some_var.wibble();
+}</pre>
+
+<p>If I call <tt>object.foo(anotherObject);</tt>, the method dispatch is unambiguous.  A bit of research reveals that <a href="http://search.cpan.org/user/dconway/Class-Multimethods-1.70/lib/Class/Multimethods.pod">Class::Multimethods</a> is doing quite a bit of horrifyingly slow work to resolve this issue at runtime and frankly, I may have no choice but to follow along.  I've considered, however, a "mixed" mode where one can do this:</p>
+
+<pre>use Sub::Signatures 'mixed';
+
+sub foo($bar, $baz, ARRAY $thing) {
+    ...
+}
+
+sub foo($bar, $baz, Some::Class $thing) {
+    ...
+}</pre>
+
+<p>In this variant, types are ignored unless specified.  Then they're required to be an exact match for the variable at hand.  Inheritance will not matter.  This allows Ruby style "duck typing" for most variables, dispatching on the number of arguments and optional type checking when needed.  It also allows this to be conceptually confusing.  I'll have to think about this more, but this is discouraging.  I have several hours of work today that are now sitting idly on my hard drive.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2004-12-13T12:12:54</h3>
+<p>Time for a probably na&#239;ve question&hellip; can't you simply do something like the following?</p> <blockquote><div> <tt>sub decide_type {<br>&nbsp; &nbsp; my( $thing, @possible_type ) = @_;<br> <br>&nbsp; &nbsp; my %specifity = map {<br>&nbsp; &nbsp; &nbsp; &nbsp; $_ =&gt; scalar grep isa( $foo, $_ ), @possible_type<br>&nbsp; &nbsp; } @possible_type;<br> <br>&nbsp; &nbsp; return List::Util::reduce {<br>&nbsp; &nbsp; &nbsp; &nbsp; $specifity{ $a } &gt;&nbsp; $specifity{ $b } ? $a : $b<br>&nbsp; &nbsp; } keys %specifity;<br>}<br> <br>decide_type $foo, qw( Klonk SubclassOfKlonk );</tt> </div></blockquote> <p>I'm not sure this'd fall under &ldquo;horrifyingly slow&rdquo;?</p>
+
+<p>In any case you'll still have trouble on your hands with multiple inheritance&hellip;</p> <blockquote><div> <tt>&nbsp; A&nbsp; &nbsp;B<br>&nbsp; &nbsp;\<nobr> <wbr></nobr>/<br>&nbsp; &nbsp; C</tt> </div></blockquote> <p>What happens if I declare two functions whose signatures only differ in that one of the parameters must be an instance of class A for one of them and B for the other &mdash; and then pass in an instance of C?</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2004-12-13T16:09:49</h3>
+<p>That's absolutely a na&iuml;ve question.  Of course, I asked the same question.  We're both na&iuml;ve.  I assume the <tt>isa()</tt> function you have returns how many steps away the type is?</p>
+
+<p>Your solution looks reasonable.  I think it can work.  Now I have to think about the caching of signatures types and seeing if I can implement that.  I don't have much free time during the week, so perhaps next weekend.</p>
+
+<blockquote><div>What happens if I declare two functions whose signatures only differ in that one of the parameters must be an instance of class A for one of them and B for the other &#8212; and then pass in an instance of C?</div></blockquote>
+
+<p> <tt>Class::MultiMethods</tt> will <tt>croak()</tt> if there is an ambiguous dispatch and that's probably the route I will take.  Reading through <a href="http://search.cpan.org/user/dconway/Class-Multimethods-1.70/lib/Class/Multimethods.pod#Resolving_ambiguities_and_non-dispatchable_calls" title="cpan.org">resolving ambiguities</a cpan.org> in the CMM docs sheds a lot of light on this problem.  Somehow, it's not surprising that a former comp-sci professor has spent more time on this problem than I have.</p>
+
+<p>Actually, I had thought about reimplementing my code by writing out CMM instead of my personal parsing routine, but that would require parsing Perl to find the trailing paren (PPI might be able to handle this, but the docs aren't ready<nobr> <wbr></nobr>... yet.)  Instead, I'm going to keep heading in the direction that I am currently going and then work like mad to profile the code after it's stable.  So far it seem reasonably fast, but I do need to benchmark it against comparable code.</p>
+
+
+
+<blockquote>
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2004-12-13T17:30:27</h3>
+<p>The <code>isa()</code> function there is just <code>UNIVERSAL::isa()</code>. That's why I'm wondering whether this approach would be too slow &mdash; were it some custom <code>@ISA</code> walking routine, there'd be no question in the first place. That was the entire point to the code I wrote &mdash; trying to find the answer to the question &ldquo;which thing out of a hierarchy of possibilities do I have?&rdquo; <em>without</em> walking the inheritance graph manually. I'm pretty sure that invoking <code>UNIVERSAL::isa()</code> ten times, and subsequently implicitly having the Perl core traverse the tree ten times, is still much  faster than traversing it a single time explicitly. Of course, you could always climb down to the metal and write an <code>@ISA</code> walker in XS&hellip;</p>
+
+<p>I like the idea of going the C::MM route instead of doing your own thing. Although that's probably not the route I'd take in the short term either. Once you do go there, it might in fact be worth thinking about redoing the slow parts of C::MM in an optional XS package.</p>
+
+<p>I don't really know&hellip;</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2004-12-13T17:42:13</h3>
+<p>Actually this can be possibly be optimized with a more explicit loop. Once you know that <code>SubclassOfKlonk</code> has a higher specifity than <code>Klonk</code>, you can discard it.</p>
+
+<p>Obviously that requires more code. Deciding whether the optimization is applicable might be slower than just going about it the brute's way.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

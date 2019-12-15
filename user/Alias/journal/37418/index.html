@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: A cache is a leak is a cache</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>A cache is a leak is a cache</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2008-09-12T06:56:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><i>Before it sounds like I'm just bashing Template Toolkit, let me first congratulate Andy on reaching a result of 100% PASS (minus one FAIL from a weird compiler on Irix) on CPAN Testers. I've been hugely impressed with the structural clean up that has taken place over the last six months.</i><br/><br/><hr><br/><br/>On our current 8-machine web cluster our primary limitation has traditionally been the memory usage of the application. In fact, we've been forced in the past to requisition additional web front ends simply because the front-ends are hitting their memory limits (our load and peaks are EXTREMELY regular and predictable, so we can often run close to our capacity limit relatively safely).<br/><br/>Much of this comes down to the problem of simply doing too much loading after the Apache children have forked off (we run at around 30 children per host). One of the things I have been doing in fits and starts since I started working here is trying to identify these items and shifting them before the fork.<br/><br/>We've already shifted a number of overlooked modules into the Apache startup. Most of them were missed because some other module is attempting to behave optimally in the single-process context and delay loading code it doesn't need.<br/><br/>I'd argue that any modern web-related module that don't realise that there is two completely different memory-load contexts they need to care about was out of date 5 years ago.<br/><br/>If you own a module where this problem might apply, you should take a look at <a href="http://search.cpan.org/perldoc?prefork">prefork</a> to make your modules more friendly towards mod_perl and other forking environments.<br/><br/>We've also discovered half a gig per host by shifting a number of configuration-type database requests into the startup process, and refactoring the database-tied objects to be smart enough to know to disconnect and clean up their DBI connections and reconnect them after the fork (DBI and Oracle don't survive forking).<br/><br/>Of course, THAT fix uncovered the reason why we were loading 20meg of data per host after the fork in the first place. A horrible segfaulty bug in RHEL4 something to do with a custom RedHat patch. THAT spawned off a whole "time to bite the bullet and upgrade to RHEL5" process...<br/><br/>After a conversation with Ingy in Seattle on my recent tour, my next approach has been to re-examine Template Toolkit behaviour in our system. Originally I had just planned to see if I could pre-cache Template objects before the fork, to remove the cost of loading the compiled templates from disk.<br/><br/>What I unexpectedly uncovered was a giant memory leak hiding in plain sight in the form of the default <a href="http://search.cpan.org/perldoc?Template::Provider">Template::Provider</a> cache.<br/><br/>Template Toolkit provides two levels of caching out of the box.<br/><br/>To save the hugely expensive parsing and compile costs there's the awesome disk compile cache, where the template is stored in the form of the code that constructs the appropriate Template::Document object. Since it needs disk space and so can't reliably auto-configure, this is disabled by default.<br/><br/>In addition to this, there's a more dangerous enabled-by-default infinite-by-default run-time memory cache for templates. In other words, by default the memory usage of a Template Toolkit application will grow over time as it uses different templates, bound only by the total size of your template library.<br/><br/>And this is where things go can a bit pear shaped. Built in memory-cache support is just fine, but the whole "infinite-by-default" makes the feature a bit sinister, and "enabled-by-default" means that it's both sinister <b>and</b> sneaky. If you use Template.pm as a typical user, you'll likely never read through the docs for Template::Provider, and if you happen to miss the impact of the short phrase "(default: undef - cache all)" then there's a good chance your mod_perl application is probably wasting a bunch of memory it doesn't need to be.<br/><br/>Built in and enabled-by-default caches like this a memory leak waiting to happen. If you have a lot of templates to load (like we do), on top of the Apache child overhead multiplying it by an order of magnitude or more (like us) then you are going to blow immense amounts of memory before you notice.<br/><br/>Because it's enabled by default, it's also very easy for it to have been enabled in inappropriate places accidentally (or on purpose) while the application was small and the cache has little impact, only exploding long after the person that wrote it in the first place has gone.<br/><br/>It's tricky for mere mortals to maintain performance-impacting features that need to be hand-tuned and have zero lines of code to have turned on.<br/><br/>A similar example happened last year with one of the email address parsing modules on CPAN. The complexity of email addresses meant that the parsing code was (necesarily) slow, and so an (always-enabled infinite-size) cache was added to speed up the parser.<br/><br/>The system didn't blow up for us until we introduced simulated-spam testing, throwing tons of random junk or semi-junk address data at the email address parser (via throwing mail at a higher-level layer). In the face of huge volumes of semi-random or highly diverse input, the cache magically transformed into a memory leak, growing without limit until the process was killed by the operating system (this has since been fixed on CPAN, the module now requires the cache to be explicitly turned on).<br/><br/>To deal with the Template Toolkit "leak", since I want a different style of caching to the built-in cache anyways, I've created <a href="http://search.cpan.org/perldoc?Template::Provider::Preload">Template::Provider::Preload</a>.<br/><br/>This is an alternate provider that adds a second specific pre-fork cache to the provider, and a param&method that will scan your INCLUDE_PATH and load all of your templates into the appropriate cache.<br/><br/>I'm still polishing it, but my goal is to allow the implementation of a range of different caching strategies, such as loading all your common templates but not the rare ones or allowing for full caching without the need for a disk-based compile cache in high-security servers.<br/><br/>At some point, I'd also like to allow for some pre-rolled common strategies that expand to a full set of cache param settings, like "minimum cpu" or "minimum memory".<br/><br/>To use the preloading provider, you do something like the following...
+<code>
+my $template = Template->new(
+    # Your normal TT args
+    LOAD_TEMPLATES => [
+        Template::Provider::Preload->new(
+            PRECACHE     => 1,
+            PREFETCH     => '*.tt',
+            INCLUDE_PATH => 'my/templates',
+            COMPILE_DIR  => 'my/cache',
+        ); 
+    ],
+);
+</code>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Not quite following</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2008-09-14T00:01:29</h3>
+It's already a common practice to compile your templates before forking, but having a nice modulized version of that is handy.  I'm not seeing the point of the separate cache though.  Does it actually have any effect other than skipping stat calls, which you could do with STAT_TTL?  I suppose it would allow to "pin" your favorite templates in memory while setting a small cache size for everything else, but the LRU cache should do the right thing for most people.
+
+
+
+<blockquote>
+
+<h2>Re:Not quite following</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-09-15T04:34:35</h3>
+<p>Removing the need for STAT_TTL is a minor convenience.</p><p>But a more interesting improvement is in two main scenarios.</p><p>Firstly, when you don't want to load all your templates, but you still don't want to allow for infinite cache growth.</p><p>Anything loaded before the fork should NEVER be destroyed, as the mere recycling of that memory becomes the USE (and bloat) of that memory. Better to isolate the "free" templates from the rest of the caching logic.</p><p>And secondly, it's a much simpler cache (just a hash) compared to the built in one, which is a linked list with stat times, and a hash index over the top.</p><p>That cache routinely re-orders the linked list each time it retrieves a template, so while both mechanism don't memory bloat as a result of the Template::Document objects themselves, the default cache will continuously cycle the template structure, which will result in memory bloat for those memory structures.</p><p>So the time for Template::Provider-&gt;fetch to run, and the memory use it results in, is reduced dramatically. We go from multiple layers of checks, multiple method calls, a call to get the system time, and linked list reordering, to a single hash call.</p><p>It may not save gigabytes of RAM and big percentages of CPU, but it does result in the operation of fetching a Template::Document being made about as efficient as it is possible to be. It completely recovers all potential resource savings available from caching.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

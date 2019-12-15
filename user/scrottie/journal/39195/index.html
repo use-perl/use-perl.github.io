@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of scrottie: Playing with Tektronix emulation for vector graphics!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Playing with Tektronix emulation for vector graphics!</h1>
+<h2><a href="/user/scrottie/">scrottie</a> on 2009-06-30T18:44:02</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This is one of those, hmm, seems possible, wonder why no one has done it things.<br/><br/>The stock xterm that comes with X has emulation built in for the old Tektronix 4014 graphics terminal in addition to DEC220 emulation.<br/><br/>The Tektronix 4014 is a Vectrex like thing where lines are drawn directly onto the screen rather than being broken up into pixels and the entire surface of the display scanned.  It also used a "storage tube" strategy where the beam detects what's already lit and re-energizes it, apparently mixing scanning with direct vector drawing.  But that's beside the point of this.  I've actually seen some of these beasts at UVA's Unix lab.  The interesting bit is they draw vector graphics, xterm emulates them, and this works over bloody telnet.<br/><br/>http://vt100.net/tektronix/4014-um/4014-um.pdf is the best resource I could find -- the original manual.  Other example programs sucked.  But even that manual was tricky.<br/><br/><pre>
+print unpack "u", q{M&UL_,SAH&PP=?U]O7QUW7W=;'7];;UL=>U=_4QU_4V]3'7M7<U,=?TMO1QU_22V]/'7-'<T\=?T-O0QUO0V]`};
+</pre><br/><br/>... my new JAPH.  Requires a real xterm (probably) without GNU screen in the way.  That was the 3rd thing I wrote.<br/><br/><pre>
+$|=1;print chr(27),"[?38h",chr(29);while(1){print chr(32+rand 32),chr(96+rand 32),chr(32+rand 32),chr(64+rand 32);}
+</pre><br/><br/>... demo program, shortened for Twitter.  That was the 2nd thing I wrote.<br/><br/><pre>
+use strict;
+use warnings;
+use IO::Handle;
+STDOUT->autoflush(1);
+print chr(27), "[?38h"; sleep 1;  # TEK mode from vt-whatever mode; this is an xterm/DEC escape sequence, not a TEK one
+print chr(27), chr(12); sleep 1;  # clear screen<br/><br/>print chr(13+16);  # 13 plus some offset relating to shift+ctrl to get into graphics mode<br/><br/>while(1) {
+    print chr(32 + int rand 32), chr(96 + int rand 32), # the 5 high bits of Y+32, 5 low bits of Y + 96
+          chr(32 + int rand 32), chr(64 + int rand 32); # the 5 high bits of X+32, 5 low bits of X+64
+    sleep 1;
+}
+</pre><br/><br/>The first program in its final form, which is just a long version of the above.<br/><br/>The manual explained that to get into Tek graphics mode, push shift+control+M with the thing in loopback mode.  I have no idea what ASCII code a Tektronix terminal sends when you do that so that was a little useless and originally I misread the table as just being a control-M.  Through trial and error, I established it as being ord("^M")+16.  Some control codes are escape (chr(27)) plus another character; others are just a control character.  Tektronix terminals also have a character mode which itself has many options including up to 133 char display.  I haven't played with any of that yet except that it operates as a dumb terminal with an addressable cursor (movable cursor) when its not in graphics mode, and text and graphics can be mixed.<br/><br/>The while loop needs explanation.  To draw lines, four characters of certain ranges are sent.  The X and Y high bits<br/><br/>Send the Y high byte (ASCII value of 32-63 encoding the top 5 bits), the Y low byte (96-127 encoding the low 5 bits), the X high byte (32-63, again), then the X low byte (64-95).  I guess when it sees that X low byte, it actually draws the line.  It's possible to skip sending the high bits and only send the low bits in which case the high bits just stay zero.  The JAPH program does that.<br/><br/>There's no "okay, this is a line draw!" code or escape sequence between the line data; the line data just goes in place of ASCII and gets interpreted as points.  That three different character ranges are used to specify four different points is a bit tricky.  The X-high and Y-high ranges are one and the same and the value gets set twice.  X-low and Y-low are different ranges though.<br/><br/>When sending coordinates like this, it always draws a line from the last coordinate unless you just switched to graphics mode with a chr(29).  Of course you can switch into graphics mode while in graphics mode, so to reposition the beam and start drawing a new, unattached line, send chr(29) and then the four bytes encoding the coordinates.  Also, the coordinates are relative the top right of the screen.  Try to figure that one out.  While the X and Y values can encode up to 1024 positions, the Y resolution is only 768 (hey, completely standard resolution!) so it's possible to draw off of the top of the screen (cuz, you know, the coordinates are backwards and upsidedown).<br/><br/>Output and input do not happen at the same time, but there's an additional mode where the cursor becomes a crosshair and mouse clicks are sent with the mouse location are sent and can be polled.  The real 4014 didn't have a mouse but instead had two knobs, not unlike an Etch-o-sketch.  The text mode is of course an input mode.<br/><br/>What's next?  Hmm, do the sinus scroller I meant to do for YAPC for presentation software?  XTank clone that runs over telnet?  First person 3D GUI for the MUD with wireframe orcs and elves?<br/><br/>-scott</p>
+
+
+<hr/>
+
+
+
+<h2>gnuplot</h2>
+<h3><a href="/user/srezic/">srezic</a> on 2009-06-30T20:02:51</h3>
+<p>gnuplot also has support for the tek mode. Just do</p><p>$ gnuplot<br>set term tek40xx</p><p>Then use the "Switch to tek mode" menu item from the middle menu () and finally plot something:</p><p>plot sin(x)</p>
+
+
+
+<h2>Clock</h2>
+<h3><a href="/user/james2vegas/">james2vegas</a> on 2009-11-01T15:32:39</h3>
+First thing I did was convert the program at <a href="http://www.selectric.org/tek4010/" title="selectric.org">http://www.selectric.org/tek4010/</a selectric.org> into perl, outputting to stdout instead of the serial port.  I imagine the reason why very little uses the Tektronix emulation mode is the requirement to clear the screen to erase anything.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

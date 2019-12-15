@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of masak: Dreaming in mixins</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Dreaming in mixins</h1>
+<h2><a href="/user/masak/">masak</a> on 2010-07-04T01:28:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Working with pls (a next-gen project installer for the Perl 6 ecosystem), I had a few classes with code like this:</p>
+
+<pre>
+class POC::Tester does App::Pls::Tester {
+    method test($project --> Result) {
+        my $target-dir = "cache/$project<name>";
+        if "$target-dir/Makefile" !~~ :e {
+            return failure;
+        }
+        unless run-logged( relative-to($target-dir, "make test"),
+                           :step('test'), :$project ) {
+            return failure;
+        }
+
+        return success;
+    }
+}
+</pre>
+
+<p>(<code>success</code> and <code>failure</code> are <code>Result</code> enum values defined elsewhere. They felt like pleasant documentation, and when return type checking works, they'll even help catch errors!)</p>
+
+<p>Now, I wanted to add super-simple progress diagnostics to this method. I wanted an <code>announce-start-of('test', $project<name>);</code> at the start of the module, and either an <code>announce-end-of('test', success);</code> or an <code>announce-end-of('test', failure);</code>, depending on the success or failure of the method.</p>
+
+<p>I have a low threshold for boilerplate. After realizing that I'd have to manually add those calls in the beginning of the method, and before each <code>return</code> &#8212; and not only in this method, but in several others &#8212; I thought "man, I shouldn't have to tolerate this. This is Perl 6, it should be able to do better!"</p>
+
+<p>So I thought about what I really wanted to do. I wanted some sort of... method wrapper. Didn't really want a subclass, and a regular role wouldn't cut it (because class methods override same-named role methods).</p>
+
+<p>Then it struck me: <em>mixins</em>. Did those already work in Rakudo? Oh well, try it and see. So I created this role:</p>
+
+<pre>
+role POC::TestAnnouncer {
+    method test($project --> Result) {
+        announce-start-of('test', $project&lt;name&gt;);
+        my $result = callsame;
+        announce-end-of('test', $result);
+        return $result;
+    }
+}
+</pre>
+
+<p>And then, later:</p>
+
+<pre>
+POC::Tester.new() does POC::TestAnnouncer
+</pre>
+
+<p>And it worked! On the first attempt! jnthn++!</p>
+
+<p>(If you're wondering what in the above method that does the wrapping &#8212; it's the <code>callsame</code> call in the middle. It delegates back to the overridden method. Note that with this tactic, I get to write my <code>announce-start-of</code> and <code>announce-end-of</code> calls <em>exactly once</em>. I don't have to go hunting for all the various places in the original code where a <code>return</code> is made.)</p>
+
+<p>I guess this counts as using mixins to do Aspect-Oriented Programming. This way of working certainly makes the code less <a href='http://en.wikipedia.org/wiki/Aspect-oriented_programming#Motivation_and_basic_concepts'>scattered and tangled</a>.</p>
+
+<p>So, in <a href='http://github.com/masak/proto/blob/4396d9b6c6eca4c9a0d1e9da7ac90903c4ea528c/proof-of-concept'>this file</a>, I currently have a veritable curry of dependency injection, behavior-adding roles, lexical subs inside methods, AOP-esque mixins, and a <code>MAIN</code> sub. They mix together to create something really tasty. And it all runs, today, under Rakudo HEAD.</p>
+
+<p>As jnthn said earlier today, it's pretty cool that a script of 400 LoC, together with a 230-LoC module, make up a whole working installer. With so little code, it almost doesn't feel like coding.</p></p>
+
+
+<hr/>
+
+
+
+<h2>And with Moose in Perl 5</h2>
+<h3><a href="/user/frew/">frew</a> on 2010-07-04T17:15:14</h3>
+<tt>With Perl 5 that would look like either:<br><br>package POC::TestAnnouncer;<br><br>use Moose::Role;<br><br>before test =&gt; sub {<br>&nbsp; my $project = $_[1];<br>&nbsp; announce-start-of('test', $project{name});<br>};<br><br>after test =&gt; sub {<br>&nbsp; my $project = $_[1];<br>&nbsp; announce-end-of('test', $project{name});<br>};<br><br>And then there's the more powerful around:<br><br>package POC::TestAnnouncer;<br><br>use Moose::Role;<br><br>around test =&gt; sub {<br>&nbsp; my $fn = shift;<br>&nbsp; my $self = shift;<br>&nbsp; my $project = $_[0];<br>&nbsp; announce-start-of('test', $project{name});<br>&nbsp; my $ret = $self-&gt;$fn(@_);<br>&nbsp; announce-end-of('test', $project{name});<br>&nbsp; return $ret<br>};<br><br>The former is probably preferred because you don't have to worry about calling the original method; of course you can't munge arguments with the former, but that's a feature.</tt>
+
+
+
+<blockquote>
+
+<h2>Re:And with Moose in Perl 5</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-07-05T05:05:28</h3>
+<p>Thanks. I was only aware of how Moose did it to the extent that people come into the #perl6 channel sometimes and ask "what's the equivalent to Moose's before/after/around in Perl 6?" and we answer "[call|next][same|with]".</p><p>(The "call-" methods are returning calls, and the "next-" methods are tailcalls. "-same" sends along the original arguments, and "-with" allows you to send new ones.)</p><p>What's really neat, and what I still haven't quite gotten my head wrapped around, is that these four routines are used in three quite different situations:</p><ul>
+  <li>Walking along the candidate list in of matching multi subs or methods.</li><li>Walking up the inheritance tree in a class hierarchy.</li><li>Unwrapping the candy wrapping of wrapped routines.</li></ul><p>That's a way cool generalization, but the interactions between these three (or at least the first two) are still not very well-understood. It is thought that a class-hierarchy dispatcher will constitute the "outer loop", and a multi candidate dispatcher will form the "inner loop". We're still trying that model out for size.</p>
+
+
+
+<blockquote>
+
+<h2>Re:And with Moose in Perl 5</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-07-07T22:37:05</h3>
+<p>Oh, huh, and I should probably add that mixins may <em>look</em> like they do a variant of wrapping in Perl 6, but they really work by creating an anonymous subclass to the class of the object, and re-blessing the object to that subclass. So, they work by inheritance, not wrapping.</p><p>The fact that both of these use "callsame;" to delegate to the original routine means that I can use mixins and think they are wrappers, and they'll still behave as I expect. That's why I like the above unification.</p>
+
+
+
+<blockquote>
+
+<h2>Re:And with Moose in Perl 5</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2010-07-08T02:29:24</h3>
+<p>The Moose version Frew posted uses Roles. So applying this "mixin" at Runtime to an instance will also derive an anonymous subclass with the Role applied and re-bless an instance into that subclass.</p>
+
+
+
+<h2>Re:And with Moose in Perl 5</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2010-07-08T03:03:36</h3>
+<p>Also playing about some I came up with something nearly identical using MooseX::Declare's syntax.</p><p><code><br>role POC::TestAnnouncer {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; use mro;</code></p><p><code>
+&nbsp; &nbsp; &nbsp; &nbsp; method test ($project) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; announce-start-of('test', $project{name});<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $result = $self-&gt;maybe::next::method($project); # callsame<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; announce-end-of('test', $result);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; return $ret;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; }<br>}<br></code></p><p>I'm however unsure if callsame is implicitly a method dispatch or not. masak's example makes it seem like it is but the documentation is spares and semantically it seems like it should at *least* be<nobr> <wbr></nobr><code>.callsame</code> if it's got an invocant.</p>
+
+
+
+<blockquote>
+
+<h2>Re:And with Moose in Perl 5</h2>
+<h3><a href="/user/perigrin/">perigrin</a> on 2010-07-08T04:26:05</h3>
+<p>I mean <code>$.callsame</code> rather than<nobr> <wbr></nobr><code>.callsame</code>. Thanks to TimToady and TiMBuS for clarifying things at least enough that I understand that much.</p>
+
+
+
+<blockquote>
+
+<h2>Re:And with Moose in Perl 5</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-07-08T10:11:39</h3>
+<p>Yes, it's <code>$.callsame</code>. See <a href="http://use.perl.org/user/masak/journal/39709" title="perl.org">this post</a perl.org> for a slightly deeper "why" answer.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

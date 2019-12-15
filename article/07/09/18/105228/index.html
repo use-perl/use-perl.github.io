@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org story by brian_d_foy: In Defense of Version Locking</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>In Defense of Version Locking</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2007-09-18T10:16:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a href="http://use.perl.org/user/Alias">Alias</a> writes "Reading through <a href="http://use.perl.org/user/schwern/journal/34469">Schwern's journal entry on why it's bad to have strict version-specific dependency locking</a> (which I agree with entirely in the case of CPAN dependencies) I thought it might be prudent to mention a couple of cases where the opposite is true, because sometimes version locking is really useful.</p>
+<p>Perl modules work as a series of separate resources, that are not intrinsically aware of each other.<br> <br>Any perl instance is going to load a bunch of these modules into memory, and there's really no guarantee that it is going to get the <b>right</b> ones.<br> <br>So while you probably want loosely coupled minimum-version-or-greater dependencies between distributions, you generally want the opposite <b>within</b> a single distribution.<br> <br>You WANT to know that the 10 classes in your distribution are all from the same version, and there isn't accidentally 11 classes loaded (think deprecated plugins or class-renaming).<br> <br>Loading different bits of multiple version of the same distribution very often exposes problems due to the many and varied implicit interdependencies that exist between parts of the same distribution as it evolves over time.<br> <br>It's partly for these reasons that I've been suggesting for a long time that people always release distributions where the <a href="http://search.cpan.org/dist/PPI/">versions for every module match</a>.<br> <br>Maintenance of the version numbers can be minimised by using the <a href="http://search.cpan.org/perldoc?PPI::PowerToys">ppi_version</a> utility, which uses PPI to locate and safely modify all the versions in your distribution .<br> <br>(This script coincidently also means it is unnecessary to do ugly $Revision: auto-generated versions in your modules, a practice I hate and which ties the code to a single repository).<br> <br>Another important use for version-locking is from scripts to modules.<br> <br>I've had a couple of different occasions, particularly with non-CPAN applications, where a launch script was accidentally running the wrong module versions, typically because of some @INC path issue.<br> <br>Conversations typically run like this... <p><blockquote> <div> <i> <i> <br>Hi Adam<br> <br>That bug from version 1.234 seems to have reverted, and I'm not sure why.<br> <br>All the tests pass ok, but when the app was run from cron last night, it failed with the same problem we have back in June, and it looks to be the same cause.<br> </i> </i> </div> </blockquote> <br>After spending a couple of hours trying to find the problem, it typically turns out that the new version of the launch script was loading in the old version of the module, because the client had installed the original at some point, but was running the new ones from standalone directories, or had hard-coded PERL5_LIB into the cron script of the user profile, etc etc.<br> <br>A few other odd situations have also bit me from time to time, like the script loading the installed version during "make test" instead of the blib version, but this is essentially the same problem.<br> <br>The application is not verifying its own integrity and trusting the Perl environment to do that job for it. And like most cases where you trust someone else to deal with your integrity for you, that's a bad idea.<br> <br>The problem for the developer is not that the error happened (that's the admin/operator/client's fault) but that WHEN it happens, it's entirely non-obvious what the problem is, and that the program ALLOWED itself to load in a broken state.<br> <br>After the second time this happened to me in a $real project, costing several hundred dollars of wasted time to resolve, I create the <a href="http://search.cpan.org/perldoc?only::matching">only::matching</a> module (based on only.pm), which lets you put a version in your launch script and have an automatic check done that the loaded module matches the version of the caller.<p><blockquote> <div> <tt>#!/usr/bin/perl<br>
+&nbsp; <br>use strict;<br>use vars qw{$VERSION};<br>BEGIN {<br>&nbsp; &nbsp; $VERSION = '1.00';<br>}<br>
+&nbsp; <br># Load our matching module<br>use only::matching 'Foo';<br>
+&nbsp; <br>...code...</tt> </div> </blockquote> Since <b>ppi_version</b> will happily update scripts now as well as modules, this version will also be kept up to date as well, and a ton of weird Perl environment edge cases will now be caught immediately and be reported with an appropriate error (saving a bunch of time for the person who made the mistake).<br> <br>Another really interesting case for version locking, which I'm doing some work on at my current $job, is database schema locking.<br> <br>Once an application becomes sufficiently large (70+ tables and tons of PL/SQL in this case) it's simply impractical to check the database structure at connect-time, and dangerous to just run the code on any old database you connect to (especially if it is production canonical data and more than say 10gig in size).<br> <br>So I'm adding a variant of the ActiveRecord::Migrate methodology.<br> <br>The database gets a table that looks something like this...<p><blockquote> <div> <tt>create table schema_info (<br>&nbsp; &nbsp; version integer not null<br>&nbsp; &nbsp; name varchar2(255) null,<br>);</tt> </div> </blockquote> This table contains a single record, with a version that is the revision of the schema itself, and a name that can be used as a database-independent identifier for the schema (This is needed in our case because the same code runs two different sites, with different database, and we want to be certain that the code on one site isn't accidentally connecting to the opposite database).<br> <br>In the main database class is a simple $SCHEMA_VERSION variable that contains the schema version that the code is written against, and whenever a new connection is made to the database, the version in that variable is checked against the version in the schema_info table.<br> <br>In this way, we can be sure that the application is always talking to the "right" database, and so if one developer checks in a schema change, the tests for everyone else don't start exploding at next update just because the code is now issuing SQL queries for columns the other developers don't have yet.<br> <br>And on production, instead of connecting to the wrong database and doing who knows what before a problem brings down the site, the app will simply outright refuse to connect AT ALL unless it is talking to the correct database.<br> <br>This is both a MUCH better failure mode, and makes life easy for the operations team, because their error/crash reports will tell them exactly what the root cause of the problem is, which makes life easier for them, and means the downtime is minimised."</p>
+
+
+<hr/>
+
+
+
+<h2>Database schema version</h2>
+<h3><a href="/user/ask/">ask</a> on 2007-09-18T17:46:17</h3>
+I do the schema versioning in my projects too.<br><br>Example data files:<br><a href="https://svn.develooper.com/combust/trunk/sql/combust.update" title="develooper.com">https://svn.develooper.com/combust/trunk/sql/combust.update</a develooper.com><br><a href="https://svn.develooper.com/projects/ntppool/trunk/sql/ntppool.update" title="develooper.com">https://svn.develooper.com/projects/ntppool/trunk/sql/ntppool.update</a develooper.com><br><br>Script to run updates:<br><a href="https://svn.develooper.com/combust/trunk/bin/database_update" title="develooper.com">https://svn.develooper.com/combust/trunk/bin/database_update</a develooper.com><br><br>It has a --sql parameter that'll output the SQL instead of running it.  Helpful when the production databases are run by a DBA team who don't have anything to do with the servers the code is on.<br><br>
+&nbsp; - ask
+
+
+
+<h2>Single versioning</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2007-09-19T02:15:10</h3>
+&gt; It's partly for these reasons that I've been suggesting for a long time that<br>&gt; people always release distributions where the versions for every module match.<br><br>Yeah, I'm coming around to that conclusion, too.  The possible benefit of knowing specifically which modules in a distribution changed using individual version numbers is outweighed by just knowing what goes with what.<br><br>Also it's a pain in the arse to remember to only increment what's changed in the release.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

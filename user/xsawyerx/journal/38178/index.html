@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of xsawyerx: Figuring out error msgs is difficult sometimes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Figuring out error msgs is difficult sometimes</h1>
+<h2><a href="/user/xsawyerx/">xsawyerx</a> on 2008-12-29T17:26:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>So, I'm writing with <a href="http://search.cpan.org/perldoc?Moose">Moose</a> and I decide to try Roles. Why? I'm still not sure, but The Schwartz wrote about it, so it's worth testing. Instead of having a subroutine in the internal module that creates a <a href="http://search.cpan.org/perldoc?Text::Template">Text::Template</a>, I created a role for it in the main module.<br/>
+<br/>
+[after removing irrelevant code]<br/>
+Before:
+<pre>
+package Whatever::Internal;<br/><br/>use Carp;
+use Moose;
+use Text::Template; # <3 mjd<br/><br/>...<br/><br/>sub build_template {
+    my ( $self, $zone_file ) = @_;
+    my $DOT = q{.};<br/><br/>    $zone_file && $self->zone_file($zone_file);<br/><br/>    my %vars = (
+        ip => $self->ip,
+        ...
+    );<br/><br/>    my $template = Text::Template->new( SOURCE => $self->zone_file )
+        or croak "Couldn't construct template: $Text::Template::ERROR\n";<br/><br/>    if ( my $result = $template->fill_in( HASH => \%vars ) ) {
+        return $result;
+    } else {
+        croak "Couldn't fill in template: $Text::Template::ERROR\n";
+    }
+}
+</pre>
+After:
+<pre>
+package Whatever;<br/><br/>use Carp;
+use Moose::Role;
+use Text::Template; # <3 mjd<br/><br/>...<br/><br/>sub build_template {
+    my ( $self, $zone_file ) = @_;<br/><br/>    $zone_file && $self->zone_file($zone_file);<br/><br/>    my $template = Text::Template->new( SOURCE => $self->zone_file )
+        or croak "Couldn't construct template: $Text::Template::ERROR\n";<br/><br/>    if ( my $result = $template->fill_in( HASH => $self->template_vars ) ) {
+        return $result;
+    } else {
+        croak "Couldn't fill in template: $Text::Template::ERROR\n";
+    }
+}<br/><br/>package Domains::Corp;
+use Moose;
+with 'Domains';<br/><br/>...<br/><br/>before 'build_template' => sub {
+    my $self = shift;
+    my $DOT  = q{.};<br/><br/>    $self->template_vars( {
+        ip => $self->ip,
+        ...
+    } );
+};
+</pre><br/><br/>The trick is replacing <b>HASH => \%vars</b> (defined locally in that subroutine) with <b>HASH => $self->template_vars</b> (defined as a Role attribute) and then in the internal package (Whatever::Internal) to define the Role's attribute using a '<i>before</i>'.<br/>
+<br/>
+This might at first seem like more lines, but imagine you have Whatever::This and Whatever::That and you want to use a template for each one and to have a subroutine that renders the template for each one would be complete code replication (which is from the devil!) and so, this provides you with a faster, cleaner (and shorter) way of doing that, through a '<i>before</i>' Moose clause to set up the variables for the <i>build_template</i> subroutine.<br/>
+<br/>
+I don't know if this is advised by the Moose gurus (Rolsky, Little, Kogman, mst, and countless others) but it seems to work good for me so far. I would be really happy to get some input on this from people, showing me any errors or suggesting a better way I might have missed.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

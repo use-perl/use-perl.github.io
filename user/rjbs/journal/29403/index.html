@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: refactoring sub::install</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>refactoring sub::install</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2006-04-21T16:15:27</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I've been doing some reworking in the guts of Sub::Install, trying to steal
+good ideas from Sub::Define and to implement some of the ideas that came out of
+discussions with its author, Johan Lodin.  Several of these deal with warning
+handling, which has led me to produce this little routine.  I'm finding that I
+really like it:</p>
+
+<pre>my $eow_re;
+BEGIN { $eow_re = qr/ at .+? line \d+\.\Z/ };
+
+sub _do_with_warn {
+  my ($patterns) = @_;
+  sub {
+    my ($code) = @_;
+
+    my $old_warn_sig = $SIG{__WARN__};
+    local $SIG{__WARN__} = sub {
+      my ($error) = @_;
+      for (@{ $patterns-&gt;{suppress} }) {
+          return if $error =~ $_;
+      }
+      for (@{ $patterns-&gt;{croak} }) {
+        if (my ($base_error) = $error =~ /\A($_) $eow_re/x) {
+          Carp::croak $base_error;
+        }
+      }
+      for (@{ $patterns-&gt;{carp} }) {
+        if (my ($base_error) = $error =~ /\A($_) $eow_re/x) {
+          $error = Carp::shortmess $base_error;
+          last;
+        }
+      }
+      $old_warn_sig ? $old_warn_sig-&gt;($error) : (warn $error)
+    };
+    $code-&gt;();
+  };
+}
+</code></pre>
+
+<p>I'm probably going to add something like this, later:</p>
+
+<pre>for my $re (keys %{ $patterns-&gt;{custom} }) {
+  return $patterns-&gt;{custom}{$re}-&gt;($error) if $error =~ $re;
+}
+</code></pre>
+
+<p>I also spent a little time trying to deal with CarpLevel, but I found that when
+I set it, it caused carp to act more like cluck, and when I skipped it, the
+right thing happened.  I don't know why, and I haven't yet felt like
+investigating.  I'll just carp about it here.</p>
+
+<p>I knew, when releasing Sub::Install, that it omitted one feature of
+Sub::Installer.  Sub::Installer can, given a destination and a string, evaluate
+the string as a sub definition for the destination.  In other words:</p>
+
+<pre>Target-&gt;install_sub(foo =&gt; "return scalar localtime");
+
+# is equivalent to:
+
+eval q{
+  package Target;
+  sub foo { return scalar localtime }
+};
+</code></pre>
+
+<p>The advantage over supplying a coderef is that some things are, much to my
+chagrin, determined based on code compilation location rather than code
+installation location.  That means that if you build a subref in Foo and
+install it in Bar, things it calls will have a caller of Foo.  There are other
+similar effects.  I had something of a "this far and no further!" feeling about
+this.  Sub::Install exists to hide a little bit of ugliness, because I felt it
+should not be ugly to install coderefs in packages.  Once you're in the land of
+string eval, though, I think you need to see the ugliness, to remind yourself
+of what you're doing.</p>
+
+<p>(It would be nice if a few things that require string eval didn't, though.
+I'd rather not have to see the ugliness of naturalizing code into a package or
+requiring a module whose name is stored in a variable, for example.)</p>
+
+<p>I stupidly missed one other feature Sub::Installer provided.  Because it was
+invoked as a method, it could be subclassed.  I understood this, and knew it
+was for creating new kinds of installation routines.  I provided a (secret)
+means for a caller to say, in Sub::Install, "install this routine, but do it
+this way."  I hadn't realized that, due to the semantics of Sub::Installer,
+subclassing it would allow the <em>target</em> to change how it would <em>receive</em> subs,
+rather than allow the caller to change how it would install subs!</p>
+
+<p>Johan Lodin was not so blind, and built a mechanism for this into Sub::Define.
+I didn't really care for it, though, and in the end it didn't work exactly the
+way he'd wanted.  I'm probably going to build something like it into
+Sub::Install, but it won't be as seamless as Sub::Installer's... but then
+again, Sub::Installer's seamlessness comes from violating the nether regions of
+my runtime environment, shoving code into UNIVERSAL whether I want it or not.</p>
+
+<p>As for my next goals, they're in that murky, dangerous realm: provide an
+open-ended customization system.  I'm happy with sticking to callbacks, but I
+want to provide a nice generator for installers, so that a finicky user can
+say something like:</p>
+
+<pre>  # Install by passing to self-redefining methods?
+  *install_sub = Sub::Instal::generate_installer({
+    inst =&gt; sub {
+      my ($pkg, $name, $code) = @_;
+      $pkg-&gt;$name($code);
+    },
+    inst_wrapper =&gt; Sub::Install::warning_handler({
+      carp    =&gt; [ $redef_warning ],
+      default =&gt; 'croak',
+    }),
+    return =&gt; 'inst_return',
+  });
+</code></pre>
+
+<p>The above sucks in the specifics, but hopefully the actually implemented and
+published version will be tolerable and extensible.  Maybe I'll get to work on
+that, instead of just mumbling about it here...</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>My eyes glazeth over</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-04-22T02:00:47</h3>
+<p> <i>Aristotle hands Ricardo a couple <code>&lt;ecode&gt;&lt;/ecode&gt;</code> tags</i> </p>
+
+
+
+<blockquote>
+
+<h2>Re:My eyes glazeth over</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2006-04-22T02:07:10</h3>
+Yeah, something broke in my posting script, I guess, and I didn't really want to bother fixing it yet.<br><br>See, for now: <a href="http://rjbs.manxome.org/rubric/entry/1281" title="manxome.org">http://rjbs.manxome.org/rubric/entry/1281</a manxome.org>
+
+
+
+<blockquote>
+
+<h2>Re:My eyes glazeth over</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-04-22T02:22:57</h3>
+<p>Ahh, that looks a lot better. Thanks.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Aristotle: How not to make empty promises</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>How not to make empty promises</h1>
+<h2><a href="/user/Aristotle/">Aristotle</a> on 2007-06-20T03:14:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I&#8217;ve been having an annoying problem with my system. Occasionally &#8211; most apparent when Firefox would try to load large animated GIFs &#8211; it would run out of memory and proceed to thrash the harddisk for a very long time, during which it would be very nearly unresponsive. This would easily last minutes, sometimes more than a quarter of an hour. Eventually, the Linux OOM killer would come out and shoot a random app in the face &#8211; usually my aggregator &#8211; in order to get things back under control.</p>
+
+<p>This was puzzling. See, I don&#8217;t have any swap configured on this machine. In fact, I don&#8217;t even have a swap partition!</p>
+
+<p>It turns out that what happened is that the system would be thrashing on read-only objects &#8211; pages with code. It would page out some code, page in some other from the executable image on disk, run a few instructions, then throw the newly swapped in code page again in order to load yet other code. Of course, none of this was cachable, as the cache itself takes memory, which was in short supply to begin with. Needless to say, interspersing hardware disk access into every couple hundred instructions slowed execution down to the levels of a ZX-81 (at most).</p>
+
+<p>What is going on?</p>
+
+<p>It turns out that Linux promises too much memory to applications. It promises more than is physically present! This is known as overcommit. It&#8217;s a good thing most of the time, because applications usually only need such a lot of memory for short periods, and the presence of swap and the ability to load executable pages directly from the program binary means that the request can really be satisfied. This keeps apps able to run under circumstances in which they would otherwise crash with an &#8220;out of memory&#8221; error; or lets them use RAM under circumstances in which they would fall back to their own swapping-data-to-disk code. So in general, promising apps too much memory paradoxically keeps servers more stable and responsive.</p>
+
+<p>But that presumes you really <em>do</em> have swap! See, the amount of make-believe RAM is based on the physical RAM. By default, the Linux kernel promises 50% more memory in total than there is physical RAM! That&#8217;s fine if you go by the olden times&#8217; rule of thumb that one should have twice as much swap space as physical RAM &#8211; in that case, the kernel&#8217;s empty promise won&#8217;t make too huge a difference.</p>
+
+<p>But RAM is dirt cheap now. I have 1.5GB in this machine. Why would I add any swap? This isn&#8217;t a server, where stability is imperative. It&#8217;s a desktop system, where <em>responsiveness</em> is critical. I don&#8217;t want it going to disk, <em>ever</em>.</p>
+
+<p>Now you can see what happens on a system with 1.5GB of RAM and no swap: the Linux kernel operates on the assumption that there are 750MB of make-believe memory, for a total of 2.25GB. Imagine that it promises this much memory to Firefox. Firefox asks for that much and starts to use it until it gets close to 1.5GB. The kernel notices it&#8217;s in a bind &#8211; but nothing is there to swap out except code pages! So the system rapidly slows to a crawl, while Firefox continues to try to use up more of the promised memory. Due to all the thrashing it takes exponentially longer to keep using up memory to reach the limit at which it is no longer possible for the kernel to make up for the promise. Once that point is finally, <em>finally</em> reached, some 5&#8211;10 <em>minutes</em> later, the OOM killer wakes up and starts indiscriminately canning processes.</p>
+
+<p>Ugh.</p>
+
+<p>What to do?</p>
+
+<pre>sudo sysctl -w vm.overcommit_ratio=5</pre>
+
+<p>Fortunately, the kernel&#8217;s empty promises are configurable in <code>/proc/sys/vm/overcommit_ratio</code>. The default is 50, which means 50%, as explained; I set it to a saner (for a no-swap system) 5%. To make this permanent, I added the setting to <code>/etc/sysctl.conf</code>.</p>
+
+<p>A bit of overcommit is still useful, of course; even on a no-swap system, paging out <em>a few</em> read-only objects is not a problem.</p></p>
+
+
+<hr/>
+
+
+
+<h2>hope</h2>
+<h3><a href="/user/markjugg/">markjugg</a> on 2007-06-21T16:14:47</h3>
+Thanks for the report. I hope developers find a way make this kind of change more automatic, because I can't how everyday users would ever figure this out on their own.<br><br>I wonder if Windows or Mac has a saner, more automatic solution for this.
+
+
+
+<blockquote>
+
+<h2>Re:hope</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-22T06:41:29</h3>
+<p>Contemporary Linux distributions will set up a buch of swapspace for you by default if you let the installer create a partition layout automatically, so most people won&#8217;t encounter this issue.</p>
+
+<p>I am more particular than that, hence my trouble.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Running unlimited, eh?</h2>
+<h3><a href="/user/parv/">parv</a> on 2007-07-06T21:58:25</h3>
+For things like Firefox which have tendency (from your account) to use too much memory &amp; molest the hard disk, why don't run them with (something like) <a href="http://www.freebsd.org/cgi/man.cgi?query=limits&amp;apropos=0&amp;sektion=1&amp;manpath=FreeBSD+6.2-stable&amp;format=html" title="freebsd.org">limits(1)</a freebsd.org>?
+
+
+
+<blockquote>
+
+<h2>Re:Running unlimited, eh?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-07-06T23:08:08</h3>
+<p>They <em>don&#8217;t</em> have a tendency to eat too much memory! Firefox just tries to use up what the kernel promised.</p>
+
+<p>Ever since I changed the overcommit ratio, unsurprisingly, there hasn&#8217;t been a single problem.</p>
+
+<p>Of course, I <em>could</em> use <code>limits(1)</code> or similar to individually reverse the kernel&#8217;s promises on a per-process basis, but why would I do such a backwards thing? I&#8217;d rather fix the problem once, at the source: the kernel&#8217;s unrealistic promise.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Running unlimited, eh?</h2>
+<h3><a href="/user/parv/">parv</a> on 2007-07-07T00:03:54</h3>
+Oh, you see "per process basis" is the "fine-grained option".  (I do get your point about setting the limit in global scope.)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

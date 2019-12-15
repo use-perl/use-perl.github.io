@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pudge: Perl and Apache Upgrades for Intel Mac (Pain)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl and Apache Upgrades for Intel Mac (Pain)</h1>
+<h2><a href="/user/pudge/">pudge</a> on 2007-12-30T06:31:26</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I have been using a MacBook Pro for several months, and I finally got around to upgrading Perl on it.  I figured 5.10's release, and Christmas vacation, was a decent opportunity.
+
+I ran into a lot of problems.
+
+<ul><li>First, note that my existing Perl/Apache installs were PPC.  And this is an Intel Mac.  And because some systems are not very careful about what they use to do things, I had to make sure I basically hid all the PPC things in my path.  For example, a PPC perl in my path was used for part of the mod_perl build process, even though I used an Intel perl for the Makefile.PL, which caused some symbols to go missing.
+
+<li>Similarly, the Apache config kept picking up a random library I had in /usr/local/lib, and throwing errors.  So I finally figured I should just move all of /usr/local/bin and /usr/local/lib out of the way until I got everything built.  I selectively brought things back later.
+
+<li>But this was not my only problem with Apache.  Oh, no.  Apparently mod_perl 1.30 and perl 5.10 simply do not get along.  I kept getting errors about bad file descriptors every time I tried to start Apache.  I finally found <a href="http://groups.google.com/group/perl.perl5.porters/browse_thread/thread/e8b7b4fb812b2d6c/a4609fe497eabcf0">discussion from p5p</a> about it, from a few weeks ago, and used Andreas Koenig's patch for mod_perl, taken from Steve Hay's fix slated for mod_perl 1.31.  This fixed the problem, apparently.
+
+<li>However, apparently this patch only works for fixing non-threaded perl.  So I then had to rebuild perl to be non-threaded.  I had wanted to keep my perl config as close to the default Mac OS X build as possible, for binary compatiblity reasons, but it's not that important, I suppose, since 5.8 and 5.10 are not binary compatible anyway, and Mac OS X 10.6 (the first likely to use 5.10.x) won't be out for a long time.  So, I don't need threads, and therefore, non-threaded it is.
+
+<li>And then there was libapreq.  I don't know how to properly solve this problem, but I kept getting errors about my_perl being undeclared in two functions, hooks for uploading files.  As I don't use that functionality, I simply commented out the body of the functions.  It was getting late.
+
+<li>Most of the other modules were pretty smooth though.  DBD::mysql kept looking for the mysql libraries in /usr/local/mysql/lib/mysql instead of /usr/local/mysql/lib.  I couldn't see an obvious reason why, so I just added a symlink.  Shrug.
+
+<li>Also, Mac::Carbon had some errors in the tests.  Those should be fixed, but I have a lot of other fixes to make before uploading a new version.  More on that some other time.  The broken test was for Mac::AppleEvents, and I even have a comment in there about how the tests were very likely to be broken.  I was right!
+
+<li>Mac::Glue posed a problem: the glue files are not byte-order independent.  Maybe they should be, but that won't help me now.  So I needed to rebuild all my glue files, which isn't a big deal.
+
+<li>Also not byte-order independent: the "friends" field in the Slash database.  Like the glue files, it uses Storable.  I know there are ways to make it work, but I did not use those ways previously, so now I am stuck.  For Slash, I just wrapped the thaw() call in an eval for now, but I'll pull that later, after I call the rebuild task.
+
+<li>Speaking of modules, what got all this started was that I was trying to build XML::LibXML for my MacBook Pro so I could use XML::Atom to make posts from BBEdit to <a href="http://pudge.net/glob/">&lt;pudge/*&gt;</a>.  But building a PPC binary for an Intel machine ON an Intel machine turned out to be just too much for me.  So I figured it was time to just start over.
+
+<li>The CPAN autobundle worked pretty well, although after installing Bundle::CPAN and Bundle::Slash, I then took my autobundle and wrote a quick script around it to basically call <tt>perl -M$module -e1</tt> and note any errors, and that way I could skip most of the bundle, since I am still using the pure perl version of many modules, that I already had installed, and I don't necessarily want to install every upgrade to every module, since some of them can break (cf. XML::RSS).  Then I scanned the uninstalled/broken module results and installed any I wanted by hand.
+
+<li>I make note here that Data::JavaScript::Anon is "still broken."  Version 0.9 is broken, version 1.00 works, but CPAN still gives me version 0.9 unless I ask for 1.00 specifically, and so when I installed Bundle::Slash, I got the wrong one.  But that has nothing to do with this, it's just Something Else.
+
+</ul>
+
+Bottom line is that now I have Slash running on my Intel Mac with <b>native</b> Apache 1.39, mod_perl 1.30 (with patch), and perl 5.10 (without threads), and the only brokenness -- that I know of -- that remains is missing functionality in Apache::Request that I don't use, and lack of thread-capable perl for mod_perl.
+
+It was a long day making all that work, too.  Dang it was long.  Lots of futzing around.  But I also now apparently have almost no more PPC apps running on a regular basis on my Mac: just Eudora.  Which sucks.  But not as much as every other mail app.  I dunno, maybe I <b>should</b> give Thunderbird another go.  I hate that it is not a native Mac UI, but it's not like Eudora has a great UI either.  Maybe I'll try Mail.app again.
+
+<p>Cross-posted on <a href="http://pudge.net/glob/2007/12/perl-and-apache-upgrades-for-intel-mac-pain.html">&lt;pudge/*&gt;</a>.</p>
+
+
+<hr/>
+
+
+
+<h2>Been there.. still stuck</h2>
+<h3><a href="/user/Beatnik/">Beatnik</a> on 2008-01-02T20:14:37</h3>
+If you google plenty, you'll stumble upon tons of mails and posts about some of these topics. I'm still stuck on getting DBD::mysql to work in mod_perl (CGI, console and make tests work fine.. the symlink didn't work for me). Apache::Request compiled good enough. DBD::Postgresql is also giving some problems but I stopped halfway (holiday season priorities). All these things worked fine on my Intel Tiger but on Intel Leopard with perl 5.8.8 it freaks out<nobr> <wbr></nobr>:(
+
+
+
+<blockquote>
+
+<h2>Re:Been there.. still stuck</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2008-01-02T20:53:19</h3>
+Well, I seem to have it all working now for Apache 1.39/mod_perl 1.31/perl 5.10 nonthreaded under Intel Leopard (except for the upload hook stuff in Apache::Request), including DBD::mysql in mod_perl.  If I can help any, ask away.
+
+
+
+<blockquote>
+
+<h2>Re:Been there.. still stuck</h2>
+<h3><a href="/user/Beatnik/">Beatnik</a> on 2008-01-02T21:22:00</h3>
+My error_log dumps the following:<p><blockquote> <div><tt>dyld: lazy symbol binding failed: Symbol not found: _mysql_server_init<br>Referenced from:<br>/Library/Perl/5.8.8/darwin-thread-multi-2level/auto/DBD/mysql/mysql.bund<nobr>l<wbr></nobr>  e<br>Expected in: dynamic lookup </tt></div> </blockquote> The full post on the DBD::mysql listing is <a href="http://lists.mysql.com/perl/4152" title="mysql.com">here</a mysql.com>. It pretty much details what I did and tried<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Been there.. still stuck</h2>
+<h3><a href="/user/pudge/">pudge</a> on 2008-01-02T21:35:20</h3>
+Are you trying to compile a universal binary?  I've never tried to do that.
+
+
+
+<blockquote>
+
+<h2>Re:Been there.. still stuck</h2>
+<h3><a href="/user/Beatnik/">Beatnik</a> on 2008-01-02T22:10:33</h3>
+When I stick to <code>-arch i386 -arch x86_64</code>, it throws the same error. Using either of those individually throws the typical image error.. I'm a complete newbie when it comes to building stuff on Mac<nobr> <wbr></nobr>:)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

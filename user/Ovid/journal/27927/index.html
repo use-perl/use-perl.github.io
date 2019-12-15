@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: NULLs:  yes, no, or don't know?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>NULLs:  yes, no, or don't know?</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2005-12-10T20:43:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><P>So I finally got my grubby little hands on a copy of <a href="http://www.oreilly.com/catalog/databaseid/">Database In Depth</a> by <a href="http://en.wikipedia.org/wiki/Christopher_J._Date">C. J. Date</a>.  I've just finished Chapter 3 and so far, I've been blown away.  My irritations with the shortcomings of databases have been wrong.  They're generally shortcomings with SQL and people's (mis)understanding of relational theory.</p>
+
+<p>One bit which fascinates me is Date's arguments against NULLs.  It fascinates me because it really hits home regarding some problems I've had but it also irritates me because I've read these arguments before and not paid much attention to them.  It's time for me to change that.  Now, if I reject his reasoning, I want it to be because I've thought things through, not because I wasn't paying attention.</p>
+
+<p>Part Date's rejection of NULLs stems from how terms are defined:  an attribute (column) in a tuple (row) in a relation (table) must contain a name and a type.  Since NULLs, by definition, are a not a type, it follows that an attribute must not have a NULL value.</p>
+
+<p>Of course, without an explanation of the theory, many are going to argue that Date is just using wordplay to define NULLs out of existence.    To deal with this, Date comes up with the following example:</p>
+
+<pre>+-----+--------+  +-----+--------+
+| SNO |  City  |  | PNO |  City  |
++-----+--------+  +-----+--------+
+| S1  | London |  | P1  | NULL   |
++-----+--------+  +-----+--------+</pre>
+
+<p>"SNO" is "Supplier Number" and "PNO" is "Part Number".  If these tables are called "supplier" and "part", then fetching all part numbers is trivial:</p>
+
+<pre>SELECT PNO
+FROM   part;</pre>
+
+<p>This <em>should</em> be logically equivalent to the following:</p>
+
+<pre>SELECT PNO
+FROM   part
+WHERE  City = City;</pre>
+
+<p>Of course, this query returns no rows because you cannot logically compare "unknown" values.   This is fundamentally the simplest example one can give which demonstrates how NULL values can give erroneous results.  However, the query is so ludicrous that many would be inclined to dismiss it out of hand.  After all, we'd never write anything so useless, right?</p>
+
+<p>Moving along, we need to write a query where we need to know where either the supplier and part cities are different, the part city is not Paris, or both.  Here's one way to write that query:</p>
+
+<pre>SELECT S.SNO, P.PNO
+FROM   supplier S, part P
+WHERE  S.City <> P.City      -- first condition
+   OR  P.City <> 'Paris';    -- second condition</pre>
+
+<p>Because we cannot compare NULL values and the only "part" has an unknown city, we get no rows.  But is this correct?  Either that unknown city is Paris or it isn't.  If it <em>is</em> Paris, the first condition should evaluate as true and thus we'll get a result.  If it is <em>not</em> Paris, the second condition should evaluate as true and we should get a result.  Thus, logically we <em>should</em> get a result even though the query returns no rows.</p>
+
+<p>The mere existence of a NULL in the database means we may get erroneous results in our queries.  However, the more complicated the queries, the more difficult it will be to tell when we'll get erroneous results and, I suspect, the more likely it is when we <em>will</em> get erroneous results if the NULL columns are used in the WHERE clause.</p>
+
+<p>These points really resonate with me.  While I've certainly found three-value logic attractive (I don't like <tt>perl -le 'print "yes" if (undef) &lt; 4'</tt> printing "yes"), it does appear to be problematic in the above example.  I'm beginning to think that three-value logic may have a place in procedural or OO code, but perhaps not in declarative code.  More than once I've worked on a large systems where NULLs were causing problems in queries that were often very difficult to track down.</p>
+
+<p>What I'm wondering is what the counter-examples are.  Such a fundamental issue shouldn't be controversial unless there are clear counter-examples which demonstrate why we do need NULLs.  The "that's the way we've always done it" argument doesn't hold much sway with me because I view that akin to "hitting my thumb with a hammer is better than hitting it with an axe" -- just don't hit your damned thumb, will ya?</p>
+
+<p>Note:  avoiding the "NULL" problem can be dealt with via the technique presented in <a href="http://web.onetel.com/user/hughdarwen/TheThirdManifesto/Missing-info-without-nulls.pdf">How to Handle Missing Information without Using Nulls</a> (pdf) by Hugh Darwen.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Ow ow ow</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2005-12-10T22:29:53</h3>
+<p>My brain is hurting!</p>
+
+<p>Okay, not really. But this has been interesting reading.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Ow ow ow</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2005-12-10T23:53:12</h3>
+<p>What's really frustrating is that much of the problems associated with nulls would <em>go away</em> if database vendors would start supplying DBMS which enforce relational data (SQL doesn't).  First, we would need something called "distributed foreign keys" -- mentioned in the PDF I link to.  Next, databases would have to be optimized to handle 6NF, something which is rarely seen, and 1NF, something which is not well-understood.  Further, queries would need to return <em>relations</em>.  In other words, they would need to returns sets of tuples, not bags of rows.  Much of the work that's being done to get around limitations with SQL appears to be applying bandages to crippled systems rather than examing the root cause -- ignoring the relational model.</p>
+
+<p>The book is making my head hurt, too.  One of the things which shocked me is realizing that the "object-relational impedance mismatch" is a myth.  It's actually the "object-dbms impedance mismatch".  If a DBMS properly supported the relational algebra, object databases would be natural instead of the kludgy, ad hoc affairs we have today.  You really should get that book if you're interested in this.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Ow ow ow</h2>
+<h3><a href="/user/thepler/">thepler</a> on 2007-05-01T21:34:05</h3>
+<p>I can't believe I'm only now seeing this post...
+
+</p><p>Since reading Database In Depth, I've also realized that the object-relational impedance mismatch is a myth.  It is a persistent myth, but a myth none the less.
+
+</p><p>Here's the quote from that book that I always go back to:</p><p><blockquote><div>All of which goes a long way, incidentally, toward explaining why a true "object/relational" system would be nothing more nor less than a true relational system&#8212;which is to say, a system that supports the relational model, with all that such support entails. After all, the whole point of an "object/relational" system is precisely that we can have attribute values in relations that are of arbitrary complexity. Perhaps a better way to say it is this: a proper object/relational system is just a relational system with proper type support&#8212;which just means it's a proper relational system, no more and no less.</div>
+
+</blockquote>
+
+<p>I take this as meaning that a proper type system is a prerequisite for building a proper relational system.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>No Three-Value Logic, Please!</h2>
+<h3><a href="/user/Theory/">Theory</a> on 2005-12-12T04:17:02</h3>
+<p>Ovid,</p>
+
+<p>First of all, I don't understand how your example, <code>perl -le 'print &quot;yes&quot; if (undef) &lt; 4</code>, is an example of three-value logic. The parentheses create a list, and a list in scalar context evaluates to the number of items it has, not the value of the first item.</p>
+
+<p>This works well because, unless I'm missing something, there is no three-value logic in Perl. Perl's <code>undef</code> is not the same as SQL's <code>NULL</code>; <code>undef</code> always evaluates to false! IOW, it <em>is</em> a value, just an undefined one.</p>
+
+<p>The easiest way for me to illustrate is to borrow Date's truth tables (T = TRUE, F = FALSE, U = UNKNOWN (NULL):</p> <blockquote> <div><tt>&nbsp; p | NOT p&nbsp; &nbsp; &nbsp;p q | p AND q&nbsp; &nbsp; &nbsp;p q | p OR q<br> ====+=======&nbsp; &nbsp;=====+=========&nbsp; &nbsp;=====+========<br>&nbsp; T |&nbsp; &nbsp;F&nbsp; &nbsp; &nbsp; &nbsp;T T |&nbsp; &nbsp; T&nbsp; &nbsp; &nbsp; &nbsp; T T |&nbsp; &nbsp; T<br>&nbsp; U |&nbsp; &nbsp;U&nbsp; &nbsp; &nbsp; &nbsp;T U |&nbsp; &nbsp; U&nbsp; &nbsp; &nbsp; &nbsp; T U |&nbsp; &nbsp; T<br>&nbsp; F |&nbsp; &nbsp;T&nbsp; &nbsp; &nbsp; &nbsp;T F |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; T F |&nbsp; &nbsp; T<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; U T |&nbsp; &nbsp; U&nbsp; &nbsp; &nbsp; &nbsp; U T |&nbsp; &nbsp; T<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; U U |&nbsp; &nbsp; U&nbsp; &nbsp; &nbsp; &nbsp; U U |&nbsp; &nbsp; U<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; U F |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; U F |&nbsp; &nbsp; U<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; F T |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; F T |&nbsp; &nbsp; T<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; F U |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; F U |&nbsp; &nbsp; U<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; F F |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; F F |&nbsp; &nbsp; F</tt></div> </blockquote> <p>Anyone who is familiar with SQL <code>NULL</code> will recognize this, as well as the headaches it causes&#x2014;as demonstrated in the examples you cite. But Perl has no <code>NULL</code>. <code>undef</code> is not unknown, but undefined, and Perl's idea of truth mandates that <code>undef</code> always be false. Thus, Perl's truth tables look like this (T = TRUE, F = FALSE, U = UNDEF:</p> <blockquote> <div><tt>&nbsp; p | NOT p&nbsp; &nbsp; &nbsp;p q | p AND q&nbsp; &nbsp; &nbsp;p q | p OR q<br> ====+=======&nbsp; &nbsp;=====+=========&nbsp; &nbsp;=====+========<br>&nbsp; T |&nbsp; &nbsp;F&nbsp; &nbsp; &nbsp; &nbsp;T T |&nbsp; &nbsp; T&nbsp; &nbsp; &nbsp; &nbsp; T T |&nbsp; &nbsp; T<br>&nbsp; U |&nbsp; &nbsp;F&nbsp; &nbsp; &nbsp; &nbsp;T U |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; T U |&nbsp; &nbsp; T<br>&nbsp; F |&nbsp; &nbsp;T&nbsp; &nbsp; &nbsp; &nbsp;T F |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; T F |&nbsp; &nbsp; T<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; U T |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; U T |&nbsp; &nbsp; T<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; U U |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; U U |&nbsp; &nbsp; F<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; U F |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; U F |&nbsp; &nbsp; F<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; F T |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; F T |&nbsp; &nbsp; T<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; F U |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; F U |&nbsp; &nbsp; F<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; F F |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; F F |&nbsp; &nbsp; F</tt></div> </blockquote> <p>And really, because <code>undef</code> is false, it's redundant to even have it on the chart. This is because Perl uses two-valued logic, like we tend to use in the real world:</p> <blockquote> <div><tt>&nbsp; p | NOT p&nbsp; &nbsp; &nbsp;p q | p AND q&nbsp; &nbsp; &nbsp;p q | p OR q<br> ====+=======&nbsp; &nbsp;=====+=========&nbsp; &nbsp;=====+========<br>&nbsp; T |&nbsp; &nbsp;F&nbsp; &nbsp; &nbsp; &nbsp;T T |&nbsp; &nbsp; T&nbsp; &nbsp; &nbsp; &nbsp; T T |&nbsp; &nbsp; T<br>&nbsp; F |&nbsp; &nbsp;T&nbsp; &nbsp; &nbsp; &nbsp;T F |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; T F |&nbsp; &nbsp; T<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; F T |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; F T |&nbsp; &nbsp; T<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; F F |&nbsp; &nbsp; F&nbsp; &nbsp; &nbsp; &nbsp; F F |&nbsp; &nbsp; F</tt></div> </blockquote> <p>This greatly simplifies things. To get back to Date's example, if DBMSs used Perl's <code>undef</code>'s notion of truth for <code>NULL</code>s, you would get the proper results back in your query.</p>
+
+<p>&#x2014;Theory</p>
+
+
+
+<blockquote>
+
+<h2>Right, we need multivalued logics</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2005-12-12T18:21:12</h3>
+A wise man (was it Perlis or Bentley or was he quoting?) once said the only sensible values for constants are 0 and 1, all else are parameters that may indeed change with requirements. (Two:=1+1 was allowed as a special case for buffer-swapping, one in use and one in prep.  Perlis said something to the effect of any supposed constant is someone else's variable.)
+
+<p>So Three-valued is probably a bad basis for a logic. Date's point about Nulls are there are many more one out-of-band value possible, and you rarely need only one of them.  IEEE Floating Point has more than one out-of-band value (INF, -INF, NAN, does it have an underflow, I forget...).
+
+</p><p>The proper semantics of combining the OoB value(s) with other values and OoBV's will depend on the reason for, or semantics of, the OoBV's needed.
+
+
+</p><p>But this does NOT mean the 2-valued logics will always suffice.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Where's My Catalyst Server?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Where's My Catalyst Server?</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-02-13T15:49:51</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>It's a nasty hack, but I got sick and tired of always doing the following:</p>
+
+<ol>
+  <li>Start our Catalyst server</li>
+  <li>Launch a second program which needs the server</li>
+  <li>Cuss because I've gotten the host/port wrong <em>again</em>.</li>
+</ol>
+
+<p>So I wrote something like this:</p>
+
+<pre>use List::MoreUtils 'uniq';
+use Net::Domain 'hostname';
+use Getopt::Long;
+
+sub get_cat_host_port {
+    my ( $app_name, $user ) = @_;
+    $app_name .= "_server.pl";
+    $user ||= [getpwuid($<)]->[0];
+
+    # The sed bit is embarrassing but needed on a Cat restart
+    # when the shell quotes things :/
+    chomp(my @processes
+      = uniq `ps -ef|grep "$user.*$app_name"|grep -v grep|sed -e 's/"//g' -e 's/.* script//'`
+    );
+    if ( @processes > 1 ) {
+        require Data::Dumper;
+        $Data::Dumper::Indent = 1;
+        warn Data::Dumper->Dump( [\@processes], ['*processes'] );
+        die "Found more than one $app_name server for ($user)";
+    }
+    unless (@processes) {
+        die "Could not find any $app_name servers for ($user)";
+    }
+    local @ARGV = split /\s+/ => $processes[0];
+    local $SIG{__WARN__} = sub {
+        my $warning = shift;
+        return if $warning =~ /Unknown option/; # wish this was configurable
+        CORE::warn($warning);
+    };
+    GetOptions(
+        'port=i' => \my $port,
+        'host=s' => \my $host,
+    );
+    $port ||= 3000;
+    $host ||= hostname();
+    return ( $host, $port );
+}</pre>
+
+<p>It's now tucked away in a tools library so we can reuse this.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Fixing up that shell command</h2>
+<h3><a href="/user/Crag/">Crag</a> on 2008-02-13T18:25:36</h3>
+<p>You had</p>
+
+<code>
+ps -ef|grep "$user.*$app_name"|grep -v grep|sed -e 's/"//g' -e 's/.* script//'
+</code>
+
+<p>If you're using all GNU tools, you can improve that shell command a bit:</p>
+
+<code>
+ps --no-header --user "$user" --format command |
+    grep "^$app_name" |
+    sed 's/"//g;s/.* script//'
+</code>
+<p>
+<ul>
+<li>No grep for user (which may be output numerically under some conditions)</li>
+<li>--no-header and --format mean you get only what you want out of ps</li>
+<li>No grep -v to remove grep</li>
+<li>No -e on the sed commands</li>
+<li>Combined the sed commands into a single sed expression.</li>
+</ul>
+
+<p> If you require shortest-possible shell commands, you can use the short-format switches on ps and trim whitespace:
+</p>
+
+<code>
+ps h -u "$user" -o command|grep "^$app_name"|sed 's/"//g;s/.* script//'
+</code>
+
+
+
+<blockquote>
+
+<h2>Re:Fixing up that shell command</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-02-14T09:51:29</h3>
+<p>We're on Solaris.  Many tools and options I took for granted on *nix systems simply aren't available.  For example, the <tt>ps</tt> command does recognize the <tt>--no-header</tt> or <tt>--user</tt> options.</p>
+
+<p>Other annoyances:  <tt>tar</tt> doesn't recognize the <tt>z</tt> modifier and the absolute worst:  <tt>grep</tt> doesn't recognize <tt>-r</tt>.  No recursive <tt>grep</tt>.  The options are either doing a <tt>find</tt> and piping the results to <tt>grep</tt> or using <a href="http://search.cpan.org/dist/ack/" title="cpan.org">ack</a cpan.org> (the latter of which is lovely, I might add).</p>
+
+
+
+<blockquote>
+
+<h2>Re:Fixing up that shell command</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2008-02-14T21:14:56</h3>
+Many Solaris admins replace the default tar with GNU tar, perhaps installing it as gtar, giving users their choice.
+<p>
+Some admins get their panties in a bunch over the fact that GNU tar is not POSIX compliant, but most people shrug and decided they'd rather have something <b>useful</b> over some notion of correct, especially when Sun's tar can't handle paths over 256 characters.
+</p><p>
+That may be specifically relevent to you as a Catalyst user given <a href="http://groups.google.com/group/comp.unix.solaris/browse_frm/thread/a8139fff4770bfcb/b54e6714d8751685?hl=en&amp;lnk=gst&amp;q=catalyst+tar#b54e6714d8751685" title="google.com">this thread</a google.com> from comp.unix.solaris.</p>
+
+
+
+<h2>Re:Fixing up that shell command</h2>
+<h3><a href="/user/steph/">steph</a> on 2008-02-14T22:00:22</h3>
+<p> can't you simply install some packages? sunfreeware.com is a good place. </p>
+
+<p> Anyway my point was: don't forget<nobr> <wbr></nobr>/proc and magic
+ps<nobr> <wbr></nobr>;) perl -lpe 's{\0}{ }g'<nobr> <wbr></nobr>/proc/*/cmdline </p>
+
+cheers
+--stephan
+p.d at least if you have a decent support for it always worth to remember.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Why Sed?</h2>
+<h3><a href="/user/Smylers/">Smylers</a> on 2008-02-13T21:23:44</h3>
+<p><blockquote> <div><p><blockquote> <div><tt>&nbsp; &nbsp; # The sed bit is embarrassing but needed on a Cat restart<br>&nbsp; &nbsp; # when the shell quotes things<nobr> <wbr></nobr>:/<br>&nbsp; &nbsp; chomp(my @processes<br>&nbsp; &nbsp; &nbsp; = uniq `ps -ef|grep "$user.*$app_name"|grep -v grep|sed -e 's/"//g' -e 's/.* script//'`<br>&nbsp; &nbsp; );</tt></div> </blockquote></div>  </blockquote>
+
+<p>Why use Sed at all?  Won't it work to do the transformations on Perl list elements rather than on lines in the shell?</p> <p><blockquote> <div><tt>&nbsp; chomp my @processes = uniq map { tr/"//d; s/.* script//; $_ }<br>&nbsp; &nbsp; `ps -ef|grep "$user.*$app_name"|grep -v`;</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Why Sed?</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2008-02-13T21:59:54</h3>
+Why use the shell at all? Shame on you both with your platform specific solutions.
+<p>
+See <a href="http://search.cpan.org/dist/Proc-ProcessTable/" title="cpan.org">Proc::ProcessTable</a cpan.org></p>
+
+
+
+<blockquote>
+
+<h2>Re:Why Sed?</h2>
+<h3><a href="/user/vek/">vek</a> on 2008-02-14T00:31:09</h3>
+I wholeheartedly use and recommend Proc::ProcessTable.  That is until <a href="http://kevinspencer.org/archives/2007/09/sometimes_you_have_to_scrape.html" title="kevinspencer.org">I had to use it</a kevinspencer.org> on an Opteron Solaris 10 box.  I was in a hurry so I just said bugger it and scraped the output of ps instead.
+
+
+
+<blockquote>
+
+<h2>Re:Why Sed?</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2008-02-14T15:53:28</h3>
+There's a bug in Proc::ProcessTable, though I couldn't tell you what it is offhand. The <a href="http://www.rubyforge.org/projects/sysutils" title="rubyforge.org">sys-proctable</a rubyforge.org> library, which started as a port of Dan's work, picks up other processes just fine.
+<p>
+The only security change for<nobr> <wbr></nobr>/proc they made between 9 and 10 that I'm aware of is the cmdline information is now restricted to 80 characters unless you own the process. Which, in practice, meant we had to shell out to use<nobr> <wbr></nobr>/usr/ucb/ps -auxwww so we could distinguish between the Java processes with ridiculously long command strings.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>hrm...</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-02-14T00:13:43</h3>
+This is screaming out for something to be bundled with Cat, or for a Firefox plugin, or something...
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

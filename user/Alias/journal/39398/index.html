@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Perl::Metrics2 now able to scale enough to parse the GreyPAN</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl::Metrics2 now able to scale enough to parse the GreyPAN</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2009-08-04T03:05:34</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>It's interesting what trying to push the limits of scale will do to your code.<br/><br/>My efforts to build a metrics engine that can hold all of the public Perl code in the entire world have led me down more than a few dead ends, many of which I didn't expect.<br/><br/>I thought it might be interesting to share some of the things I've encountered. The main theme seems to be a gradual incremental regression to less abstracted forms of code (and more of it).<br/><br/>The current codebase is easily able to handle all of the Perl files in the (Mini)CPAN, including non-indexed files. I'm aiming at 5-10 times this amount for the whole GreyPAN.<br/><br/><b>Aggressive Task Decomposition</b><br/><br/>One of the first problems was doing too many things in the one scanning process. For example, doing both Archive::Extract (in-memory tarball expansion) and PPI parsing resulting in huge memory bloat, taking me over the 2gig limit fairly easily.<br/><br/>This is now split into three phases.<br/><br/>Phase 1 indexes the minicpan checkout, unwrapping everything and md5'ing all the Perl files in it. This gets written to an index table.<br/><br/>Phase 2 does parsing. After building a list of tarballs with unknown md5s, each tarball is unpacked and a PPI::Document is parsed directly into an md5-keyed PPI::Cache Storable-based cache. No actual metrics are generated on these cached files and each tarball is processed inside a Process.pm object across a system("$^X ...") boundary to keep the extract/parse memory consumption contained.<br/><br/>The speed of the smaller main process seems to more than make up for the system() overheads. In future upgrades, this also gives me an option to run these in parallel.<br/><br/>The current size of the PPI::Cache store is 7gig. The dedicated hard-drive I bought to store them all should definitely be large enough.<br/><br/>Phase 3 is metrics generation. Documents are only md5 sums at this point (and thus deduplicated) and all references to the source files are off in the index table. This method restricts the maximum memory cost to the inflation size of the largest Perl document, plus the size of the indexes (more on those later).<br/><br/><b>Aggressive SQLite tuning</b><br/><br/>My SQLite database is currently at 250meg, with only two tables. One has about 250,000 rows, and the other is at 1.5m rows (but will grow later, even in relative terms).<br/><br/>To keep the database from choking, I've made things as simple as possible.<br/><br/>I've had to learn to live without indexes whenever I'm changing data, to prevent the cost of updating the indexes. During periods of busy inserts, I drop all my indexes (up to 5 minutes of wallclock) and then create them again at the end (another 5 minutes of wallclock). On the full GreyPAN that cost will be around an hour, but probably worth it to maintain the 100 rows a second or more insert rate.<br/><br/>Similarly, I've also learned to go without them when building in-memory indexes (because they often don't exist at the time I need to build them). I've rewritten some of the index generators to deal with massive numbers of duplicate records and to not have to care about record ordering. Using SQLite <i>DISTINCT</i> or <i>ORDER BY</i> is much slower, even WITH indexes.<br/><br/>I've also had to get rid of most of the DBI convenience methods to avoid superfluous memory copying of 250,000 element lists. I have, however, found regular use of my own <i>selectcol_index</i> method which selects a named column into a HASH where the column is the key and the value is 1 (which conveniently also handles duplicates).<br/><br/>Other minor changes include disabling incremental vacuum (I do a manual vacuum myself at the end before rebuilding the indexes).<br/><br/><b>Aggressive waste reduction</b><br/><br/>The plugins used to have standalone metric_* methods, that were called automatically and individually. That was often making the metric methods redo the same work twice, so now I've regressed to a single method that returns a HASH of metric values (to encourage greater reuse of intermediate data). Preventing a duplicate <i>serialize</i> and <i>tokens</i> call saved 10% of CPU alone.<br/><br/>Now that my indexing is smarter, switching back to a HASH may also allow for crude emulation of sparse tables.<br/><br/>The plugins used to clone their own documents if they were destructive. Now they advertise via the API if they are destructive, and the runner will clone the document for them. That doesn't seem like a big deal, but it means that the runner can avoid one clone for the last plugin (as the document will be thrown away anyway). This saved another 20% of CPU and quite a bit of memory for big documents if only one plugin is destructive.<br/><br/><b>In-memory index tuning</b><br/><br/>You don't normally expect in-memory indexing to be a problem. Unfortunately, some of my indexes (which collective save literally a day of extra work) managed to reach 250+ meg of RAM. On the full GreyPAN, that means we're practically consuming the entire 32-bit memory space just in indexes.<br/><br/>I've ended up doing some fairly delicate optimisation to increase the complexity and reduce the memory consumption of the indexes.<br/><br/><b>Swapping out File::Find::Rule for File::Next</b><br/><br/>You don't really notice the cost of a list of files, until you get over 100,000 of them. While the minicpan processing still uses file lists, all the document parsing code has been switched out to an iterator.<br/><br/>This also makes it easier to filter the file processing against the indexes before even doing a second stat. On the downside, removing file lists means that I've lost the ability to process files from smallest to largest (something that perversely seemed to make processing much faster) and I no longer know how far I am through the scan.<br/><br/>That said, I am processing a 250,000 files all named by md5, so I may well add a new progress estimate based on how far through the MD5 space we are. That doesn't take into account partially complete failed parsing runs, but is better than nothing.<br/><br/><b>Performance Summary</b><br/><br/>I'm now at the point where I can fetch, index, parse and analyse the entire of minicpan in 12-24 hours on a consumer grade laptop with a portable hard-drive attached to hold the data on, resulting in a highly-indexed SQLite database that can be used to answer most simple questions in under a minute.<br/><br/>The database I've produced should also join relatively cleanly onto CPANDB, for more complex queries.<br/><br/>I'm happy I managed to achieve this without resorting to parallelism, which could have been an easier solution to implement but would have let me retain my other inefficiencies for much longer. I suspect the extra work put in now will also mean much-reduced contention once I am forced to go parallel (which is really the only optimisation options left to me).<br/><br/>My next problem is that my database index only holds CPAN release path to md5 indexes.<br/><br/>I'm able to scale to the entire GreyPAN, but I don't yet have the ability to fetch or index the GreyPAN. But I'm definitely getting closer to a useful tool now.<br/><br/>Anyone fancy working on an Ohloh-style repository extract tool? :)</p>
+
+
+<hr/>
+
+
+
+<h2>Wow</h2>
+<h3><a href="/user/jarich/">jarich</a> on 2009-08-04T14:17:13</h3>
+<p>
+Just want to say that this looks awesome.  I hope you'll be giving a talk on this at some conference we're both at soon.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:Wow</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-08-05T09:47:04</h3>
+<p>I submitted one for OSDC in Brisbane, but it was rejected.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

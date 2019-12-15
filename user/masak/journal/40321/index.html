@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of masak: I can haz constant?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>I can haz constant?</h1>
+<h2><a href="/user/masak/">masak</a> on 2010-04-22T13:31:57</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Let's try this format. Mixing #perl6 IRC logs with more detailed explanations, sort of like a movie and a commentator track.</p>
+
+<p><code>
+&lt;masak&gt; over lunch, since I'm so into scoping of different kinds right now, we got to talking about class-bound variables again. my colleague jonalv, whose home language is Java, thought that it was a shocking omission not to have class-based variables.<br>
+&lt;masak&gt; I explained how 'my' and 'our' didn't do what was intended, since lexpads and packages are orthogonal to OO inheritance.
+</code></p>
+
+<p>"Orthogonal" is quickly becoming one of my favourite terms in language design. It doesn't mean "at an angle of ninety degrees", but rather "along independent dimensional axes", that is, "not having anything to do with one another".</p>
+
+<p>The two things that are orthogonal here are ordinary variable scoping on the one hand, and (method) inheritance on the other. In particular, a deriving class typically isn't lexically nested inside its base class, nor is it a subpackage of it, not even in the case of <code>A::B</code> deriving from <code>A</code>. (Unless they're nested in code, but in the general case they aren't.)</p>
+
+<p><code>
+&lt;masak&gt; when I talked about 'state' variables, he was a bit mollified and admitted that the need wasn't as great for class-bound variables.<br>
+&lt;masak&gt; and when I explained about the non-need for class-level methods due to type objects, I had almost convinced myself that we don't need class/static variables :)<br>
+&lt;masak&gt; but one use case that I can see is something akin to a constant defined in a class, which ought to be reachable from all its methods and the methods in derived classes.
+</code></p>
+
+<p>When I learned about <code>static</code> fields in Java, even the examples were contrived. They looked much like this:</p>
+
+<p><code>
+class Car { // this is Java code<br>
+&nbsp;&nbsp;&nbsp;&nbsp;static long cars_produced = 0;<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;public Car() {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;++cars_produced;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+}
+</code></p>
+
+<p>Here's where Perl 6's <code>state</code> initializer feels a <em>little</em> bit like Java's <code>static</code> scope declarator.</p>
+
+<p><code>
+class Car { # this is Perl 6 code<br>
+&nbsp;&nbsp;&nbsp;&nbsp;submethod BUILD() {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;state $cars-produced = 0;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;++$cars-produced;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+}
+</code></p>
+
+<p>In both pieces of code above, the variable counting all the cars ever produced since the beginning of the program will begin at 0 and increase by one every time we construct a new car.</p>
+
+<p>However, the visibility is different. In Perl 6, the variable is only visible inside the <code>BUILD</code> submethod. If we want all methods to see it, we'll have to move it out to the larger class scope. (And then we don't need <code>state</code>, because the class block is only run once. We can use <code>my</code> to tie it to the lexical class block, or <code>our</code> to tie it to the class package. In the latter case, it can be referred to from the outside as <code>Car::cars-produced</code>.)</p>
+
+<p>But that <em>still</em> doesn't give us the inheritance that we like to associate with classes. The Java code would keep ticking up cars even if we derived a <code>RollsRoyce</code> class from <code>Car</code>, as long as we called <code>super()</code> from within the <code>RollsRoyce</code> constructor. The Perl 6 code will behave the same (and automatically) since we put our initialization in the <code>Car.BUILD</code> submethod, which would get called by <code>RollsRoyce.BUILDALL</code>. But in Perl 6, we can only <em>see</em> the variable when inside <code>Car</code>, not when inside <code>RollsRoyce</code>. Java doesn't have this issue.</p>
+
+<p>Excuse the crappy non-real-life example. &#21704;&#21704; But two more realistic use cases bring us back to the IRC discussion in question.</p>
+
+<p>The first is one or more constants that a class might want to share with its deriving classes. That feels pretty natural. The second is enums, which are basically constants packaged in a convenient form.</p>
+
+<p>I like throwing out items for discussion like this on #perl6. You never know who will pick them up, but I usually learn something from them, and sometimes the spec even gets improved as a result. This time, TimToady replied:</p>
+
+<p><code>
+&lt;TimToady&gt; std: has constant $.pi = 3;<br>
+&lt;p6eval&gt; std 30419: OUTPUTÃÂ«ok 00:01 110m&#9252;ÃÂ»<br>
+&lt;jnthn&gt; o.O<br>
+&lt;TimToady&gt; masak++ was conjecturing class-based constants, but it already falls out<br>
+&lt;TimToady&gt; in fact, that was one of the reasons the constant declarator moved from being a scope_declarator to being a type-declarator, so we could use it in arbitrary scopes
+</code></p>
+
+<p>Well, that does take care of the constants use case. Nice! You use <code>has</code> and twigils to get you the inheritance behaviour. Why didn't I think of that?</p>
+
+<p>Here's why I think it's extra nice: rather than make this an issue of scoping and visibility, the <code>has constant</code> construct makes it an issue of <em>immutability</em>. Given this information, the compiler is free to optimize as much as it can, but (unlike Java) we never had any need to invent a "class level" scope, where static things are stored. That aligns with the rest of Perl 6; we don't have 'static methods' either, for example &#8212; but you can achieve much the same things through other means.</p>
+
+<p><code>
+&lt;masak&gt; TimToady: 'has constant' still makes me happy. what's my best solution if I want to do something similar with an enum? (i.e. share it between a class and all its descendants.) enum is also a type declarator, but the name doesn't have a twigil...<br>
+[...]<br>
+&lt;TimToady&gt; masak: testing a patch for 'has enum $.meth &lt;foo bar&gt;'<br>
+&lt;masak&gt; TimToady: \o/
+</code></p>
+
+<p>I love it when existing parts of the design just melt together into something even more useful than the sum of its constituent parts. The fact that I can be part of that process makes the work on Perl 6 feel much less like work and much more like an adventure.</p>
+
+<p>So now, I can haz constant! And enums! I expect they will come in handy, especially since I will be on the lookout for possible uses for them.</p>
+
+<p>As for class-based <em>variables</em>, Perl 6 still doesn't have them. I don't see a similarly good way to add them to the language. On the other hand, I also don't have a better use case for them than that crappy <code>Car</code> example.</p></p>
+
+
+<hr/>
+
+
+
+<h2>object refcounting</h2>
+<h3><a href="/user/gilleain/">gilleain</a> on 2010-04-22T15:08:40</h3>
+<tt>The only real (non car-based<nobr> <wbr></nobr>:) example I can remember seeing for static class variables is reference counting:<br><br>public class MyBaseObject {<br><br>&nbsp; &nbsp; public static int REFCOUNT;<br><br>&nbsp; &nbsp; public MyBaseObject() {<br>&nbsp; &nbsp; &nbsp; &nbsp; REFCOUNT++;<br>&nbsp; &nbsp; }<br>}<br><br>public class DerivedObject extends MyBaseObject {<br><br>&nbsp; &nbsp; public DerivedObject() {<br>&nbsp; &nbsp; &nbsp; &nbsp; super();<br>&nbsp; &nbsp; }<br><br>&nbsp; &nbsp; public static void main(String[] args) {<br>&nbsp; &nbsp; &nbsp; &nbsp; for (int i = 0 ; i &lt; 10; i++) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; DerivedObject d = new DerivedObject();<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; System.out.print(d.REFCOUNT + " ");<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; }<br>}<br><br>prints "1 2 3 4 5 6 7 8 9 10 " as you might expect.</tt>
+
+
+
+<blockquote>
+
+<h2>Re:object refcounting</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-04-22T15:18:11</h3>
+<p>In other words, my <code>Car</code> example, but without the <code>Car</code>.<nobr> <wbr></nobr>:)</p><p>Is it common to want to implement reference counting in this way? What's the use case?</p>
+
+
+
+<blockquote>
+
+<h2>Re:object refcounting</h2>
+<h3><a href="/user/gilleain/">gilleain</a> on 2010-04-22T15:27:54</h3>
+<tt>Doh. Yes, I didn't think that through really, did I?<br><br>I have never used static class variables in Java. They seem like a subtle disaster waiting to happen. Also I try (where possible) to program without side-effects.<br><br>Moreover, Java doesn't have proper destructors, so you can't decrease the count in any reasonable way.<br><br>Is there perhaps a more reasonable use case for a kind of object-level namespace? It would be horrible in practice, but something like public static HashMap MyBaseObject.OBJECT_VARIABLES...<br><br>Sounds like a guarantee of threading problems to me, though.</tt>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>How about this?</h2>
+<h3><a href="/user/spinclad/">spinclad</a> on 2010-04-27T19:46:27</h3>
+<blockquote><div><p> <tt>class Car { # this is Perl 6 code<br>&nbsp; &nbsp; my $cars-produced = 0;<br>&nbsp; &nbsp; has $.cars-produced<nobr> <wbr></nobr>:= $cars-produced;<br> <br>&nbsp; &nbsp; submethod BUILD() {<br>&nbsp; &nbsp; &nbsp; &nbsp; ++$cars-produced;<br>&nbsp; &nbsp; }<br>}</tt></p></div> </blockquote><p>So you have a shared counter, an alias of it per instance (which seems redundant, but makes it work*... perhaps by some means one could persuade the compiler to compile it away, as it's constant as a reference), and accessors for inheriting.</p><p>Rakudo doesn't like the 'has $.x<nobr> <wbr></nobr>:= $y' construct (yet?), nor other variations moving the bind into the BUILD, but std parses it fine, at least.  So when I say 'makes it work', I mean 'in Perl 6, in theory, in my head'.</p>
+
+
+
+<blockquote>
+
+<h2>Re:How about this?</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-04-27T19:58:13</h3>
+<p>I was reminded by TimToady that something very much like this is already possible <code>class Car { my $.cars-produced = 0; #`[...] }</code>. It's spec'd and everything, in S12:731. Hope that helps.<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:How about this?</h2>
+<h3><a href="/user/spinclad/">spinclad</a> on 2010-04-27T21:40:08</h3>
+<p>Oh, yes, that's exactly the thing.</p><p>I think <code>has $.x<nobr> <wbr></nobr>:= $y</code> would have its uses, too; i'll poke around (in spec, code, #perl6) to see what might block/enable it.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Gilad Bracha doesn't like static state</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-05-08T09:50:23</h3>
+<p>I found this interesting post where <a href="http://gbracha.blogspot.com/2008/02/cutting-out-static.html" title="blogspot.com">Gilad Bracha rants about static state</a blogspot.com> in objects. Makes me think Perl 6, for all the static state it hasn't, maybe has a bit too much anyway.<nobr> <wbr></nobr>:)</p>
+
+
+
+<h2>And an mjd post</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-05-21T12:34:37</h3>
+<p>I keep finding other blog posts about static state. <a href="http://blog.plover.com/prs/objects.html" title="plover.com">This post</a plover.com> by Mark Dominus warns against keeping object information outside of the object. He does so in an almost embarrassingly reasonable way. Though he doesn't mention static state, he does argue against global state, of which static state is merely a milder version.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

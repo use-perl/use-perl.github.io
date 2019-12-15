@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: XML Iterators</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>XML Iterators</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2002-01-15T16:31:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Barrie Slaymaker's new <tt>XML::SAX::Machines</tt> looks cool, and it got me thinking.  Is there a better way to come up with a regular chunking of XML document for simpler processing?  The classic example is an XML document that is simply a wrapper tag over a series of subdocuments, each conforming to the same structure (as if it were a rowset returned from a table).
+<p>
+The basic idiom is something like this:
+<blockquote><tt>
+my $xmlp = new XML::Something;<br>
+...<br>
+while ($xmlp-&gt;next_chunk) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;....  <i>#process this chunk</i><br>
+}<br>
+</tt></blockquote>
+So what this becomes is an iterator over an XML document.  The iterator could return all well-formed child elements, each &lt;a&gt; tag (and nothing else), or any other pre-defined structure.
+<p>
+Theoretically, this could be implemented as a SAX filter of some sort.  The thorn in this proposal is that a SAX driver will not stop until the end of a document is reached (or a well-formedness error is encountered).  What's necessary is a mechanism to pause the SAX parser mid-parse.  
+<p>
+At first I thought that a new method on the parser to pause after the current event handler is finished might be the best way to proceed.  But the more I think about it, the uglier it seems.  Very rube-goldbergian and laden with side effects (at some point in the call stack, something you're calling may tell you to stop, so stop when the call stack returns to you, break out of your dispatch loop and return to <i>your</i> caller).
+<p>
+Fortunately, it was time to clean out my xml-dev mailbox and rid myself of about 1MB of email concerning limericks, XML Query and the impending irrelevance of XML.  Buried in the last month's worth of email was a <a href="http://lists.xml.org/archives/xml-dev/200112/msg00399.html">gem</a> from John Cowan about creating a standard for an XML Pull API.
+<p>
+Basically the idea is this: instead of having a parser do a lot of work (e.g. a DOM parser building a DOM tree) or dispatching to a handful methods (e.g. a SAX parser firing SAX events), what we need is a pull parser (e.g. something that sits in a loop and returns one event at a time, regardless of type).  The idiom would be something like this:
+<blockquote><tt>
+my $xmlp = new XML::PullParser;<br>
+while ($xmlp-&gt;next_token()) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;... <i>#process a start tag, an end tag or some characters</i><br>
+}<br>
+</tt></blockquote>
+This strikes me as being the right granularity, and it's quite surprising that this kind of parser has been missing from the XML world since the very beginning.  True, the guts of the while loop get complex, but it is significantly easier to work this into a recursive descent parser for an XML grammar, or even automatically build a DTD/Schema specific parser for a grammar using this technique.  
+<p>
+Building on a pull parser should also be composable into larger patterns, such as a pull parser interface that creates simple record-based structures, and returns them one at a time from an XML document.  Conceptually, adding a SAXAdaptor to a pull parser should be trivial....</p>
+
+
+<hr/>
+
+
+
+<h2>XML push/pull parsing</h2>
+<h3><a href="/user/TorgoX/">TorgoX</a> on 2002-01-15T19:33:44</h3>
+Ho-hum, that was done ages ago with HTML::Parser and HTML::TokeParser.  I've been whining for a while now about how there should be a semi-SAXy interface for this sort of thing for XML et al.
+<p>It's a piece of cake: build a parser that takes arbitrary chunks at a time (basically HTML::Parser), and then on top of that build a pull parser that knows how to pump a source for chunks to process, have it pump and feed the parser until the parser throws an event.  Events trigger callbacks that just stuff a token object into the token buffer.  Then unshift the token buffer and have that be the return value of the $parser-&gt;get_token thing.  See the HTML::TokeParser docs for a kludgey but still damned useful interface.  All that needs filling in is what the token objects look like -- I say just reiterate the structure of SAX callbacks, but make them attributes of token objects instead of arguments to callbacks.
+</p><p>That's basically one of the interfaces I'm implementing for my new Pod parsers.  It's all pretty obvious stuff -- once you've seen it done once (thanks, Gisle!).  So &iexcl;aprendan, muchachos, and see how it's done!
+
+</p><p>So, chop chop, XML people!  Join the shimmering moderne futurique world of 1998!  Jet-pack and lycra tux are optional.
+
+</p><p>(Meta-thought: standards (DOM, SAX, etc.) seek to enforce a minimal standard of intelligence and usefulness.  But by reducing implementation to just the programmer "filling in the blanks", they inadvertently keep out any better ideas that would come up if people went and invented things on their own.  And don't get me started on the supposed 'language-neutrality' of DOM... I'm full of rage!)</p>
+
+
+
+<h2>I think you just reinvented lisp streams</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-01-15T20:32:16</h3>
+Not that this is a bad thing of course. Lisp streams are really cool.
+
+
+
+<blockquote>
+
+<h2>Re:I think you just reinvented lisp streams</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2002-01-15T21:50:22</h3>
+That's not completely unintentional.  I read Dominus' manuscript last week.<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

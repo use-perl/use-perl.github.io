@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of rjbs: more cpan metrics</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>more cpan metrics</h1>
+<h2><a href="/user/rjbs/">rjbs</a> on 2008-11-04T15:47:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><html><p>For a while, I&#39;ve been keeping track of the total usage of my code on the CPAN.
+It helps me see what people have found useful, and lets me decide how scared to
+be of introducing back-incompat changes.  Sometimes people talk about the sort
+of catastrophe that can occur if a highly-required module is broken.  For
+example, over 11,000 dists require the code in Getopt-Long.  If it broke badly
+and people installed the new code, it would be a nightmare.</p><p>So, I applied my &#34;who needs me?&#34; script to the whole CPAN.  It produces a list
+of every author with dists, showing how many other dists (recursively) use
+that dist.  When an author uses his own dist, it is not counted as a
+prerequisite.  The &#34;total cpan-breaking power&#34; score is more accurate that way.</p><p>This scoreboard is quite different to <a href="http://www.thegestalt.org/simon/perl/wholecpan.html">Simon Wistow&#39;s CPAN
+Leaderboard</a>.  Here&#39;s a
+comparison:</p><pre>author   | volume | requiredness
+ZOFFIX   | 1      | 145
+ADAMK    | 2      | 32
+RJBS     | 3      | 43
+MIYAGAWA | 4      | 82
+NUFFIN   | 5      | 85
+GBARR    | 114    | 1
+PMQS     | 221    | 2
+PETDANCE | 31     | 3
+MSCHWERN | 40     | 4
+SAPER    | 32     | 5
+</pre><p>The program is included below.  It&#39;s a quick and dirty hack, but it was fun to
+write and look at.</p><pre>#!/usr/bin/perl
+use strict;
+use warnings;
+use 5.010;
+use DBI;
+use JSON::XS;
+
+my $dbh = DBI->connect('dbi:SQLite:dbname=cpants_all.db', undef, undef);
+
+my $authors = $dbh->selectall_arrayref(
+  "SELECT id, pauseid
+  FROM author
+  WHERE pauseid IS NOT NULL
+  ORDER BY pauseid"
+);
+
+my @results;
+
+for my $author (@$authors) {
+  my ($author_id, $pauseid) = @$author;
+
+  my $dists = $dbh->selectall_arrayref(
+    "SELECT id, dist FROM dist WHERE author = ? ORDER BY dist",
+    undef,
+    $author_id,
+  );
+
+  my %analysis;
+
+  analyze_dist(\%analysis, $author_id, $_) for @$dists;
+
+  my $sum = 0;
+  $sum += $_ for values %analysis;
+
+  next unless $sum;
+
+  warn "$pauseid,$sum\n";
+  push @results, {
+    pauseid => $pauseid,
+    result  => $sum,
+    dists   => \%analysis,
+  };
+}
+
+my $JSON = JSON::XS->new;
+for my $author (sort { $b->{result} <=> $a->{result} } @results) {
+  say $JSON->encode($author);
+}
+
+sub analyze_dist {
+  my ($analysis, $author_id, $dist, $seen, $add_to) = @_;
+  $seen ||= {};
+  $add_to ||= $dist->[1];
+
+  my @queue = $dist;
+
+  $analysis->{ $add_to }++;
+
+  my $needed_by = $dbh->selectall_arrayref(
+    "SELECT p.dist, d.dist AS name
+    FROM prereq p
+    JOIN dist d ON d.id = p.dist
+    WHERE p.in_dist = ?
+    AND author <> ?",
+    undef,
+    $dist->[0],
+    $author_id
+  );
+
+  for my $needed (@$needed_by) {
+    next if $seen->{ $needed->[1] };
+    $seen->{ $dist->[1] }++;
+    analyze_dist($analysis, $author_id, $needed, $seen, $add_to);
+  }
+}
+</pre><p>You can find the <a href="http://dl.getdropbox.com/u/88746/cpan-prereqs.json.txt">results of the
+results</a> as of last night in my drop box.</p></html>
+</p>
+
+
+<hr/>
+
+
+
+<h2>cpants.db</h2>
+<h3><a href="/user/domm/">domm</a> on 2008-11-04T20:13:22</h3>
+nice to see the cpants.db put to good use! I hope the schema isn't too ugly...
+
+
+
+<blockquote>
+
+<h2>Re:cpants.db</h2>
+<h3><a href="/user/rjbs/">rjbs</a> on 2008-11-04T20:17:45</h3>
+<p>No, it's much better than it used to be (ages ago).  I found it very easy to use.  I mean, the code should make it clear how easy it was.</p><p>Tell me this, though, if you know:  I would like to be able to exclude core modules, but prereqs are all stored in CPANTS in terms of dists, which make things problematic, because Test::More appears in multiple dists -- one where it's legal and two where it is not, for instance.</p><p>Do you have a good suggestion about dealing with this?  Even if not, this has been a useful exercise.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of grantm: UML under Debian Sarge</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>UML under Debian Sarge</h1>
+<h2><a href="/user/grantm/">grantm</a> on 2004-12-22T03:22:08</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I recently needed a clean install of Debian stable (to extract some shared library files) and didn't have a spare machine, so I did my first ever installation of User-mode Linux (UML).  I found <a href="http://www-106.ibm.com/developerworks/edu/l-dw-linuxuml-i.html">this article</a> which helped a bit but wasn't Debian specific enough.  There were a few gotcha's but I got there in the end.  Here are my notes for posterity ...</p>
+
+<p>The 'user-mode-linux' package is not stable enough to be in Sarge, so apt-get user-mode-linux wouldn't find it.  Strangely, the companion package 'uml-utilities' is available.  Anyway, I downloaded the .deb from <a href="http://packages.debian.org/unstable/misc/user-mode-linux">here</a> and installed it with dpkg --install.</p>
+
+<p>Next I needed a root filesystem image, which I got from <a href="http://prdownloads.sourceforge.net/user-mode-linux/Debian-3.0r0.ext2.bz2">here</a>.  I created a directory 'uml' in which I put the bunzip'ped filesystem (renamed to root_fs) and a symlink to /usr/bin/linux.  Then I booted it up with this command:</p>
+
+<pre>./linux</pre>
+
+<p>It did boot, but failed with this error when trying to fsck the root filesystem:</p>
+
+<pre>fsck.ext2: No such file or directory while trying to open /dev/ubd/0</pre>
+
+<p>This turned out to be because UML assumes devfs and the Debian root filesystem image didn't contain it.  The solution was grab the 'devfsd' package from <a href="http://packages.debian.org/stable/admin/devfsd">here</a> and then create my own modified root filesystem with this package installed in it:</p>
+
+<pre>
+mv root_fs root_fs-dist
+
+dd if=/dev/zero of=root_fs count=1 bs=1k seek=$[4*1024*1024]
+mkfs -t ext3 root_fs
+
+mkdir /mnt/m1
+mkdir /mnt/m2
+
+mount -o loop -t ext2 /home/grant/uml/root_fs-dist /mnt/m1
+mount -o loop -t ext3 /home/grant/uml/root_fs /mnt/m2
+
+cp -a /mnt/m1/* /mnt/m2
+rm -r /mnt/m2/lib/modules/*
+cp -a /usr/lib/uml/modules/* /mnt/m2/lib/modules/
+
+
+cp devfsd_1.3.25-1_i386.deb /mnt/m2/
+
+umount /mnt/m1
+umount /mnt/m2
+
+./linux
+
+mount -n -o remount,rw /
+dpkg --install /devfsd_1.3.25-1_i386.deb
+halt
+</pre>
+
+<p>Now I was able to succesfully boot with one extra parameter on the kernel command line:</p>
+
+<pre>./linux devfs=mount</pre>
+
+<p>I then created a swap file:</p>
+
+<pre>
+dd if=/dev/zero of=swapfs bs=1k count=1 seek=$[512*1024]
+mkswap swapfs
+</pre>
+
+<p>and added it into the /etc/fstab in root_fs</p>
+
+<pre>/dev/ubd/1      none            swap    sw              0       0</pre>
+
+<p>So now the command to boot up UML is:</p>
+
+<pre>./linux devfs=mount ubd1=swapfs</pre>
+
+<p>That gave me a working system that enabled me to identify and extract the shared library files that I originally needed, so at this point I was done.  I did dabble with networking enough to get it functioning here's how I did it (there are many options)...</p>
+
+<p>The host kernel needed the 'tun' module loaded (modprobe tun) and I adjusted the permissions on /usr/lib/uml/uml_net to: -rwsr-x--x (4751?).  Then when I booted up the UML instance I gave it my workstation's IP address as a tunnel end-point:</p>
+
+<pre>./linux devfs=mount ubd1=swapfs eth0=tuntap,,,192.168.2.77</pre>
+
+<p>Then I needed to bring up the interface in the virtual machine (with it's own IP address):</p>
+
+</pre>ifconfig eth0 192.168.2.222 up</pre>
+
+<p>You'd probably want to set up name servers in /etc/resolv.conf and a default router too.  As I say, I didn't play with this much as I'd achieved my objective.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

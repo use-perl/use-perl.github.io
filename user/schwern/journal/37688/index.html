@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: y2038 TPF Grant Delivered</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>y2038 TPF Grant Delivered</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2008-10-17T23:03:20</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>The <a href="http://www.perlfoundation.org/make_localtime_and_gmtime_work_past_2038">y2038 TPF grant</a> has shipped all its deliverables and I now consider it
+to be complete.  While the original estimate of August 18th was blown
+through, writing portable C code is a bitch, I'm happy the 2038
+problem has been fixed with time to spare.  All that remains now is
+for the patches to be integrated.  (Rafael is not integrating any
+bleadperl branches until after 5.8.9 is released.)<br/><br/>Perl now has a portable means to calculate time in a range of +/- 142
+million years.  It also has another C programmer to help hack the perl
+guts.<br/><br/>Why 142 million years and not 292 billion as is the true range of 64
+bit time?  Well, it turns out that Perl has access to a portable 64
+bit integer, it has no accompanying portable 64 bit integer scalar
+type.  Because all arguments passed into a Perl function are scalars,
+I had to make due with double precision floating point numbers.  These
+are accurate out to about 2**52 after which accuracy degrades.  2**52
+is about 142 million years.<br/><br/>Since the code is a drop-in replacement for the <a href="http://www.opengroup.org/onlinepubs/009695399/basedefs/time.h.html">time.h</a>
+fucntions, and not specific to Perl, any project written in C can take
+advantage.  For example, in order to allow users access to the code
+without patching Perl, <a href="http://search.cpan.org/dist/Time-Local-Extended">Time::Local::Extended</a>
+has been patched to include this code.  The author should release a
+new version soon.  <a href="http://y2038.googlecode.com/svn/trunk/patches/Time-Local-Extended.patch">The patch is available</a>.<br/><br/><pre>
+use Time::Local::Extended;
+print scalar gmtime(2**52);
+__END__
+Sat Dec  6 03:48:16 142715360
+</pre><br/><br/>I gave a <a href="http://www.slideshare.net/schwern/whos-afraid-of-2038-presentation/">presentation at PPW</a> covering the problem, the usual proposed solutions which aren't, and the solution which y2038 takes.<br/><br/>This does not mean the end of the y2038 project.  Ideally the entirety
+of time.h will be reimplemented.  timegm() has already been done (not
+in the standard, but too useful to ignore), mktime() (ie. timelocal())
+is next on the list and the wildly complicated <a
+href="http://code.google.com/p/y2038/source/browse/branches/strftime">strftime()</a>
+has been started.  2038 bugs have been identified in <a
+href="http://code.google.com/p/y2038/wiki/TargetProjects">Ruby and
+Python</a>, they are the project's next targets.<br/><br/>Help is greatly appreciated.<br/><br/><br/><br/>Here is a breakdown of the project's deliverables and their conclusions.<br/><br/>64 bit localtime/gmtime
+-----------------------<br/><br/>    * Write C versions of localtime() and gmtime() which work with
+      times beyond 2038 regardless of the limits of the system C
+      libraries.<br/><br/>Done.  <a href="http://y2038.googlecode.com">The y2038 project</a> solves this problem.<br/><br/>
+    * Test for negative times.
+      * If it can be made to work, make it work.
+      * If not, provide a proper error message.<br/><br/><a href="http://code.google.com/p/y2038/source/browse/trunk/t/negative.t.c">Done and it works</a>.  It also provides a proper errno and error message on overflow or failure.<br/><br/>
+    * Fix any performance issues so the process is O(1) (currently
+      parts of the code are O(n)).<br/><br/>Using a little clever math, it is now O(1).  The process for
+calculating a date does not get slower as the time increases.  This
+sped up the time to calculate distant dates by about 10000x.<br/><br/>
+    * Make gmtime64_r() properly report an EOVERFLOW error when the
+      year is too large to be held by tm.tm_year.<br/><br/>Done.  Also provided an option to use an alternative (but
+incompatible) tm struct with a bigger tm_year to punch through the
+y2billion bug, which Perl uses.<br/><br/>
+    * Fix any portability issues.<br/><br/>The code is written in ANSI C89 and conforms to the POSIX spec.
+Tested on most Unixen and Windows.  A <a href="http://code.google.com/p/y2038/source/browse/trunk/time64_config.h">configuration header</a> allows tweaking.<br/><br/>
+Provide a patch for Perl which...
+---------------------------------<br/><br/>    * Adapts these libraries for perl and change pp_gmtime() and
+      pp_localtime() to use them.<br/><br/>Done as a <a href="http://perl5.git.perl.org/?p=perl.git;a=shortlog;h=refs/heads/y2038">bleadperl branch</a>.<br/><br/>
+    * Add additional tests to localtime(), gmtime() and related core
+      modules (Time::Local) for beyond 2038.<br/><br/>Done.  Time::Local, Time::gmtime and Time::localtime were fixed and tested.<br/><br/>
+    * Ensure cross-platform compatibility including any necessary Configure probing.<br/><br/>Done.  No additional probing was necessary.<br/><br/>
+    * Use the existing system libraries should they be 64 bit clean.<br/><br/>Done with Merijn's help to add probes to Configure.<br/><br/>
+    * Works with bleadperl.<br/><br/>Done.  Rafael is holding off integrating the branch until after 5.8.9
+is released.<br/><br/>
+    * Works with 5.10.<br/><br/>Done, no additional work is necessary.  It can be included as part of
+the normal maint-perl process and hopefully included in 5.10.1.<br/><br/>
+    * BONUS Backport to 5.8.<br/><br/>Done, no backporting is needed, but it is unlikely (and inadvisable)
+to be included in 5.8.9 this late in the process.  5.8 users can use
+Time::Local::Extended.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

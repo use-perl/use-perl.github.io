@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org story by grinder: This Week on perl5-porters - 28 November-4 December 2005</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>This Week on perl5-porters - 28 November-4 December 2005</h1>
+<h2><a href="/user/grinder/">grinder</a> on 2005-12-06T13:51:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>A rather hectic week on p5p, when it was revealed that
+signed/unsigned comparisons and unchecked format strings to
+<code>printf</code> and <code>sprintf</code> could cause serious problems in
+poorly written applications.</p>
+<p><h2> <a name="format_strings_in_sprintf">Format strings in <code>s?printf</code> </a> </h2>
+<p>It turned out that a nasty <code>sprintf</code> format string could cause havoc
+in the <code>webmin</code> application suite (a set of web scripts geared
+towards systems administration). Not the kind of place you want
+havoc to occur.</p>
+<p>Rafael noted that this could lead to a buffer overrun in the
+interpreter, by taking advantage of a signed/unsigned conversion
+bug in <code>printf</code> (which is pretty much all hand-rolled and not the
+<code>printf</code> of the underlying C standard library), and that the next
+major release will apply taint checks to format strings. Andy
+questioned whether it was really possible to create a buffer overrun,
+and Gisle Aas responded with a tiny one-liner:</p>
+<pre>
+  $ perl -e 'printf &quot;%4294967295d&quot;'
+  Segmentation fault (core dumped)</pre>
+<p>In a subsequent thread, Andy was rather dismayed to learn that
+pretty-printing a variable through a <code>%d</code> format string makes it
+lose its taintedness. In later developments, Jan Dubois pointed out
+that Python does not have this flaw:</p>
+<pre>
+  &gt;&gt;&gt; print &quot;%4294967295d&quot; % 1
+  Traceback (most recent call last):
+    File &quot;&lt;stdin&gt;&quot;, line 1, in ?
+  ValueError: width too big</pre>
+<p>Andy subsequently decided not to post a rebuttal to the News.com
+article, since, to paraphrase Nathan Torkington: "everybody fucked
+up", and the best that can be done is to get the fix into 5.8.8,
+and get 5.8.8 out the door. Nicholas Clark replied that it would
+take a couple of weeks, which would take us right up to Christmas
+time. Not the kind of time you want a Perl upgrade to occur.</p>
+<p>Philippe M. Chiasson cooked up a patch that produced the following
+behaviour:</p>
+<pre>
+  $ perl -e 'printf(&quot;%04294967294d&quot;,1)'
+  panic: memory wrap at -e line 1.</pre>
+<p>That patch was applied by Rafael, but Gisle still managed to punch
+a hole through it with <code>sprintf &quot;%#.4294967295b&quot;</code>. But made up
+for it by fixing it. Dave Mitchell supplied a patch to fix the
+signed/unsigned mismatch in the <code>printf</code> code. Hugo van der Sanden
+had a minor quibble with the change in behaviour, and Nicholas
+provided a clearer change.</p>
+<p>Gisle thought about patching the code and documentation for
+<code>Sys::Syslog</code>, to prevent the possibility of using <code>%n</code>.
+Ronald Kimball improved the patch with a better regular
+expression to strip out <code>%n</code>.</p>
+<p>(Summariser's note: <code>%n</code>, in case you weren't aware (I had to go
+and look it up in the documentation), takes the current number
+of characters emitted so far by the format string, and stores
+that count in the next variable appearing in the argument list;
+problems occur when there is no variable to take the result).</p>
+<p>Gisle then came back later with a patch for <code>sprintf</code>, to
+prevent constant folding from taking place. Hugo appreciated the
+patch, and suggested a long-term plan. (Constant folding in this
+context meaning something like):</p>
+<pre>
+  perl -MO=Deparse -e '$a = sprintf &quot;%g&quot;, 2/3'
+  $a = '0.666667';</pre>
+<p>Which stops bad things happening when <code>%g</code> is replaced by <code>%99g</code>
+(where 99 is a very large number). But in general, constant folding
+is a Good Thing, and a concensus seems to be forming around the
+idea that it should be possible to back out of a constant folding
+attempt during compilation without killing the compile, and defer
+the resolution until run-time.</p>
+<p>Andy started to look at GCC's warnings of signed/unsigned comparisons,
+and picked a bit of low-hanging fruit in <em>pp_pack.c</em>. He also heard
+back from Jack Louis, who reported the the initial integer
+overflow problem. Dave Mitchell noted that one of them had already
+been fixed in <code>blead</code>. Andy forwarded another message from Jack
+showing how the exploit could be brought to bear on Webmin.</p>
+<p>Joshua ben Jore pointed to a couple of threads he wrote on Perlmonks,
+showing the results of the code he wrote to look for uses of <code>printf</code>
+and <code>sprintf</code> with non-constant format parameters.</p>
+<p>Executive summary: the problems will be fixed in 5.8.8, and a series
+of patches will be made available for all the 5.8 releases.</p>
+<pre>
+  The article on News.com
+  <a href="http://news.com.com/2100-1002_3-5975954.html">http://news.com.com/2100-1002_3-5975954.html</a> </pre>
+<pre>
+  Andy Lester's call for input
+  <a href="http://xrl.us/i395">http://xrl.us/i395</a> </pre>
+<pre>
+  sprintf and tainting
+  <a href="http://xrl.us/i396">http://xrl.us/i396</a> </pre>
+<pre>
+  Andy's first approximation to a PR response
+  <a href="http://xrl.us/i397">http://xrl.us/i397</a> </pre>
+<pre>
+  Andy declines to respond
+  <a href="http://xrl.us/i398">http://xrl.us/i398</a> </pre>
+<pre>
+  Philippe's patch
+  <a href="http://xrl.us/i399">http://xrl.us/i399</a> </pre>
+<pre>
+  Dave's patch
+  <a href="http://xrl.us/i4aa">http://xrl.us/i4aa</a> </pre>
+<pre>
+  Gisle's patch
+  <a href="http://xrl.us/i4ab">http://xrl.us/i4ab</a> </pre>
+<pre>
+  Disabling constant folding of sprintf
+  <a href="http://xrl.us/i4ac">http://xrl.us/i4ac</a> </pre>
+<pre>
+  Andy's patch of pp_pack.c
+  <a href="http://xrl.us/i4ad">http://xrl.us/i4ad</a> </pre>
+<pre>
+  Word back from the original finder of the integer overflow
+  <a href="http://xrl.us/i4ae">http://xrl.us/i4ae</a> </pre>
+<pre>
+  Details of a possible exploit
+  <a href="http://xrl.us/i4af">http://xrl.us/i4af</a> </pre>
+<pre>
+  The message sent to bugtraq
+  <a href="http://xrl.us/i4ag">http://xrl.us/i4ag</a> </pre>
+<pre>
+  Joshua's findings
+  <a href="http://xrl.us/i4ah">http://xrl.us/i4ah</a> </pre>
+<p>
+<h2> <a name="debugging_lib_archive_tar_t_02_methods_t">Debugging <em>lib/archive/tar.t/02_methods.t</em> </a> </h2>
+</p> <p>John E. Malmberg was having difficulty tracking down why this test
+file was failing on VMS, and had to resort to inserting <code>print</code>
+statements to trace what was happening. Rafael Garcia-Suarez explained
+that it was hard to find, because in fact it is created in
+<em>00_setup.t</em>. Ronald J Kimball thought it rather dubious that two
+different test files cannot be run independently of each other (this
+precludes, amongst other things, being able to run tests in a
+massively parallel manner).</p>
+<pre>
+  Looking in the wrong place
+  <a href="http://xrl.us/i4ai">http://xrl.us/i4ai</a> </pre>
+<p>
+<h2> <a name="my__var___undef_fails_to_set__var_when_rerun"> <code>my $var = undef</code> fails to set <code>$var</code> when re-run</a> </h2>
+</p> <p>Erland Sommarskog posted bug #37776 showing that a declaration and
+assignment of a variable to <code>undef</code> doesn't work when the assignment
+is run subsequently. It turns out that it was due to an optimisation
+that was, well, wrong. This behaviour, according to Robin Houston, is
+a side-effect of change #22520. Rafael fixed it with change #26226.</p>
+<pre>
+  Can't go there again
+  <a href="http://xrl.us/i4aj">http://xrl.us/i4aj</a> </pre>
+<p>
+<h2> <a name="cwd_pm_scan_of__env_path_"> <em>Cwd.pm</em> scan of <code>$ENV{PATH}</code> </a> </h2>
+</p> <p>Nick Ing-Simmons ran into a problem with <code>Cwd</code>'s use of <code>grep</code>
+on the list of directories in <code>$ENV{PATH}</code>. This usually works
+well, but if your PATH happens to contain automounted directories
+that are not there, bad things happen. Indeed, Nick's <code>Cwd</code> was
+taking <em>minutes</em> to load. This can be construed as an abuse of
+<code>grep</code>, because only the first result is needed, but <code>grep</code>, by
+design, will always scan the entire list it is given. Nick
+proposed a number of ways out of the problem.</p>
+<p>Graham Barr suggested <code>first</code> from <code>List::Util</code>. Ken Williams
+said that <code>Cwd</code> contains lots of ancient voodoo, and because it
+is so low on the CPAN dependency graphs, that a <code>foreach</code> is
+probably the only wise path to take. Some patches were put forward.</p>
+<pre>
+  <a href="http://xrl.us/i4ak">http://xrl.us/i4ak</a> </pre>
+<p>
+<h2> <a name="using_i32_for_arrays_on_64_platforms">Using <code>I32</code> for arrays on 64 platforms</a> </h2>
+</p> <p>Jan Dubois noticed that the internal structures for arrays use
+32 bits for index computations, thus limiting arrays on 64 bit
+architectures to <em>only</em> 2**32 elements. An array that size
+would consume a non-trivial amount of memory, but Jan felt that
+it should be fixed in blead, even if it wouldn't start being
+hit by applications for some time yet. Or otherwise, paraphrasing
+Bill Gates, that "2**32 array elements will be big enough for
+everyone." The concensus seems to be to use an <code>IV</code> instead.</p>
+<pre>
+  <a href="http://xrl.us/i4am">http://xrl.us/i4am</a> </pre>
+<p>
+<h2> <a name="passing_function_parameters_in_registers">Passing function parameters in registers</a> </h2>
+</p> <p>Last week in his quest to const, Andy Lester stumbled across
+some redundant code that he was able to chop out. In response
+Yitzchak Scott-Thoennes asked whether Andy was considering
+investigating the <code>regparm</code> attribute of the gcc compiler,
+which indicates that the parameters of the function are to
+be passed in registers, for a nice speed boost. But
+implementing this would add considerable complexity to the
+codebase.</p>
+<pre>
+  The regparm attribute
+  <a href="http://xrl.us/i4an">http://xrl.us/i4an</a> </pre>
+<pre>
+  Declaring attributes in gcc
+  <a href="http://gcc.gnu.org/onlinedocs/gcc-4.0.2/gcc/Function-Attributes.html">http://gcc.gnu.org/onlinedocs/gcc-4.0.2/gcc/Function-Attributes.html</a> </pre>
+<p>
+<h2> <a name="pod_encoding">POD Encoding</a> </h2>
+</p> <p>Alberto Sim&#245;es was writing POD assuming Latin-1, but noted that
+it gets mangled on a system that uses UTF-8 by default, and wondered
+what the correct fix was. Russ Allbery replied that the correct
+solution was to use the <code>=encoding</code> directive. POD translators that
+are based on <code>Pod::Simple</code> get this for free. Other translators
+including <code>pod2man</code> and <code>pod2txt</code> may not.</p>
+<p>Worse, <code>pod2man</code> has difficulty in dealing with non-ASCII characters
+because of limitations in <code>nroff</code> implementations. Russ is hoping to
+get around to adding a switch to <code>pod2man</code> to tell it to "assume
+<code>groff</code>", which does not how to generate UTF-8 output.</p>
+<p>Tels noted that the POD in <code>blead</code> does not contain any <code>=encoding</code>
+directives, and that it probably should. Then Sadahiro Tomoyuki
+started talking about EBCDIC and my head exploded.</p>
+<pre>
+  <a href="http://xrl.us/i4ao">http://xrl.us/i4ao</a> </pre>
+<p>
+<h2> <a name="the_archive_of_perl_changes__apc_">The Archive of Perl Changes (APC)</a> </h2>
+</p> <p>Philippe M. Chiasson wrote to say that the Archive of Perl Changes is
+now running on more powerful hardware (a shade less than ten times more
+powerful, if you lend any credence to BogoMIPS).</p>
+<p>The main change is that <a href="rsync:ftplinuxactivestatecom">rsync://ftp.linux.activestate.com/</a> became
+<a href="rsync:publicactivestatecom">rsync://public.activestate.com/</a>. Abe Timmerman experienced
+a bit of transient grief with his <code>Test::Smoke</code> kit, but everything was
+sorted out in the end.</p>
+<pre>
+  <a href="http://xrl.us/i4ap">http://xrl.us/i4ap</a> </pre>
+<p>
+<h2> <a name="new_modules">New Modules</a> </h2>
+</p> <p>John Peacock released <strong> <code>version-0.50</code> </strong>. Much of the change involves
+improvements to the documentation.</p>
+<pre>
+  <a href="http://xrl.us/i4aq">http://xrl.us/i4aq</a> </pre>
+<p>Andreas K&#246;nig released <strong> <code>CPAN-1.80</code> </strong>. Lots of new goodies, including
+support for <code>sudo</code> and new commands <code>recent</code> and <code>perldoc</code>. Now runs
+(again) under 5.005_04.</p>
+<pre>
+  <a href="http://xrl.us/i4ar">http://xrl.us/i4ar</a> </pre>
+<p>
+<h2> <a name="perl5_bug_summary">Perl5 Bug Summary</a> </h2>
+</p> <p>1512 as of Monday the 5th. All the tickets that were opened last
+week were commented on, which made Robert Spier happy.</p>
+<pre>
+  <a href="http://xrl.us/i4as">http://xrl.us/i4as</a> </pre>
+<p>
+<h2> <a name="in_brief">In Brief</a> </h2>
+</p> <p> <strong> <code>podlators</code> 2.00 released</strong> by Russ Allbery. The underlying POD
+parsing is now handled by <code>Pod::Simple</code>, rather than <code>Pod::Parser</code>.
+Stever Peters planned to add it the core. Tels was very happy, and
+showed how this would let him write custom POD paragraphs.</p>
+<pre>
+  <a href="http://xrl.us/i4at">http://xrl.us/i4at</a> </pre>
+<p>Ulrich Windl filed bug report #37781 show <strong>how to make the debugger
+crash</strong>. Richard Foley replied with a couple of message IDs showing
+what the probable fix would be, and otherwise how to work around it.</p>
+<pre>
+  <a href="http://xrl.us/i4au">http://xrl.us/i4au</a> </pre>
+<p>Torsten F&#246;rtsch queried a <strong>strange split feature</strong>, wondering why
+the trailing empty elements of the <code>split</code> are discarded. H.Merijn
+Brand explained that it was operating according to spec, and showed
+a snippet that let Torsten achieve the desired result.</p>
+<pre>
+  <a href="http://xrl.us/i4av">http://xrl.us/i4av</a> </pre>
+<p> <strong>Redundant <code>SvUTF8_on()</code> calls</strong> were removed from the codebase
+in a couple of places, thanks to careful observation from Gisle.</p>
+<pre>
+  <a href="http://xrl.us/i4aw">http://xrl.us/i4aw</a> </pre>
+<p> <strong>Tk compatibility</strong> was reported broken on <code>blead</code> by Gisle on the
+23rd of November. Andreas K&#246;nig traced the fault back to change
+#26110. The fix had already been unwound in <code>maint</code>, and Rafael
+unwound it in <code>blead</code>. But the bug that the change tried to fix
+in the first place, as Nicholas reminded us, is still there.</p>
+<pre>
+  <a href="http://xrl.us/i4ax">http://xrl.us/i4ax</a> </pre>
+<p> <strong> <code>arenas by SV-type</code> </strong> work continued. Jim Cromie smoked the latest
+<code>blead</code> and more or less came up with a clean bill of health. There
+were a couple of compiler squawks, and one test failure that Jim had
+difficulty in deciding whether it was because <code>blead</code> was in a
+state of flux, or whether it was because of his patch since
+"monkeying with arenas affects everything."</p>
+<pre>
+  <a href="http://xrl.us/i4ay">http://xrl.us/i4ay</a> </pre>
+<p>and a patch to unify <code>PL_body_arenaroots[]</code> to a single variable:</p>
+<pre>
+  <a href="http://xrl.us/i4az">http://xrl.us/i4az</a> </pre>
+<p>Sadahiro Tomoyuki improved his <strong>XS-assisted SWASHGET</strong> patch.</p>
+<pre>
+  <a href="http://xrl.us/i4a2">http://xrl.us/i4a2</a> </pre>
+<p>
+<h2> <a name="about_this_summary">About this summary</a> </h2>
+</p> <p>This summary was written by David Landgren. Adriano and I are
+moving to a Monday night publishing schedule, rather than
+Sunday night, to give us a bit more time.</p>
+<p>One thing I keep failing to mention in these summaries is the
+tireless effort that Steve Peters puts into delving into the
+bug queue and closing out fixed bugs and reviving the lost, the
+forgotten and the ignored. The number of open bugs for
+Perl5 has been pretty stable over the last few months (and
+no doubt longer, but I never paid close attention before), and
+this is in no small part due to Steve's diligence.</p>
+<p>Unfortunately, as most of this activity is just one-shot messages
+to the list, it's nearly impossible to summarise, so casual readers
+of this summary have no idea of the work Steve does. So, thank-you
+Steve.</p>
+<p>Information concerning bugs referenced in this summary (as #nnnnn)
+may be viewed at <code>http://rt.perl.org/rt3/Ticket/Display.html?id=nnnnn</code> </p>
+<p>Information concerning patches to maint or blead referenced in
+this summary (as #nnnnn) may be viewed at
+<code>http://public.activestate.com/cgi-bin/perlbrowse?patch=nnnnn</code> </p>
+<p>Weekly summaries are published on <em> <a href="http://use.perl.org/">http://use.perl.org/</a> </em> and posted
+on a mailing list, (subscription: <em> <a href="mailto:perl5-summary-subscribe@perl.org">perl5-summary-subscribe@perl.org</a> </em>).
+The archive is at <em> <a href="http://dev.perl.org/perl5/list-summaries/">http://dev.perl.org/perl5/list-summaries/</a> </em>.
+Corrections and comments are welcome.</p>
+<p>If you found this summary useful or enjoyable, please consider
+contributing to the Perl Foundation to help support the development
+of Perl.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

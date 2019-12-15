@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Aristotle: Intelligently shortcutting function maker</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Intelligently shortcutting function maker</h1>
+<h2><a href="/user/Aristotle/">Aristotle</a> on 2006-07-09T10:16:41</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I often want to write short utility functions that do things like running a simple but frequently needed substitution on strings or the like. For these functions, I often want shortcutting behaviour: operate on <tt>$_</tt> if not given a parameter, and operate destructively in-place if not asked to return values.</p>
+
+<p>Writing functions that work like this is a real pain in the neck: there are multiple cases to be considered, you have to be careful to preserve the aliasing nature of <tt>@_</tt> and <tt>$_</tt>, etc. It&#8216;s way too much work to keep doing it over and over.</p>
+
+<p>So here&#8217;s a function maker that lets you build such functions, carefully written to rely entirely on aliasing, rather than jumping through any reference-taking hoops. It expects to be given a reference to a function which always operates destructively on its parameters (ie modifies the elements of <tt>@_</tt>), and from this builds a function that will default to <tt>$_</tt> as its input and will either return modified copies or modify its operands in-place.</p>
+
+<p>Eg.:</p>
+
+<pre>
+BEGIN { *basename = shortcutted { s!.*/!! for @_ }; }
+
+for( '/path/to/foo', '/some/path/to/bar' ) {
+	print "Munging " . basename . "\n";
+	open my $fh, '<', $_ or die $!;
+	# note how $_ still contains the full pathname
+	# ...
+}
+</pre>
+
+<p>The code:</p>
+
+<pre>
+sub shortcutted(&) {
+	my $sub = shift;
+	sub {
+		my @byval;
+		my $nondestructive = defined wantarray;
+		$sub->( $nondestructive
+			? ( @byval = @_ ? @_ : $_ )
+			: (          @_ ? @_ : $_ )
+		);
+		return $nondestructive ? @byval[ 0 .. $#byval ] : ();
+	};
+}
+</pre>
+
+<p>Tests:</p>
+
+<pre>
+use Test::More;
+
+sub original() { 'original' }
+sub modified() { 'modified' }
+
+my $test = shortcutted { $_ = modified for @_ };
+
+plan tests => my $num_tests;
+
+{
+	local $_ = original;
+	$test->();
+	is( $_, modified, 'in-place on $_' );
+	BEGIN { $num_tests += 1 }
+}
+
+{
+	local $_ = original;
+	my $res = $test->();
+	is( $_,   original, 'nondestructive from $_' );
+	is( $res, modified, '...returned correctly' );
+	BEGIN { $num_tests += 2 }
+}
+
+{
+	my $num = 10;
+	my @original = ( original ) x $num;
+	my @modified = ( modified ) x $num;
+	$test->( my @data = @original );
+	is_deeply( \@data, \@modified, 'in-place on params' );
+	BEGIN { $num_tests += 1 }
+}
+
+{
+	my $num = 10;
+	my @original = ( original ) x $num;
+	my @modified = ( modified ) x $num;
+	my @res = $test->( my @data = @original );
+	is_deeply( \@data, \@original, 'non-destructive from params' );
+	is_deeply( \@res,  \@modified, '...returned correctly' );
+	BEGIN { $num_tests += 2 }
+}
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>Lovely!</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2006-07-09T12:22:31</h3>
+That's really useful.  But having to use coderefs is a bit ugly.  So I've added support for a<nobr> <wbr></nobr>:Shortcut attribute.  The code is in my svn repository: <a href="http://happygiraffe.net/svn/public/Attribute-Shortcut/trunk/" title="happygiraffe.net">Attribute-Shortcut/</a happygiraffe.net>.<blockquote> <div><tt>&nbsp; sub basename<nobr> <wbr></nobr>:Shortcut { s!.*/!! for @_ }<br> <br>&nbsp; for ( '/path/to/foo', '/some/path/to/bar' ) {<br>&nbsp; &nbsp; &nbsp; print "Munging " . basename . "\n";<br>&nbsp; &nbsp; &nbsp; open my $fh, '&lt;', $_ or die $!;<br>&nbsp; &nbsp; &nbsp; # note how $_ still contains the full pathname<br>&nbsp; &nbsp; &nbsp; #<nobr> <wbr></nobr>...<br>&nbsp; }</tt></div> </blockquote> <p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Lovely!</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2006-07-09T20:40:17</h3>
+<p>I wish I'd thought of that.  Very clever!</p>
+
+
+
+<h2>Re:Lovely!</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-07-09T23:12:12</h3>
+<p>Nice. I guess it&#8217;s worthy of being put on CPAN, after all. I&#8217;ll steal the attribute idea as that makes it much easier to use with named subs, but I still want the subref interface available for building anonymous ones.</p>
+
+<p>Now I just need to think of a good name &#8211; <code>shortcutted</code> is fine for an off-the-cuff function, but it doesn&#8217;t meet my standards for something on CPAN&#8230;</p>
+
+
+
+<blockquote>
+
+<h2>Re:Lovely!</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2006-07-10T13:39:29</h3>
+Feel free to steal the code as you see fit.
+
+<p>As to still wanting to do Subrefs, I think that you should be able to use Attributes with them as well.  But I have no idea how, I'll need to play with that.
+
+</p><p>-Dom</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

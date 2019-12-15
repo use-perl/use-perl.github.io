@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: How To Downgrade Perl on Ubuntu</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>How To Downgrade Perl on Ubuntu</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-07-30T10:46:27</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Ubuntu has recently offered a Perl upgrade to 5.10 and I accidentally accepted the upgrade.  Unfortunately, since our development Perl is 5.8.8, I've encountered a few annoying problems.  Since <a href="http://www.google.com/search?hl=en&q=ubuntu%20downgrade%20perl">many people are confused about how to do this</a>, I decided to slog through and figure it out.  Not fun.  The answers to the various problems are scattered hither and yon, making this a very unpleasant process.</p>
+
+<p>First, you need to get Perl and apply a regex patch which closes a security hole (many thanks to Rufus Cable for alerting me to the patch):</p>
+
+<pre>wget http://www.cpan.org/src/perl-5.8.8.tar.gz
+wget ftp://ftp.cpan.org/pub/CPAN/authors/id/N/NW/NWCLARK/regexp-5.8.8.patch
+tar xzf perl-5.8.8.tar.gz
+cd perl-5.8.8
+patch -p1 < ../regexp-5.8.8.patch
+rm -f {config,Policy}.sh
+sh Configure -de</pre>
+
+<p>Be sure to read the INSTALL file for more information about the Configure options.</p>
+
+<p>At this point, everything should be fine, but you can't run <tt>make</tt> yet.  Actually, you can run <tt>make</tt>, but it will likely fail.  Fortunately, you can keep fixing errors and rerunning <tt>make</tt> until all errors go away.</p>
+
+<p>The first problem is a strange "You haven't done a make depend yet" error.  As it turns out, this is because Ubuntu has decided to link <tt>/bin/sh</tt> to <tt>/bin/dash</tt> instead of <tt>/bin/bash</tt>.  It's a faster shell, but not only does it not support everything bash does, it also is less tolerant of errors.  The <tt>makedepend</tt> file has an unterminated quote string, so doing this gets you over the first hurdle:</p>
+
+<pre>sudo ln -s /bin/bash /bin/sh</pre>
+
+<p>Be sure to change the symlink back after you're done if you want <tt>dash</tt> instead of <tt>bash</tt> (note that using a correct shebang line at the top of your bash scripts makes this a non-issue for you).</p>
+
+<p>If you've already tried to run <tt>make</tt>, you might see this error:</p>
+
+<pre>makedepend: Already running, exiting</pre>
+
+<p>That's because it previously exited abnormally (anyone remember "abend"?) and left a <tt>.depending</tt> directory lying around.  Simply remove this directory and rerun.</p>
+
+<p>If you run <tt>make</tt> now, you might hit the second error:</p>
+
+<pre>No rule to make target `<command-line>', needed by `miniperlmain.o'.</pre>
+
+<p>Apparently, <a href="http://www.nntp.perl.org/group/perl.perl5.porters/2008/02/msg133873.html">we filter out some of the gcc output</a>, but it's changed over time and we missed this.  The following fixes it:</p>
+
+<pre>perl -i~ -nle 'print unless /<command-line>/' makefile x2p/makefile</pre>
+
+<p>That command tells perl to edit those files in place, reprinting all lines except those containing the string <tt>&lt;command-line&gt;</tt>.  If for some bizarre reason you don't yet have Perl installed (or if it's broken), you can edit those files manually, but it's tedious and error prone.</p>
+
+<p>You can rerun <tt>make</tt> and it might be fine, but you might hit this error:</p>
+
+<pre>SysV.xs:7:25: error: asm/page.h: No such file or directory</pre>
+
+<p>Arg!  I don't know what this is, but apparently it's related to the linux headers.  What I don't understand is that I have them installed (<tt>sudo&nbsp;apt-get&nbsp;install&nbsp;linux-headers-$(uname&nbsp;-r)</tt>), but <tt>page.h</tt> is not symlinked in <tt>/usr/include/asm/</tt>.  A <tt>locate '/page.h' | grep asm</tt> returned many candidates, but the most likely fix seemed like this:</p>
+
+<pre>sudo ln -s /usr/src/linux-headers-2.6.28-13/arch/x86/include/asm/page.h /usr/include/asm/page.h</pre>
+
+<p>Obviously, the exact <tt>page.h</tt> you're linking to will vary depending on your architecture.</p>
+
+<p>Assuming all is well and <tt>make</tt> completes successfully, you can now run <tt>make test &amp;&amp; make install</tt> and you'll have successfully downgraded perl (I would recommend you set your prefix when you run <tt>Configure</tt> to ensure that you don't overwrite the system perl.  You can always set up a symlink to ensure you have the proper Perl running).</p>
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>/bin/sh to /bin/dash</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2009-07-30T14:04:18</h3>
+<p>I would slap them upside the head just for that!</p>
+
+
+
+<blockquote>
+
+<h2>Re:/bin/sh to /bin/dash</h2>
+<h3><a href="/user/Wonko/">Wonko</a> on 2009-07-30T19:20:35</h3>
+It'd be more useful too slap the people specifying<nobr> <wbr></nobr>/bin/sh in their shell scripts that rely on features of bash.
+
+
+
+
+
+</blockquote>
+
+
+<h2>backgrading Perl</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2009-07-30T18:29:24</h3>
+<p>on a Debian based system line Ubuntu it should also be possible to revert the upgrade to bin/perl itself, reinstalling the older 5.8<br>8 as bin/perl with the Debs, and pinning that version. this may rollback and block an expanding number of dependant upgrades, however.</p><p>as is stated elsewhere, having app prod perl be OS bin/perl is dangerous, best to have your own.</p>
+
+
+
+<blockquote>
+
+<h2>Re:backgrading Perl</h2>
+<h3><a href="/user/Wonko/">Wonko</a> on 2009-07-30T19:35:29</h3>
+<p><div class="quote"><p>as is stated elsewhere, having app prod perl be OS bin/perl is dangerous, best to have your own.</p></div><p>Every time I think about this I am torn.  I'm sure most people know the pros and cons of relying on the OS perl install.  The big problem that I see is that my operating system provides me with an excellent package manager.  A package manager that I have to use anyway, too.</p><p>I've always thought it would be useful to have some standardized disto packages that provide an alternate Perl install.</p><p>Debian and Ubuntu already have a pretty large percentage of the CPAN modules I need rolled up into packages.  However, they're often very out of date.  It might be nice to have a set of trusted, tested Perl distro packages that install in<nobr> <wbr></nobr>/opt/perl or the like.  Core Perl and common CPAN modules would be nice.</p><p>I may very well be the only person in the world who actually thinks this would be useful.  I don't recall ever seeing anyone suggest this before.</p>
+
+
+
+<blockquote>
+
+<h2>Re:backgrading Perl</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2009-07-31T00:16:39</h3>
+<p>I do this at work. I build site-specific debian packages for perl, all the dual-life core modules, plus a lot of CPAN.</p>
+
+
+
+<blockquote>
+
+<h2>Re:backgrading Perl</h2>
+<h3><a href="/user/Wonko/">Wonko</a> on 2009-07-31T00:56:29</h3>
+<p>It would be nice to be able to share the work of building and maintaining these packages.  I wonder how many of us there are that actually maintain packages for the software we build from source.</p>
+
+
+
+<blockquote>
+
+<h2>Re:backgrading Perl</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2009-07-31T02:18:44</h3>
+<p>Much of my work for this is already pushed to <a href="http://github.com/jbenjore/CPANPLUS-Dist-Deb/tree/master" title="github.com">http://github.com/jbenjore/CPANPLUS-Dist-Deb/tree/master</a github.com> which will later be packaged for release to <a href="http://search.cpan.org/dist/CPANPLUS-Dist-Deb/" title="cpan.org">http://search.cpan.org/dist/CPANPLUS-Dist-Deb/</a cpan.org>.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>This is a gigantic how-not-to.</h2>
+<h3><a href="/user/hobbs/">hobbs</a> on 2009-07-30T19:14:40</h3>
+Note to kids finding this on google: don't follow any of these instructions unless you <i>like</i> hosing your system.
+
+
+
+<blockquote>
+
+<h2>Re:This is a gigantic how-not-to.</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-07-30T19:50:31</h3>
+<p>Can you please be more specific?  I do state that people should be setting PREFIX to avoid overwriting the system perl.  Should that be highlighted sooner, I suppose.  Are there other issues that users should be aware of?</p>
+
+
+
+<h2>Re:This is a gigantic how-not-to.</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-09-21T14:32:59</h3>
+<p>Note to kids finding this on google: since this person never came back and bothered to offer any evidence to support their claim, you can probably ignore it.  Personally, if there is a problem here, I'd love to know about it, but frankly, my Ubuntu system has been fine since I've done this.</p>
+
+
+
+<blockquote>
+
+<h2>Re:This is a gigantic how-not-to.</h2>
+<h3><a href="/user/doom/">doom</a> on 2010-01-21T02:11:39</h3>
+<p>Slashdot syndrome: he read the title but not the article.  The title makes it sound like you're trying to literally downgrade the system perl, but you of course understand how to use PREFIX to install alternative perls.
+</p><p>
+Thanks for writing this up, by the way: I've been trying to build an old perl, and I had pretty much blundered my way through to just before the last fix you have here-- and I was glad to see that you didn't understand where the problem came from either.
+</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Is this trick going to work for 64 bit Ubuntu?</h2>
+<h3><a href="/user/perlnoob/">perlnoob</a> on 2010-08-18T18:00:20</h3>
+Hello, I have 64 bit Ubuntu 10.04 LTS. I want to downgrade it from 5.10.1 to 5.8.8. So is it safe to use this method? Thanks.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

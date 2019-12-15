@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jk2addict: 5.10: Why is this slower?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>5.10: Why is this slower?</h1>
+<h2><a href="/user/jk2addict/">jk2addict</a> on 2007-12-23T00:23:16</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This started off as a user reporting that Class::Accessor::Grouped was way slower on 5.10 than on 5.8.8. At this point, I call 'not it'...but only because I really don't know what in the hell is going on.<br/><br/>Two brand new fresh FreeBSD 6.2 installs. One with a a compiled (not ports) Perl 5.8.8 and the other with a compiled 5.10.0.<br/><br/>The test case is simple set_inherited, sans C::A::G in the picture, since the reporter noted set was slower as well (which BTW has no MRO interaction):<br/><br/>test.pl
+> use lib '.';
+> use Foo;
+> use Benchmark ':all';
+> 
+> my $f = bless {}, 'Foo';
+> 
+> timethese(0, {
+>    set_inherited_class  => sub {Foo->set_inherited('bar', 'baz')},
+>    set_inherited_object => sub {$f->set_inherited('bar', 'baz')}
+> });<br/><br/>
+Foo.pm
+> package Foo;
+> use Scalar::Util qw/blessed reftype/;
+> 
+> sub set_inherited {
+>     my ($self, $set, $val) = @_;
+> 
+>     if (blessed $self) {
+>         if (reftype $self eq 'HASH') {
+>             return $self->{$set} = $val;
+>         } else {
+>             croak('Cannot set inherited value on an object instance that is not hash-based');
+>         };
+>     } else {
+>         no strict 'refs';
+> 
+>         return ${$self.'::__cag_'.$set} = $val;
+>     };
+> }
+> 
+> 1;<br/><br/>The results are:<br/><br/>Perl 5.8.8 Machine:
+> Benchmark: running set_inherited_class, set_inherited_object for at least 3 CPU seconds...
+> set_inherited_class:  4 wallclock secs ( 3.16 usr +  0.00 sys =  3.16 CPU) @ 575596.40/s (n=1821223)
+> set_inherited_object:  3 wallclock secs ( 3.16 usr + -0.01 sys =  3.15 CPU) @ 687794.82/s (n=2165479)
+> claco@fbsd588 ~ $ <br/><br/><br/><br/>Perl 5.10.0 Machine:
+> Benchmark: running set_inherited_class, set_inherited_object for at least 3 CPU seconds...
+> set_inherited_class:  3 wallclock secs ( 3.12 usr +  0.01 sys =  3.13 CPU) @ 335388.09/s (n=1050708)
+> set_inherited_object:  2 wallclock secs ( 3.15 usr +  0.00 sys =  3.15 CPU) @ 412676.76/s (n=1299287)
+> claco@fbsd510 ~ $ <br/><br/>My to my shock, if I whittle down the code in set_inherited to just this:<br/><br/>> package Foo;
+> use Scalar::Util qw/blessed reftype/;
+> 
+> sub set_inherited {
+>     my ($self, $set, $val) = @_;
+> 
+> }
+> 
+> 1;<br/><br/>
+performance still seriouesly sucks:<br/><br/>
+5.8.8
+> Benchmark: running set_inherited_class, set_inherited_object for at least 3 CPU seconds...
+> set_inherited_class:  3 wallclock secs ( 3.08 usr +  0.02 sys =  3.09 CPU) @ 1199923.07/s (n=3712262)
+> set_inherited_object:  4 wallclock secs ( 3.27 usr +  0.00 sys =  3.27 CPU) @ 1380589.06/s (n=4519272)
+> claco@fbsd588 ~ $ <br/><br/>5.10.0
+> Benchmark: running set_inherited_class, set_inherited_object for at least 3 CPU seconds...
+> set_inherited_class:  4 wallclock secs ( 3.09 usr +  0.01 sys =  3.10 CPU) @ 536733.34/s (n=1664712)
+> set_inherited_object:  4 wallclock secs ( 3.13 usr +  0.00 sys =  3.13 CPU) @ 638055.42/s (n=1998908)
+> claco@fbsd510 ~ $ <br/><br/>
+A this point, I'm stumped. Just my ($, $, $) = @_ is slow. Changing that to:<br/><br/>my $self = shift;
+my $set = shift;
+my $val = shift<br/><br/>
+make 5.10 even facter than 5.8.8 again. I know shift is always faster...but why is 5.10 way slower than 5.8.8  when assigning @_?<br/><br/>My brain hurts.<br/><br/></p>
+
+
+<hr/>
+
+
+
+<h2>It's a bug</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2007-12-23T06:48:30</h3>
+The aassign opcode has the COMMON flag which indicates that perl thought you used the same variable in the right and left sides. Doing so requires perl to do additional work to make that safe. This flag should not be turned on for this case.<br><br>To perl 5.10.0, this will represent a runtime cost making it slower til the bug is fixed.
+
+
+
+<blockquote>
+
+<h2>Re:It's a bug</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2007-12-23T06:52:51</h3>
+BTW, debug this by comparing the output of B::Concise on 5.8.whatever vs 5.10.0.
+
+
+
+
+
+</blockquote>
+
+
+<h2>sysmalloc vs. mymalloc</h2>
+<h3><a href="/user/srezic/">srezic</a> on 2007-12-23T10:11:24</h3>
+First, you should check if both perls were built with the same malloc setting, i.e. check if usemymalloc is the same. FreeBSD's perl from ports has usemymalloc=y, while the FreeBSD's hints file in the perl5.10.0 sources has usemymalloc=n. There are some situations where FreeBSD's malloc is <b>much</b> worse than perl's one.
+
+
+
+<blockquote>
+
+<h2>Re:sysmalloc vs. mymalloc</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2007-12-23T17:13:01</h3>
+<p>I didn't install 5.8.8 from ports, so both are compiled with the defauls from Configure. Both use perls malloc. As such, it;s apples to apples. Perl got slower.
+</p>
+<p>
+I need to test with FreeBSD malloc. If that fixes it, I vote that the Configure defaults need to change in Configure for FreeBSD. In the end, Joe User shouldn't have to go flag diving to find out why certain things are 50% slower.
+</p> <p><blockquote> <div><tt>Summary of my perl5 (revision 5 version 8 subversion 8) configuration:<br>&nbsp; Platform:<br>&nbsp; &nbsp; osname=freebsd, osvers=6.2-release, archname=i386-freebsd<br>&nbsp; &nbsp; uname='freebsd fbsd588.local 6.2-release freebsd 6.2-release #0: fri jan 12 10:40:27 utc 2007 root@dessler.cse.buffalo.edu:usrobjusrsrcsysgeneric i386 '<br>&nbsp; &nbsp; config_args='-de'<br>&nbsp; &nbsp; hint=recommended, useposix=true, d_sigaction=define<br>&nbsp; &nbsp; usethreads=undef use5005threads=undef useithreads=undef usemultiplicity=undef<br>&nbsp; &nbsp; useperlio=define d_sfio=undef uselargefiles=define usesocks=undef<br>&nbsp; &nbsp; use64bitint=undef use64bitall=undef uselongdouble=undef<br>&nbsp; &nbsp; usemymalloc=n, bincompat5005=undef<br>&nbsp; Compiler:<br>&nbsp; &nbsp; cc='cc', ccflags ='-DHAS_FPSETMASK -DHAS_FLOATINGPOINT_H -fno-strict-aliasing -pipe -Wdeclaration-after-statement -I/usr/local/include',<br>&nbsp; &nbsp; optimize='-O',<br>&nbsp; &nbsp; cppflags='-DHAS_FPSETMASK -DHAS_FLOATINGPOINT_H -fno-strict-aliasing -pipe -Wdeclaration-after-statement -I/usr/local/include'<br>&nbsp; &nbsp; ccversion='', gccversion='3.4.6 [FreeBSD] 20060305', gccosandvers=''<br>&nbsp; &nbsp; intsize=4, longsize=4, ptrsize=4, doublesize=8, byteorder=1234<br>&nbsp; &nbsp; d_longlong=define, longlongsize=8, d_longdbl=define, longdblsize=12<br>&nbsp; &nbsp; ivtype='long', ivsize=4, nvtype='double', nvsize=8, Off_t='off_t', lseeksize=8<br>&nbsp; &nbsp; alignbytes=4, prototype=define<br>&nbsp; Linker and Libraries:<br>&nbsp; &nbsp; ld='cc', ldflags ='-Wl,-E&nbsp; -L/usr/local/lib'<br>&nbsp; &nbsp; libpth=/usr/lib<nobr> <wbr></nobr>/usr/local/lib<br>&nbsp; &nbsp; libs=-lm -lcrypt -lutil -lc<br>&nbsp; &nbsp; perllibs=-lm -lcrypt -lutil -lc<br>&nbsp; &nbsp; libc=, so=so, useshrplib=false, libperl=libperl.a<br>&nbsp; &nbsp; gnulibc_version=''<br>&nbsp; Dynamic Linking:<br>&nbsp; &nbsp; dlsrc=dl_dlopen.xs, dlext=so, d_dlsymun=undef, ccdlflags=' '<br>&nbsp; &nbsp; cccdlflags='-DPIC -fPIC', lddlflags='-shared&nbsp; -L/usr/local/lib'<br> <br>Characteristics of this binary (from libperl):<br>&nbsp; Compile-time options: PERL_MALLOC_WRAP USE_LARGE_FILES USE_PERLIO<br>&nbsp; Built under freebsd<br>&nbsp; Compiled at Dec 22 2007 15:52:43<br>&nbsp; @INC:<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/local/lib/perl5/5.8.8/i386-freebsd<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/local/lib/perl5/5.8.8<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/local/lib/perl5/site_perl/5.8.8/i386-freebsd<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/local/lib/perl5/site_perl/5.8.8<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/local/lib/perl5/site_perl<br>&nbsp; &nbsp;<nobr> <wbr></nobr>.<br> <br>-------------<br> <br>Summary of my perl5 (revision 5 version 10 subversion 0) configuration:<br>&nbsp; Platform:<br>&nbsp; &nbsp; osname=freebsd, osvers=6.2-release, archname=i386-freebsd<br>&nbsp; &nbsp; uname='freebsd fbsd510.local 6.2-release freebsd 6.2-release #0: fri jan 12 10:40:27 utc 2007 root@dessler.cse.buffalo.edu:usrobjusrsrcsysgeneric i386 '<br>&nbsp; &nbsp; config_args=''<br>&nbsp; &nbsp; hint=recommended, useposix=true, d_sigaction=define<br>&nbsp; &nbsp; useithreads=undef, usemultiplicity=undef<br>&nbsp; &nbsp; useperlio=define, d_sfio=undef, uselargefiles=define, usesocks=undef<br>&nbsp; &nbsp; use64bitint=undef, use64bitall=undef, uselongdouble=undef<br>&nbsp; &nbsp; usemymalloc=n, bincompat5005=undef<br>&nbsp; Compiler:<br>&nbsp; &nbsp; cc='cc', ccflags ='-DHAS_FPSETMASK -DHAS_FLOATINGPOINT_H -fno-strict-aliasing -pipe -I/usr/local/include',<br>&nbsp; &nbsp; optimize='-O',<br>&nbsp; &nbsp; cppflags='-DHAS_FPSETMASK -DHAS_FLOATINGPOINT_H -fno-strict-aliasing -pipe -I/usr/local/include'<br>&nbsp; &nbsp; ccversion='', gccversion='3.4.6 [FreeBSD] 20060305', gccosandvers=''<br>&nbsp; &nbsp; intsize=4, longsize=4, ptrsize=4, doublesize=8, byteorder=1234<br>&nbsp; &nbsp; d_longlong=define, longlongsize=8, d_longdbl=define, longdblsize=12<br>&nbsp; &nbsp; ivtype='long', ivsize=4, nvtype='double', nvsize=8, Off_t='off_t', lseeksize=8<br>&nbsp; &nbsp; alignbytes=4, prototype=define<br>&nbsp; Linker and Libraries:<br>&nbsp; &nbsp; ld='cc', ldflags ='-Wl,-E&nbsp; -L/usr/local/lib'<br>&nbsp; &nbsp; libpth=/usr/lib<nobr> <wbr></nobr>/usr/local/lib<br>&nbsp; &nbsp; libs=-lm -lcrypt -lutil -lc<br>&nbsp; &nbsp; perllibs=-lm -lcrypt -lutil -lc<br>&nbsp; &nbsp; libc=, so=so, useshrplib=false, libperl=libperl.a<br>&nbsp; &nbsp; gnulibc_version=''<br>&nbsp; Dynamic Linking:<br>&nbsp; &nbsp; dlsrc=dl_dlopen.xs, dlext=so, d_dlsymun=undef, ccdlflags=' '<br>&nbsp; &nbsp; cccdlflags='-DPIC -fPIC', lddlflags='-shared&nbsp; -L/usr/local/lib'<br> <br>Characteristics of this binary (from libperl):<br>&nbsp; Compile-time options: PERL_DONT_CREATE_GVSV PERL_MALLOC_WRAP<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; USE_LARGE_FILES USE_PERLIO<br>&nbsp; Built under freebsd<br>&nbsp; Compiled at Dec 22 2007 17:32:47<br>&nbsp; @INC:<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/local/lib/perl5/5.10.0/i386-freebsd<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/local/lib/perl5/5.10.0<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/local/lib/perl5/site_perl/5.10.0/i386-freebsd<br>&nbsp; &nbsp;<nobr> <wbr></nobr>/usr/local/lib/perl5/site_perl/5.10.0<br>&nbsp; &nbsp;<nobr> <wbr></nobr>.</tt></div> </blockquote>  <p>
+Ther's a thread on PM as well. <a href="http://perlmonks.com/?node_id=658723" title="perlmonks.com">http://perlmonks.com/?node_id=658723</a perlmonks.com>
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:sysmalloc vs. mymalloc</h2>
+<h3><a href="/user/srezic/">srezic</a> on 2007-12-23T17:29:08</h3>
+usemymalloc=n means that you're using FreeBSD's malloc, not perl's.
+<blockquote><div><i>Ther's a thread on PM as well.</i></div> </blockquote> 
+I know. Guess to whom you're talking to there<nobr> <wbr></nobr>:-)
+
+
+
+<blockquote>
+
+<h2>Re:sysmalloc vs. mymalloc</h2>
+<h3><a href="/user/jk2addict/">jk2addict</a> on 2007-12-23T17:33:39</h3>
+Yes, I had that backwords. In either case, at least their both using the same setting.<nobr> <wbr></nobr>:-)<br><br>I haven't ad to hand compile a perl in ages, let alone actually look at the options<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

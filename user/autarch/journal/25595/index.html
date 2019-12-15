@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autarch: More exception handling fun</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>More exception handling fun</h1>
+<h2><a href="/user/autarch/">autarch</a> on 2005-07-09T01:42:42</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>A bit of insidious evil spotted by my coworker Chris Dent.<br/><br/>Consider, if you will, this bit of code:<br/><br/><pre>
+eval "require $module" unless $module->can('new');
+die $@ if $@;
+return $module->new();
+</pre><br/><br/>This is a handy way to conditionally load a class.  You need to check $@ because if the module fails to load you want to know.<br/><br/>But there's a somewhat subtle bug lurking in there.<br/><br/>If the module has been loaded already, then the eval is never executed.  But it <em>always</em> checks $@.  This is bad.  If earlier you had some code that did something like this:<br/><br/><pre>
+eval { thing_that_may_die() };
+log_error($@) if $@;
+return if $@;
+</pre><br/><br/>Now $@ has a value and since we may not ever call the string eval, then $@ will still be populated with an old exception at the <code>die $@ if $@</code> line.<br/><br/>The upshot is that you need to be careful with your use of eval and $@.  Make sure that checks on $@ are <em>always</em> preceded by an eval.<br/><br/>So our original bit of code can be rewritten as:<br/><br/><pre>
+unless ( $module->can('new') )
+{
+    eval "require $module";
+    die $@ if $@;
+}
+return $module->new();
+</pre>
+</p>
+
+
+<hr/>
+
+
+
+<h2>And another nice thing about your use of braces...</h2>
+<h3><a href="/user/davebaker/">davebaker</a> on 2005-07-09T03:19:45</h3>
+(in your rewritten code) is that $@ is cleared to become the empty string when control leaves the block. So you shouldn't have the pre-existing value trouble later on when testing "if $@".
+<p>At YAPC::NA::2005, Dave Rolsky cautioned that even with the braces around the eval and the test, you can get into trouble if a later test is "if defined($@)"<nobr> <wbr></nobr>... because $@ will have been defined but contain the empty string after leaving an earlier block in which it was used. So he said to use "if length($@)" rather than if defined($@).
+</p> <p>But now that I think about it, I'm not sure why your "if $@" wouldn't work just as well (i.e., it wouldn't return true if $@ contains the empty string, right?).
+</p> <p>Caution: I am something of a newbie and might not know what I'm talking about<nobr> <wbr></nobr>:-)</p>
+
+
+
+<blockquote>
+
+<h2>Re:And another nice thing about your use of braces</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2005-07-09T03:36:04</h3>
+That Dave Rolsky guy is a big fucking idiot!<br> <br>Oh wait, I <em>am</em> Dave Rolsky!<br> <br>The "if $@" bit is indeed a bit lazy.  The chances of an exception being thrown that evaluates to false in a boolean context but has a length are close to 0, but yes, it's probably best to check "length $@".<br>
+
+
+
+<blockquote>
+
+<h2>Re:And another nice thing about your use of braces</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2005-07-09T13:07:15</h3>
+Early versions of Error.pm exceptions evaluated to 0 in bool context, which really screwed things up (mostly it screwed my branes up!).
+
+
+
+<h2>Close to 0</h2>
+<h3><a href="/user/davebaker/">davebaker</a> on 2005-07-09T17:09:20</h3>
+Was that a pun<nobr> <wbr></nobr>:-) (See Matt's comment re earlier Error.pm exceptions.)
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-07-09T09:51:59</h3>
+<p>When an <code>eval</code> fails to compile the code or the code dies, the <code>eval</code> always returns <code>undef</code>. You can use this to shorten many such snippets:</p> <blockquote> <div> <tt>eval "require $module; 1" or die $@ if not $module-&gt;can( 'new' );</tt> </div> </blockquote> <p>In fact the <code>1</code> is actually redundant here, as <code>require</code> always returns a true value itself if it succeeds. To be precise, it returns the value of the last expression in the file, which, as everyone knows, must be true. But neither fact is, to my knowledge, documented.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

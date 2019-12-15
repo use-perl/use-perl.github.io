@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jjohn: Markov Blogger code</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Markov Blogger code</h1>
+<h2><a href="/user/jjohn/">jjohn</a> on 2003-09-06T02:06:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Today's experiement with Markov chains has been really entertaining. I have added a few heuristics to the basic two word markov chain described
+in <i>The Practice of Programming</i> to handle the vageries of blog entries
+a bit better.  Also, I made walking the chain more random, so that the 
+generated entries are different every time.  The markov program presented in 
+the K&amp;P book always begins with the first word found in the data set.  
+This makes for boring blog entries. 
+<p>The first program presented snarfs blog entries of particular userID from 
+use.perl using the SOAP interface.  It creates simple data files that
+can be easily consumed by the markov chain program.  
+<p><b>get_blog</b>
+<pre>
+#!/usr/bin/perl --
+#
+# Get blog entries from use.perl.org of given UID
+#
+
+use strict;
+use SOAP::Lite;
+use Getopt::Std;
+use HTTP::Cookies;
+use Digest::MD5 'md5_hex';
+use Data::Dumper;
+use File::Basename;
+
+use constant URI     => "http://use.perl.org/Slash/Journal/SOAP";
+use constant PROXY   => "http://use.perl.org/journal.pl";
+use constant UID     => 777;
+use constant PW      => "s3cr3t";
+use constant DOWNLOAD_DIR => './entries';
+
+my $opts = {};
+getopts('?hP:U:d:l:u:v', $opts);
+
+if ($opts->{'?'} || $opts->{'h'}) {
+  print usage();
+  exit;
+}
+
+unless ($opts->{'u'}) {
+  die "ERROR Missing -u <UID>\n", usage(), "\n";
+}
+
+# Everything is ready for the SOAP call now
+my $cookie_jar = HTTP::Cookies->new;
+$cookie_jar->set_cookie(0, 
+			user => bakeUserCookie(($opts->{'U'} || UID),
+					       ($opts->{'P'} || PW),
+					      ),
+			"/",
+			"use.perl.org");
+
+my $c = SOAP::Lite->uri(URI)->
+                    proxy(PROXY, cookie_jar => $cookie_jar);
+
+print "listing entries for UID $opts->{u}\n" if $opts->{v};
+my $ret = $c->get_entries($opts->{'u'}, $opts->{'l'});
+exit if had_transport_error($ret);
+my $rows = $ret->result;
+
+my $tdir = $opts->{d} || DOWNLOAD_DIR;
+unless (-d $tdir) {
+  print "making download directory ($tdir)\n" if $opts->{v};
+  unless (mkdir($tdir, 0700)) {
+    die "Can't make target director '$tdir': $!\n";
+  }
+}
+
+# cut'n'paste code? never
+$tdir .= "/$opts->{u}";
+unless (-d $tdir) {
+  print "making download directory ($tdir)\n" if $opts->{v};
+  unless (mkdir($tdir, 0700)) {
+    die "Can't make target director '$tdir': $!\n";
+  }
+}
+
+print "fetching " . @{$rows} . " entries\n" if $opts->{v};
+for my $r (@{$rows}) {
+  if (-e "$tdir/$r->{id}") {
+    print "Already fetched $r->{id}\n" if $opts->{v};
+    next;
+  }
+
+  print "fetching entry: $r->{id}\n" if $opts->{v};
+  my $ret = $c->get_entry($r->{id});
+  if (had_transport_error($ret)) {
+    warn ("**couldn't fetch entry '$r->{id}'\n") if $opts->{v};
+    next;
+  }
+
+  my $rec = $ret->result;
+  if (open my $out, ">$tdir/$r->{id}") {
+    print $out "subject: $rec->{subject}\n";
+    print $out "$rec->{body}\n";
+    close $out;
+  } else {
+    warn("**couldn't create file '$tdir/$r->{id}'.  Skipping.\n") 
+      if $opts->{v};
+    next;
+  }
+}
+
+print "done\n";
+
+#------------------
+# subs
+#------------------
+sub usage {
+  my $base = basename($0);
+  return <<EOT;
+$base - get journal entries from use.perl
+
+USAGE:
+
+  $base -u 22  # fetch all entries for UID 22
+  $base -d ./raw -u 22 -l 5 # fetch last 5 entries, put them in 'raw'
+  
+OPTIONS:
+
+  ?        this screen
+  h        this screen
+  P <pass> use.perl password (for AUTH)
+  U <user> use.perl UID (for AUTH)
+  d <path> target directory to hold fetched entries
+  l <int>  limit (-1 for all entries)
+  u <int>  target UID
+  v        verbose messages
+EOT
+}
+
+sub had_transport_error {
+  my ($ret) = @_;
+
+  if ($ret->fault) {
+    warn "Oops: ", $ret->faultstring, "\n";
+    return 1;
+  }
+
+  return;
+}
+
+# Thanks Pudge
+sub bakeUserCookie {
+    my($uid, $passwd) = @_;
+    my $cookie = $uid . '::' . md5_hex($passwd);
+    $cookie =~ s/(.)/sprintf("%%%02x", ord($1))/ge;
+    $cookie =~ s/%/%25/g;
+    return $cookie;
+}
+
+</pre>
+
+<P>The really interesting work is done by the next program, which consumes
+the data and generates a output suitable for posting back to use.perl via 
+the perl scripts I described in <a href="http://use.perl.org/article.pl?sid=02/10/25/007222">my article</a>.  Notice that I keep hyperlinks together.  Also 
+blockquotes.  Some may call this cheating, but I think the effect is more 
+pleasant.  I experimented with three work chains, but this wasn't random 
+enough for me.  Perhaps I need a larger data set.  A future version of this 
+program could use both chains and somehow blend them together for the output.
+It would be great to see popular three word combinations appear in the 
+generated text, but perhaps I already get that with two word chains.  
+Also note that this script marks my first use of the <code>qr</code> 
+operator.  I guess compiled regexes aren't so scary after all. 
+
+<p><b>markov.pl</b>
+<pre>
+#!/usr/bin/perl --
+# 
+# ripped off from _Practice of Programming_, Kernighan & Pike, p. 80
+# tweaked about for my nefarious purposes.
+
+use strict;
+use Text::Wrap;
+
+use constant CHAIN_SIZE => 3; # or 3
+use constant NONWORD => "\n";
+use constant DEBUG => $ENV{MARKOV_DEBUG} || 0;
+
+my ($subject, $body) = ({}, {});
+my ($s_in, $b_in) = ({},{});
+
+# expand directories as needed
+my @tmp;
+for my $file (@ARGV) {
+  if (-d $file) {
+    push @tmp, glob("$file/*");
+    warn ("expanding directory '$file'\n") if DEBUG;
+  } else {
+    push @tmp,$file;
+  }
+}
+@ARGV=();
+
+warn("Randomizing the order of the input files\n") if DEBUG;
+# mix up the order of the files a bit
+do {
+  push(@ARGV, (splice @tmp, rand(@tmp), 1));
+  # warn("\@ARGV size: " . @ARGV . " \@tmp size: " . @tmp . "\n") if DEBUG;
+} while (@tmp); 
+
+warn("Reading input files\n") if DEBUG;
+my (@last_subject_keys, @last_body_keys);
+for my $file (@ARGV) {
+
+  while (<>) {
+    if (/^subject:/) {
+      s/^subject://;
+      fill_table(table   => $subject, 
+                 state   => $s_in, 
+                 line    => $_, 
+                 'keys'  => \@last_subject_keys
+		);
+    } else {
+      fill_table(table   => $body, 
+                 state   => $s_in, 
+                 line    => $_, 
+                 'keys'  => \@last_body_keys,
+		);
+    }
+  }
+}
+end_table($subject, \@last_subject_keys);
+end_table($body, \@last_body_keys);
+
+warn("body table: " . (keys %{$body}) . "\n") if DEBUG;
+
+# generate subject
+my $subj;
+do {
+  my $max  = rand(12) + 1;
+  $subj = make_chain($subject, $max)
+} while (length($subj) > 64);
+
+print "subject: [MarkovBlogger] $subj\n";
+
+my $max  = rand(250) + 120;
+print "body: ", make_chain($body, $max), "\n";
+
+#--------------------------------
+# subs
+#--------------------------------
+sub fill_table {
+  my (%args) = @_;
+  my ($tbl, $in, $line, $keys) = @args{qw(table state line keys)};
+
+  my ($w1,$w2,$w3) = @{$keys};
+  unless (defined $w1) {
+    $w1 = $w2 = $w3 = NONWORD;
+  }
+
+  my $ecode = 'ecode';
+  my %delims = ( href       => [ qr!<a!i, qr!</a>!i ],
+                 ecode      => [ qr!<$ecode>!i, qr!</$ecode>!i ],
+                 ul         => [ qr!<ul>!i, qr!</ul>!i ],
+                 blockquote => [ qr!<blockquote>!i, qr!</blockquote>!i ],
+	       );
+
+ WORD:
+  for my $word (split /\s+/, $line) {
+
+    # am I in a special block?
+    # can't start a new special until I find the end of previous one
+    for my $el (qw(href ecode ul blockquote)) {
+      if ($in->{$el}) {
+	if ($word =~ /$delims{$el}[0]/) { # end?
+	  $word = "$in->{$el} $word";
+	  $in->{$el} = "";
+	} else {
+	  $in->{$el} .= " $word";
+	  next WORD;
+	}
+      } elsif ($word =~ /$delims{$el}[0]/) { # start?
+	$in->{$el} = $word;
+	next WORD;
+      } 
+    }
+
+    if (CHAIN_SIZE > 2) {
+      push @{$tbl->{$w1}->{$w2}->{$w3}}, $word;
+      ($w1, $w2, $w3) = ($w2, $w3, $word); # pull the chain along
+    } else {
+      push @{$tbl->{$w1}->{$w2}}, $word;
+      ($w1, $w2) = ($w2, $word); # pull the chain along
+    }
+  }
+
+  # assign these keys back into the passed in ref
+  return @{$keys} = ($w1, $w2, $w3);
+}
+
+
+sub end_table {
+  my ($tbl) = shift(@_);
+  my ($w1, $w2, $w3) = @{shift(@_)};
+ 
+  if (CHAIN_SIZE > 2) {
+    push @{$tbl->{$w1}->{$w2}->{$w3}}, NONWORD; 
+  } else {
+    push @{$tbl->{$w1}->{$w2}}, NONWORD;
+  }
+
+}
+
+sub make_chain {
+  my ($tbl, $size) = @_;
+
+  my $text = "";
+
+  # let's start in a rand point on the chain
+  my @w1 = ((keys %{$tbl}), NONWORD);
+  my $w1 = $w1[rand(@w1)];
+
+  my @w2 = ((keys %{$tbl->{$w1}}), NONWORD);
+  my $w2 = $w2[rand(@w2)];
+
+  my @w3 = (NONWORD);
+  if (CHAIN_SIZE > 2) {
+    @w3 = ((keys %{$tbl->{$w1}->{$w2}}), NONWORD);
+  }
+  my $w3 = $w3[rand(@w3)];
+
+  for my $i (0..$size) {
+    my $suf;
+    if (CHAIN_SIZE > 2) {
+      $suf = $tbl->{$w1}->{$w2}->{$w3};
+    } else {
+      $suf = $tbl->{$w1}->{$w2};
+    }
+
+    warn("word1: '$w1'\n\tword2: '$w2'\n") if DEBUG;
+
+    unless (ref $suf) {
+      $w1 = $w1[rand(@w1)];
+      $w2 = $w2[rand(@w2)];
+      $w3 = $w3[rand(@w3)];
+      redo;
+    }
+
+    my $r = int(rand @{$suf});
+    my $t = $suf->[$r];
+
+    if ($t eq NONWORD) {
+      warn ("detected the end of the chain (" 
+             . (keys %{$tbl})
+	     .  ") at $i.  reseting keys\n") if DEBUG;
+      $w1 = $w1[rand(@w1)];
+      $w2 = $w2[rand(@w2)];
+      $w3 = $w3[rand(@w3)];
+      next;
+    } 
+
+    # there are "unbalanced" braces (close nuff for me)
+    if ($t !~ m!\([^\)]*\)!) {  
+      $t  =~ s!^\(!!;
+      $t =~ s!\)$!!;
+      $text .= "$t ";
+    }
+
+    if (CHAIN_SIZE > 2) {
+      ($w1, $w2, $w3) = ($w2, $w3, $t);
+    } else {
+      ($w1, $w2) = ($w2, $t);
+    }
+  }
+
+  # do some goofy clean up
+  $text = ucfirst $text;
+  chop $text; # final space
+ 
+  # remove stray punctuation
+  $text =~ s/[,:]$//;
+  if (substr($text, -1, 1) ne '.') {
+    $text .= ".";
+  }
+
+  $Text::Wrap::columns = 60;
+  return wrap("", "", $text);
+}
+
+</pre>
+
+<p>Let's see how annoying this gets.  I have a feeling after a week, I'll 
+make this quietly go away.  Or expand it into a something truly monstrous.
+I made several tweaks to the code just trying to post this blog entry.
+
+<p><b>UPDATE:</b> Thanks to the wonders of Soviet-style revisionism, I have 
+updated this code a bit to remove the uses variables <code>$w1,$w2,$w3</code>
+from the main line.  Also, I randomize the input file order to make the output
+less likely to come from the some person's blog.  Perhaps I'll bundle this up
+for CPAN or taskboy.com or something.
+</p>
+
+
+<hr/>
+
+
+
+<h2>Greatness</h2>
+<h3><a href="/user/gizmo_mathboy/">gizmo_mathboy</a> on 2003-09-06T03:29:04</h3>
+I bow before the putrescent greatest that is the MarkovBlogger.<br> <br>There's no filth like autogenerative filth.
+
+
+
+<h2>Wonderful!</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2003-09-06T08:30:15</h3>
+I really like it! Think about it, how much confusion you can create with such a beast. Let him harvest a little in a newsgroup and make postings and see what happens.<br> <br>The entries created by the MarkovBlogger look very normal and unconspicuous....besides not making any sense, of course!
+
+
+
+<h2>qr//</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2003-09-09T18:14:38</h3>
+<p>Isn't qr// wonderful?  Sure beats the odd things you can get when you pass regexes around as strings.  I just wish lots of old modules would go back and get rid of the idea of treating a string delimited with slashes as a regex and a string without slashes as a literal.  Now that we have compiled regexes, that's obsolete.</p>
+
+<p>Of course, I was never one for backward compatibility.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

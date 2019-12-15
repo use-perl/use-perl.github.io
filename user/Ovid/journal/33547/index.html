@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Code Which Gives Me Pause</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Code Which Gives Me Pause</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2007-06-18T11:54:50</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>In checking our code coverage stats, I noticed on condition for a module needed to be tested to bring coverage to 100%.  Then I looked at the line of code:</p>
+
+<pre>my $country = $card->country;
+$country = $country eq 'gbr' ? '' : uc "[$country]" if $country;</pre>
+
+<p>A ternary operator and statement modifier on the same line?  You're packing three conditions onto one line of code!  Some folks would think that's just fine, but it seems to obscure the intent.  How would you rewrite that?</p></p>
+
+
+<hr/>
+
+
+
+<h2>define it</h2>
+<h3><a href="/user/barbie/">barbie</a> on 2007-06-18T12:07:13</h3>
+I'm inclined to go for something more like:<p><blockquote> <div><tt>my $country = $card-&gt;country;<br>$country = (!$country || $country eq 'gbr') ? '' : uc "[$country]";</tt></div> </blockquote> Unless the difference between undef and an empty string matters.
+
+
+
+<h2>That depends...</h2>
+<h3><a href="/user/phaylon/">phaylon</a> on 2007-06-18T12:59:54</h3>
+...on where the vars are used. In that example, it looks like the $country scalar is only used for the check.
+
+But I might do it like this:<p><blockquote> <div><tt>if (my $country = $code-&gt;country) {<br>&nbsp; $country = ( $country eq 'gbr' ? '' : uc "[$country]" );<br>}</tt></div> </blockquote> <nobr> <wbr></nobr><i>.phaylon</i>
+
+
+
+<h2>Something like this</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2007-06-18T13:15:11</h3>
+<p><blockquote> <div><tt>my $country = uc $card-&gt;country || '';<br>$country = ($country =~<nobr> <wbr></nobr>/^$|GBR/ ? '' : "[$country]");</tt></div> </blockquote> Possibly ^GBR$.
+
+
+
+<blockquote>
+
+<h2>Re:Something like this</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-18T14:05:49</h3>
+<p>Yuck. Using a pattern match to test string equality is smelly.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Something like this</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2007-06-18T18:05:44</h3>
+I can think of two reasons.<br><br>One is ugly syntax, which I find a silly argument. All Perl code is ugly, but elegance is more important than beauty. And I think this is very elegant.<br><br>The other is that you can only have 2_501_710 such matches per second (on my PM 1,5 GHz laptop, the average of 50% matches and 50% non-matches), which can be a valid argument in some cases. But if performance is the issue here, the method call should go first: my laptop can do just 1_415_988 method calls per second, and that's on an empty subroutine.<br><br>I wonder if you have a third reason for not using a regex here.
+
+
+
+<blockquote>
+
+<h2>Re:Something like this</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-18T19:53:10</h3>
+<p>I am honestly somewhat alarmed that you could only come up with straw men. How about &#8220;a regex match <em>always</em> has many more subtleties and edge/corner cases than straight string comparison&#8221;?</p>
+
+<p>As soon as I saw your code I wondered: &#8220;Did he mean <code>^GBR$</code> or was the omission of anchors deliberate?&#8221; And next: &#8220;Hmm, he uppercased it but there&#8217;s no<nobr> <wbr></nobr><code>/i</code> &#8211; was that on purpose?&#8221;</p>
+
+<p>I prefer to minimise the number of speed bumps that a casual reader of the code has to pass.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Something like this</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2007-06-18T22:46:01</h3>
+As for the omission of anchors: probably a bad idea. I considered this and added a remark about it to the post. OTOH, I frequently have code like:<p><blockquote> <div><tt>$lang =~<nobr> <wbr></nobr>/nl|en|de|eo/</tt></div> </blockquote> if I know $lang will always be 2 characters. Here, I didn't know, and should have used anchors.<br><br>The case sensitivity has nothing to do with regexes. With $foo eq 'GBR' you can (should) ask yourself the same question: shouldn't uc($foo) eq 'GBR' be used instead? However this is somewhat irrelevant here, as the line just before the match, an explicit "uc" was used. Whoever reads lines of code out of context, will be puzzled unnecessarily.<br><br>I also try to make my code easy to read, but apparently using different metrics for that. I found the double condition hard to grok, and abstracted that into a single regex.<br><br>If I were writing the same code, knowing that newbies would maintain it (I refuse to have this as a default style!), I would have written:<br><br>my $country = $card-&gt;country || '';<br><br>if ($country eq 'gbr') {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; $country = '';<br>} elsif ($country ne '') {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; $country = uc "[$country]";<br>}<br><br><br>But I try to avoid such repetitive code in anything written for fun or production.
+
+
+
+<blockquote>
+
+<h2>Re:Something like this</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-19T00:27:42</h3>
+<p>I&#8217;m not advocating baby-talk code like that.</p>
+
+<p>Note that neither of the variants you suggest preserves undefs/zeroes. For that case, I gave a much simpler version that folds both conditions into a single ternary.</p>
+
+<p>I don&#8217;t see how putting two conditions inside a regex as alternation is abstraction. You don&#8217;t have two Perl expressions, but instead a regex with two match possibilities. The complexity hasn&#8217;t gone anywhere, it&#8217;s still there right in front of the reader&#8217;s eyes, it has just taken on a different shape.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Something like this</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2007-06-19T09:14:29</h3>
+I am indeed assuming that a method called "country" will not return 0, and that undef is to be equal to "". The addition of square brackets, and the complete omission of the country indication when it's one specific value, tells me that this will be used in another string, meant for end users.<br><br>The complexity is still there entirely, but written in a more compact way: there's only one character in between. This makes it easier --for me-- to notice that in practice, both conditions lead to the same thing.<br><br>I don't think such a minor stylistic difference is worth being alarmed over...
+
+
+
+<blockquote>
+
+<h2>Re:Something like this</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-19T22:48:15</h3>
+<p>OK, being alarmed is hyperbole... to an extent. This particular example does not warrant it, but on general principle I *would* be worried if the only reasons you could come up with for preferring string comparison over regexes are performance and ugly syntax.</p>
+
+<p>Compare:</p> <p><blockquote> <div><tt>my $country = uc $card-&gt;country || '';<br>$country = ($country =~<nobr> <wbr></nobr>/^$|GBR/ ? '' : "[$country]");</tt></div> </blockquote>  <p>With:</p> <p><blockquote> <div><tt>my $country = $card-&gt;country;<br>$country = ( $country and $country ne 'gbr' ) ? uc "[$country]" : '';</tt></div> </blockquote>  <p>Regardless of how you turn it, I doubt many people will agree with you that the former is easier to read than the latter &#8211; there are more interdependencies to pick up on in the former. It has two boolean expressions rather than one, and the <code>uc</code> on one line ties toegether with the regex match on the other. (I honestly only just noticed that, even though you previously explicitly pointed it out.) In the latter, each of the parts does less.</p>
+
+<p>Btw, previously you wrote:</p> <p><blockquote> <div><p>OTOH, I frequently have code like <code>$lang =~<nobr> <wbr></nobr>/nl|en|de|eo/</code> if I know <code>$lang</code> will always be 2 characters.</p></div> </blockquote>
+
+<p>Yeah, this is preferrable over the non-regex version, I think (only barely, but it is), but once we have smartmatch, I would write it that way. (In Perl&#160;6 I&#8217;d use a junction, since that reads even more nicely; which brings us full circle since it would look very much like your code.)</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>probably not like this</h2>
+<h3><a href="/user/hdp/">hdp</a> on 2007-06-18T13:31:22</h3>
+(but I can't resist anyway)<br>
+<code>
+(my $country = $card-&gt;country || '') =~ s/^(?!gbr)(.+)$/\U$1/;
+</code>
+
+
+
+<h2>Much like barbie&amp;#8230;</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-18T14:14:49</h3>
+<p>&#8230; only I&#8217;d write the conditional the other way around:</p> <p><blockquote> <div><tt>my $country = $card-&gt;country;<br>$country = ( $country and $country ne 'gbr' ) ? uc "[$country]" : '';</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Much like barbie&amp;#8230;</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-18T14:24:54</h3>
+<p>Oops, that&#8217;s not actually the same. Well, it might be OK; if zeroes and undefs are not valid values that you need to care about, then that <em>is</em> how I&#8217;d write it.</p>
+
+<p>If you do need to distinguish, though, then I&#8217;d put it this way:</p> <p><blockquote> <div><tt>my $country = $card-&gt;country;<br>$country<br>&nbsp; &nbsp; = not $country&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ? $country<br>&nbsp; &nbsp;<nobr> <wbr></nobr>:&nbsp; &nbsp; &nbsp;$country eq 'gbr' ? ''<br>&nbsp; &nbsp;<nobr> <wbr></nobr>:&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;uc "[$country]";</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Much like barbie&amp;#8230;</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2007-06-18T22:48:58</h3>
+As for speedbumps... nested ternaries really slow<nobr> <wbr></nobr>/me/ down! (Except for simple 1-on-1 mappings.)
+
+
+
+<blockquote>
+
+<h2>Re:Much like barbie&amp;#8230;</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-19T00:20:17</h3>
+<p>Did you miss the part where I said this complex solution is only necessary if undef and zero need to be preserved? Sure this one is complex &#8211; because a three-way condition is always complex.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Much like barbie&amp;#8230;</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2007-06-19T09:20:47</h3>
+It is never necessary. Every such nested ternary can be written more verbosely, although you may have to use temporary variables.<p><blockquote> <div><tt>my $country = $card-&gt;country;<br>if ($country) {<br>&nbsp; &nbsp; $country = uc "[$country"];<br>&nbsp; &nbsp; $country = "" if $country eq "[GBR]";<br>}</tt></div> </blockquote> (I swapped the uc and gbr check around, because it makes the code prettier IMO.)<br><br>Though what's really needed in this code, regardless of the Perl syntax used, is a comment stating its intention. Perhaps:<p><blockquote> <div><tt># Don't mention the country if it's unknown or GBR</tt></div> </blockquote> Because that is always more clear.
+
+
+
+<blockquote>
+
+<h2>Re:Much like barbie&amp;#8230;</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-19T23:01:28</h3>
+<p><blockquote> <div><p>Every such nested ternary can be written more verbosely, although you may have to use temporary variables.</p></div> </blockquote>
+
+<p>Didn&#8217;t you just exclaim in another comment that you refuse to have this as a default style? Personally I find nested ternaries, <em>if they&#8217;re laid out like a table</em>, much easier to read than imperative code with a pile of temporary variables doing the same thing. Much easier to maintain, too.</p> <p><blockquote> <div><p>Though what&#8217;s really needed in this code, regardless of the Perl syntax used, is a comment stating its intention.</p></div> </blockquote>
+
+<p>In my book, comments are always a sign of big trouble for one reason or another. I only leave them behind to explain why I made a particular coding decision when it would seem weird to someone who doesn&#8217;t know the whole picture &#8211; eg. an odd bug workaround that a maintainer might be tempted to &#8220;correct&#8221;. I try very hard to avoid having to explain the code itself. The canonical authority on what the code does is the code itself &#8211; this is a cardinal rule.</p>
+
+<p>If you need to write a comment for something as simple as the code we&#8217;re discussing, then something is very wrong. (Probably it&#8217;s that we&#8217;ve nitpicked the example to death.)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Much like barbie&amp;#8230;</h2>
+<h3><a href="/user/Juerd/">Juerd</a> on 2007-06-20T12:55:59</h3>
+Yes, I did. But I would pick such a verbose style over short ?: tables.<br><br>As for comments: they provide redundancy. When the comment and the code are no longer in sync, that's a good sign something's wrong, and that helps to write good code.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>where &quot;use warnings&quot; burns</h2>
+<h3><a href="/user/merlyn/">merlyn</a> on 2007-06-18T15:08:07</h3>
+<p>My guess is that sometimes, $country is undef.  And because it might be, the author writes horribly perverted code just to avoid getting an irrelevant warning message.  This is the downside of warnings.
+</p><p>And given that, I'd have written this code as:
+<code>
+$country = $country eq 'gbr' ? '' : uc $country;
+</code>
+See how much clearer it is when you stop worrying about stupid warnings?  Don't be pedantic about warnings.  Stop using them when they make your code look ugly. (/end rant).</p>
+
+
+
+<blockquote>
+
+<h2>Re:where &quot;use warnings&quot; burns</h2>
+<h3><a href="/user/slanning/">slanning</a> on 2007-06-18T17:12:05</h3>
+My interpretation....was that $country wasn't dealing with definedness, but was instead determining whether or not to use brackets. If there's nothing there, "[]" might look stupid, so you don't want to put the brackets; and if it's 'gbr', you don't want anything there for whatever reason.
+
+
+
+<h2>Re:where &amp;#8220;use warnings&amp;#8221; burns</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-18T18:26:30</h3>
+<p>If it&#8217;s really just undef, then an <code>or ''</code> in the appropriate spot would suffice &#8211; no need for convolution.</p>
+
+<p>That said, almost all my code starts like so:</p> <p><blockquote> <div><tt>use warnings;<br>no warnings qw( once qw );</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:where &amp;#8220;use warnings&amp;#8221; burns</h2>
+<h3><a href="/user/sigzero/">sigzero</a> on 2007-06-21T11:58:30</h3>
+I looked in the perllexwarn pod and it just shows "once" in the hierarchy. What exactly does that do?
+
+
+
+<blockquote>
+
+<h2>Re:where &amp;#8220;use warnings&amp;#8221; burns</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2007-06-21T12:10:37</h3>
+<p>Sometimes you refer to a variable in another file:</p> <p><blockquote> <div><tt>$CGI::DISABLE_UPLOADS = 1;</tt></div> </blockquote>  <p>That snippet will prevent a DOS on your server from folks repeatedly uploading files.  However, it's probably only in your code once and warnings will issue a warning about it which you can disable with <tt>no warnings 'once'</tt>.</p>
+
+<p>It's designed, however, for cases where you declare something and never use it again.  That's probably cruft that you don't actually want in your code (or worse, you declare something but refer to it by the wrong name later).</p>
+
+
+
+<h2>Re:where &amp;#8220;use warnings&amp;#8221; burns</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-21T12:51:42</h3>
+<p>It suppresses warnings like this:</p> <p><blockquote> <div><tt>Name "main::x" used only once: possible typo at -e line 1.</tt></div> </blockquote>  <p>This is a poor man&#8217;s <code>use strict 'vars'</code>: the idea is that if you used a variable just once, it&#8217;s probably because you meant to use another variable but mistyped its name. However, you will get this warning only about package variables, not about <code>my</code> lexicals.</p>
+
+<p>These days, I generally use package variables only when I need to change a global setting in some module I&#8217;m using, such as the <code>$CGI::DISABLE_UPLOADS</code> variable Ovid mentioned. In that case, it&#8217;s a given that you set the variable once and never refer to it again, triggering the warning. So that warning is an annoyance that doesn&#8217;t serve any useful purpose and therefore I turn it off. I could work around it with stupid stuff like <code>$CGI::DISABLE_UPLOADS = $CGI::DISABLE_UPLOADS = 1</code>, which we used to do before Perl 5.6 because warnings could only be turned off completely, not selectively. But that just amounts to making silly faces at the compiler and I see no point in that.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Oh yeah &amp;#8211; I know!</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-18T18:24:44</h3>
+<p><blockquote> <div><tt>my $country = $card-&gt;country;<br>$country ||= $country eq 'gbr' ? '' : uc "[$country]";</tt></div> </blockquote>  <p>SCNR&#8230;<nobr> <wbr></nobr><tt>:-)</tt> </p>
+
+
+
+<blockquote>
+
+<h2>Re:Oh yeah &amp;#8211; I know!</h2>
+<h3><a href="/user/lbr/">lbr</a> on 2007-06-18T22:52:19</h3>
+<p><blockquote> <div><tt>my $country = $card-&gt;country;<br>$country&nbsp; &nbsp; = ''&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if $country eq 'gbr';<br>$country&nbsp; &nbsp; = uc "[$country]" if $country;</tt></div> </blockquote>  <p>Keep it simple.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Oh yeah &amp;#8211; I know!</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-19T00:11:25</h3>
+<p>Except that this will cause warnings when <code>$country</code> starts out undefined.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Refactor</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2007-06-21T12:24:00</h3>
+I'd refactor the Card class so that the default value for the getter was "GBR" and the setter automatically uc'd its argument. With that in place:<p><blockquote> <div><tt>my $country = $card-&gt;country eq 'GBR' ? '' : "[$card-&gt;country]"</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Refactor</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2007-06-21T14:22:14</h3>
+<p>&#8217;cept you can&#8217;t interpolate method calls.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

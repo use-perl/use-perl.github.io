@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Heatmap Ranges</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Heatmap Ranges</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-09-03T14:49:04</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I'd like to take a series of values and convert them to numbers between 0 and 255, but on a logarithmic scale.  My math studies were a long time ago and for the life of me I can't remember how to do this.  I'm hoping to take a 2D table of values and project them onto an HTML table in a 'heatmap' fashion.</p></p>
+
+
+<hr/>
+
+
+
+<h2>scale linear then log</h2>
+<h3><a href="/user/slanning/">slanning</a> on 2008-09-03T15:30:49</h3>
+<p>Maybe I'm misunderstanding, but I think you want to first scale logarithmically:  log($val) if it's log base 'e'. Then linearly: so find the max value in the logged sequence, then multiply each value by 255 and divide by the max. Here's a kind of generic script, if I got it right:</p><blockquote><div><p> <tt>#!/usr/bin/perl<br># convert @VALS to a log scale base $LOG_BASE<br># and scaled linearly to $SCALE_MAX<br> <br>use strict;<br>use warnings;<br>use List::Util qw(max);<br> <br>my $SCALE_MAX = 1000;<br>my $LOG_BASE = 10;<br>my @VALS = (1, 10, 100, 1000);<br> <br>main();<br> <br>sub main {<br>&nbsp; &nbsp; my @logvals = map { logN($_, $LOG_BASE) } @VALS;<br>&nbsp; &nbsp; my $maxval = max @logvals;<br> <br>&nbsp; &nbsp; foreach my $val (@logvals) {<br>&nbsp; &nbsp; &nbsp; &nbsp; print $val * $SCALE_MAX / $maxval, $/;<br>&nbsp; &nbsp; }<br>}<br> <br>sub logN {<br>&nbsp; &nbsp; my ($val, $N) = @_;<br>&nbsp; &nbsp; return ($N eq 'e') ? log($val) : log($val) / log($N);<br>}</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:scale linear then log</h2>
+<h3><a href="/user/veryrusty/">veryrusty</a> on 2008-09-06T13:04:47</h3>
+<p>Need to scale linearly first in the case the minimum value is less than 1 before taking logs. (Also, $SCALE_MAX should be 255)</p><p>Instead, if you simplify the mathematics (and you know the minimum and maximum values), calculate the logarithmic 'scaling factor'</p><blockquote><div><p>$scale = log( $maximum ) / 255;</p></div>
+</blockquote><p>Then apply logarithmic scaling to each data element</p><blockquote><div><p>map { int( log( $_ - $minimum + 1 ) / $scale ) } @VALS;</p></div>
+</blockquote><p>
+So that the minimum value scales to zero, maximum value scales to 255. Adjust the linear scale in the log calculation if you require some value smaller than the minimum to scale to zero. Just remember that log(1)=0.
+</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Log2 for heatmap, fun with pack</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2008-09-11T00:02:20</h3>
+i think both of the prior comments are on target.
+<p>
+If you have such quantities of data that scaling and calling log repeatedly is a problem - and only if - there are old integer bitbang routines for log2 that could be done with XS or Inline::C or PDL.
+
+ </p><p>Or you could (ab)use Perl 5.10 pack() to grab the floating point representation's exponent
+
+</p><p>Note that 256 buckets is a lot, hi res, for loglinear data unless it already was floating point or Math::BigFloat  - as
+log2(MAXLONG) - log2(1)  
+256 or 8 bits -- it's the aize of plain float's exponent. BUT grabbing it is hard since it's offset one bit by the sign.
+</p><p>
+If your data is not log clean but may include the gamut from -INF to 0 to +INF, if you grab the sign and the top 7 bits of exponent, that's nice, but it's not a single numeric range -- exponent is UCHAR biased by 127 [or by 63 after we nip one bit taking a byte with the sign] -- while the sign prefixed to it inverts direction.) A crass fix -</p><blockquote><div><p> <tt>my $s;<br>my $n= unpack("C",pack("f&gt;",$data)); #&gt; on x86 cpu<br>$n ^= 0xff if $s=$n &amp; 0x80;<br>$n ^= 0x80 if !$s;</tt></p></div> </blockquote><p>if its all positive, and you want full 256 buckets without XS or PDL or log(), the best I can see is unpack with B9, discard the leading sign bit, repack B8, unpack C. But if you're going to do that might as well get full dynamic range from 11 bit 'double' exponent.</p><blockquote><div><p> <tt>sub log2{<br>&nbsp; require 5.010; # assumes x86 too...<br>&nbsp; # should die if arg &lt;= 0<nobr> <wbr></nobr>...<br>&nbsp; # instead gives log2(abs())<br>&nbsp; my $str =unpack("B12",pack("F&gt;", shift));<br>&nbsp; &nbsp; &nbsp;$str =~ s/^[01]/00000/;&nbsp; # drop sign and pad<br>&nbsp; my $exp =&nbsp; unpack("s&gt;",pack("B*", $str ));<br>&nbsp; return -1023 + $exp;<br>}</tt></p></div> </blockquote><p>With a bit of magic number abuse, we can easily squeeze out a single fractional bit as well, which could give upto 4096 buckets for positive numbers, and as many more for negatives if you rescale somewhere.
+
+</p><p> Why 5.10? Because on any commodity platform (x86) we need to coerce to a sensible bit/byte order.  I am sure I could work out a x86 specific way with older pack but life is too short.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

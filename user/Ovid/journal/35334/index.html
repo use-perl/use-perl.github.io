@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Complex data structure unification</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Complex data structure unification</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-01-08T21:11:13</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>While I still don't have a search algorithm yet (maybe that should have been first?), I've gotten complex data structure pattern matching to work just fine (almost like regexes against data structures).  Here's a sample from my test suite:</p>
+
+<pre>ok $data->add_facts(
+    [
+        qw/ gives ovid /,
+        {
+            book  => 'library',
+            money => [qw/charity nonprofits/]
+        }
+    ],
+  ),
+  'We should be able to add complex data structures as facts';
+
+var my $what;
+var my $group1;
+var my $group2;
+
+ok $results = $data->query(
+    'gives', qr/^o/,
+    {
+        book  => $what,
+        money => [ $group1, $group2 ]
+    }
+  ),
+  '... we should be able to issue complex queries';
+ok $results->next, '... and get results';
+is $what->value, 'library', '... and fetch simple hash key variables';
+is_deeply [ $group1->value, $group2->value ], [qw/charity nonprofits/],
+  '... and items from arrays';
+</pre>
+
+<p>That query says, everybody whose name begins with 'o' gives books to 'what' and money to 'which groups'.</p>
+
+<p>Frankly, I'm rather surprised it was so easy.  To solve the problem, I made a post on Perlmonks about <a href="http://perlmonks.org/?node_id=661047">efficient partial deep cloning</a> and in the process of posting that, I explained the process well enough to understand a tentative solution.  I'm not arguing that my solution is the best, but it seems to work really well.</p>
+
+<p>The next() method wound up being really simple and looks like this:</p>
+
+<pre>sub next {
+    my $self = shift;
+
+    # we're out of facts
+    return if $self->{index} > $self->{max};
+
+    my $query = $self->{query};
+    foreach my $path ( @{ $self->{paths} } ) {
+
+        # unbind all logic variables
+        eval "\$query->$path->unbind";
+    }
+
+    # get the next fact we found in the db
+    my $fact = $self->{facts}[ $self->{index} ];
+    $self->{index}++;
+
+    # the query matched the fact
+    if ( my $result = eval { unify( $query, $fact ) } ) {
+
+        # so lets bind all of the logic variables and return
+        foreach my $path ( @{ $self->{paths} } ) {
+            eval "\$query->$path->bind( \$result->$path )";
+        }
+        return 1;
+    }
+    else {
+
+        # otherwise, try the next fact
+        $self->next;
+    }
+}</pre>
+
+<p>Those 'evals' give me the willies, but they're the key to making all of this happen.</p>
+
+<p>What I'd like to do is this:</p>
+
+<pre>var my $what;
+var my @groups;
+
+ok $results = $data->query(
+    'gives', qr/^o/,
+    {
+        book  => $what,
+        money => \@groups,
+    }
+  ),
+  '... we should be able to issue complex queries';
+ok $results->next, '... and get results';
+is $what->value, 'library', '... and fetch simple hash key variables';
+is_deeply [ $groups->values ], [qw/charity nonprofits/],
+  '... and items from arrays';</pre>
+
+<p>That would allow me to match arbitrary length arrays, but there are some severe technical issues with that.  Logic programming can work with arbitrary length lists, but that is only because Prolog's data structures are so limited.  Perl's are so rich that the semantics are very complicated.</p>
+
+<p><strong>Update:</strong>  I should thank Luke Palmer for the nice declaration of logic variables.  I stole that idea from <a href="http://search.cpan.org/dist/Logic/">Logic</a>.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Reasoned Schemer?</h2>
+<h3><a href="/user/jjore/">jjore</a> on 2008-01-09T04:10:48</h3>
+Did you ever read that? I did last summer and thought it'd be sweet to port to perl. Never did of course.
+
+
+
+<blockquote>
+
+<h2>Re:Reasoned Schemer?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-01-09T10:27:02</h3>
+<p>Nope.  Given how easy it is to implement predicate logic in Scheme, though, I should really pay more attention to that language.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

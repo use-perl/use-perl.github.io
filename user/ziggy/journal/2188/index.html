@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: Pathological Anti-Patterns</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Pathological Anti-Patterns</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2002-01-16T18:27:07</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'm debugging a huge piece of legacy code at the moment (the better part of 100,000 lines from what I can tell, some of it included HTML chunks and SQL statements), and it's using one of the earliest, ugliest and nastiest antipatterns I've ever seen: <b>Pass-by-global</b>.
+<p>
+As usual, the global variables being used aren't documented, nor is their behavior.  My best bet at the moment is to bring up two ssh sessions and examine a "working" version, comparing it to a new rewritten version that should help isolate what the behavior really is...
+<p>
+Now, a Python bigot would be able to point to this big mess of code and utter: "See! Friends don't let Friends program in Perl!"  Realistically speaking, a big pile of messy code is a big pile of messy code in any language, regardless of the idioms used.  Java, for example, may be designed to limit or even prohibit the use of global variables.  However, that does not prevent pathological anti-patterns from being used -- it just forces new ones to be created.  :-)  (Python is incapable of preventing this pass-by-global idiom; it just deprecates it differently...)</p>
+
+
+<hr/>
+
+
+
+<h2>Been there, done that</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-01-16T19:48:27</h3>
+<p>And feel your pain!  We fixed it by systematically removing each function to a separate file, turning on C&lt;use strict;&gt;, and then running</p>
+
+<p> <tt>$ perl -c program 2&gt;&amp;1 | head</tt> </p>
+
+<p>and removing an error at a time.  Fortunately most changes we made removed several thousand error lines at a time.  Change "head" to "wc -l" for real fun.  After perl -c works clean, take out the -c.  After that runs clean, move another function into its own file.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Been there, done that</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2002-01-16T21:28:40</h3>
+I did a brief guesstimation on the size of this system.  It's looking like it's roughly 100,000 lines of Perl code.  (It's quite difficult to tell actually; there are about 200 non-core, non-CPAN locally writen modules involved here with only the most incestuous of relationships found...)  The reason why it's difficult tell the overall size is because (1) the modules are split into two different directory structures, and (2) one of them appears to be isolated to this product (with ~60,000 lines), and the other is code reused across a family of products (consisting of ~227,000 lines).  Furthermore, that includes things that should be counted (such as whitespace, comment lines, and HEREDOCs for SQL, HTML, etc.)
+<p>
+What's really nice is that the code exhibits a couple of similar but subtly different anti-patterns:
+</p><ul>
+<li>pass-by-global <br>(all variables in %main::)</li>
+<li>export-to-everywhere <br>(many modules importing the same symbols from a common module, so they're effectively global, but at the same time not really global)</li>
+</ul>
+The really tricky part is that it probably won't get rewritten.  I'm dealing with some bits of the backend, but much of the code in dire need of remediation is shared between a backend and a frontend (which is a completely different effort altogether...)
+
+
+
+
+
+</blockquote>
+
+
+<h2>Oh ghod... I feel your pain</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-01-16T20:03:20</h3>
+I had a couple of days consultancy at a company that shall remain nameless. My brief was to take a look at their code and give them a rough idea of how long it would take to convert it to mod_perl and what kind of performance gain they could expect.
+<br>
+<br>Their code was <em>terrible</em> spread out through a bunch of files (but with everything in the <tt>main::</tt> package) and doing stuff with a dreadful mix of pass by global whilst occasionally spawning seperate perl processes to (afaict) blow the accumulated global cruft away to do some other work...
+<br>
+<br>I had intended to just bung Apache::PerlRun in place and run the code under that to get an idea about performance gain. But it failed to run.
+<br>
+<br>Oh yes, and the two jerks who'd perpetrated this pile of, ahem, code appeared to be <em>proud</em> of it, and didn't seem to be interested in finding out how to fix it.
+<br>
+<br>I've rarely been more grateful not to get a long contract out of some consultancy.
+
+
+
+<blockquote>
+
+<h2>Re:Oh ghod... I feel your pain</h2>
+<h3><a href="/user/pdcawley/">pdcawley</a> on 2002-01-16T21:51:02</h3>
+Oh yes, forgot to say. When I finally got a travesty of the functionality working under mod_perl, it ran in about 100th of the time.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Similar story</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-01-17T07:37:32</h3>
+Here at work our anti-virus product is 12,000 lines of very ugly Perl (along with probably lots more C). It took me two weeks to untangle the whole ball of string and re-write it into separate packages. However sadly time pressed on too much and now I pretty much have to re-do the rewrite because changes got made to the original, not the rewrite. *sigh*.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

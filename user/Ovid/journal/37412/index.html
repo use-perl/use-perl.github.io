@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Triggers to track database changes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Triggers to track database changes</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-09-11T16:00:10</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Yesterday I wrote how <a href="http://use.perl.org/user/Ovid/journal/37398">we're using triggers to track changes to our database</a>.  Now that it's implemented, our test suite is between one quarter to one third faster.  Still too slow, but better than it was.</p>
+
+<p>I've combined yesterday's code with the following:</p>
+
+<pre>sub setup {
+    my ($self) = @_;
+    my $dbh = $self->dbh;
+
+    # XXX this may ultimately prove to be too simplistic
+    eval { $dbh->do('select * from changed_table') };
+
+    my $error = $@ or return;
+    if ($error !~ /Table.*changed_table' doesn't exist/) {
+        croak("Fatal error: $error");
+    }
+
+    $self->_rebuild_test_database;
+    return $self;
+}
+
+sub _rebuild_test_database {
+    my $self = shift;
+
+    $self->_create_change_table;
+    my $dbh = $self->dbh;
+    my @static_tables  = $self->static_tables;
+    my @dynamic_tables = $self->dynamic_tables;
+
+    $self->_disable_foreign_keys;
+    foreach my $table (@static_tables, @dynamic_tables) {
+        $dbh->do("TRUNCATE TABLE $table");
+    }
+    $self->_enable_foreign_keys;
+
+    # load this *before* the triggers, thank you
+    my $reference_data = 'insert_reference_data.sql';
+    Pips3::DB::Create->new->load_sql_db_file($reference_data);
+
+    # now make thebackups
+    foreach my $table (@static_tables) {
+        $dbh->do("CREATE TABLE backup_$table SELECT * FROM $table");
+    }
+
+    $self->_add_triggers_and_records;
+    return $self;
+}</pre>
+
+<p>The initial check is simplistic (do I have a <tt>changed_table</tt> table?).  If it's not there, this is a freshly rebuilt database and we do the following:</p>
+
+<ol>
+  <li>Create said table</li>
+  <li>Truncate all tables</li>
+  <li>Load our "static" data (core data the system requires, such as names of broadcasters)</li>
+  <li><em>Back up</em> our static data with the "CREATE ... SELECT" statements.</li>
+  <li>Ddd records to the <tt>changed_table</tt> table to help us track which tables have changed</li>
+  <li>Add the triggers which track the changes</li>
+</ol>
+
+<p>Then, at the beginning of any test which touches the database, it pulls are table names which have changed, truncates them, copies their backed up values (if they're "static" data -- see point 4 above) back to the table and resets their <tt>changed_table</tt> values.</p>
+
+<p>Aside from a very nice performance boost to our test suite by not having to rebuild everything blindly, it's also interesting to run a test and look to see which tables have changed.  I was surprised to see cases where some tests would make changes to tables which seem completely unrelated to the test.  Ordinarily that can be very difficult to know.</p>
+
+<P>As a side note, even though I'm the one who implemented this, I believe the original idea belong to Rufus, one of our other developers.</p></p>
+
+
+<hr/>
+
+
+
+<h2>transactions</h2>
+<h3><a href="/user/hdp/">hdp</a> on 2008-09-11T20:00:00</h3>
+I may have missed a point where you said you couldn't do this, and if so, I apologize, but: can you wrap every test file in a transaction and then rollback after each test?  That's the best speedup I've found for this kind of thing.
+
+
+
+<blockquote>
+
+<h2>Re:transactions</h2>
+<h3><a href="/user/jplindstrom/">jplindstrom</a> on 2008-09-12T12:29:29</h3>
+<p>That works for successful cases, because begin/commit nest properly. But begin/rollback doesn't. Rollback rolls back everything.</p><p>There's a hack/workaround for that though. It's possible to implement properly nested transactions using savepoints. I think I'll do that at some point on a gold-card day.</p>
+
+
+
+<h2>Re:transactions</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-09-12T12:37:40</h3>
+<p>I think that's very bad idea which, unfortunately, has gained some tractions with testers.  The major error is that it says "hey, we're going to alter our code's behavior".  Now you are no longer testing your code.  You're testing a globally modified version that simply doesn't behave like your real code.  It's almost like developers using SQLite to test their code which relies on MySQL -- you're no longer testing your code, you're testing a simulacrum.</p><p>What if want to test commit/rollback?  What if you have multiple processes that need to communicate?  (One process adds data and another one, in a Web spider, fails to read the uncommitted data because it's in another process)?  I accept that sometimes we need changes in code behavior to account for tests, but only if those changes are minimal in scope.</p>
+
+
+
+<blockquote>
+
+<h2>Re:transactions</h2>
+<h3><a href="/user/hdp/">hdp</a> on 2008-09-12T14:38:59</h3>
+<p><div class="quote"><p>Now you are no longer testing your code. You're testing a globally modified version that simply doesn't behave like your real code.</p></div><p>This is only true if your real code involves using more than one connection to the same database.  Lots of code doesn't need to do that in a testing context.</p><p><div class="quote"><p>What if want to test commit/rollback?</p></div><p>The previous comment already addressed that, unless you're stuck on a database without them.  (I've only done this on postgres.)</p><p><div class="quote"><p>
+ What if you have multiple processes that need to communicate?  (One process adds data and another one, in a Web spider, fails to read the uncommitted data because it's in another process)?  I accept that sometimes we need changes in code behavior to account for tests, but only if those changes are minimal in scope.</p></div><p>This seems like an argument for not using this technique all the time, not like an argument for never using it.</p><p>It sounds like you're saying "this won't work for my case, so it's always a very bad idea".</p>
+
+
+
+<blockquote>
+
+<h2>Re:transactions</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-09-12T14:54:53</h3>
+<p>There may very well be cases for which this is appropriate so I would not tell someone else "never", but this is one of those things that I've been bitten with very hard in the past.  Accidental commits.  Accidentally having more than once connection (very common with Web tests).  Not being able to properly test bits of the code which commit, etc.  If it works for you and you're comfortable with your results, that's fine.  It's hurt me far more than it's helped me, so I just prefer not to use this technique.  Resetting the database before each test has worked wonders for me, so I'm happy to stick with this<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:transactions</h2>
+<h3><a href="/user/hdp/">hdp</a> on 2008-09-12T19:09:25</h3>
+<p><div class="quote"><p>Accidental commits. Accidentally having more than once connection (very common with Web tests).</p></div><p>Yeah, there are definitely fiddly bits, and a lot of times it's not worth the effort.</p><p><div class="quote"><p>Not being able to properly test bits of the code which commit, etc.</p></div><p>I don't understand why you keep saying this.  Do you not believe me and jplindstrom when we say it's possible to test commit/rollback using savepoints to do nested transactions?</p>
+
+
+
+<blockquote>
+
+<h2>Re:transactions</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-09-12T19:50:40</h3>
+<p>To be fair, I've never worked with nested transactions before.  I am aware of them and what they can do, but I've never tried it out.  I'm looking forward to seeing the results of his "gold card" work with this (we're on the same team at the BBC so I'll be able to see it firsthand).</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

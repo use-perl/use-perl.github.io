@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of potyl: Perl movie player</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl movie player</h1>
+<h2><a href="/user/potyl/">potyl</a> on 2009-07-01T20:38:36</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>A few months ago I was playing with <a href="http://gstreamer.freedesktop.org/">Gstreamer</a> and I wrote a small movie player in Perl 5 thanks to the <a href="http://search.cpan.org/perldoc?GStreamer">Gstreamer</a> bindings.
+</p>
+
+<p>For those that aren't familiar with Gstreamer it consists of an open source multimedia framework. Gstreamer allows an application to play, stream and covert  any kind of multi-media content. It is mainly used in the Gnome desktop for playing sounds and viewing movies.
+</p>
+
+<p>If you are a bit curious play with the following movie player:
+</p>
+
+<pre>
+#!/usr/bin/perl
+
+=head1 NAME
+
+gst-video-player.pl - Video player made in Perl
+
+=head1 SYNOPSIS
+
+gst-video-player.pl video
+
+Where I<video> is the URI to a video (file, http, etc).
+
+=head1 DESCRIPTION
+
+This program shows how to create a video player using Gtk2 and Gstreamer. This
+player can handle all video formats supported by Gstreamer.
+
+=cut
+
+use strict;
+use warnings;
+
+use Glib qw(TRUE FALSE filename_to_uri);
+use GStreamer '-init';
+use GStreamer::Interfaces;
+use Gtk2 '-init';
+use File::Spec;
+use Cwd;
+
+exit main();
+
+
+sub main {
+	die "Usage: file\n" unless @ARGV;
+	my ($uri) = @ARGV;
+	
+	if ($uri =~ m,^[^:]+://,) {
+		# Nothing to do as the input is already an URI
+	}
+	elsif (! File::Spec->file_name_is_absolute($uri)) {
+		my $file = File::Spec->catfile(getcwd(), $uri);
+		$uri = filename_to_uri($file, undef);
+	}
+	else {
+		$uri = filename_to_uri($uri, undef);
+	}
+	print "Playing: $uri\n";
+	
+	# Create the main pipeline and GUI elements
+	my ($pipeline, $player, $sink) = create_pipeline();
+	my ($window, $canvas, $buttons) = create_widgets();
+	
+	$player->set(uri => $uri);
+	
+	# Buttons used to control the playback
+	add_button($buttons, 'gtk-media-play', sub {
+		$sink->set_xwindow_id($canvas->window->get_xid);
+		$pipeline->set_state('playing');
+	});
+	
+	add_button($buttons, 'gtk-media-stop', sub {
+		$pipeline->set_state('ready');
+	});
+	
+	
+	# Run the program
+	Gtk2->main();
+	
+	# Cleanup
+	$pipeline->set_state('null');
+	return 0;
+}
+
+
+sub create_pipeline {
+	my $pipeline = GStreamer::Pipeline->new('pipeline');
+	
+	# The pipeline elements
+	my ($player, $sink) = GStreamer::ElementFactory->make(
+		playbin     => 'player',
+		xvimagesink => 'sink',
+	);
+	
+	$pipeline->add($player);
+	$player->link($sink);
+	
+	$player->set('video-sink', $sink);
+	$sink->set('force-aspect-ratio', TRUE);
+	
+	return ($pipeline, $player, $sink);
+}
+
+
+sub create_widgets {
+	# Create the widgets
+	my $window = Gtk2::Window->new();
+	$window->set_title("Gst video test");
+	
+	# This is where the video will be displayed
+	my $canvas = Gtk2::DrawingArea->new();
+	$canvas->set_size_request(300, 150);
+	
+	my $vbox = Gtk2::VBox->new(FALSE, 0);
+	$vbox->pack_start($canvas, TRUE, TRUE, 0);
+	
+	# Prepare a box that will hold the playback controls
+	my $buttons = Gtk2::HButtonBox->new();
+	$vbox->pack_start($buttons, FALSE, TRUE, 0);
+	
+	$window->add($vbox);
+	
+	$window->signal_connect(destroy => sub {Gtk2->main_quit()});
+	$window->show_all();
+	
+	return ($window, $canvas, $buttons);
+}
+
+
+sub add_button {
+	my ($box, $stock, $callback) = @_;
+	my $button = Gtk2::Button->new_from_stock($stock);
+	$button->signal_connect(clicked => $callback);
+	$box->add($button);
+	$button->show_all();
+}
+</pre></p>
+
+
+<hr/>
+
+
+
+<h2>GStreamer::Interfaces</h2>
+<h3><a href="/user/james2vegas/">james2vegas</a> on 2009-07-02T07:01:02</h3>
+How do you get GStreamer::Interfaces built?  I'm always left with a blank Makefile after the perl Makefile.PL stage.
+
+
+
+<blockquote>
+
+<h2>Re:GStreamer::Interfaces</h2>
+<h3><a href="/user/potyl/">potyl</a> on 2009-07-02T11:10:10</h3>
+<p>I've built it as a Deb package (Ubuntu 9.04) and installed it that way. If you are using that same version of ubuntu you can use my repository:
+</p><blockquote><div><p> <tt>deb http://debian.potyl.com/ jaunty main</tt></p></div> </blockquote><p>Once you have enabled it you can install the library with:</p><blockquote><div><p> <tt>sudo apt-get udpate &amp;&amp; sudo apt-get install libgstreamer-interfaces-perl</tt></p></div> </blockquote><p>If that doesn't work paste your error messages here and I will try to help. Keep in mind that in order to build GStreamer::Interfaces you will need to have all build time dependencies installed otherwise the Makefile.PL will refuse to go further and will exit.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Popular Test Modules (updated)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Popular Test Modules (updated)</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-09-13T10:36:28</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>A while ago I needed to know which test modules were the most popular so I could bundle them in <a href="http://search.cpan.org/dist/Test-Most/">Test::Most</a>.  I was asked how I figured that out, so I figured I would post the code.  I've updated the code to make it a bit more robust, but it's still heuristically based.</p>
+
+<p>First, I need to extract the tests from my minicpan:</p>
+
+<pre>#!/usr/bin/perl
+
+use strict;
+use warnings;
+use CPAN::Mini::Extract;
+use Getopt::Long;
+
+GetOptions(
+    offline => \my $offline,
+    force   => \my $force,
+) or exit 1;
+
+my $cpan = CPAN::Mini::Extract->new(
+    remote         => 'http://ftp.osuosl.org/pub/CPAN/',
+    local          => "$ENV{HOME}/code/minicpan",
+    trace          => 1,
+    extract        => '/Users/ovid/code/cpanextracted',
+    extract_filter => sub { /\.(pm|t)$/ and !/\b(inc)\b/ },
+    extract_check  => 1,
+    extract_force  => $force,
+    offline        => $offline,
+);
+
+my $changes = $cpan->run;</pre>
+
+<p>I'm also extracting .pm files, but they could be skipped if you don't need them.  Then, I run the following, passing it the location of the extracted directory.  (<tt>$ENV{HOME}/code/cpanextracted/authors/id/</tt>).  This takes about five minutes to run on my machine.</p>
+
+<p>Note that due to the generic nature of this code, if you have a large project, you could point this at your project directory (assuming it has .t tests) and find out what test modules you're using.</p>
+
+<pre>#!/usr/bin/perl 
+
+use strict;
+use warnings;
+
+use File::Find;
+my $target_dir = shift or die "Usage: $0 path/to/modules";
+
+my @tests;
+
+my $time = scalar localtime;
+print STDERR "Finding tests.  This may take a while [$time]\n";
+find(
+    {
+        wanted => sub {
+            if ( /\.t\z/) {
+                push @tests => $File::Find::name;
+                warn $File::Find::name if /test.pl\z/;
+            }
+        },
+        nochdir => 0
+    },
+    $target_dir, 
+);
+
+my %times_found;
+
+my ( $current, $total ) = ( 1, scalar @tests );
+
+$time = scalar localtime;
+print STDERR "Beginning analysis of $total tests [$time]\n";
+
+# test_re must be a star because they might 'use Test;'
+my $test_re = qr/\bTest(?:::\w+)*\b/;
+foreach my $test (@tests) {
+    open my $fh, '<', $test
+      or die "Cannot open ($test) for reading: $!";
+
+    if ( !( $current % 1000 ) ) {
+        my $time = scalar localtime;
+        print STDERR "Processing $current out of $total test programs at [$time]\n";
+    }
+    $current++;
+    while ( my $line = <$fh> ) {
+        next if $line =~ /^\s*#/;    # skip comments
+        if ( $line =~ /^\s*(?:use|require)\s+($test_re)/ ) {
+            $times_found{$1} ||= 0;
+            $times_found{$1}++;
+        }
+    }
+    close $fh or die "Cannot close ($test): $!";
+}
+
+for my $module ( sort { $times_found{$b} <=> $times_found{$a} }
+    keys %times_found )
+{
+    printf "%-70s  %6d\n", $module, $times_found{$module};
+}</pre>
+
+<p>The results are a bit different then before because I've updated my regex to include "required" modules.  Here's the new top 20, along with the number of times each was seen.</p>
+
+<ol>
+  <li>69396 - Test::More</li>
+  <li>10912 - Test</li>
+  <li>2314 - Test::Exception</li>
+  <li>962 - Test::Simple</li>
+  <li>610 - Test::Base</li>
+  <li>386 - Test::NoWarnings</li>
+  <li>308 - Test::Builder::Tester</li>
+  <li>254 - Test::Deep</li>
+  <li>223 - Test::Pod</li>
+  <li>217 - Test::Warn</li>
+  <li>213 - Test::Differences</li>
+  <li>187 - Test::MockObject</li>
+  <li>157 - Test::Pod::Coverage</li>
+  <li>131 - Test::Builder</li>
+  <li>118 - Test::WWW::Mechanize::Catalyst</li>
+  <li>113 - Test::XML</li>
+  <li>112 - Test::Block</li>
+  <li>110 - Test::Perl::Critic</li>
+  <li>107 - Test::Distribution</li>
+  <li>101 - Test::SQL::Translator</li>
+</ol>
+
+<p>All told, I found 373 test modules used.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>Test::Class? or even Test::Unit</h2>
+<h3><a href="/user/jonasbn/">jonasbn</a> on 2008-09-13T19:40:20</h3>
+<p>I am currently evaluating use of Test::Class.</p><p>Your mentioning of our violations of good coding practices in test suites at YAPC::Europe in Copenhagen, have made me think a lot about the general layout my test code.</p><p>Test::Class seem to offer something a have been looking for, namely test reuse.</p><p>But I do find it quite concerning that is does not appear on your list. Neither do I see Test::Unit, which I evaluated a long time ago - I went with Test::(More|Simple) at that time, but Test::Class does seem to combine the two approaches quite neatly, but as I wrote I find it concerning that it is not on your list.</p><p>But I guess that it does not mean that it cannot be used, it us just not used in CPAN distributions it seems - perhaps in the enterprise?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Test::Class? or even Test::Unit</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-09-13T20:00:09</h3>
+<p> <tt>Test::Class</tt> is number 52 out of 373.  It should be much higher.  It's a fantastic module.  There are bits and pieces which could be changed but out of the box it's great and I highly recommend it.  The test organization, test inheritance and general test code reuse gives it top marks in my book.</p><p> <tt>Test::Unit</tt> is basically abandonware and does not play well with <tt>Test::Builder</tt>.  This means that if you want to use standard Perl testing modules, you can't.  You'd have to port any functionality you need if you want to use <tt>Test::Unit</tt>.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Test::Class? or even Test::Unit</h2>
+<h3><a href="/user/jonasbn/">jonasbn</a> on 2008-09-14T06:49:25</h3>
+<p>Ah my bad I did not notice that it was a top-20.</p><p>Well I ported a 100% covering test suite to Test::Class yesterday and it does feel good. Next step is to have to other applications reuse the test suite - I can hardly wait.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>MyCPAN::Indexer now does that too</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2008-09-14T02:02:48</h3>
+<p>On the plane today I made this a feature of my BackPAN indexer. I have all the bits to take a list of distributions and look inside them, so I just needed a worker task to count test modules instead of doing all the other stuff. It mostly works now, and I've pushed it to github. It's not like you need to care about that because I'll do the work to make the reports.<nobr> <wbr></nobr>:)</p><p>If you really wanted to, you could also look through <a href="http://use.perl.org/user/brian_d_foy/journal/37375" title="perl.org">the output files</a perl.org> I've made previously and extract the modules used in each of the test files. They are just YAML files, so you pull out the right thing and count it.</p><p>
+&nbsp; I extracted all the used modules using <a href="http://search.cpan.org/dist/Module-Extract-Use" title="cpan.org">Module::Extract::Use</a cpan.org>, which uses PPI to do the work. That way, I get everything the test file used.</p><p>I'm finishing up the additions to MyCPAN::Indexer to spit this out, but I'm also thinking about only counting a Test:: module once per distribution.</p>
+
+
+
+<blockquote>
+
+<h2>Re:MyCPAN::Indexer now does that too</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-09-14T07:45:08</h3>
+<p>Thanks for doing this.  That's great!</p><p>The other day, Schwern mentioned on the Test::More development list the other day that CPANTs also does the "once per distribution" thing.  Counting the test module once per distribution as opposed to once per test program is good, but offers a different use case.  It shows how widespread the dependency is, but not how widespread the usage is (both numbers being valuable, of course).</p><p>For example, if you have one distribution with five<nobr> <wbr></nobr>.t programs, if one uses Test::Pod and the other four use Test::More, it's clear that Test::More is used more frequently, but also clear that this distribution depends on Test::More once, not four times<nobr> <wbr></nobr>:)</p><p>So whichever way you count, it just depends upon which problem you want to solve.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Test::Block is really #17?</h2>
+<h3><a href="/user/Adrian/">Adrian</a> on 2008-09-14T16:52:33</h3>
+That surprises me.... a lot....
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

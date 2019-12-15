@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: dubious quality of GNU source-code</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>dubious quality of GNU source-code</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2003-05-27T16:55:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Yesterday within half an hour I hacked together C<File::Locate> that will soon hit the CPAN. I simply put all the relevant C-functions from the findutils-package and butchered them into Locate.xs, massaged the whole thing a little to return the data to the caller and that was it essentially.<br/><br/>However, one thing is odd. There is not a single call to C<free(3)> within locate.c and related C files. So it allocates all the memory for the strings it extracts from the locate-db files (more than 12meg for a search for 'mp3' on my computer) but never frees them, benefiting from the fact that locate(2L) is shut-down afterwards anyway. Naturally, when turning that into a module, memory must be cleaned up properly and this turns out to be not that easy. It uses statically allocated memory at some places and my attempts to replace that with dynamic memory allocation have resulted in segfaults so far. Strange. I always though that it would be good style to always release the memory one allocated no matter whether this is necessary in a narrower sense. <br/><br/>Other than that, the style of the code is pretty ancient. It still uses K&R function-declaration style for instance and some other baddies and anachronisms.
+</p>
+
+
+<hr/>
+
+
+
+<h2>free() ain't free</h2>
+<h3><a href="/user/samtregar/">samtregar</a> on 2003-05-27T17:14:04</h3>
+Calling free() takes time.  Perl itself declines to actually free() allocated memory at program destruction as an optimization.  Maybe it's your knowledge of C which is of dubious quality!
+<p>
+Perhaps your module should just wrap system("locate") instead of reinventing this wheel.
+</p><p>
+-sam</p>
+
+
+
+<blockquote>
+
+<h2>Re:free() ain't free</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2003-05-27T17:44:50</h3>
+<i>Calling free() takes time. Perl itself declines to actually free() allocated memory at program destruction as an optimization. </i> <br> <br>And you think that this analogy makes any sense? Perl has different destruct_levels that do different things depending on whether perl was compiled with multiplicity or not. We are talking here about a potentially threading application where not freeing memory can be a valid decision.<br> <br>You can't apply that to locate. You run it once and it quits. When you start it again, the not-freed memory has in the meantime been claimed back by the OS. If you start the next instance of locate, all memory allocations have to be done once again. There is no optimization involved.<br> <br> <i>Maybe it's your knowledge of C which is of dubious quality!</i> <br> <br>Yeah, it must be that.<br> <br> <i>Perhaps your module should just wrap system("locate") instead of reinventing this wheel.</i> <br> <br>So spawning off a new process using <code>system()</code> or whatsoever is more efficient than a piece of compiled C code that is dynamically linked into perl? Makes sense. Also, <code>system("locate<nobr> <wbr></nobr>...")</code> is known to work beautifully under any operating system around (especially windows).<br> <br>You'll also have to explain to me why <code>File::Find</code> was a reinvention of the find-program. Following your logic, <code>system qw(find<nobr> <wbr></nobr>...)</code> would do just as well.
+
+
+
+<blockquote>
+
+<h2>Re:free() ain't free</h2>
+<h3><a href="/user/samtregar/">samtregar</a> on 2003-05-27T17:55:55</h3>
+<blockquote><div> <i>You can't apply that to locate. You run it once and it quits.</i> </div></blockquote>
+<p>
+Sure I can.  Why would I want to wait for all the various free() calls to return before I get my shell prompt back?  exit() is much faster!  If you're going to call someone's code quality "dubious" then you'll have to consider why they made the decisions they did.  If you don't then someone else should point them out to you, like I just did.
+</p><p><blockquote><div> <i>
+So spawning off a new process using system() or whatsoever is more efficient than a piece of compiled C code that is dynamically linked into perl?
+</i> </div></blockquote>
+<p>
+No, not in terms of runtime costs.  In terms of programming time, though, it wins hands down.  You get to decide which is more important but I thought I'd toss out the option.  I've seen people spend a lot of time failing to adapt command-line C programs into C libraries.
+</p><p><blockquote><div> <i>
+Also, system("locate<nobr> <wbr></nobr>...") is known to work beautifully under any operating system around (especially windows).
+</i> </div></blockquote>
+Are you going to port updatedb too?  Your locate won't work too well without it!  I'd think it would be smarter to use the native locate-equivalent on Windows.  Recent Windows (XP at least) have a built-in indexer for fast file finding.  Of course, with Cygwin even system("locate") isn't out of the question!
+<p>
+-sam</p>
+
+
+
+<blockquote>
+
+<h2>Re:free() ain't free</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2003-05-27T18:30:24</h3>
+<i>If you're going to call someone's code quality "dubious" then you'll have to consider why they made the decisions they did. If you don't then someone else should point them out to you, like I just did.</i> <br> <br>I might come to the conclusion that there has been no such considerate decision.<nobr> <wbr></nobr>:-) The findutils-4.1 package stills contains a bug that causes segfaults on every run of locate so various patches exist to address this. However, there is no official GNU patch yet. Instead several non-GNU fixes float around mailing-lists etc (from which I have pulled my patch actually). I wouldn't call this a very decisive policy. No, not everything from GNU is shiny...as no thing in life has only good sides.<br> <br> <i>[system() more efficient than linked-in C code?]</i> <br> <i> No, not in terms of runtime costs. In terms of programming time, though, it wins hands down. You get to decide which is more important but I thought I'd toss out the option. I've seen people spend a lot of time failing to adapt command-line C programs into C libraries.</i> <br> <br>But mine is already done and did not fail (in my estimation). I am not reimplementing anything, I just copy and change the source-code a little to make it library-ish. Sure, the effort is only mine but I guess any module-author invests more time into his modules than he is personally going to get back from it. Others might save some time, though.<br> <br> <i>Are you going to port updatedb too?</i> <br> <br>This idea occured to me directly after I finished the module. What I'd like to have eventually is:<br> <br> <code> <br>
+&nbsp; &nbsp; &nbsp; &nbsp; use File::Locate;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my $loc = File::Locate-&gt;new;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; $loc-&gt;add("some_file");<nobr> <wbr></nobr>...<br>
+&nbsp; &nbsp; &nbsp; &nbsp; $loc-&gt;write_db("/path/to/locatedb");<br> </code> <br> <br>Right now there is only a <code>locate()</code> function that returns all found entries in list context and a boolean value in scalar context (true, after a first matching entry has been found by return()ing immediately from the XSUB).<br> <br>Naturally, in the current form it is of limited use under operating system not having a locate. However, even a windows-user can already query an existing locate-db.<br> <br> <i>I'd think it would be smarter to use the native locate-equivalent on Windows.</i> <br> <br>This is cumbersome to control from Perl. Just a while back I wrapped libdbx that allows to read Outlook Express mailboxes across different platforms from Perl. Yet, without it you'd need OLE to do the same from Perl under windows. Sure, it works, but it's not the way you'd usually want to access a mailbox.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Another idea</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2003-05-27T19:59:05</h3>
+Scrap the whole GNU/locate/locate-db/findutils issue entirely.  Write your own from scratch.  Use SQLite.  Do it the way that *you* think it should be done.  Worked for me with "whereis" (although I realize the effort for that is nowhere near what it would be for locate).
+<p>
+Just a thought.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Another idea</h2>
+<h3><a href="/user/ethan/">ethan</a> on 2003-05-29T06:32:36</h3>
+<i> Scrap the whole GNU/locate/locate-db/findutils issue entirely. Write your own from scratch. Use SQLite. Do it the way that *you* think it should be done. Worked for me with "whereis" (although I realize the effort for that is nowhere near what it would be for locate).</i> <br> <br>Indeed, it'd be more work but with the benefit of making something that is to my own liking.<br> <br>Personally, I do like locate a lot and there were a number of reasons why I wanted to stick to it: First of all there was already a codebase in C (I am constantly looking out for things that could be implemented in XS)...also it's tiny and wont take weeks to understand how it works. Secondly, I wanted an interface to the existing locatedb infrastructure. findutils also contain a little tool called frcode, that implements a clever incremential compress algorithm that could be of use separatedly (just 3K or so in source-code). If I eventually write the routines for creating locatedbs this algorithm will need to be incorporated, too. Perhaps even as Algorithm::Frcode or so.<br> <br>Anyway, it's time to add the tests (sigh) to File::Locate and upload it to the CPAN.<br> <br>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

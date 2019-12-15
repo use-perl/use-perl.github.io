@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of gnat: Screenscraping Tables</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Screenscraping Tables</h1>
+<h2><a href="/user/gnat/">gnat</a> on 2003-04-25T02:33:19</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>The HTML::TableContentParser module (available from your local CPAN outlet) is awesome.  I wanted to get a text file containing the data in the O'Reilly editorial calendar.  Currently you can only access it through the web, and what you get back is either an HTML table or an Excel spreadsheet (hork!).<p>
+
+About an hour of hacking later, I had a program that emitted valid XML.  The hard parts were, as always:
+
+<ul>
+
+<li>figuring out what pages I had to hit to get cookies and a session ID and all the other black magic required
+
+<li>finding the <tt>credentials</tt> method on a user agent (I can remember that there is a method for authentication, I just can never remember what it's called)
+
+<li>decoding the javascript to figure out what URL was actually being requested, and with what parameters
+
+<li>finding the right table and extracting info from it
+
+</ul>
+
+In the past, I'd have hacked the table by hand.  But this time I elected to use HTML::TableContentParser, and it made the job a lot easier.  The documentation's rather blurry on the data structure you get back, but I used Data::Dumper to display it and quickly figured out what I was working with.<p>
+
+I've found that a lot of my screenscraping programs have the same structure.  I quickly write the code that fetches the first page and saves it to a file.  I look at it to visually confirm that I'm downloading the right page.  Then I use Getopt::Std to implement an option that lets me say "don't download the first page, just load it from the local file".  This speeds up debugging while I'm figuring out how to parse the HTML.  When I was scraping the ORA proposals database last year, I had two or three steps that I could skip if I'd already debugged that part of the code.<p>
+
+<i>--Nat</i></p>
+
+
+<hr/>
+
+
+
+<h2>any chance...</h2>
+<h3><a href="/user/jdavidboyd/">jdavidboyd</a> on 2003-04-25T13:35:05</h3>
+Any chance of seeing this perl code?<br>  I could learn a great amount from it, I'm sure...
+
+
+
+<blockquote>
+
+<h2>Re:any chance...</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2003-04-26T01:09:16</h3>
+Sure!  I suppose I should have done more hackery to automatically determine the credentials() arguments from the URL, but I couldn't be buggered<nobr> <wbr></nobr>:-)<p><blockquote><div> <tt>#!/usr/bin/perl -w<br> <br>use LWP;<br>use HTML::TableContentParser;<br>use Getopt::Std;<br>use strict;<br> <br># username and password for ORA intranet<br>my ($USERNAME, $PASSWORD) = ('CHANGE', 'ME');<br> <br># where to store files.&nbsp; change this!<br>my $DIR = ($^O eq "darwin") ? '/Users/gnat/Ora/Paperwork/edcal'<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; : '/home/gnat/ora';<br> <br># mapping from HTML table heading to XML tag.&nbsp; update this when the<br># report format changes<br>my $Heading_to_Tag = {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Title" =&gt; "title",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Product" =&gt; "product",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Program" =&gt; "program",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Editor" =&gt; "editor",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "To Tech Review" =&gt; "totechreview",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "To production" =&gt; "toproduction",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Contract Final" =&gt; "contractfinal",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Est. Page Count" =&gt; "estpagecount",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "[Estimated Release Date]" =&gt; "estreleasedate",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Estimated List Price" =&gt; "estlistprice",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Projected Monthly Units" =&gt; "projmonthlyunits",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Sell In" =&gt; "sellin",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Projected" =&gt; "projected",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Editorial Status" =&gt; "edstatus",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; "Comments" =&gt; "comments"<br>};<br> <br># option handling:<br>#&nbsp; &nbsp;-f means "fetch HTML again"<br>#&nbsp; &nbsp;-t is the temporary filename<br>#&nbsp; &nbsp;-o is the output filename<br>#&nbsp; &nbsp;-c cleans up the temporary file<br>my %opts;<br>getopts("ftco:", \%opts);<br> <br># defaults for filenames<br>my $temp_filename = $opts{t} || "$DIR/calendar.html";<br>my $output_filename = $opts{o} || "$DIR/calendar.xml";<br> <br># fetch the calendar html again if we have to<br>if ((! -e $temp_filename) or $opts{f}) {<br>&nbsp; fetch_calendar_html();<br>}<br> <br>convert_html_to_xml();<br> <br>unlink $temp_filename if $opts{c};<br> <br>exit;<br> <br>###<br> <br># this code fetches the calendar into the file named in $opts{t}<br>sub fetch_calendar_html {<br>&nbsp; local $^W = 0;&nbsp; # turn off warnings about invalid cookies from intranet<br>&nbsp; my ($URL,&nbsp; &nbsp; &nbsp; &nbsp;# ORA editorial database URL<br>&nbsp; &nbsp; &nbsp; $ua,&nbsp; &nbsp; &nbsp; &nbsp; # user agent object we'll use to fetch the pages<br>&nbsp; &nbsp; &nbsp; $page,&nbsp; &nbsp; &nbsp; # HTTP::Request object<br>&nbsp; &nbsp; &nbsp; $sid_html); # HTML for the ?sid=.... URL parameter the edcal uses<br> <br>&nbsp; $URL = "https://www.example.com/path/to/thingy";<br> <br>&nbsp; # retain cookies and<br>&nbsp; $ua = LWP::UserAgent-&gt;new(cookie_jar =&gt; {});<br>&nbsp; $ua-&gt;credentials("example.com:443", "REALM", $USERNAME, $PASSWORD);<br> <br>&nbsp; # fetch the front page--this gets us a session ID<br>&nbsp; # needed before we can fetch the calendar page<br>&nbsp; $page = $ua-&gt;get($URL)<br>&nbsp; &nbsp; or die "Can't fetch front page";<br>&nbsp; ($sid_html) = $page-&gt;content =~ m{(\?sid=\d+)} or die "Can't find sid";<br> <br>&nbsp; # now get the calendar<br>&nbsp; # (URL for calendar is hardcoded rather than<br>&nbsp; # figured out dynamically from the front page)<br>&nbsp; $page = $ua-&gt;post("$URL/calendar$sid_html",<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;{ "s_editor" =&gt; "Nathan Torkington" });<br> <br>&nbsp; # and save its content<br>&nbsp; open my $f, "&gt;", $temp_filename or die "Can't open $temp_filename for writing: $!\n";<br>&nbsp; print $f $page-&gt;content;<br>&nbsp; close $f;<br>}<br> <br># this code parses the HTML and emits the relevant table as XML<br>sub convert_html_to_xml {<br>&nbsp; my ($html,&nbsp; &nbsp; &nbsp;# calendar report in HTML<br>&nbsp; &nbsp; &nbsp; $tables,&nbsp; &nbsp;# tables extracted via HTML::TableContentParser<br>&nbsp; &nbsp; &nbsp; @data,&nbsp; &nbsp; &nbsp;# data extracted from the table we're interested in<br>&nbsp; &nbsp; &nbsp; @headers,&nbsp; # headers of the table we're interested in<br>&nbsp; &nbsp; &nbsp;);<br> <br>&nbsp; $html = slurp($temp_filename);<br>&nbsp; $tables = HTML::TableContentParser-&gt;new-&gt;parse($html);<br> <br>&nbsp; foreach my $t (@$tables) {<br>&nbsp; &nbsp; # the report table has width of 2000.&nbsp; this distinguishes it from<br>&nbsp; &nbsp; # the other tables in the page (used to make the page look pretty)<br>&nbsp; &nbsp; next unless exists($t-&gt;{width}) &amp;&amp;<br>&nbsp; &nbsp; &nbsp; $t-&gt;{width} == 2000;<br> <br>&nbsp; &nbsp; # extract the headers into @headers<br>&nbsp; &nbsp; foreach my $header (@{$t-&gt;{headers}}) {<br>&nbsp; &nbsp; &nbsp; my $text = clean($header-&gt;{data});<br>&nbsp; &nbsp; &nbsp; push @headers, $text;<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; # extract each row's data<br>&nbsp; &nbsp; foreach my $row (@{$t-&gt;{rows}}) {<br>&nbsp; &nbsp; &nbsp; # skip non-data rows<br>&nbsp; &nbsp; &nbsp; next unless exists $row-&gt;{cells};<br>&nbsp; &nbsp; &nbsp; if (@{$row-&gt;{cells}} != 1) {<br>&nbsp; &nbsp; my @row_data;<br>&nbsp; &nbsp; foreach my $cell (@{$row-&gt;{cells}}) {<br>&nbsp; &nbsp; &nbsp; push @row_data, clean($cell-&gt;{data});<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; push @data, \@row_data;<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; }<br> <br>&nbsp; &nbsp; # now break out of the foreach-table loop and print the report<br>&nbsp; &nbsp; last;<br>&nbsp; }<br> <br>&nbsp; # emit the table as XML<br> <br>&nbsp; open my $fh, "&gt; $output_filename"<br>&nbsp; &nbsp; or die "Can't open $output_filename for writing: $!\n";<br> <br>&nbsp; # XML header and surrounding tag<br>&nbsp; print $fh &lt;&lt;EOHEADER;<br>&lt;xml version="1.0"&gt;<br>&lt;calendar&gt;<br>EOHEADER<br> <br>&nbsp; # convert rows to tagged data<br>&nbsp; foreach my $row (@data) {<br>&nbsp; &nbsp; print $fh "&lt;book&gt;\n";<br>&nbsp; &nbsp; for (my $i=0; $i &lt; @headers; $i++) {<br>&nbsp; &nbsp; &nbsp; my $h = $headers[$i];<br>&nbsp; &nbsp; &nbsp; my $tag = $Heading_to_Tag-&gt;{$h};<br>&nbsp; &nbsp; &nbsp; print $fh "&nbsp; &lt;$tag&gt;$row-&gt;[$i]&lt;/$tag&gt;\n";<br>&nbsp; &nbsp; }<br>&nbsp; &nbsp; print $fh "&lt;/book&gt;\n";<br>&nbsp; }<br> <br>&nbsp; # xml trailer<br>&nbsp; print $fh "&lt;/calendar&gt;\n&lt;/xml&gt;\n";<br>&nbsp; close $fh;<br>}<br> <br>sub clean {<br>&nbsp; &nbsp; my $text = shift;<br>&nbsp; &nbsp; $text =~ s{&lt;.*?&gt;}{}g;<br>&nbsp; &nbsp; $text =~ s{&amp;nbsp;}{ }g;<br>&nbsp; &nbsp; $text =~ s{^\s+}{}g; $text =~ s{\s+$}{}g;<br>&nbsp; &nbsp; $text =~ s{\b&amp;\b}{&amp;amp;}g;<br>&nbsp; &nbsp; return $text;<br>}<br> <br>sub slurp {<br>&nbsp; my $filename = shift;<br>&nbsp; local $/;<br>&nbsp; open my $fh, "&lt; $filename"<br>&nbsp; &nbsp; or die "Can't open $filename for reading: $!\n";<br>&nbsp; return &lt;$fh&gt;;<br>}</tt> </div></blockquote> <i>--Nat</i>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Recipe?</h2>
+<h3><a href="/user/dlc/">dlc</a> on 2003-04-25T15:26:12</h3>
+<p>This would make a nice Cookbook recipe...</p>
+
+
+
+<blockquote>
+
+<h2>Re:Recipe?</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2003-04-26T01:13:09</h3>
+D'oh, good point.  I can't believe I didn't think of that.  Thanks, applied.<nobr> <wbr></nobr>:-)<p>
+
+<i>--Nat</i></p>
+
+
+
+<blockquote>
+
+<h2>Re:Recipe?</h2>
+<h3><a href="/user/prakash/">prakash</a> on 2003-05-09T20:29:06</h3>
+There's another module HTML::TableExtract to parse HTML tables. I have used this, and it is pretty nice. I haven't looked at HTML::TableContentParser, so can't really compare, yet.
+<p>
+Also, look at WWW::Mechanize, which is really awesome for scraping web content. There is WWW::Mechanize::Shell, for writing quick scripts to this kinda stuff.
+</p><p>
+Just some more info for you to chew on while you write that cookbook entry.
+</p><p><nobr> <wbr></nobr>/prakash</p>
+
+
+
+<blockquote>
+
+<h2>Re:Recipe?</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2003-05-13T21:40:15</h3>
+I spent a long time looking for data with column headings for HTML::TableExtract to work on.  I finally found <a href="http://factfinder.census.gov/bf/_lang=en_vt_name=DEC_2000_SF1_U_GCTP5_US9_geo_id=01000US.html" title="census.gov">some census data</a census.gov>, but after half an hour of trying, I couldn't make H::TE grok the nested table headings.  I finally gave up and just documented HTML::TableContentParser.  Sorry!<p>
+
+<i>--Nat</i></p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Excel to XML</h2>
+<h3><a href="/user/darobin/">darobin</a> on 2003-04-29T15:41:23</h3>
+<p>
+  If the Excel is usable, then you might want to try XML::SAXDriver::Excel at some point (or for a similar problem involving surviving in an office with M$ users).
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

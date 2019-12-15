@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of djberg96: Ouch, ouch - double ouch</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Ouch, ouch - double ouch</h1>
+<h2><a href="/user/djberg96/">djberg96</a> on 2002-06-05T12:58:46</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I think I have discovered something horrible about <I>Expect.pm</I> - I can only hope that I am wrong.  When <I>Expect</I> spawns a process, the parent doesn't bother to wait for the child to complete.  It is only by intercepting command line (i.e. tty) output, in conjunction with a timeout value, that it continues the "session".
+<P>
+But what if nothing returns on the command line?  The parent dies, killing any child that may be running.  This is bad.  This is very bad.
+<P>
+When I set up my <I>Net::SCP::Expect</I> module, I set up a 1 second (default) timeout to check for any error messages.  I also used a 'soft_close()' followed by a 'hard_close()' in the event that the former failed.  The significance of these things will be made clear shortly.
+<P>
+In testing, I never tried copying any particularly large files and so I never had any problems.  However, I recently received an email by someone using my module that he was having trouble copying large files.  It seemed that he was only getting partial copies.  So, I tried it myself - he's right.  When I tried copying a rather large log file over, only a portion of it was copied before the program exited.
+<P>
+The next step was to just use the <I>Expect</I> module on its own.  Same problem - the program dies before the whole file is copied over.  What do I discover?  That the only thing keeping the parent going at all is the timeout I used for error checking and the lag caused by using the 'soft_close()' method (which always seems to slowly fail).  Once I removed those, even *less* of the test file was copied over.  However, this small timeout plus the lag was always enough time to copy the small files I used in testing, so that's why I never noticed until now.
+<P>
+So far as I can tell, if Expect doesn't get anything back on the command line (and it shouldn't since I'm running scp in quiet mode), the parent exits and kills and child process that may be running.  The only workaround is to set a high 'timeout_err' value in my module, so that it has enough time to copy before the program exits.
+<P>
+Ouch.  Big fucking ouch.  An email from Roland Giersig wasn't of much help.  So, what do I do now in the event there's no way to deal with this?  Do I rip out the <I>Expect</I> module completely and replace it with one of the <I>Term</I> modules?  I may very well have to.
+<P>
+<B>UPDATE</B>: jdavidb was kind enough to provide a fix.  Hooray!  Thanks jdavidb!
+</p>
+
+
+<hr/>
+
+
+
+<h2>Thoughts</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-06-05T14:08:03</h3>
+<p>I think this behavior is similar to what you would have had under TCL/Expect.  Not that that's a good reason.<nobr> <wbr></nobr>:)</p>
+
+<p>Can't you expect eof?  Under TCL/Expect, if you wanted to run a command that produced no output, you would do an expect eof with a long (or -1) timeout to wait until it ended.</p>
+
+<p>Are you using the scp command-line program?  If so, doesn't it produce a progress bar that would give you some output to expect()?  At first I didn't understand why you were using Expect, but then I read the docs and I see it's for supplying passwords.  I'm sure Roland's suggestion was to use keys, and I'm sure you already have a reason you don't want to (or can't).<nobr> <wbr></nobr>:)  Hopefully one day there will be a pure-Perl SSH/SCP implementation that can handle all this without having to run the binary.</p>
+
+<p>Still don't understand why you have to do soft_close() and hard_close().  Maybe if I reread what you said again.</p>
+
+<p>I do think $exp-&gt;expect($timeout, 'eof') will do what you need.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Thoughts</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2002-06-05T15:21:50</h3>
+<i>Can't you expect eof? Under TCL/Expect, if you wanted to run a command that produced no output, you would do an expect eof with a long (or -1) timeout to wait until it ended.</i>
+<p>
+Ooooh - good idea.  I'll give it a shot.
+</p><p>
+<i>doesn't it produce a progress bar that would give you some output to expect()?</i>
+</p><p>
+Not in quiet mode.  Normally you would get a '#' sign, but I wasn't sure how portable, or reliable, it was to check for '#'.
+</p><p>
+<i>Still don't understand why you have to do soft_close() and hard_close().</i>
+</p><p>
+I don't have to.  The docs indicate that soft_close() was the polite way to close and hard_close() was the impolite way so my implementation was arbitrary based on that.  I should probably just rip out the soft_close() altogether since it doesn't seem to work at all (on my system anyway).
+</p><p>
+<i>I do think $exp-&gt;expect($timeout, 'eof') will do what you need</i>
+</p><p>
+I will definitely give it a shot.  Thanks!</p>
+
+
+
+<blockquote>
+
+<h2>Re:Thoughts</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-06-05T15:32:40</h3>
+<p> <i>Still don't understand why you have to do soft_close() and hard_close().</i> </p>
+
+<p> <i>I don't have to. The docs indicate that soft_close() was the polite way to close and hard_close() was the impolite way so my implementation was arbitrary based on that.</i> </p>
+
+<p>No, I mean I don't understand why you call those routines at all.  Usually you would only have to call them if you were ending the command early.  Once you get to the point of eof either close is redundant, I think.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Thoughts</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2002-06-05T15:46:16</h3>
+Didn't work.  Strangely, it seems to be getting a blank char sequence followed by a "\r\n" sequence. Here's a snippet of the verbose output:<blockquote><div> <tt>Sending 'password\n' to spawn id(3)<br>&nbsp; &nbsp; &nbsp; &nbsp; Expect::print('Expect=GLOB(0x2fc558)', 'password^J') called at<nobr> <wbr></nobr>./scpTest3.pl line 21<br>Starting EXPECT pattern matching...<br>&nbsp; &nbsp; &nbsp; &nbsp; Expect::expect('Expect=GLOB(0x2fc558)', 1, 'eof') called at<nobr> <wbr></nobr>./scpTest3.pl line 31<br>spawn id(3): list of patterns:<br>&nbsp; #1: -ex `eof'<br> <br>spawn id(3): Does ` '<br>match:<br>&nbsp; pattern #1: -ex `eof'? No.<br> <br>spawn id(3): Does ` \r\n'<br>match:<br>&nbsp; pattern #1: -ex `eof'? No.<br> <br>Closing spawn id(3).<br>&nbsp; &nbsp; &nbsp; &nbsp; Expect::hard_close('Expect=GLOB(0x2fc558)') called at<nobr> <wbr></nobr>./scpTest3.pl line 34<br>spawn id(3) closed.</tt> </div></blockquote>Even if I intentionally try to match a "\r\n" sequence, all I can do is a "sleep $timeout" or something.  You can't stick an 'expect' call in a while loop - it only checks once in case you were thinking of something like:<blockquote><div> <tt>while($scp-&gt;expect(1,"\r\n")){ sleep 1 } # Doesn't work</tt> </div></blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:Thoughts</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-06-05T16:10:36</h3>
+<p>Okay, this is goofy, but it appears you can't just</p>
+
+<p> <tt>$exp-&gt;expect($timeout, 'eof')</tt> </p>
+
+<p>Otherwise, it tries to match the literal string 'eof' (hence the -ex in your verbose output).  You actually have to use the arrayref syntax to expect().  The arrayref syntax is</p>
+
+<p> <tt>$exp-&gt;expect($timeout, [pattern =&gt; code], [pattern =&gt; code],<nobr> <wbr></nobr>...)</tt> </p>
+
+<p>So you can do</p>
+
+<p> <tt>$exp-&gt;expect($timeout, ['eof' =&gt; sub { exit }])</tt> </p>
+
+<p>I tried leaving out the =&gt; sub { exit } and it didn't seem to work, although I seem to have working code elsewhere that functions that way (perhaps that code isn't working after all...).  In any case you could do sub { } if you wanted.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Thoughts</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-06-05T16:21:46</h3>
+<p>Ah!  Found out that I only need the <tt>=&gt; sub { }</tt> on special things like eof because they use special code that didn't take the possibility of not specifying a coderef into account.</p>
+
+
+
+<h2>Re:Thoughts</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2002-06-05T16:44:56</h3>
+Yeah, that's better, but it's still getting "\r\n" and not eof anyway, so it's a moot point.  Besides, I still have to deal with it via a timeout value (right?) so no matter what, your only option currently is to *guess* how much time you need to complete the operation.
+<p>
+The fundamental flaw with <i>Expect.pm</i> (and perhaps expect in general?) is that it kills its own children before letting them finish.  Perhaps there was a reason for this, or perhaps they never counted on anyone performing an op that didn't return anything to the terminal.  Either way, I'm gonna have to decide what to do.<nobr> <wbr></nobr>:(</p>
+
+
+
+<blockquote>
+
+<h2>Re:Thoughts</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-06-05T17:03:45</h3>
+<p>You can specify an unlimited timeout.  It's hidden in the docs somewhere.  Use undef instead of a value.  In the original TCL/Expect, it was -1.  (Had trouble finding it in the docs back then, too, as some of my old programs attest.)</p>
+
+<p>Here's my code to scp a file from my machine to its own<nobr> <wbr></nobr>/tmp directory:</p>
+
+<blockquote><div>
+<tt>
+#!/usr/local/bin/perl5.6.1<br>
+<br>
+use warnings;<br>
+use strict;<br>
+<br>
+our $password = "hello";<br>
+<br>
+use Expect;<br>
+<br>
+my $exp = Expect-&gt;spawn("scp file.xls minako:/tmp");<br>
+$exp-&gt;expect(2, "Password: ");<br>
+$exp-&gt;send("$password\r");<br>
+$exp-&gt;expect(2, ['eof' =&gt; sub { }]);<br>
+</tt>
+</div></blockquote>
+
+<p>Is this fundamentally different from what you're trying to do?</p>
+
+<p>I don't think it's a fundamental flaw; if you want to wait until the end, you specify it explicitly with eof.  Not sure why "\r\n" makes a difference.  If you want to match "Password: " but are worried about the case of the letter, you can match "ssword: ".  You don't have to match everything, just the last thing you want.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Fix</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-06-05T17:38:45</h3>
+<p>Boy, you go to great lengths to get someone to install your module.<nobr> <wbr></nobr>:)</p>
+
+<p>I installed Net::SCP::Expect and tinkered with it a bit.  I was able to reliably duplicate the problem by attempting to scp the largest file on my machine to my<nobr> <wbr></nobr>/tmp directory.  I made the following changes, and it seemed to fix the problem:</p>
+
+<blockquote><div>
+<tt>
+--- Expect.pm.orig	Mon Apr 29 15:14:48 2002<br>
++++ Expect.pm	Wed Jun  5 12:28:00 2002<br>
+@@ -37,7 +37,7 @@<br>
+       _auto_yes      =&gt; $arg{auto_yes} || 0,<br>
+       _timeout       =&gt; $arg{timeout} || 10,<br>
+       _timeout_auto  =&gt; $arg{timeout_auto} || 1,<br>
+-      _timeout_err   =&gt; $arg{timeout_err} || 1,<br>
++      _timeout_err   =&gt; $arg{timeout_err} || undef,<br>
+       _no_check      =&gt; $arg{no_check} || 0,<br>
+    };<br>
+ <br>
+@@ -228,7 +228,10 @@<br>
+                }<br>
+             }<br>
+          ],<br>
++         ['eof' =&gt; sub { }],<br>
+       );<br>
++   } else {<br>
++      $scp-&gt;expect($timeout_err, ['eof' =&gt; sub { }]);<br>
+    }<br>
+ <br>
+    if($verbose){ print $scp-&gt;after(),"\n" }<br>
+</tt>
+</div></blockquote>
+
+<p>It seemed to be necessary to set timeout_err to undef within Net::SCP::Expect.pm; I tried to do it with my constructor but must not have understood how to do it.  You'll probably not want to change it in the module itself, but I was in a hurry.<nobr> <wbr></nobr>:)</p>
+
+<p>Here's my code that (after those changes) successfully transferred a large file (35M):</p>
+
+<blockquote><div>
+<tt>
+#!/usr/local/bin/perl5.6.1<br>
+<br>
+use warnings;<br>
+use strict;<br>
+<br>
+use Net::SCP::Expect;<br>
+<br>
+my $user = "me";<br>
+my $password = "xyzzy";<br>
+<br>
+my $file = "/home/jb1949/Copland,_Aaron/Appalachian_Spring.mp3.bz2";<br>
+my $destdir = "minako:/tmp";<br>
+<br>
+my $scp = Net::SCP::Expect-&gt;new(timeout_err =&gt; undef);<br>
+$scp-&gt;login($user, $password);<br>
+$scp-&gt;scp($file, $destdir);<br>
+</tt>
+</div></blockquote>
+
+<p>Thoughts upon hitting "Preview": posting a patch in slash isn't very useful.<nobr> <wbr></nobr>:)  I'll mail it if you'd like.  Better yet, I'll just describe the functional change.  In your <tt>unless ($no_check)</tt> expect statement, I added <tt>['eof' =&gt; sub { }],</tt> to the end.  Then, after the <tt>unless</tt>, I added <tt>else { $scp-&gt;expect-&gt;($timeout_err, ['eof' =&gt; sub { }]);</tt> </p>
+
+
+
+<blockquote>
+
+<h2>Re:Fix</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2002-06-05T18:30:46</h3>
+Sweet, sweet, SWEET!!!!  Works like a charm.  Setting the timeout_err to undef isn't going to work because of the " || 1 " in the constructor.  I changed it to " || undef ".  Perhaps, I should allow a literal string 'undef' for that option, and then deal with it in the constructor as appropriate.
+<p>
+Thank you very much.  Should I be irritated that I ultimately received the answer from you and not Roland?  Hmm...nevermind.  I may end up in the same boat some day.  That, or he thought I was an annoying nit and just wanted to torture me.
+</p><p>
+<i>If you want to match "Password: " but are worried about the case of the letter, you can match "ssword: ". You don't have to match everything, just the last thing you want.</i>
+</p><p>
+Ahhh, but did you know that some versions of scp ask for your "password" and others ask for your "passphrase"?<nobr> <wbr></nobr>:)
+</p><p>
+Oh - please send me an email with your name so I can credit you in the changelog.  If there's a way to view someone's profile here on use.perl I haven't figured it out yet.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Fix</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-06-05T18:48:20</h3>
+<p> <i>Should I be irritated that I ultimately received the answer from you and not Roland?</i> </p>
+
+<p>Speaking as an active member of the expectperl mailing list, Roland sees a lot of FAQs asked many, many times.  We also have a lot of people who are trying to learn Expect.pm before they learn Perl!  (It doesn't help that some have never seen TCL/Expect, either.)  It seems like every week there's someone trying to automate ssh in a way that indicates they would do better to try a different method than Expect (such as system()).  He's not unresponsive, just tired of being repetitive.<nobr> <wbr></nobr>:)  [BTW, you have joined the expectperl mailing list, right?]</p>
+
+<p> <i>Ahhh, but did you know that some versions of scp ask for your "password" and others ask for your "passphrase"?<nobr> <wbr></nobr>:)</i> </p>
+
+<p>qr/pass(word|phrase)/i ; it's a better solution to the problem I posed, anyway.</p>
+
+<p>J. David Blackstone <a href="http://use.perl.org/user/jdavidb/" title="perl.org">profile</a perl.org> </p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Oh?</h2>
+<h3><a href="/user/RGiersig/">RGiersig</a> on 2002-06-06T15:54:09</h3>
+Sorry that my answer was not helpful.  I thought that I'd pointed you to the cause of your problem, but maybe we had a misunderstanding.  Anyway, Expect.pm *does* wait until EOF if told so.  But it only waits until the given timeout expires, which was your problem.
+
+
+
+<blockquote>
+
+<h2>Re:Oh?</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-06-06T18:40:57</h3>
+<p>Perhaps a couple of FAQ entries would be in order.  I'll draft and send to the mailing list.</p>
+
+<ul>
+<li>My spawned process doesn't produce any output, and Expect.pm doesn't wait for it to end.</li>
+<li>There's no way to reliably decide how long to set my timeouts; can't I make it unlimited?</li>
+</ul>
+
+
+
+<blockquote>
+
+<h2>Re:Oh?</h2>
+<h3><a href="/user/RGiersig/">RGiersig</a> on 2002-06-07T09:06:36</h3>
+Sure, if we could only get people to read them...<nobr> <wbr></nobr>;-) <p>
+Thanks, I'll put them in and also take a look at the 'eof' issue.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>TMTOWTDI</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-06-07T13:23:18</h3>
+<p>Austin Shutz (the original author of Expect.pm, I think) offers this other way to do it:</p>
+
+<tt>$exp-&gt;expect(undef);</tt>
+
+<p>This will basically just wait until the command is done; expect() will return when it gets the eof.  If you really needed to explicitly see the eof at that point, you could check the error string:</p>
+
+<tt>if ($exp-&gt;error() =~<nobr> <wbr></nobr>/EOF/) {<nobr> <wbr></nobr>... }</tt>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

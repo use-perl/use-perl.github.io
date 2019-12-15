@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of stephenca: Frustrated by autobox</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Frustrated by autobox</h1>
+<h2><a href="/user/stephenca/">stephenca</a> on 2008-07-11T15:55:17</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>(Frustrated in a good way).
+
+<p>I am becoming increasingly fond of <a href="http://search.cpan.org/user/chocolate/autobox-2.55/lib/autobox.pod">autobox</a>, and particularly <a href="http://search.cpan.org/user/swalters/autobox-Core-0.6/Core.pm">Scott Walters' extension for the core Perl built-in functions</a>.
+
+<p>It brings to Perl syntax the sort of everything-is-an-object convenience and expressiveness that Rubyists and Smalltalkers get out of the box, e.g. you can do:
+
+<p>
+<pre>
+print [10, 20, 30, 40, 50]->pop(), "\n";
+# prints 50
+</pre>
+
+<p>rather than the orthodox:
+
+<pre>
+my(@list) = (10, 20, 30, 40, 50);
+my($val) = pop(@list);
+print $val, "\n";
+</pre>
+
+<p>You can also represent complex expressions in a more natural order (which also gives you a certain amount of self-documentation).  As the autobox::Core documentation explains:
+
+<p>
+<pre>
+# Perl 5 - a somewhat complex expression
+print join("\n", map { CGI::param($_) } @cgi_vars), "\n";
+</pre>
+
+<p>becomes
+
+<p>
+<pre>
+@cgi_vars->map(sub { CGI::param($_[0]) }) # turn CGI arg names 
+                                          # into values
+           ->join("\n")                   # join with newlines
+           ->concat("\n")                 # give it a trailing 
+                                          # newline
+           ->print;                       # print them all out
+</pre>
+
+<p>It's obviously longer than the orthodox idiom, but there is greater clarity about the order in which the operations take place.
+
+<p>Alas, not everything in the garden is rosy.  The autobox implementation of push() <a href="http://markmail.org/message/wqowfj6e6wsnpx33">tickles an obscure Perl bug</a>, with the consequence that you cannot pass an array to push(), e.g.:
+
+<p>
+<pre>
+my(@s) = ();
+my(@aa) = (1,2);
+@s->push( @aa );
+# Bizarre copy of ARRAY in push at /usr/lib/perl5/site_perl/5.8.8/autobox/Core.pm line 710.
+#
+# It works with scalars:
+for my $i ( 1,2,3 ) {
+    @s->push( $i );
+}
+# @s is (1,2,3) 
+</pre>
+
+<p>You can workaround this with map():
+
+<p>
+<pre>
+my(@aa) = (1,2);
+@s->push( map { $_ } @aa );
+# @s is now ( 1, 2 )
+</pre>
+
+<p>but this is an ugly mixture of old and new syntax.  Can we use autoboxed map()?
+
+<p>Well, by default, map() in autobox returns an arrayref; we can't use the @{[ .. ]} ref-deref trick (because this triggers the bug above), so we are snookered.  However, we can use the flatten() method exported by autobox::Core (which does the equivalent of <code>@{ $array_ref }</code>).
+
+<p>(Note that the elements() method is identical to flatten.  This isn't mentioned in the docs anywhere, though elements() is used in some examples).
+
+<p>
+<pre>
+my(@aa) = (1,2);
+@s->push( @aa->flatten );
+# @s is now ( 1, 2 )
+</pre>
+
+<p>Is this better than <code>push( @s, @aa )</code>?  Not really.
+
+<p>An alternative workaround is to use autoboxed foreach() method and turn the expression inside-out:
+
+<p>
+<pre>
+my(@aa) = (1 ..3 );
+@aa->foreach( sub { @s->push($_[0]) } );
+# @s is now (1,2,3);
+</pre>
+
+<p>but the need for the anonymous subroutine and the use of the $_[0] notation means that this is no easier on the eye.
+
+<p>As an aside, the autoboxed map() supports two invocation styles:
+
+<p>Called on a subroutine reference, it takes the list to be mapped as an argument:
+
+<p>
+<pre>
+my($mapped_arrayref) = sub { return somefunc($_[0]) }
+->map( @somelist );
+</pre>
+
+<p>and called on an array, it takes a subroutine reference as an argument:
+
+<p>
+<pre>
+my($mapped_arrayref) = @list
+->map( sub { return somefunc($_[0]) } );
+</pre> 
+
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

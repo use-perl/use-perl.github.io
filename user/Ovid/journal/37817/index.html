@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Tests I Should Not Have to Write (for MySQL)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Tests I Should Not Have to Write (for MySQL)</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-11-06T11:11:28</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Much of this is specific to our database and standards, but could be adopted for others.  It's a bit hackish and can stand to be cleaned up, but basically it attempts to verify that database columsn which should be defined the same are, in fact, defined the same.</p>
+
+<p>These tests are necessary because of a horrible problem which we knew was a horrible problem but ignored.  At times when you're doing a heavy amount of work in MySQL, you can temporarily disable foreign key checks and re-enable them when you're done.  It's dangerous, but there are times it's useful.  We did this when we were changing a data type for a column with a foreign key constraint.  It worked like this:</p>
+
+<ol>
+  <li>Disable foreign key constraints</li>
+  <li>Update column type for <tt>master_brand_id</tt></li>
+  <li>Update all references to <tt>master_brand_id</tt> where it had been truncated by old data type</li>
+  <li>Enable foreign key contraints</li>
+</ol>
+
+<P>Basically, we had a <tt>varchar(32)</tt> column which truncated some data.  We upped it to <tt>varchar(64)</tt> and updated the key everywhere.  Except that we missed updating the data type for one column and updating the value resulted in it being truncated (thanks MySQL!).  For that brief period of time, our database was not in "traditional" mode, thus silently allowing the truncation.  Plus, when foreign key checks are re-enabled, as an optimization, MySQL doesn't verify that the constraints hold, leaving you in a position where a bug is waiting to blow things up later.</p>
+
+<P>The <em>correct</em> way to do this is to define your own data types and use that everywhere.  Then, if you need to change it, you only have to do this in one spot and everwhere is <em>guaranteed</em> to have the correct type definition.  Regrettably, as far as I'm aware, MySQL, unlike PostgreSQL or Oracle, does not provide custom data types.</p>
+
+<p>Here's the embarrassing code which works around this.</p>
+
+<pre>#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Test::Most qw(no_plan die);
+use PIPTest::Schema;    # DBIx
+
+use List::MoreUtils 'uniq';
+use Perl6::Junction 'any';
+use Clone 'clone';
+
+# These have the same name, but aren't really identical
+my @COLUMNS_TO_SKIP = qw/
+    description
+    duration
+    id
+    name
+    position
+    status
+    title
+    type
+/;
+
+my $schema = PIPTest::Schema->new;
+my $dbh    = $schema->storage->dbh;
+my @tables = uniq sort map { $_->table } keys %{ $schema->class_mappings };
+
+my %definition_for;
+for my $table (@tables) {
+    my $sth = $dbh->prepare("SHOW COLUMNS FROM `$table`");
+    $sth->execute;
+    while ( my $column = $sth->fetchrow_hashref ) {
+        my $name = delete $column->{Field};
+
+        # Don't ask me, man, I just work here.
+        # (MySQL reports an autoincrement default as undef, but a NOT NULL
+        # default as '')
+        if ( "$table\_id" eq $name && !defined $column->{Default} ) {
+            $column->{Default} = '';
+        }
+
+        delete $column->{Key};
+        delete $column->{Extra};
+        next if $name eq any(@COLUMNS_TO_SKIP);
+        $definition_for{$name} ||= {};
+        $definition_for{$name}{$table} = $column;
+    }
+}
+
+
+# delete the columns which are not duplicated
+
+foreach my $column (keys %definition_for) {
+    if ( 1 == keys %{ $definition_for{$column} } ) {
+        delete $definition_for{$column};
+    }
+}
+
+# These are usually FK constraints which can be NULL
+# We still compare the actual data type, though.
+my %do_not_compare = (
+    change_event => {
+        pid => {
+            Null    => 'Not sure why this can be null',
+            Default => 'Not sure why this can be null',
+        }
+    },
+    service => {
+        master_brand_id => {
+            Null    => 'Services do not require a master_brand_id',
+            Default => 'Services do not require a master_brand_id',
+        },
+    },
+    pip => {
+        master_brand_id => {
+            Null    => 'Pip does not require a master_brand_id',
+            Default => 'Pip does not require a master_brand_id',
+        },
+    },
+    import_error => {
+        change_event_id => {
+            Null    => 'Import level errors do not get change events',
+            Default => 'Import level errors do not get change events',
+        },
+    },
+);
+
+sub munge {
+    my ( $table, $column, $definition1, $definition2 ) = @_;
+    my ( $d1, $d2 ) = ( clone($definition1), clone($definition2) );
+    if ( my $remove = $do_not_compare{$table}{$column} ) {
+        my @keys = keys %$remove;
+        delete @{$d1}{@keys};
+        delete @{$d2}{@keys};
+    }
+    return ( $d1, $d2 );
+}
+
+
+my @columns = sort keys %definition_for;
+foreach my $column (@columns) {
+    my $definitions    = $definition_for{$column};
+
+    my @tables         = sort keys %$definitions;
+    my $key_table      = $column =~ /_id$/
+        ? find_primary_definition( $column, \@tables )
+        : shift @tables;
+    my $key_definition = $definitions->{$key_table};
+
+    foreach my $table (@tables) {
+        my $current_definition = $definitions->{$table};
+        eq_or_diff munge( $table, $column, $key_definition, $current_definition ),
+            "$key_table.$column definition should match $table.$column definition";
+    }
+}
+
+# By convention, the id for a table is usually $table_name . "_id".
+# We look for that as a primary definition.  Otherwise, we'll just
+# take the first
+sub find_primary_definition {
+    my ( $column, $tables ) = @_;
+    my $index = 0;
+
+    foreach my $i ( 0 .. $#tables ) {
+        my $table = $tables->[$i];
+        if ( $table . '_id' eq $column ) {
+            $index = $i;
+            last;
+        }
+    }
+    return splice @$tables, $index, 1;
+}</pre>
+
+<p>As a side note, this uncovered another problem with our code.  We have 'created' and 'modified' columns and a bunch of DBIx code to manage them.  However, if someone updates the database directly, they don't get updated, resulting in information loss.  We could easily fix this by pushing this logic into the database with triggers.  This would simplify the application code, improve performance and ensure that this logic could not be easily subverted.  It was agreed that this was the right thing to do.  It was also agreed that because this is MySQL and their trigger support is so flaky, that we were afraid to do the right thing :(</p>
+
+<p>It sucks when you're afraid of your database.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Out of curiosity - why do you stick with MySQL?</h2>
+<h3><a href="/user/huxtonr/">huxtonr</a> on 2008-11-07T13:31:49</h3>
+<p>It seems like half the posts you make are how you had yet another near-miss with your data.
+</p><p>I'm not sure "It sucks when you're afraid of your database.", I'd say your development environment is broken. If your database isn't guaranteeing the integrity of your data, what the hell is it doing?
+</p><p>I'd be expecting you to have a best-of-breed text editor, version-control system, language<nobr> <wbr></nobr>:-) etc. and I'm puzzled why you put up with something that's clearly second-best for your usage.</p><p>Disclosure - been using PostgreSQL for years now and don't touch MySQL on anything larger than a blog unless I have to.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Out of curiosity - why do you stick with MySQL?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-11-07T14:24:52</h3>
+<p>I think you just answered your own question.</p>
+
+
+
+<h2>Re:Out of curiosity - why do you stick with MySQL?</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-11-07T15:18:43</h3>
+<p>It's not my choice, believe me.  Plus, some developers on our team don't care enough about the bugs.  They're in a comfort zone.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Out of curiosity - why do you stick with MySQL?</h2>
+<h3><a href="/user/huxtonr/">huxtonr</a> on 2008-11-07T15:26:46</h3>
+This would be a perfect opportunity for some quiet smugness were I not tracking down a bug in some old PHP v4 (well, some if it's PHP v3) code<nobr> <wbr></nobr>:-/
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Strict Mode</h2>
+<h3><a href="/user/vek/">vek</a> on 2008-11-07T15:07:01</h3>
+<p>To be fair, the fact that you're not using strict mode to avoid truncation isn't really the fault of MySQL.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Strict Mode</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-11-07T15:21:04</h3>
+<p>We use 'traditional' mode and that should have blocked this, but for some reason, it was disabled at that particular time .  This may have had something to do with the annoying fact that traditional mode is not the default (because, after all, why would you want maintaining data integrity to be the default behavior?)</p><p>However, in MySQL, when you re-enable foreign key constraints, while it may be time-consuming, it should <em>still</em> validate that the constraints hold.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

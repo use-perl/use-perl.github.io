@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of scrottie: Static Analysis, State Explosion, and Bug-Free Code</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Static Analysis, State Explosion, and Bug-Free Code</h1>
+<h2><a href="/user/scrottie/">scrottie</a> on 2005-09-06T10:40:42</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This brief note talks about some foundations
+for writing code that's easier to get working
+and is less likely to have bugs -- it's 
+pretty introductory ideas, but I'm going to
+try to explain it in more definate terms.
+<br><br>
+How this little thought came about: Reading through <a href="http://suif.stanford.edu/research/analysis.html">http://suif.stanford.edu/research/analysis.html</a>,
+I'm thinking about how to apply these ideas to <a href="http://search.cpan.org/author/SWALTERS/typesafety-0.04/typesafety.pm">typesafety</a>.
+The Stanford article mentions what I've been talking about on <a href="http://perldesignpatterns.com">perldesignpatterns.com</a> as "state explosion". Quoting the Stanford article, <i>Context-sensitive analysis is challenging because there are over 10**14 contexts in a typical large program, even after recursive cycles are collapsed.</i> 
+<br><br>
+In laymen's terms, the more variables a program has, the more possibile states it can be in.
+If your program has one variable that is only ever assigned 0 or 1, then the program could be in
+two different states, ignoring the program counter (where in the program execution is at any moment) and the stack (where intermediate values in expressions are stored). If you add another variable that counts from 0 to 9, then you have 18 states the program can be in. Add a positive integer read from the user as input, as the number of possibile states shoots into the billions. With thousands of global and lexical (my) variables, the number of states a program can be in becomes astronomical. Dealing with data in an inconsistant state is a primary cause of bugs. Fitting this profile is damaged datastructures, uninitialized variables, partial or complete copies of values that get out of sync, variables unintentionally shared between two parts of the program, and, um, lots of other things.
+<br><br>
+The easiest way to limit the complexity of your
+program is to limit the number of variables you're using at any given point in the program. There are two ways to do that. Make variables go out of scope (vanish at the end of the block) as soon as possible by making lots of blocks for values you only need for a short period of time and declaring those variables with "my" in there. That's one way. That also implies having very few if any global variables (such as only for constants) and passing variables from one function to another as arguments rather than leaving them in global data. 
+<br><br>
+The other way is to use fewer variables. 
+This is a little harder as it takes a general feel for programming and for the langauge to spot redundant variables and remove them.
+It becomes difficult to debug if you have several versions of the same value because you've introduced the possibility that you're using the wrong version at any given point.
+If you're doing a conversion, for example, where you divide, multiple, then add, doing it in one expression, or else store the modified value back in the original variable each time.
+If you're worried about clobbering a "good" original value, that's a good sign that all of the code should be in a function anyway, with the value passed in as an argument rather than in a variable. 
+That way, the intermediate values aren't normally part of the programs state -- except when it happens to be executing inside that one routine.
+Especially for dealing with datastructures, 
+coping mechanisms are needed by the programmer
+to manage and access the data representation,
+and this isn't learned over night.
+<br><br>
+Back to static analysis. 
+In order to model a program with regard to logic errors (such as those forming the basis of security faults), not only must the total state of the program be modeled, but it must be modeled for each point in the program.
+Each block (that has 'my' variables) will have a slightly different set of variables composing the 
+total program state.
+When data flows from user input directly into output, it's a bug, except in rare circumstances (such as cramming it directly into the database). Perl programs don't have to worry about overflown string buffers, but user input shouldn't wind up in file paths, except in very controlled ways. tainting accomplishes this at run-time, but I'm thinking about how this could be extended to compile-time (static analysis rather than dynamic). These types of analysis have impact on code compilation to binary, a hard task in Perl. 
+The value ranges computed for a variable can rule out need for generating lots of check code that brings down the executable size and increases speed. Very large values shouldn't wind up in range operations or as loop indices, so there's interest in tracking possible bounds of values. Input values have minint-maxint range unless part of that range is checked for and rejected. This is an effective way of reducing total program state. 
+I've been pondering how static analysis could
+find security problems if common security
+problem archtypes could be described to the
+compiler. C is the easiest to think of/in as
+it suffers from chronic buffer overflows.
+Oooh, here's a good excerpt: <i> Programmers generally attempt to perform useful work. If they performed an action, it was because they believed it served some purpose. Redundant operations violate this belief. However, in the past redundant operations have been typically regarded as minor cosmetic problems rather than serious errors. This paper demonstrates that in fact many redundancies are as serious as traditional hard errors (such as race conditions or null pointer dereferences). We experimentally test this idea by writing and applying five redundancy checkers to a number of large open source projects, finding many errors. We then show that even when redundancies are harmless they strongly correlate with the presence of traditional hard errors. Finally we show how flagging redundant operations gives a way to detect mistakes and omissions in specifications. For example, a locking specification that binds shared variables to their protecting locks can use redundancies to detect missing bindings by flagging critical sections that include no shared state.</i> Detecting redundant code would be a good use for B::Generate =)
+Automatically detecting thread dedlocks and race conditions -- that's another one.
+Automatic Extraction of Object-Oriented Component Interfaces -- that's a good one -- a static analysis tool could go past just finding redundant code and actually refactor it for you.
+Okay, not what the article meant, but, still..
+<br><br>
+-scott</p>
+
+
+<hr/>
+
+
+
+<h2>Re:</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2005-09-08T18:28:44</h3>
+<p>The thought of finding patterns and correlations purely by mechanical analysis of a high-level model of source code is tantalizing. Reminds me of a friend of mine who thinks it should be possible to abolish garbage collection by statically analysing the source code for allocation patterns.</p>
+
+<p>As for redundant code, there&#8217;s a simple reason it&#8217;s still all over the place: insufficiently expressive languages. Abstracting commonalities and removing repetition is much easier when the code is itself manipulable data. Java, C, PHP, they all rather suck in this regard. I find myself copy-pasting much more in C than in Perl, even though it always irks me. All too often it&#8217;s just way too much hassle to abstract small sections of repetitive code, at least until you have a <em>lot</em> of similar snippets.</p>
+
+<p>And when the language cultivates repetition at the micro level, programmers are likely to think nothing of repetition at the macro level either.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

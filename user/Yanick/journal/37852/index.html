@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Yanick: introducing Dist::Release</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>introducing Dist::Release</h1>
+<h2><a href="/user/Yanick/">Yanick</a> on 2008-11-11T04:01:41</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>(<i>cross-posted from 
+<a href="http://babyl.dyndns.org/techblog">Hacking Thy Fearful Symmetry</a></i>)
+</p>
+
+<p>I know, I know, there's already more module release managers out there
+than there are Elvis impersonators in Vegas.  Still, module releasing 
+seems to 
+be a very personal kind of itch, and like so many before 
+I couldn't resist and 
+came up with my very own scratching stick.</p>
+<p>Of course, I've tried Module::Release.  But, although
+it is intended to be customized to suit each author's specific needs, 
+one has to dig fairly deep in the module's guts to do so.  What I 
+really wanted was something even more plug'n'play, something that would
+be brain-dead easy to plop new components in.  Hence Dist::Release.</p>
+
+
+
+
+<p>In Dist::Release, the release process is seen as a sequence of steps. 
+There are two different kind of steps: checks and actions.
+Checks are non-intrusive verifications (i.e., they're
+not supposed to touch anything), and actions are the steps
+that do the active part of the release.  When one launches
+a release, checks are done first.  If some fail, we abort the process. 
+If they all pass, then we are good to go and the actions are done as well. </p>
+
+
+
+
+
+
+
+<b id="Implementing_a_check">Implementing a check</b>
+<div id="Implementing_a_check_CONTENT">
+<p>To create a check, all that is needed is one module with a 'check' method. 
+For example, here is the code to verify that the distribution's MANIFEST
+is up-to-date:</p>
+<pre>
+    package Dist::Release::Check::Manifest::Build;
+
+    use Moose;
+
+    use IPC::Cmd 'run';
+
+    extends 'Dist::Release::Step';
+
+    sub check {
+        my $self = shift;
+
+        $self->diag( q{running 'Build distcheck'} )
+
+        my ( $success, $error_code, $full_buf, $stdout_buf, $stderr_buf ) =
+        run( command => [qw# ./Build distcheck #] );
+
+        return $self->error( join '', @$full_buf )
+            if not $success or grep /not in sync/ => @$stderr_buf; 
+    }
+
+    1;
+
+
+
+
+</pre>
+
+<p>Dist::Release  considers the check to have failed if there is any call made
+to <code>error()</code>.  If there is no complain, then it assumes that everything is
+peachy.</p>
+
+</div>
+<b id="Implementing_an_action">Implementing an action</b>
+<div id="Implementing_an_action_CONTENT">
+<p>Actions are only marginally more complicated than checks.  The module
+implementing the action can have an optional <code>check()</code> method, which is 
+going to be run with all the other checks, and must have a <code>release()</code>,
+which make the release-related changes.</p>
+<p>For example, here's the CPANUpload action:</p>
+
+<pre>
+
+
+    package Dist::Release::Action::CPANUpload;
+
+    use Moose;
+
+    use CPAN::Uploader;
+
+    extends 'Dist::Release::Action';
+
+    sub check {
+        my ($self) = @_;
+
+        # do we have a pause id?
+        unless ($self->distrel->config->{pause}{id}
+            and $self->distrel->config->{pause}{password} ) {
+            $self->error('pause id or password missing from config file');
+        }
+    }
+
+    sub release {
+        my $self = shift;
+
+        $self->diag('verifying that the tarball is present');
+
+        my @archives = <*.tar.gz> or return $self->error('no tarball found');
+
+        if ( @archives > 1 ) {
+            return $self->error( 'more than one tarball file found: ' . join ',',
+                @archives );
+        }
+
+        my $tarball = $archives[0];
+
+        $self->diag(&quot;found tarball: $tarball&quot;);
+
+        $self->diag(&quot;uploading tarball '$tarball' to CPAN&quot;);
+
+        my ( $id, $password ) =
+            map { $self->distrel->config->{pause}{$_} } qw/ id password /;
+
+        $self->diag(&quot;using user '$id'&quot;);
+
+        my $args = { user => $id, password => $password };
+
+        unless ( $self->distrel->pretend ) {
+            CPAN::Uploader->upload_file( $tarball, $args );
+        }
+    }
+
+    1;
+
+
+</pre>
+<p>As for the <code>check()</code>, Dist::Release figures out that a <code>release()</code> failed 
+if there's a call to <code>error()</code>.  </p>
+
+</div>
+<b id="Configuring_for_a_module">Configuring for a module</b>
+<div id="Configuring_for_a_module_CONTENT">
+<p>Configuration is done via a 'distrelease.yml' file dropped in the root
+directory of the project.  The file looks like this:</p>
+
+<pre>    pause:
+        id: yanick
+        password: hush 
+    checks:
+        - VCS::WorkingDirClean
+        - Manifest
+    actions:
+        - GenerateDistribution
+        - CPANUpload
+        - Github
+
+</pre>
+<p>It's pretty self-explanatory.  The checks and actions are applied in the order
+they are given in the file.</p>
+
+</div>
+<b id="Crying_havoc">Crying havoc...</b>
+<div id="Crying_havoc_CONTENT">
+<p>And once the configuration file is present, all that remains to be done is to run <code>distrelease</code>, sit back and enjoy the show:</p>
+<pre>    $ distrelease
+    Dist::Release will only pretend to perform the actions (use --doit for the real deal)
+    running check cycle...
+    regular checks
+    VCS::WorkingDirClean              [failed]
+    working directory is not clean
+    # On branch master
+    # Changed but not updated:
+    #   (use &quot;git add <file>...&quot; to update what will be committed)
+    #
+    #       modified:   Build.PL
+    #       modified:   Changes
+    #       modified:   README
+    #       modified:   distrelease.yml
+    #       modified:   lib/Dist/Release/Check/Manifest.pm
+    #       modified:   script/distrelease
+    #
+    # Untracked files:
+    #   (use &quot;git add <file>...&quot; to include in what will be committed)
+    #
+    #       STDOUT
+    #       a
+    #       blog
+    #       xml
+    #       xt/dependencies.t
+    #       xxx
+    no changes added to commit (use &quot;git add&quot; and/or &quot;git commit -a&quot;)
+    Manifest                          [failed]
+    No such file: lib/Dist/Release/Action/DoSomething.pm
+    Not in MANIFEST: a
+    Not in MANIFEST: blog
+    Not in MANIFEST: lib/Dist/Release/Action/Github.pm
+    Not in MANIFEST: STDOUT
+    Not in MANIFEST: xml
+    Not in MANIFEST: xt/dependencies.t
+    Not in MANIFEST: xxx
+    MANIFEST appears to be out of sync with the distribution
+    pre-action checks
+    GenerateDistribution              [passed]
+    no check implemented
+    CPANUpload                        [passed]
+    Github                            [passed]
+    2 checks failed
+    some checks failed, aborting the release
+
+
+
+
+
+</pre>
+
+</div>
+<b id="Getting_the_good">Getting the good</b>
+<div id="Getting_the_good_CONTENT">
+<p>A <a href="http://search.cpan.org/dist/Dist-Release/">first release of Dist::Release</a> 
+is already waiting for you on CPAN.  It's beta, has no documentation, is
+probably buggy as hell, but it's there.  And the code is also available on
+<a href="http://github.com/yanick/dist-release/tree/master">Github</a>.  Comments,
+suggestions, forks and patches are welcome, as always. :-)</p>
+
+
+
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>Drop a file in the distribution?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-11-11T06:20:47</h3>
+<p>Really? A file? In each distro?</p><p>So I need 170 identical YAML files added to my repository, and then to change something I need to change 170 different config files?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Drop a file in the distribution?</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-11-11T07:56:09</h3>
+<p>... and all 170 yaml files need to contain my PAUSE admin login and password?</p><p>And in a repository that is visible to the public?</p>
+
+
+
+<blockquote>
+
+<h2>Re:Drop a file in the distribution?</h2>
+<h3><a href="/user/Yanick/">Yanick</a> on 2008-11-11T13:22:04</h3>
+<p>Actually, I skipped over some details in the post so as not to make everybody's eyes glaze over.
+</p><p>
+As it turn out to be, the configuration is first read from $ENV{HOME}/distrelease.yml (if it exists), which values can then be augmented/overrided from the local distrelease.yml.  Although I have nowhere
+the gargantuan number of distros that you have, I'm not overly fond of
+needlessly replicating information either.<nobr> <wbr></nobr>:-)
+
+
+</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Looks the same to me :)</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2008-11-11T11:44:25</h3>
+<p>You don't have to dig deep in Module::Release to do anything. You just make a method then call it. It's easy as pie. It's even easier in the 2.x stuff that's sitting on CPAN. If you haven't looked at it in awhile, take a peek even if to just steal ideas. When I get some time, I'll steal some of your ideas.</p><p>It's not a big deal if you write your own stuff. No one seems to use anything else that anyone writes anyway.<nobr> <wbr></nobr>:)</p><p>Your modules look a lot like the Module::Release stuff. I like that you configure it from a text file though. I've always wanted to write a DSL for Module::Release (perhaps using my Polyglot module). The slight differences are mostly what I would do if I started over.</p><p>Although Module::Release also has the problem of dropping a file in each directory, the next thing on my to do list is a global config that a per-dist config would override.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Looks the same to me :)</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2008-11-11T13:22:16</h3>
+<p>Instead of a full DSL, maybe you could do something like Module::Install does.</p><p>Make a really tight MI style set of commands that get you most of the way to a simple step by step process, such that we can fall back on pure perl and mix it together if needed.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Looks the same to me :)</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2008-11-11T22:33:20</h3>
+<p>Well, I think I have that. It's just that everything is a method call instead of a function call. Most of the release strict is either exposed scaffolding (which I really would like to fix when I have enough free time to fix things that work), or just a declaration of steps.</p><p>But, that's something to think about later. If someone really wanted it I might change it, but since the three people in this thread all have their own release software that no-one else uses, I'm not very motivated.<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:Looks the same to me :)</h2>
+<h3><a href="/user/Yanick/">Yanick</a> on 2008-11-11T16:08:10</h3>
+<p>
+<i>Your modules look a lot like the Module::Release stuff.</i>
+</p><p>
+What can I say?  I may be foolish enough to reinvent the wheel,
+but yet I know better than not let myself be inspired by what's
+already there.<nobr> <wbr></nobr>:-)
+
+</p><p>
+<i>
+You don't have to dig deep in Module::Release to do anything. You just make a method then call it. It's easy as pie.</i>
+
+</p><p>
+I'll give you that it's not <b>that</b> deep, and that it's not too hard,
+but I kinda balk at having to hack into the 'release' script if I
+want to add a new 'check_somethingelse()' action, or disactivate that
+'Changes'-munging step that drives me bunker. It's not a lot, really,
+but then I don't need a lot of excuses to go a-hackin'.<nobr> <wbr></nobr>:-)
+
+
+</p><p>
+<i>
+It's even easier in the 2.x stuff that's sitting on CPAN. If you haven't looked at it in awhile, take a peek even if to just steal ideas. When I get some time, I'll steal some of your ideas.</i>
+
+</p><p>
+Ooooh, didn't know there is a 2.0 version kicking around. I'll look into
+that for sure.  And yes, by all means, steal everything that you find
+interesting -- I'll be more than glad to return the favor.
+
+</p><p>
+<i>
+Although Module::Release also has the problem of dropping a file in each directory, the next thing on my to do list is a global config that a per-dist config would override.
+</i>
+
+</p><p>
+As I said in my reply to Adam, D::R already take care of that.  The margin
+of the post was just too small to mention it explicitly.<nobr> <wbr></nobr>;-)
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

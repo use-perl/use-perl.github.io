@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jdavidb: How fast are you posting in your journal?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>How fast are you posting in your journal?</h1>
+<h2><a href="/user/jdavidb/">jdavidb</a> on 2002-09-18T13:36:23</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Here's a little goody I cooked up:</p>
+
+<pre>
+#!/usr/local/bin/perl5.8.0 -- # -*- perl -*-
+
+use warnings;
+use strict;
+use lib "$ENV{HOME}";
+use WWW::UsePerl::Journal;
+
+my($user) = @ARGV;
+
+foreach my $user (@ARGV)
+{
+    my $journal = WWW::UsePerl::Journal->new($user);
+
+    my @entries = $journal->entryids();
+    
+    my($firstdate, $lastdate) = map {$journal->entry($_)->date} @entries[0,-1];
+    my $numentries = scalar @entries;
+
+    use Time::Piece;
+    $lastdate = localtime;
+    my $interval = $lastdate - $firstdate;
+    
+    my $per_sec = $numentries / $interval->days;
+    
+    print "$user has written $per_sec entries per day\n";
+    
+}
+</pre>
+
+<p>Wouldn't it be great if it <i>worked</i>?  Well, with this little diff to WWW::UsePerl::Journal, it can.  (Note, there are some artifacts I left in from my first stab, and never bothered to take out.)</p>
+
+<pre>
+--- /usr/local/perl580/lib/site_perl/5.8.0/WWW/UsePerl/Journal.pm	2002-03-03 14:09:14.000000000 -0600
++++ WWW/UsePerl/Journal.pm	2002-09-05 10:21:40.000000000 -0500
+@@ -1,4 +1,6 @@
+-package WWW::UsePerl::Journal;
++package WWW::UsePerl::Journal;  # -*- perl -*-
++
++BEGIN {warn "Using local copy of WWW::UsePerl::Journal!"}
+ 
+ =head1 NAME
+ 
+@@ -30,6 +32,7 @@
+ use HTTP::Request::Common;
+ use Data::Dumper;
+ use Carp;
++use Time::Piece;
+ use WWW::UsePerl::Journal::Entry;
+ 
+ 
+@@ -171,19 +174,25 @@
+         my $content = $self->{ua}->request(
+             GET UP_URL . "/journal.pl?op=list&uid=$UID")->content;
+         die "could not create entry list" unless $content;
+-        my @lines = split /\n/, $content;
+ 
+         my %entries;
+-        foreach my $line (@lines){
+-            next unless $line =~ m#~$user/journal/#ism;
+-            $line =~ m#~$user/journal/(\d+)"><b>(.*?)</b></a>#ism;
+-
++	my $count = 0;
++	while ( $content =~ m{~$user/journal/(\d+).><b>(.*?)</b></a></td>\s+<td valign="top"><em>([\d.\s:]+)</em>}ig)
++	{
+             next unless defined $1;
+-	    $entries{$1} = WWW::UsePerl::Journal::Entry->new(
++	    my($id, $subject, $datestr) = ($1, $2, $3);
++	    $datestr =~ m/(\d+).(\d+).(\d+)\s+(\d+):(\d+)/;
++	    my($year, $month, $dateofmonth, $hour, $minute) =
++		($1, $2, $3, $4, $5);
++	    my $formatteddate =
++		"$year-$month-$dateofmonth $hour:$minute:00";
++	    my $date = Time::Piece->new(HTTP::Date::str2time($formatteddate));
++	    $entries{$id} = WWW::UsePerl::Journal::Entry->new(
+ 		j	=> $self,
+ 		user	=> $user,
+-		id	=> $1,
+-		subject	=> $2,
++		id	=> $id,
++		subject	=> $subject,
++		date	=> $date,
+ 	    );
+         }
+ 
+@@ -200,10 +209,11 @@
+ sub entryids {
+     my $self = shift;
+     $self->{_entryids} ||= do {
++	# The problem here is that %entries is thrown away.
+         my %entries = $self->entryhash;
+         my @IDs;
+ 
+-        foreach (sort keys %entries) {
++        foreach (sort {$a <=> $b} keys %entries) {
+ 	    $IDs[$#IDs+1] = $_;
+         }
+         return @IDs;
+@@ -266,7 +276,7 @@
+ 
+ Required before posting can occur, takes the password
+ 
+-=cut
++n=cut
+ 
+ sub login
+ {
+</pre>
+
+<p>There are some other fun date-related stunts I've been pulling, too.  I'm watching you guys! ;)  (Pudge, I presume this kind of thing is not a bandwidth problem, but if it is, tell me and I'll stop.  If it were a problem, I guess it would only be for persons like <a href="http://use.perl.org/journal.pl?op=list&uid=TorgoX">TorgoX</a>, who as of this morning has written 1.89954616054286 entries per day. :)</p>
+
+<p>Oh, and don't call $journal->login, or you'll change the format of all the dates and mess up the parsing.  Plus, a journal object is tied to a user which is presumed to be you, but in this case it may not be.  (It would be nice to see WWW::UsePerl::User objects which could be passed to the WWW::UsePerl::Journal constructor, and on which you could call ->fans, ->freaks, etc.)</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

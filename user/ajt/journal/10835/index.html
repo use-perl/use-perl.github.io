@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ajt: File Handles on Linux/Apache</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>File Handles on Linux/Apache</h1>
+<h2><a href="/user/ajt/">ajt</a> on 2003-02-28T13:50:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I'm having a torrid time with <a href="http://search.cpan.org/search?query=File%3A%3ATemp&mode=all">File::Temp</a>. I like the module and it works mostly well, but I'm not doing something correctly with it.</p>
+
+<p>In an Apache/mod_Perl PerlRun applicatiion I have the following happening many times:</p>
+
+<pre>
+{  # start scope
+  ($SFH, $softer) = tempfile(SUFFIX => ".data",
+                             DIR => "/tmp/",
+                             UNLINK => 1);
+  ... stuff ...
+  unlink0 ($SFH, $softer);
+}  # end scope
+</pre>
+
+<p>This appears to works on Windows (Perl 5.6.1, Apache 1.3.26, File::Temp 0.12), without a problem, I don't run out of file handles, and I don't have files left over, but Windows isn't used as much. On the Linux box, same spec, much higher load levels, I've had miserable problems.</p>
+
+<ul>
+<li>Files left behind, and I eventually run out of file handles and strange things happen on the box. I restart Apache, and delete the temp files, and all is well.</li>
+<li>I added the unlink0 option, which removes the files, but does not remove the file-handle. I get no files left over, but I still get strange file-handle problems.</li>
+<li>I'm currently trying an explicit close on the filehandle after the unlink to see if that helps.</li>
+</ul>
+
+<p>As far as I can tell it's simply confused because it's running under mod_Perl, and the Perl processor never ends, so the normal end of Perl clean up isn't happening. The way I would expect.</p>
+
+<p>Trying to find out how many file handles a Linux system can or cannot have hasn't been easy either. I've done quite a bit of Goolging, but there the same thing out there many times, but so far I've not discovered any deep magic.</p>
+
+<p>For example on two nearly identical RedHat 7.x systems <code>cat /proc/sys/fs/file-nr</code> gives:</p>
+<ul>
+<li>8192, 3110, 16384</li>
+<li>1891, 1349, 8192</li>
+<li>allocated, free, max file handles</li>
+</ul>
+
+<p>It took me a long time to figure out that the middle number is the number of free, not the number of used file handles, and hence a small number is bad.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>It's worse than that</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2003-02-28T14:19:57</h3>
+Have a look at the code.  I seem to recall that those numbers don't mean what you think that they mean...
+
+<p>From<nobr> <wbr></nobr><tt>/usr/src/linux/Documentation/sysctl/fs.txt</tt>:
+
+</p><blockquote><div>The kernel allocates file handles dynamically, but as yet it
+doesn't free them again.
+
+The value in file-max denotes the maximum number of file-
+handles that the Linux kernel will allocate. When you get lots
+of error messages about running out of file handles, you might
+want to increase this limit.
+
+The three values in file-nr denote the number of allocated
+file handles, the number of used file handles and the maximum
+number of file handles. When the allocated file handles come
+close to the maximum, but the number of actually used ones is
+far behind, you've encountered a peak in your usage of file
+handles and you don't need to increase the maximum.
+
+</div></blockquote>
+
+<p>-Dom</p>
+
+
+
+<h2>tempfile</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2003-02-28T14:37:11</h3>
+I've found tempfile() easiest to work with when you don't specify any parameters.  That way, you just get back a filehandle and a name.  If you only want a filehandle to play with, it gets even easier as the autodelete should happen automatically when the $fh goes out of scope.
+
+<p>What happens if you put a <tt>close $fh</tt> in there before you leave the routine?
+
+</p><p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:tempfile</h2>
+<h3><a href="/user/ajt/">ajt</a> on 2003-02-28T14:59:37</h3>
+<p>Dom2,</p>
+
+<p>Useful comments. I agree it's a great module, the problem started when I was working with it on NT and Linux. When I'd finished NT was working okay, but Linux was not....</p>
+
+<p>If you have an explicit <code>close $fh</code>, then what I found was that the file was NOT deleted, and I can't remember if the file handle was. I've even tried an explicit <code>unlink</code> too.</p>
+
+<p>Like I said I feel part of the problem is that it's running under mod_perl PerlRun, which is a bit of an odd place!</p>
+
+<p>Since I posted, I'm now at: 8192, 2781, 16384 on the problem box. I had over 6000 free file handles this morning, before people came in to use the web server.</p>
+
+
+
+<blockquote>
+
+<h2>Re:tempfile</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2003-02-28T16:55:40</h3>
+As I said in the first reply, I don't necessarily think those kernel figures are anything to worry about.  But I would be concerned about the undeleted files.
+
+<p>The docs state that a file is not auto deleted, if a filehandle is requested as well as a filename.  You have to unlink it yourself.
+
+</p><p>One more thing; You might wish to check whether or not the unlink fails: <tt>unlink( $fname ) or warn "unlink($fname): $!\n"</tt>
+
+</p><p>Oh, and to see whether filehandles are leaking in  real, useful terms, the best thing to do is run "lsof -p" on the pid of the web server.  That's more useful than the system-wide kernel measurements.
+
+</p><p>I suppose that at worst, you just write a cron job to clean them...
+
+</p><p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:tempfile</h2>
+<h3><a href="/user/ajt/">ajt</a> on 2003-03-01T12:32:02</h3>
+<p> <strong>Dom</strong>,</p>
+
+<p>I think I know what is going on! I created the following little script, popped it into my PerlRun folder on my home Linux box and tested all the permutations.</p>
+
+<blockquote><div><tt> <tt>#!/usr/bin/perl<br>$|++;<br> <br>use strict;<br>use CGI;<br>use File::Temp qw(tempfile unlink0);<br> <br>my $q = CGI-&gt;new;<br> <br>print $q-&gt;header(-type =&gt; "text/plain");<br> <br>print "PID: $$\n";<br>print `cat<nobr> <wbr></nobr>/proc/sys/fs/file-nr`;<br> <br>for (1..50) {<br>&nbsp; &nbsp; my ($TMP_FH, $tmp_file) = tempfile(SUFFIX =&gt; ".f", UNLINK =&gt; 0);<br>&nbsp; &nbsp; print "Created: $tmp_file\t";<br>&nbsp; &nbsp; print `cat<nobr> <wbr></nobr>/proc/sys/fs/file-nr`;<br>&nbsp; &nbsp; unlink0 ($TMP_FH, $tmp_file);<br>&nbsp; &nbsp; close $TMP_FH;<br>}</tt></tt> </div></blockquote> 
+
+<p>What I found was that with <code>UNLINK=&gt;1</code> on, my Linux box wasn't releasing file handles until the parent Apache process was terminated. I'd turned this on to get round files that were not being removed on NT (I thought at the time - though I may now be wrong).</p>
+
+<p>With <code>UNLINK=&gt;0</code>, if I do an explicit close of the filehandle, or let it go out of scope then I'm okay with file handles, but not files, they get left over.</p>
+
+<p>Most recently I tried the <code>unlink0</code> option that comes with File::Temp, it should be smarter and more secure than a plain <code>unlink</code>. With <code>UNLINK=&gt;1</code> it doesn't work, but with <code>UNLINK=&gt;0</code> it removes the files, and the file-handles are returned to the system.</p>
+
+<p>My elderly RedHat 6 system didn't have lsof on it, so I went off and found it and built it - seems a useful tool.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

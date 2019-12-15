@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of petdance: mod_perl and PHP don't share the environment nicely</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>mod_perl and PHP don't share the environment nicely</h1>
+<h2><a href="/user/petdance/">petdance</a> on 2003-09-15T20:46:18</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>PHP and mod_perl do not share the environment nicely.
+PHP's <TT>putenv()</TT> will cause segfaults.
+Caveats should be distributed all around in PHP and mod_perl,
+at the very least,
+with the following two options:</p>
+
+<ul>
+<li>Recompile Perl itself with <TT>-DPERL_USE_SAFE_PUTENV</TT>,
+then recompile mod_perl and Apache,
+in that order.</li><p class="pad"></p>
+
+<li>Replace all PHP calls to <tt>putenv()</tt> with <tt>apache_setenv()</tt>.</li><p class="pad"></p>
+</ul>
+
+<p>I'm publishing this so that it will be archived and Googlable.</p>
+
+<p>Most of the following is written by,
+and based research from,
+Nick Dronen (veblen in IRC).</p>
+
+<h1><a name="Background_/_Affected_Configuration"
+>Background / Affected Configuration</a></h1>
+
+<p>We've been seeing segmentation faults in an Apache configured with mod_perl and PHP.
+There are several posts,
+all to archived PHP mailing lists,
+with stack traces that match the ones we've been seeing,
+but no useful resolutions.
+This document describes the problem and solution so other users who encounter this problem can acquire a clear idea what to do.</p>
+
+<p>At first,
+it looks like the problem is caused by either PHP or the C runtime library.
+It's not.
+It's caused by the use of both mod_perl and mod_php in Apache,
+if (and hopefully only if) your perl is not configured to use the C library's <tt>putenv(3)</tt> routine.
+Other Apaches configured to use mod_perl and any other module that manipulates the process's environment may also be affected.
+At any rate,
+this is what we're using:</p>
+
+<UL>
+<LI>Apache 1.3.28
+<LI>PHP 4.3.3
+<LI>Perl 5.8.0
+<LI>mod_perl 1.28
+</UL>
+
+<h2>Symptoms - PHP</h2>
+
+<p>If PHP is configured with <tt>--enable-debug</tt>,
+errors containing apparantly corrupt memory will appear in the log files.
+(Reformatted here to make it less unreadable.)</p>
+
+<pre>  [Thu Aug 28 13:11:47 2003]  Script:  '/path/to/file.html'
+  /usr/src/php-4.3.3/Zend/zend_opcode.c(159) :
+      Block 0x08D77C58 status:
+  /usr/src/php-4.3.3/Zend/zend_variables.c(44):
+      Actual location (location was relayed)
+  
+  Beginning:      OK (allocated on Zend/zend_language_scanner.c:4718, 64 bytes)
+        End:      Overflown (magic=0x08376158 instead of 0x2A8FCC84)
+                     At least 4 bytes overflown
+  ---------------------------------------
+  [Thu Aug 28 13:11:47 2003] [error] php Warning:  
+      String is not zero-terminated (`~A~Q^H~@^D~P...) 
+      (source: /usr/src/php-4.3.3/Zend/zend_opcode.c:159) in Unknown on line 0
+  [Thu Aug 28 13:11:47 2003]  Script:  '/path/to/file.html'
+  ---------------------------------------
+  /usr/src/php-4.3.3/Zend/zend_opcode.c(159):
+      Block 0x08D77D00 status:
+  /usr/src/php-4.3.3/Zend/zend_variables.c(44):
+      Actual location (location was relayed)
+  
+  Beginning:      Overrun (magic=0x083763F0, expected=0x7312F8DC)
+  
+  [Thu Aug 28 13:11:47 2003] [notice] child pid 3983 exit signal Segmentation fault</pre>
+
+<p>Note that the garbage in the "String is not zero-terminated" line is about 80 characters long and filled with randomness.
+It's been truncated here.</p>
+
+<h2><a name="Symptoms_-_core_dumps"
+>Symptoms - core dumps</a></h2>
+
+<p>If your apache is able to create a core file,
+you can examine the stack trace by doing:</p>
+
+<pre>$ gdb /path/to/httpd /path/to/core</pre>
+
+<p>or</p>
+
+<pre>$ dbx /path/to/httpd /path/to/core</pre>
+
+<p>In some cases -- specifically when httpd is running suid/sgid -- Apache will not dump core.
+There is a kernel patch for Linux that changes this behavior so you can get a core dump.
+The patch is available for Linux kernel versions 2.4.x and 2.5.x at:</p>
+
+<pre>http://www.ussg.iu.edu/hypermail/linux/kernel/0204.2/1170.html</pre>
+
+<p>Memory madness can cause segmentation faults at any number of places in a complex program,
+depending on how memory is accessed.
+Below is one of the more common stack traces we've seen.
+A strong sign that you're suffering from this problem is the presence of <tt>putenv(3)</tt> in the stack.</p>
+
+<p>If your stacks look different than this,
+a sample program appears at the end of this document,
+along with instructions how to run it.
+If the program segfaults,
+you might be seeing the same problem.</p>
+
+<p>Here's a classic stack trace (also reformatted a bit):</p>
+
+<pre>  #0  0x4207448f in _int_realloc () from /lib/i686/libc.so.6
+  #0  0x4207448f in _int_realloc () from /lib/i686/libc.so.6
+  #1  0x42073416 in realloc () from /lib/i686/libc.so.6
+  #2  0x4202ab8f in __add_to_environ () from /lib/i686/libc.so.6
+  #3  0x4202aab8 in putenv () from /lib/i686/libc.so.6
+  #4  0x080f68ba in zif_putenv (
+      ht=1, return_value=0x8c01ffc, this_ptr=0x0, return_value_used=0)
+      at /usr/src/php-4.3.3/ext/standard/basic_functions.c:1347
+  
+  #5  0x080ce2e6 in execute (op_array=0x84e7044)
+      at /usr/src/php-4.3.3/Zend/zend_execute.c:1616
+  
+  #6  0x080beaa4 in zend_execute_scripts (
+      type=8, retval=0x0, file_count=3
+        ) at /usr/src/php-4.3.3/Zend/zend.c:885
+  
+  #7  0x08096641 in php_execute_script (primary_file=0xbfffe440)
+      at /usr/src/php-4.3.3/main/main.c:1723
+  
+  #8  0x080d2e35 in apache_php_module_main (
+      r=0x8b6fa1c, display_source_mode=0
+        ) at /usr/src/php-4.3.3/sapi/apache/sapi_apache.c:54
+  
+  #9  0x0808d690 in send_php (
+      r=0x8b6fa1c, display_source_mode=0,
+      filename=0x8b70924 "/home/moregan/tw/envthrash.php"
+        ) at mod_php4.c:620
+  
+  #10 0x0808d6fb in send_parsed_php (r=0x8b6fa1c) at mod_php4.c:635
+  #11 0x0819bce8 in ap_invoke_handler (r=0x8b6fa1c) at http_config.c:518
+  #12 0x081b075b in process_request_internal (r=0x8b6fa1c)
+      at http_request.c:1324
+  
+  #13 0x081b07ba in ap_process_request (r=0x8b6fa1c) at http_request.c:1340
+  #14 0x081a7a03 in child_main (child_num_arg=0) at http_main.c:4653
+  #15 0x081a7c64 in make_child (s=0x831fbac, slot=0, now=1063034483) 
+      at http_main.c:4823
+  
+  #16 0x081a7fa3 in perform_idle_server_maintenance () at http_main.c:5008
+  #17 0x081a85c2 in standalone_main (argc=3, argv=0xbfffe944)
+      at http_main.c:5258
+  
+  #18 0x081a8bc8 in main (argc=3, argv=0xbfffe944) at http_main.c:5511
+  #19 0x420158d4 in __libc_start_main () from /lib/i686/libc.so.6</pre>
+
+<h1><a name="Root_Cause"
+>Root Cause</a></h1>
+
+<p>The malbehavior is caused by Perl's handling of the pointer to the process environment (usually accessed via the global variable environ).
+Some implementations of <tt>putenv(3)</tt> leak memory (or,
+to be fair,
+used to leak memory,
+but have been fixed),
+and perl has code that works around this.
+To do so,
+perl allocates its own memory for the environment,
+copies the original environment to the new memory block,
+frees the original pointer,
+and assigns the new pointer to environ.</p>
+
+<p>A call to PHP's putenv routine results in a call to the C library,
+which will use an internal pointer,
+one that points to memory that was already freed by perl,
+to reallocate memory for environ.
+This results in a segmentation fault.</p>
+
+<p>If you're curious about the perl code that fiddles with the environment,
+run:</p>
+
+<pre>$ egrep '\<environ\>' *.c *.h</pre>
+
+<p>in the base directory of the perl source tree.
+Enjoy.</p>
+
+<h1><a name="Solutions"
+>Solutions</a></h1>
+
+<p>There are two ways to avoid this segmentation fault.</p>
+
+<ul>
+<li>Recompile Perl itself with <tt>-DPERL_USE_SAFE_PUTENV</tt>,
+then recompile mod_perl and Apache,
+in that order.</li><p class="pad"></p>
+
+<li>Replace all PHP calls to <tt>putenv()</tt> with <tt>apache_setenv()</tt>.</li><p class="pad"></p>
+</ul>
+
+<p>The first is preferable if your webby packages are built from source already.
+If you're using a vendor's perl,
+and the vendor is man enough to stand behind the implementation of <tt>putenv(3)</tt> in its C library,
+perhaps they should rethink about the options they use to compile perl.
+In the meantime,
+you can just use <tt>apache_setenv()</tt>.</p>
+
+<h1><a name="Recommended_Action_(for_Apache,_PHP,_mod_perl_maintainers)"
+>Recommended Action (for Apache,
+PHP,
+mod_perl maintainers)</a></h1>
+
+<p>In the best of all possible worlds,
+the mod_perl and mod_php documentation would be changed to include a glaringly conspicuous caveat to users.
+In fact,
+because this "feature" of Perl can cause segfaults in any apache that uses mod_perl in concert with any other module that calls <tt>putenv()</tt>,
+it might be a good idea for the documentation of apache and even other modules to include this caveat.</p>
+
+<p>Something to this effect:</p>
+
+<pre>    If you are running apache with mod_perl and at least one other module,
+    you may want to compile your perl with -DPERL_USE_SAFE_PUTENV.
+    If your perl is not compiled with this macro defined, libperl.a
+    will contain code that plays dangerously with the global variable
+    environ, which can lead to segmentation faults when other apache
+    modules call putenv().
+
+    You can check whether your perl has been compiled with this option
+    by running the following command:
+
+        $ perl -V:cppflags
+
+    If you see -DPERL_USE_SAFE_PUTENV in the output, your perl was
+    compiled with that option and your apache shouldn't exhibit the
+    bad behavior in question.  If you don't see it, and apache is
+    crashing with stack traces that contain the function putenv(),
+    reconfigure with
+
+        $ ./Configure --Acppflags=-DPERL_USE_SAFE_PUTENV
+
+    along with any other Configure options you may need.  Run "make",
+    "make test", and "make install."  Then recompile mod_perl.  If
+    your mod_perl is statically linked into apache, recompile apache
+    as well.</pre>
+
+<h1><a name="Reproducing_the_problem"
+>Reproducing the problem</a></h1>
+
+<p>Save <I>build</I> and <I>envtest.c</i> to files on your machine.
+Run build to make envtest.
+Run <tt>ulimit -c</tt> to see whether your process limits are set to allow core dumps.
+Then run envtest,
+using the exact inputs show below (print "1\n"&#60;RETURN&#62;&#60;CTRL&#62;-Dprint "2\n"&#60;RETURN&#62;&#60;CTRL&#62;-D).</p>
+
+<h2><a name="build"
+><em lang='und' xml:lang='und'>build</em></a></h2>
+
+<pre>    #!/bin/sh
+
+    perl=perl
+    opts=$($perl -MExtUtils::Embed -e ccopts -e ldopts)
+
+    if [[ $perl = "debugperl" ]]
+    then
+        opts=$(echo $opts | sed 's/-lperl/-ldebugperl/')
+    fi
+
+    cmd="gcc -g -o envtest envtest.c -Wall $opts"
+    echo $cmd; $cmd</pre>
+
+<h2><a name="envtest.c"
+><em lang='und' xml:lang='und'>envtest.c</em></a></h2>
+
+<pre>    #include <stdlib.h>
+    #include <string.h>
+    #include <assert.h>
+    #include <EXTERN.h>
+    #include <perl.h>
+
+    void run_perl(int argc, char *argv[], char **env, char *putenv_arg);
+
+    #define VAR1 "VAR1=value"
+    #define VAR2 "VAR2=value"
+
+    char *tmpptr = VAR2;
+
+    int main(int argc, char *argv[], char **env)
+    {
+        char *envptr = malloc(strlen(VAR1) + 1);
+        strcpy(envptr, VAR1);
+
+        /* call putenv with malloc'ed pointer */
+        run_perl(argc, argv, env, envptr);
+        /* call putenv with pointer from process's data segment */
+        run_perl(argc, argv, env, tmpptr);
+
+        free(envptr);
+
+        exit(0);
+    }
+
+    void run_perl(int argc, char *argv[], char **envptr, char *putenv_arg) {
+        PerlInterpreter *my_perl = perl_alloc();
+        perl_construct(my_perl);
+        PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
+        perl_parse(my_perl, NULL, argc, argv, envptr);
+
+        if (putenv_arg)
+            assert(putenv(putenv_arg) == 0);
+
+        perl_run(my_perl);
+        perl_destruct(my_perl);
+        perl_free(my_perl);
+    }
+
+    /* END envtest.c */</pre>
+
+<h2><a name="building"
+>building</a></h2>
+
+<pre>  $ ./build
+  gcc -g -o envtest envtest.c -Wall -rdynamic -L/usr/local/lib /usr/lib/perl/5.8.0/auto/DynaLoader/DynaLoader.a -L/usr/lib/perl/5.8.0/CORE -lperl -ldl -lm -lpthread -lc -lcrypt -D_REENTRANT -D_GNU_SOURCE -DDEBIAN -fno-strict-aliasing -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64 -I/usr/lib/perl/5.8.0/CORE
+
+  $ ./envtest
+  print "1\n" <-- press return, then ^D
+  1           
+  print "2\n" <-- press return, then ^D
+  Segmentation fault (core dumped)
+
+  $ gdb -q envtest core
+  Core was generated by `./envtest'.
+  Program terminated with signal 11, Segmentation fault.
+  Reading symbols from /usr/lib/libperl.so.5.8...done.
+  Loaded symbols for /usr/lib/libperl.so.5.8
+  Reading symbols from /usr/lib/debug/libdl.so.2...done.
+  Loaded symbols for /usr/lib/debug/libdl.so.2
+  Reading symbols from /usr/lib/debug/libm.so.6...done.
+  Loaded symbols for /usr/lib/debug/libm.so.6
+  Reading symbols from /usr/lib/debug/libpthread.so.0...done.
+  Loaded symbols for /usr/lib/debug/libpthread.so.0
+  Reading symbols from /usr/lib/debug/libc.so.6...done.
+  Loaded symbols for /usr/lib/debug/libc.so.6
+  Reading symbols from /usr/lib/debug/libcrypt.so.1...done.
+  Loaded symbols for /usr/lib/debug/libcrypt.so.1
+  Reading symbols from /lib/ld-linux.so.2...done.
+  Loaded symbols for /lib/ld-linux.so.2
+  #0  0x401ffeee in __libc_realloc (oldmem=0x804e730, bytes=160) at malloc.c:3408
+  3408      ar_ptr = arena_for_chunk(oldp);
+  (gdb) where
+  #0  0x401ffeee in __libc_realloc (oldmem=0x804e730, bytes=160) at malloc.c:3408
+  #1  0x401be753 in __add_to_environ (name=0xbffff5c0 "VAR2", value=0x0,
+      combined=0x8048bf0 "VAR2=value", replace=1) at ../sysdeps/generic/setenv.c:145
+  #2  0x401be686 in putenv (string=0x8048bf0 "VAR2=value")
+      at ../sysdeps/generic/putenv.c:67
+  #3  0x08048ab7 in run_perl (argc=1, argv=0xbffff694, envptr=0xbffff69c,
+      putenv_arg=0x8048bf0 "VAR2=value") at envtest.c:36
+  #4  0x08048a2f in main (argc=1, argv=0xbffff694, env=0xbffff69c) at envtest.c:22</pre>
+
+<!-- end doc -->
+</body></html>
+</p>
+
+
+<hr/>
+
+
+
+<h2>segfaults</h2>
+<h3><a href="/user/kjones4/">kjones4</a> on 2003-09-15T22:40:10</h3>
+Is this the root of the segfault problem which prompted you to put out the call for a consultant?
+
+
+
+<blockquote>
+
+<h2>Re:segfaults</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2003-09-16T04:32:01</h3>
+Yup.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

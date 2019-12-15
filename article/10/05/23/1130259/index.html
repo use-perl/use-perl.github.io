@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org story by brian_d_foy: Ctypes for Perl: Intro and API spec</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Ctypes for Perl: Intro and API spec</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2010-05-23T11:50:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Hello, good evening and welcome.<p>For the next few months I will be using this blog to help document and publicise my "<a href="http://socghop.appspot.com/gsoc/student_project/show/google/gsoc2010/tpf/t127230763807">Ctypes for Perl</a>" project. The project is being carried out for TPF under the auspices of the <a href="http://code.google.com/soc/">Google Summer of Code</a> programme, and mentored by <a href="http://blogs.perl.org/users/rurban">Reini Urban</a>.</p><p>
+What's a ctypes?
+</p><p>'<a href="http://starship.python.net/crew/theller/ctypes/">ctypes</a>' is the <a href="http://en.wikipedia.org/wiki/Foreign_function_interface">Foreign Function Interface</a> (FFI) library distributed with the Python core. It basically allows native C libraries to be called easily from Python; for module authors, it allows the wrapping of C libraries in pure Python.</p><p>This is obviously a powerful concept. Imagine a world where Perl module authors didn't need to use XS, and module consumers don't need to have a correctly configured compiler set up on their system. This is the purpose of the project: to create an easy, cross-platform, pure-Perl interface to native C libraries.</p><p>
+Implementations
+</p><p>ctypes is based on <a href="http://sourceware.org/libffi/">libffi</a>. It's small, supports a wide range of systems, and has a very <a href="http://github.com/atgreen/libffi/blob/master/LICENSE">liberal license</a>. It's been distributed with GCC for a number of years, used by gcj for interfacing between interpreted and compiled code.</p><p>From what I can gather, Python set the trend in dynamic languages using libffi. Looking at the success of the Python module, developers at Mozilla chose libffi to develop <a href="https://developer.mozilla.org/en/JavaScript_code_modules/ctypes.jsm">ctypes.jsm</a>. <a href="http://wiki.github.com/ffi/ffi/">Ruby-FFI</a> uses it too, so there's plenty of prior art which will hopefully help me out.</p><p>The FFI problem hasn't been ignored in the Perl world. There's <a href="http://search.cpan.org/user/gaal/FFI-1.04/FFI.pm">FFI.pm</a>, the biggest disadvantage of which in my view is being built on libffcall, a library analogous to libffi but under the GPL (I don't think libffi was around at the time FFI.pm was written). It also sets out to provide a 'low-level' interface. <a href="http://search.cpan.org/user/chromatic/P5NCI-0.31/lib/P5NCI.pm">P5NCI</a>, on the other hand, is all about the lovely interfaces, but only allows up to four arguments passed to C functions, and doesn't yet support passing in pointers. <a href="http://search.cpan.org/user/rurban/C-DynaLib-0.60/lib/C/DynaLib.pm">C::Dynalib</a> provides similar functionality to the other two modules; <a href="http://blogs.perl.org/users/rurban/2010/05/cdynalib-progress.html">click here</a> for the latest updates on its development. It's worth pointing out that none of these modules worked out of the box on Strawberry 5.10.1.</p><p>My proposed API rolls in features of several of the above implementations, particularly P5NCI and FFI.pm. I have indeed copied and pasted swathes from their POD pages <small>(So what? Wanna fight about it?)</small>. I plan to also mimic C::DynaLib's acceptance of both positional &amp; named parameters; examples are omitted below for succinctness.<br> <br>
+1. Functional
+</p><p> <code>
+    use Ptypes;<br>
+    # FFI.pm's interface of Absolute Freedom...<br>
+    my $addr = (address of a C function)<br>
+    my $signature = (function signature)<br>
+    my $ret = Ptypes::call($addr, $signature, ...);<br>
+<br>
+    # Keeping things where you can see them...<br>
+    my $library_path = Ptypes::find_lib( 'mathtastic' );<br>
+    my $library      = Ptypes::load_lib( $library_path );<br>
+    my $double_func  = Ptypes::load_func( $library, 'double_double', 'dd' );<br>
+    my $ret   = $double_func-&gt;( 1.0 );<br>
+<br>
+    # Supplying a Perl callback...<br>
+    $ret = Ptypes::call($addr, $signature, $subref, ...)<br>
+</code> </p><p>
+2. Objectionable
+</p><p> <code>
+    use Ptypes;<br>
+    my $lib = Ptypes-&gt;new( library =&gt; 'mathtastic' [, package =&gt; 'MyPackage' ] );<br>
+    my $double_func = $lib-&gt;load_function( 'double_double', 'dd' );<br>
+    my $ret  = $double_func-&gt;( 1.0 );<br>
+<br>
+    # Exposing funcs directly in Perl namespaces...<br>
+    $lib-&gt;install_function( 'double_int', 'ii' [, 'perl_sub_name', 'AnotherPackage' ] );<br>
+    my $ret = AnotherPackage::double_int( 1 );<br> <br>
+    # or simply...<br>
+    package AnotherPackage;<br>
+    my $ret = double_int( 3 );<br>
+</code> </p><p>All fairly self-explanatory, perhaps apart from arguments like 'ii' or 'dd' - these strings describe return values and arguments for C functions in the same notation used by <a href="http://perldoc.perl.org/functions/pack.html">pack</a>. In addition to the above, the module may provide mechanisms for manipulating C data types directly from Perl (<code>$c = new Ptypes::char</code>). To start off with though there'll be a fairly straight-forward / 'stupid' translation based on seeing what kind of data's in your SV*, for initial experimentation.</p><p>There's also some exciting stuff to do with <a href="http://search.cpan.org/user/awin/GCC-TranslationUnit-1.00/TranslationUnit.pm">GCC::TranslationUnit</a> to tell you about, but details of that will wait till later. For now, I have some questions for you, the community:</p><ul>
+	<li>How d'you like the API proposal above? Anything you'd add? Take out?</li><li>How does 'Ptypes' take you as a name for this malarky? Y'know, like ctypes, but for Perl. 'FFI' is already taken after all...</li></ul><p>Don't want to gush here, but I'm <em>so</em> chuffed* to be working on this. I'm already learning loads, and I think it will save a lot of blood, sweat &amp; tears for module authors and users in the future. I want to thank rurban for his guidance &amp; help so far, and dukeleto and others for organising the The Perl Foundation's participation in GSoC and letting me participate!</p><p>I like to work log, so follow @doubious_code on Twitter to get far more information than you want about this project. I hope to be blogging pretty regularly too.</p><p>* For American-speakers, 'chuffed' is kinda equivalent to 'stoked'</p></p>
+<p></p>
+
+
+<hr/>
+
+
+
+<h2>Steal their brand</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2010-05-23T19:27:33</h3>
+<p>Because ctypes has such a good reputation, I'd hijack their brand as much as possible.</p><p>So, distribution name "ctypes".</p><p>Main namespace, "CDLL".</p><p>So in python...</p><p>cdll.LoadLibrary('libc.so.6');<nobr> <wbr></nobr>...becomes something like this in Perl...</p><p>CDLL-&gt;load_library('libc.so.6');</p>
+
+
+
+<blockquote>
+
+<h2>Re:Steal their brand</h2>
+<h3><a href="/user/doubi/">doubi</a> on 2010-05-25T00:19:26</h3>
+Good point about the branding.<br>
+<br>Also, in the effort of articulating why I was never keen on the Python API, it's just 'clicked' with me. Thanks for that<nobr> <wbr></nobr>;)<br> <br>
+I take it you can't just simply ask for 'libc' on *nix 'cause you might have several libc.so.x lying around.<br>
+<br>
+Why is that? Could there be a way to mitigate for it? I do like the ol' automatic accessor style: <code>cdll-&gt;libc-&gt;function('arg')</code>.<br>
+<br>
+If that wasn't available cross platform I wouldn't even bother making it an optional syntax for Windows.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Name change</h2>
+<h3><a href="/user/kwilliams/">kwilliams</a> on 2010-05-24T19:18:40</h3>
+<p>Another reason not to use "ptypes" - you're not replacing the C with Perl, you're replacing the Python with Perl.</p><p>I agree with Alias that somehow we should piggy-back off the existing "ctypes" brand, so that (e.g.) when someone googles for "ctypes" they find the new implementation too.  I'm not experienced enough with it to know if this is the correct term to piggyback off of, but some pig should be backed.</p><p>Do you envision any special-purpose stuff for creating wrapper modules?  One thing that's been fairly clear in the Inline::C world is that the needs of people writing wrapper modules &amp; people writing little scripts that call libraries are pretty different.</p><p>Very nice work you're proposing.  I'd totally use it.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Name change</h2>
+<h3><a href="/user/doubi/">doubi</a> on 2010-05-25T00:29:25</h3>
+<p><div class="quote"><p>Another reason not to use "ptypes" - you're not replacing the C with Perl, you're replacing the Python with Perl.</p></div><p>Granted. In my head, it was meant to be some kind of weird pun. I don't think it worked<nobr> <wbr></nobr>:F</p><p><div class="quote"><p>some pig should be backed.</p></div><p>As they say, when the world gives you pigs, all you can do is back.</p><p><div class="quote"><p>Do you envision any special-purpose stuff for creating wrapper modules?  One thing that's been fairly clear in the Inline::C world is that the needs of people writing wrapper modules &amp; people writing little scripts that call libraries are pretty different.</p></div><p>If it's not useful for fully wrapping libs, I will consider it a bit of a failure. As you say, there are already a few modules on CPAN you could probably coerce into working for you for the purposes of tinkering, so I do want to go well beyond that.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>A few notes</h2>
+<h3><a href="/user/Shlomi Fish/">Shlomi Fish</a> on 2010-05-25T11:49:38</h3>
+<p>
+Hi doubi,
+</p><p>
+I'm glad you have the enthusiasm to work on this project. As you know (and some other readers here may), I've also proposed a CTypes for Perl project to the TPF two or three times, but it wasn't accepted, so I'm glad it was accepted as part of GSoC.
+</p><p>
+I'd like to note that when I requested help with some ctypes (in Python) problems on #python on Freenode, some of the people there told me that they now prefer <a href="http://en.wikipedia.org/wiki/Cython" title="wikipedia.org">to use Cython over ctypes</a wikipedia.org> and that "it also has a strict subset so that a cython module can be used directly in Python, rather than compiled" (but "idea how good that is though.") so it may be worth to investigate. Cython is not a core Python module though, which has been the case for ctypes for a few years now.
+</p><p>
+Otherwise, note that your first interface is <b>procedural</b> rather than <b>functional</b> (see <a href="http://en.wikipedia.org/wiki/Functional_programming" title="wikipedia.org">Functional programming on the wikipedia</a wikipedia.org>, which is not the opposite of Object Oriented programming). The interface looks fine, but I think we may eventually overgrow the pack/unpack like notation because ctypes and the C programming language supports quite a bit more than what unpack gives. Also see <a href="http://search.cpan.org/dist/Data-ParseBinary/" title="cpan.org">the Data-ParseBinary CPAN module</a cpan.org>, which also has origins in the Python "construct" module, and which is far superior to pack/unpack.
+</p><p>
+I agree with the other people here that we should call it "ctypes" or something and not "ptypes". I tried to log-in into twitter and follow your tweets, but it said that "Twitter is over capacity." and wouldn't let me. I'm not visiting Twitter a lot often. In any case, I'm subscribed to the use.perl.org master Perl feed, and you should see about getting it syndicated on <a href="http://perl-begin.org/blogs/#planets" title="perl-begin.org">the various Perl planets</a perl-begin.org>.
+</p><p>
+Good luck with perlifying ctypes.
+</p>
+
+
+
+<h2>Reaper users eagerly await</h2>
+<h3><a href="/user/schwa/">schwa</a> on 2010-06-10T13:36:02</h3>
+This is the best news I've read all week!  I am one of the developers of Reaper, an audio recording/editing application.  Reaper supports user scripting via Python::ctypes and Perl::FFI.  Python of course works out of the box, and Perl is a constant portability headache (good luck finding a functional Perl::FFI on OS X or x64).<br/><br/><a href="http://forum.cockos.com/showthread.php?t=59436" title="cockos.com">http://forum.cockos.com/showthread.php?t=59436</a cockos.com><br/><br/>If there's any support we can offer, please let us know, we have the maximum enthusiasm for your project!
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

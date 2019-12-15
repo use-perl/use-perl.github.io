@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of waltman: Logging back and forward buttons in Firefox</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Logging back and forward buttons in Firefox</h1>
+<h2><a href="/user/waltman/">waltman</a> on 2008-07-31T03:45:05</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>As promised, here's my extension.  First, a disclaimer.  Though it's unlikely with something this simple, buggy extensions can mess up your Firefox profile, including your bookmarks, cookies, plugins, preferences, and so on.  If you're paranoid, see the Firefox documentation on how to create a development profile.
+
+<p>
+
+The first thing you need to do is create a directory for your extension.  I put mine in ~/extensions/backlog.  In that directory we're going to put 4 files:
+<ul>
+<li>chrome.manifest
+<li>install.rdf
+<li>content/overlay.xul
+<li>content/overlay.js
+</ul>
+<b>chrome.manifest</b> tells Firefox where the files are for the extension.  This is right out of the Mozilla documentation.<p>
+<pre>
+content backlog content/ 
+overlay chrome://browser/content/browser.xul    chrome://backlog/content/overlay.xul
+</pre>
+
+<p>
+
+<b>install.rdf</b> tells Firefox meta information about the extension:<p>
+<pre>
+<?xml version="1.0"?>
+<RDF xmlns="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+     xmlns:em="http://www.mozilla.org/2004/em-rdf#">
+
+  <Description about="urn:mozilla:install-manifest">
+   
+    <em:id>backlog@viscog.cs.drexel.edu</em:id>
+    <em:name>Back Log</em:name>
+    <em:version>1.0</em:version>
+    <em:description>Add history log entries when hitting back button</em:description>
+    <em:creator>Walt Mankowski</em:creator>
+    
+    <em:homepageURL>http://kb.mozillazine.org/Getting_started_with_extension_development</em:homepageURL>
+
+    <em:targetApplication>
+      <Description>
+        <em:id>{ec8030f7-c20a-464f-9b0e-13a3a9e97384}</em:id>
+        <em:minVersion>3.0</em:minVersion>
+        <em:maxVersion>3.0.*</em:maxVersion>
+      </Description>
+    </em:targetApplication>
+    
+  </Description>
+
+</RDF>
+</pre>
+
+Most of that is boilerplate.  The most important field is em:id, because that's how you'll identify it to Firefox later on.  Note that it has to be in the form of an email address, though it doesn't actually have to be a <i>valid</i> email address.  In this extension it's important that em:minVersion is set to 3.0, since I'm using a Firefox 3.0 feature to do the logging.
+
+<p>
+
+<b>content/overlay.xul</b> tells Firefox what part of the browser we want to extend.  In the tutorials they do things like add "Hello, world" somewhere in the browser window.  Here I want to leave the window itself alone and just add some javascript.
+
+<pre>
+<?xml version="1.0"?> 
+<overlay id="backlog-overlay" 
+    xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"> 
+  <script src="overlay.js"/> 
+
+</overlay> 
+</pre>
+
+<p>
+
+<b>content/overlay.js</b> is the javascript code that does the logging when the forward and back buttons are pressed.
+
+<pre>
+window.addEventListener("load", function() { Backlog.onLoad(); }, false);
+
+var Backlog = {
+  onLoad: function() {
+    // initialization code
+    var appcontent = document.getElementById("appcontent");   // browser
+    if (appcontent)
+      appcontent.addEventListener("pageshow", Backlog.onPageShow, true);
+  },
+
+  onPageShow: function(aEvent) {
+    var doc = aEvent.target; // doc is document that triggered "onPageShow" event
+
+    // this service is Firefox's API for logging history events
+    var historyService = Components.classes["@mozilla.org/browser/nav-history-service;1"]
+                                    .getService(Components.interfaces.nsIGlobalHistory2);
+
+    if (aEvent.persisted) // page pulled from cache, so log it
+        historyService.addURI(doc.documentURIObject, false, true, null);
+  }
+
+};
+</pre>
+
+When the overlay is loaded, I add a listener for the pageshow event.  This event is triggered both when a new page is displayed (e.g. when clicking on a hyperlink) and when a page is pulled out of the cache via the forward or back buttons.  When the event occurs, I check the persisted flag.  This is set to true when the page is in the session history, i.e. we've already seen the page once, and now we're seeing it again with Forward or Back.  Firefox normally doesn't add these pages again to its history database, but that's exactly what I wrote this extension to do.  To write the URI out history, I call addURI() in the nsIGlobalHistory2 service.
+
+<p>
+
+It's possible to package up extensions so that they install automatically, but since I only need this to run on a single box I didn't bother.  Instead I just followed the instructions for testing extensions.  It turns out that while extensions themselves contain lots of ugly XML and javascript code, testing them is really easy.  Just go to your Firefox profile directory.  (On my box it's ~/.mozilla/firefox/<random_string>.default.)  Then go one level deeper to the extensions directory.  In that directory, create a file whose name is the id of the extension ("backlog@viscog.cs.drexel.edu" in this case).  The file should contain a single line containing thee root path of the extension ("~/extensions/backlog").  Finally restart Firefox, and you should see a message saying that it's found a new extension.  If you decide to disable the extension, just remove the file from the extensions directory and restart Firefox.</p>
+
+
+<hr/>
+
+
+
+<h2>em:id doesn't have to be an email address</h2>
+<h3><a href="/user/mjwilson/">mjwilson</a> on 2008-07-31T08:05:10</h3>
+em:id doesn't have to be an email address, it just has to be unique amongst all extensions. (GUIDs used to be recommended, but not any more, I don't think.)
+
+
+
+<blockquote>
+
+<h2>Re:em:id doesn't have to be an email address</h2>
+<h3><a href="/user/waltman/">waltman</a> on 2008-07-31T15:15:44</h3>
+Thanks.  I do remember reading that, now that you mention it.  Email addresses do seem an odd way to tag things.
+<p>
+I suppose I should add that this is the first XML and Javascript I've written in nearly a decade, so there are undoubtedly things I could have done better.  For instance, looking at the code again, I probably should have just gotten the service once instead of doing it for every single page.  Oh well.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

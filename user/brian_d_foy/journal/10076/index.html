@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: Little languages</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Little languages</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2003-01-19T23:10:32</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>For a couple of years I have been thinking about writing a little language to script web transactions.  I frequently write specialized web agents to perform various tasks, and the Perl code looks mostly the same.  My little language would simply describe an equivalent Perl program (i.e. just specify the steps), and something else would interpret it.<br/><br/>A little language script should be very short, terse, and cover most of the things that I need to do, and I do not need to support everything in the world.  I translated a 50 line Perl program to this short script, with values <br/><br/><pre>
+AGENT Mozilla 4.5
+COOKIES on
+REDIRECT auto
+TIMEOUT 20<br/><br/>PARAM foo bar
+PARAM bar baz
+CONTENT_TYPE application/x-www-form-urlencoded
+URL http://www.example.com/script.cgi
+POST <br/><br/>DUMP
+SAVE script_output.html<br/><br/>CLEAR<br/><br/>CONTENT_TYPE application/x-multipart-mixed
+URL http://www.example.com/script2.cgi
+MESSAGE_BODY 
+POST
+</pre><br/><br/>Some directives set global conditions.<br/><br/><ul>
+<li><b>AGENT</b> -- the user agent string to use
+<li><b>COOKIES</b> -- "on" or "off"
+<li><b>REDIRECT</b> -- follow "Location" or "Refresh" headers
+<li><b>TIMEOUT</b> -- give up on a page
+<li><b>STICKY</b> -- CGI parameters are sticky
+<li><b>VERBOSE</b> -- show a lot of output
+</ul><br/><br/>Other directives do something with the current state.  There
+is no stack or queue or anything like that---just virtual registers.<br/><br/><ul>
+<li><b>PARAM</b> <i>name</i> <i>value</i> -- set a CGI param, which is sticky and multi-valued
+<li><b>CONTENT_TYPE <i>type</i></b> -- the MIME type for requests with a message body
+<li><b>URL</b> -- the current URL to work with (the previous URL becomes the REFERER by default)
+<li><b>REFERER</b> -- the string to send with the Referer header, which is the previous value of URL by default
+<li><b>DUMP</b> -- pretty print the state to the screen
+<li><b>SAVE [<i>file</i>]</b> -- save the last response to a file
+<li><b>SAVE_STATE [<i>file</i>]</b> -- save the state to a file
+<li><b>LOAD_STATE [<i>file</i>]</b> -- load the state from a file
+<li><b>MESSAGE_BODY [<i>file</i>]</b> -- get the message body from a file
+</ul><br/><br/>Directives with the names of HTTP methods make a request.<br/><br/><ul>
+<li><b>GET</b>
+<li><b>POST</b>
+<li><b>HEAD</b>
+</ul><br/><br/>The program to intrepret this little language is simple.  It reads the source line by line and uses the directive name to call a subroutine.  The directive names (in all uppercase) are the keys in a hash.  The hash values are an anonymous array which describes the directive and includes a subroutine reference that the program executes when it encounters that directive.<br/><br/><pre>
+print "Waiting for commands on standard input\n$prompt" unless @ARGV;<br/><br/>while( <> )
+	{
+	chomp;
+	my( $directive, $string ) = split /\s+/, $_, 2;
+	
+	$directive = uc $directive;
+	
+	my @arguments = Text::ParseWords::quotewords( '\s+', 0, $string );
+	
+	eval {
+		die "Undefined subroutine" unless exists $HASH{$directive};
+		$HASH{$directive}[1](@arguments);
+		};
+		
+	warn "Not a valid directive: [$directive] at $ARGV line $.\n"
+		if $@ =~ m/Undefined subroutine/;
+		
+	print "$prompt" if $ARGV eq '-';
+	}
+</pre><br/><br/>Since everything the language can do is in a hash, extending the language is easy---just add to the hash.  Similarly, I can change what something does by changing the hash.<br/><br/>As I was writing this today, I realized that I could abstract this design so that the way the interpreter works and the description of the language would not be coupled.  Before I let anyone else see the rest of the code, I need to tear apart the proof-of-concept script I wrote and devise some simple scheme to describe the language.  However, I want to do something else tonight---anything else.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: What Did I just Write?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>What Did I just Write?</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-02-01T14:51:12</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Drinking coffee.  Hacking diligently.  This code worked perfectly the first time I wrote it.  I <em>know</em> what it's supposed to do, but I still can't believe it works.  When my own code gives me a headache, I think I've made a mistake.</p>
+
+<pre># This method builds 'paths'.  These are the paths the inheritance hierarchy
+# will take through the code to find a method.  This is based on Perl's
+# default search order, not C3.
+sub _build_paths {
+    my ( $self, $class, @parents ) = @_;
+
+    my @paths = $self->paths;
+    for my $i ( 0 .. $#paths ) {
+        my $path = $paths[$i];
+        if ( $path->[-1] eq $class ) {
+            my @new_paths = map { [@$_] } ($path) x @parents;
+            for my $j ( 0 .. $#parents ) {
+                push @{ $new_paths[$j] } => $parents[$j];
+            }
+            splice @paths, $i, 1, @new_paths;
+            $self->paths(@paths);
+        }
+    }
+}</pre>
+
+<p>Yeah, let's try that again.</p>
+
+<pre>sub _build_paths {
+    my ( $self, $class, @parents ) = @_;
+
+    my @paths = $self->paths;
+    for my $i ( 0 .. $#paths ) {
+        my $path = $paths[$i];
+        if ( $path->[-1] eq $class ) {
+            my @new_paths;
+            for my $parent_class (@parents) {
+                push @new_paths => [@$path, $parent_class];
+            }
+            splice @paths, $i, 1, @new_paths;
+            $self->paths(@paths);
+        }
+    }
+}</pre>
+
+<p>Much better.  I still have no idea why the first way popped into my damned head.</p></p>
+
+
+<hr/>
+
+
+
+<h2>My head still hurts</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-02-02T04:04:06</h3>
+<p>First of all:</p><blockquote><div><p> <tt>sub _build_paths {<br>&nbsp; &nbsp; my ( $self, $class, @parents ) = @_;<br> <br>&nbsp; &nbsp; my @paths = $self-&gt;paths;<br>&nbsp; &nbsp; for my $i ( 0<nobr> <wbr></nobr>.. $#paths ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $path = $paths[$i];<br>&nbsp; &nbsp; &nbsp; &nbsp; if ( $path-&gt;[-1] eq $class ) {<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my @new_paths = map { [@$path, $_] } @parents;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; splice @paths, $i, 1, @new_paths;<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $self-&gt;paths(@paths);<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; }<br>}</tt></p></div> </blockquote><p>But that is still terrible, if you&#8217;ll excuse my frankness. Somewhere in the middle of a loop you surreptitiously modify the array you are iterating over with <code>splice</code>. Is the fact that you might end up over- or undershooting the end of the array (because the list of indices was generated before modification and <code>@parents</code> may contain 0 or more than 1 elements) intentional? What does it mean? It has all the readability of GOTO spaghetti&#8230;</p><p>As an aside, you call a mutator potentially over and over, even though there seems to be no reason you couldn&#8217;t call it just once.</p><p>I <em>think</em> you meant something close to the following:</p><blockquote><div><p> <tt>sub _build_paths {<br>&nbsp; &nbsp; my ( $self, $class, @parents ) = @_;<br> <br>&nbsp; &nbsp; my $do_upd;<br> <br>&nbsp; &nbsp; my @paths = map {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $path = $_;<br>&nbsp; &nbsp; &nbsp; &nbsp; $path-&gt;[-1] eq $class<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; ? do { ++$do_chg; map { [@$path, $_] } @parents }<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; : $path<br>&nbsp; &nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; } $self-&gt;paths;<br> <br>&nbsp; &nbsp; $self-&gt;paths(@paths) if $do_chg;<br>}</tt></p></div> </blockquote><p>Or if the mutator call isn&#8217;t that expensive and has no other side effects you could just leave out the flag entirely.</p>
+
+
+
+<h2>Missed that.</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-02-02T07:29:28</h3>
+<p>Arg!  You're right, I totally biffed that one.  It took me long enough to realize the general shape of the algorithm that I just totally missed what I was iterating over.  I've added your code.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

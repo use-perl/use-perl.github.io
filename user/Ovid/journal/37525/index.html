@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Blocked in Refactoring Catalyst</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Blocked in Refactoring Catalyst</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-09-24T10:46:17</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><P>We're doing a lot of work in refactoring Catalyst "Regex" attributes into proper Chained methods.  So let's say I have a URL like this:</p>
+
+<pre>http://www.example.com/api/v1/episode/$id/bundle/</pre>
+
+<P>We used to have horrible regexes for that, but now we do something like this:</p>
+
+<pre>sub episode_chain :
+    Local :
+    ActionClass('REST') :
+    PathPart('episode') Chained('/api/v1/v1_chain') CaptureArgs(1) {}
+
+sub episode_chain_GET {}
+
+sub bundle :
+    Local :
+    ActionClass('REST') :
+    Chained('episode_chain') Args(0) {}</pre>
+
+<p>We're having serious trouble refactoring a lot of that because we also have things like this in our broadcast class (and in several other classes):</p>
+
+
+<pre>sub broadcast_chain :
+    Local :
+    ActionClass('REST') :
+    PathPart('broadcast') Chained('/api/v1/v1_chain') CaptureArgs(1) {}
+
+sub broadcast_chain_GET {}
+
+sub bundle :
+    Local :
+    ActionClass('REST') :
+    Chained('broadcast_chain') Args(0) {}</pre>
+
+<p>The problem about refactoring is that much of the data is embedded in attributes and attributes <em>are not</em> Perl code, they're merely text data which is fed to your attribute handler.  The following illustrates.</p>
+
+<pre>#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+my $novoid;
+BEGIN { $novoid = 'NOVOID' }
+
+use base 'Attribute::Context';
+
+sub foo : Arrayref($novoid) {
+    return;
+}</pre>
+
+<p>Now if you run  deparse on this (<tt>perl -MO=Deparse attribute.pl</tt>):</p>
+
+<pre>use warnings;
+use strict 'refs';
+my $novoid;
+sub BEGIN {
+    use warnings;
+    use strict 'refs';
+    $novoid = 'NOVOID';
+}
+use base ('Attribute::Context');
+use attributes ('main', sub {
+    use warnings;
+    use strict 'refs';
+    return;
+}
+, 'Arrayref($novoid)');</pre>
+
+<p>As you can see, the raw text "$novoid" is passed through.  It's not interpolated.  This means that much of our refactoring work is severely hampered.  We'll either have to rethink design decisions to work around a serious limitation with attributes or just live with the cut-n-paste pain.</p>
+
+<p>I understand that Matt Trout was working on a solution to this, but I've no idea where he is with this.</p></p>
+
+
+<hr/>
+
+
+
+<h2>That's not what's missing</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-09-24T12:19:52</h3>
+<p>Dispatch has to be a tree, not graph, if <code>uri_for</code> is supposed to be possible. And I like <code>uri_for</code> too much to consider any proposal that breaks it.</p><p>Instead, I would like to see a way to constrain the possible values of <code>CaptureArg</code>s. That way you could say something like this:</p><p> <code>PathPart(<b>""</b>) Chained('/api/v1/v1_chain') CaptureArgs(<b>2</b>) <b>ArgMatch(0, 'episode|broadcast')</b> </code> </p><p>Since <code>uri_for</code> already has a mechanism for specifying captures, it would work out of the box. And in fact (I think) it&#8217;s already possible to write <code>ArgMatch</code> yourself!</p><p>I don&#8217;t know if a subroutine can have several instances of the same attribute. If not, the interface would have to be pretty clumsy. Otherwise, you could just repeat it to constrain multiple captures. So with that in hand you could throw in this for good measure: <code>ArgMatch(1,'\d+')</code> </p>
+
+
+
+<blockquote>
+
+<h2>Re:That's not what's missing</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-09-24T12:54:01</h3>
+<p>Yeah, I've thought that matching args against regular expressions would make this grief go away.  I was whining about this yesterday to colleagues (I've found myself supremely dissatisfied with the amount of cut-n-paste that Chained actions entail which the Regex actions didn't, even though our regexes were too unwieldy).</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Btw</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2008-09-24T13:05:58</h3>
+<blockquote><div><p> <tt>&lt;rafl&gt; uhm.. Chained + Local? sounds line an unintended feature to me.</tt></p></div> </blockquote><p>You want one of them, not both. They are different dispatch types. The fact that your code works, if it does, is an accident.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Btw</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-09-24T13:20:50</h3>
+<p>Oops.  That was cargo-cult on my part. Thanks.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>You'd be luckier on the catalyst ML..</h2>
+<h3><a href="/user/castaway/">castaway</a> on 2008-09-24T13:17:06</h3>
+Hey Ovid, not to avoid the issue.. but is this really the forum? Assuming you're looking for actual help that is, and not some place to just gripe about catalyst<nobr> <wbr></nobr>;)<br/><br/>The Catalyst mailing list / irc channel likely have a lot more useful helpers..
+
+
+
+<blockquote>
+
+<h2>Re:You'd be luckier on the catalyst ML..</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-09-24T13:19:38</h3>
+<p>This is true.  My main concern here was attributes and since this is so core in Catalyst, I really didn't see a major architectural change there.  I should sign up for the Catalyst list again, but like the DBIx list, I rarely read the thing<nobr> <wbr></nobr>:) (and I am very infrequently on IRC)</p>
+
+
+
+<blockquote>
+
+<h2>Re:You'd be luckier on the catalyst ML..</h2>
+<h3><a href="/user/castaway/">castaway</a> on 2008-09-24T13:35:17</h3>
+Me either.. but I pick one of the two if I have a problem I want solved or need help figuring out how the thing works (or should work<nobr> <wbr></nobr>;)<br/><br/>Coding in isolation is out!
+
+
+
+<blockquote>
+
+<h2>Re:You'd be luckier on the catalyst ML..</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-09-24T14:08:41</h3>
+<p>Done.  I've resubscribed to the Catalyst list.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>alternative metadata systems</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2008-09-24T20:35:43</h3>
+<p>
+This is the thing about sub attributes: they turn into a mess as soon as you try to do anything complicated with them.  Java has tried to solve this with annotations.  Those don't look so hot to me, but they do work better for this amount of metadata.  Mason has a special markup for adding attributes to components.  It's somewhat easier to read than this, but still not actual perl code.
+</p><p>
+The simple approach is to have some kind of explicit configuration instead, like CGI::Application does.  Then your metadata is real perl code that anyone can work with, and the standard toolchain works on it.  Unfortunately, sub attributes look so appealing when you use them for simple cases that people who have never seen them go bad often get sucked in.</p>
+
+
+
+<blockquote>
+
+<h2>Re:alternative metadata systems</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2008-09-24T22:09:55</h3>
+<p>The problem with "configuration" is that you often have significant effects being generated by something which is not visible in the code.  As a result, yes, attributes look appealing.  Unfortunately, I don't see this being easily solved in a "clean" manner in Perl 5<nobr> <wbr></nobr>:(</p>
+
+
+
+<blockquote>
+
+<h2>Re:alternative metadata systems</h2>
+<h3><a href="/user/mpeters/">mpeters</a> on 2008-09-25T14:33:46</h3>
+<p>The "configuration" that perrin was talking about in CGI::Application modules *is* visible in the code because it's just in a <code>setup()</code> method. It's not magical, it's all localized (no need to guess where the dispatch rules are scattered throughout the application) and it's just plain code.</p><p>I'm not saying that it's perfect or can't be improved, but sometimes we try to be too magical just to save some minor style nits. But I have to admit that I'm really excited that Perl 6 is going to do it better by making sub attributes real Perl 6 syntax.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

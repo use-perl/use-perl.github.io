@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of masak: A Perl one-liner grows up</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>A Perl one-liner grows up</h1>
+<h2><a href="/user/masak/">masak</a> on 2009-01-03T13:12:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I wanted an overview of S29. More exactly, I wanted a list of functions. The table of contents in <a href="http://perlcabal.org/syn/S29.html">S29 itself</a> didn't cut it, because it stopped short at the level of classes, and left out the functions. That's when I decided to extract the relevant information using a script of my own. I mean, how hard can it be?</p>
+
+<p>Turns out it was easy.</p>
+
+<p>Duh, right? We have <em>Perl</em> this is what Perl <em>does</em>: extract and report. (Practically.) Because it turned out to be a three-minute one-liner in Perl 5, I decided to turn it into a Perl 5 script file, and then into a Perl 6 script file.</p>
+
+<p>The results were a bit interesting, and I thought I'd share.</p>
+
+<p>First, a description of the problem:</p>
+
+<ul>
+  <li>S29 is a POD file, which means we're in luck: all the directives we need to extract are on their own lines.</li>
+  <li>Furthermore, all the classes are headed by <code>=head2 $class</code>, and the functions by <code>=item $function</code>.</li>
+  <li>There's some <code>=over 4</code> and <code>=back</code> stuff that we don't care about.</li>
+  <li>Oh, an the action doesn't start until after the line <code>=head1 Function Packages</code>.</li>
+  <li>Now, produce a list of functions, indented under their respecitve class.</li>
+</ul>
+
+<p>Here's my one-line solution:</p>
+
+<pre>$ perl -e '$_ = <> until /Function Packages/; while (<>) { if (/^=(\S+) (.*)/) { next if $1 eq "over"; print " " x 4 if $1 eq "item"; print $2, "\n" } }' S29-functions.pod</pre>
+
+<p>If you're interested in the output it produces, try running it after <code>cd</code>-ing into the directory <code>docs/Perl6/Spec</code> in the <a href="http://svn.pugscode.org/">Pugs repo</a>.</p>
+
+<p>Here's the corresponding turned-into-a-file script (still Perl 5):</p>
+
+<pre>
+use strict;
+
+open my $S29, '<', 'S29-Functions.pod' or die $!;
+
+until (<$S29> =~ /Function Packages/) {}
+
+while (my $line = <$S29>) {
+    if ($line =~ / ^ = (\S+) ' ' (.*) /x) {
+        next if $1 eq 'over';
+        if ($1 eq 'item') {
+            print ' ' x 4;
+        }
+        print $2, "\n"
+    }
+}
+</pre>
+
+<p>Things are a bit more indented, a bit more Best Practices, but no revolutionary changes. It's the same script.</p>
+
+<p>Now, take a look at the Perl 6 script:</p>
+
+<pre>
+use v6;
+
+my $S29 = open('S29-Functions.pod', :r) or die $!;
+
+repeat {} until =$S29 ~~ /'Function Packages'/;
+
+for =$S29 -> $line {
+    if $line ~~ / ^ '=' (\S+) ' ' (.*) / {
+        next if $0 eq 'over';
+        if $0 eq 'item' {
+            print ' ' x 4;
+        }
+        say $1;
+    }
+}
+</pre>
+
+<p>Noteworthy differences:</p>
+
+<ul>
+  <li><code>use strict</code> is implicit in <code>use v6</code>.</li>
+  <li>The <code>open</code> syntax is different. I stumbled on this, and had to go look in a spectest file to remind myself.</li>
+  <li>I use <code>repeat {} until $cond</code> unstead of <code>{} until $cond</code>, because I think it looks better. The old way still works, too.</li>
+  <li>The <code>while</code> loop is a <code>for</code> loop. Beware, young Perl 6 hatchlings! In Perl 6 land, we <code>for</code> loop over our files and other stream-like things. That way, we don't have to do an assignment (explicit as in my Perl 5 script, or implicit with <code>$_</code>). Things are more lazy in Perl 6, so the <code>for</code> loop doesn't cause the file to be slurped or anything like that. (For what it's worth, I forgot to use a <code>for</code> loop and used a <code>while</code> loop instead, with segfaults as a result. That was an indication that I was doing something wrong.)</li>
+  <li>No parens are needed after <code>for</code> and <code>if</code>.</li>
+  <li>Perl 6 regexes are automatically <code>/x</code>.</li>
+  <li>The family of <code>$1, $2, ...</code> match variables are pushed down one step. For great justice. And consistency.</li>
+  <li>I'm not sure it's kosher to use <code>say</code> like I did (i.e. to finish off a line that has been printed in several stages), but it seemed nice, so I decided to give it a try. So far, I like it.</li>
+</ul>
+
+<p>There you have it. A Perl one-liner grows up.</p></p>
+
+
+<hr/>
+
+
+
+<h2>a safer one-liner</h2>
+<h3><a href="/user/azawawi/">azawawi</a> on 2009-01-04T19:52:13</h3>
+<tt>Great work, masak. I started using that in Padre::Plugin::Perl6 to index Perl6 functions.<br><br>A more safe one-liner that works even on win32 platforms.<br><br>perl -e "$_ = &lt;&gt; until<nobr> <wbr></nobr>/Function Packages/; while (&lt;&gt;) { if (/^=(\S+) (.*)/) { next if $1 eq q{over}; print q{ } x 4 if $1 eq q{item}; print qq{$2\n} } }" S29-functions.pod</tt>
+
+
+
+<blockquote>
+
+<h2>Re:a safer one-liner</h2>
+<h3><a href="/user/masak/">masak</a> on 2009-01-05T12:00:58</h3>
+<p><div class="quote"><p> <tt>Great work, masak. I started using that in Padre::Plugin::Perl6 to index Perl6 functions.</tt></p> </div><p>Happy to hear that.</p><p><div class="quote"><p> <tt>A more safe one-liner that works even on win32 platforms.</tt></p> </div><p><div class="quote"><p> <tt>perl -e "$_ = &lt;&gt; until<nobr> <wbr></nobr>/Function Packages/; while (&lt;&gt;) { if (/^=(\S+) (.*)/) { next if $1 eq q{over}; print q{ } x 4 if $1 eq q{item}; print qq{$2\n} } }" S29-functions.pod</tt></p> </div><p>That version may work on win32 platforms, but it doesn't in bash, which does variable interpolation of double-quoted strings. Single quotes work.</p><p>Thanks for the tip about <code>q{}</code> and <code>qq{}</code>, though! I really should remember to use those more in one-liners, where single quotes are essentially hijacked by the <code>-e</code> string.</p>
+
+
+
+<blockquote>
+
+<h2>Re:a safer one-liner</h2>
+<h3><a href="/user/azawawi/">azawawi</a> on 2009-01-05T12:53:23</h3>
+<tt>Cool. Thanks for the bash tip.<br><br>Please take a look at the updated code for parsing S29 for documentation and selecting the correct one. I think S29 needs to be updated in some =item-s to be more consistent.<br><br>http://padre.perlide.org/browser/trunk/Padre-Plugin-Perl6/lib/Pa<nobr>d<wbr></nobr> re/Plugin/Perl6.pm.<br><br></tt>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

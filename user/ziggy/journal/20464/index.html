@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ziggy: Reasons to hate C, #2752</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Reasons to hate C, #2752</h1>
+<h2><a href="/user/ziggy/">ziggy</a> on 2004-08-19T04:39:11</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>A couple of months ago, the project at work was running into problems shortly after I integrated an XSLT engine into the project.  I had a sneaky suspicion that there was going to be a problem, since there were two versions of expat lurking under the hood.
+<p>
+See, there was a hacked version of expat that didn't do entity translation.  When you're doing a pass-through parse, sometimes you really do want the entities to remain as they are.  For example, it's <i>bad</i> to convert numeric character entities coming from the database as you parse them, right before you spit them out to the browser.  The browser can deal with tokens like <tt>&amp;#8675309;</tt>, but it might not be able to recognize a multibyte Unicode character as a multibyte Unicode character.  So keeping the entitites unparsed is sometimes both the right thing to do and the tasty way to do it[*].
+<p>
+So now there's this situation where we have dueling copies of expat integrated into the project.  One of the things that depends on expat will be broken, and as luck would have it, the thing that broke is the more important subsystem that has worked reliably for ~5 years (until I integrated that XSLT engine).  As expected, my changes broke the build, so I rushed out some hacks to prevent the offending parts of expat to stop colliding.  (Basically, some <tt>#define Token new_Token</tt> hacks for all of the functions that need two definitions.)
+<p>
+Do a clean checkout and a full build, and everything works.  Do a make clean and make all on the offending component, and everything works.
+<p>
+Fast forward a couple of months, and things are acting wonky.  The other component is now broken in some hard-to-describe circumstances.  The only way to fix it is to build the entire project, including a broken XSLT component, then make clean && make install on the XSLT component to get everything working.  Very strange indeed.
+<p>
+After about an hour of hacking around to understand how something that simply shouldn't be possible was happening, I found the cause of the problem.  The C files that contained the <i>definitions</i> of the redefined symbols were updated from CVS and recompiled.  But the C files that contained the <i>invocations</i> were never changed, so they were never recompiled, and the .o files contained stale references to the unadorned function names.
+<p>
+And here was the root cause of the problem.  In development, we do a 'make clean' all the time.  But in testing, they do a simple 'cvs update && make' instead.  So the stale .o files were linked against the new definitions, loading both symbols into the same .so file.  Ugh.  And, like most Makefiles, this one did not list dependencies of C files on other C files or header files that should trigger a rebuild.  Double ugh.
+<p>
+
+Funny.  After years of using a <a href="http://www.perl.org/">real language</a>, I had nearly forgotten that these kinds of partially-stale configurations were possible.
+
+<p>
+
+<small>*: Thank you Quaker Oats for one of the most memorable ad campaigns from the 1980s.  ;-)</small></p>
+
+
+<hr/>
+
+
+
+<h2>Preserving Entities</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2004-08-19T07:11:23</h3>
+<p>Will bite you in the end.  Trust me.  I've just come from a project where we've used hack upon hack upon hack upon hack to ensure that entities get preserved in one state or another.  But the trouble is that you've effectively got several layers of character encoding.  In our case, we ended up with stuff in the database which contained &amp;amp; et al.  Well, in some tables we did.  In others we had UTF-8.  And the search engine saw character references and turned them into latin-1.  Sometimes.  So you never really knew what you were going to get back from the database, and what kind of escaping and transcoding it required.  I have one particular function which first attempts to encode a string using UTF-8, and if that fails, fall back to latin-1.
+
+</p><p>Needless to say, I am horrified by all this.  And it pretty much could all have been prevented by working on the xml infoset instead of getting involved with XML's lexical details.  That way you would ensure that you have only a single known encoding of input data.  You would then know to apply a single set of transformations to get it understood by a browser.
+
+</p><p>After 4 years of delivering websites where we have attempted to turn Unicode into something simpler for the thick-as-pig-shit browsers, we've gradually come to the conclusion that it's better to spit out UTF-8 regardless.  If the user gets funny about characters, tell them to get a better font.  Some of the <a href="http://corefonts.sourceforge.net/" title="sourceforge.net">Microsoft core fonts</a sourceforge.net> are surprisingly good.  They work really well in firefox.  I just wish that the bitstream vera ones had such a large character repertoire.
+
+</p><p>Although you probably know most of it, <a href="http://skew.org/xml/tutorial/" title="skew.org">this tutorial</a skew.org> about Unicode and XML is worth a quick read.
+
+</p><p>Anyway, congratulations on finding that nasty bug!
+
+</p><p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Preserving Entities</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2004-08-19T12:55:18</h3>
+Actually, it sounds like you are dealing with a different problem.
+
+<p>
+
+We own the data that we are serving up through this web app.  So it's
+fully normalized by the time it's parsed in this pipeline.  The problem
+is more about keeping the entities that are in there from being converted
+into UTF-8.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Preserving Entities</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2004-08-19T13:21:21</h3>
+You're right, I was talking about a semi-different problem, which descended into a large rant.<nobr> <wbr></nobr>:-)
+
+<p>I'm still curious about the need for character references rather than UTF-8 bytes though.  Which browsers were giving you trouble?
+
+</p><p>-Dom</p>
+
+
+
+<h2>Re:Preserving Entities</h2>
+<h3><a href="/user/iburrell/">iburrell</a> on 2004-08-19T17:54:24</h3>
+One solution to this problem is to turn all non-ASCII characters into numeric character references before writing output.   This saves having to worry about the encoding of characters in binary.
+
+
+
+<blockquote>
+
+<h2>Re:Preserving Entities</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2004-08-19T18:55:28</h3>
+Right, but if you postprocess the non-ASCII characters, then you're
+post processing the data.  The constraint on this project is to:
+(1) load XML into a buffer, (2) parse that buffer, (3) send chunks
+of that buffer as-is to prevent extraenous [re-]processing.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Browsers</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2004-08-19T07:17:27</h3>
+I've yet to find a bad experience of the entity conversion issue, and we deliver a web interface to a couple of million users in different languages, using AxKit.<br> <br>Where are all these bad browsers?
+
+
+
+<blockquote>
+
+<h2>Re:Browsers</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2004-08-19T13:06:29</h3>
+Yes, you're right.  The browser is where the problem manifests itself,
+not the cause of the problem.
+
+<p>
+
+It's been a while since I looked at AxKit, but I think the (XML) output
+that is serialized to the browser is properly re-escaped.  This is the
+correct behavior according to the XML character model.
+
+</p><p>
+
+For some reason, this system goes to extreme measures to do as little
+work as possible in each transaction.  That includes passing around raw
+XML text instead of higher level data structures, and making as few
+modifications to that buffer as technically possible.
+
+</p><p>
+
+I'm not going to comment as to whether this "performance optimization"
+is good or bad, useful or not, or even whether I agree with it.  But
+that's the way this system is designed.  And that's why it was ripe for
+this integration bug once a real version of expat was loaded.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Browsers</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2004-08-19T15:22:37</h3>
+I think libxslt's HTML renderer just sends raw UTF-8 to the output - it doesn't go to any effort to re-encode it. I'm still not seeing any problems though - maybe things have changed in browser terms, but opinions of what you have to do haven't?
+
+
+
+<blockquote>
+
+<h2>Re:Browsers</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2004-08-19T15:38:25</h3>
+There's probably a charset issue at the root of it all.  I saw the
+problem again the other day -- an entity that came in as &amp;#8211;
+got parsed into a unicode character and needed to be output as
+either &amp;#8211; or &amp;ndash; to render properly.  When it came
+out as a unicode character, it was unrenderable (the obligatory question
+mark instead of an ndash).  Most likely a unicode multibyte sequence
+coming out in iso8859-1 or even ascii.
+
+<p>
+
+The tool chain is old enough that there are likely lots of XML-in-ascii
+assumptions under the hood.  Mess enough of those up, and you get
+unrenderable characters in the browser.  Thus, you have "bad
+browsers" and "browser problems" with improperly rendered character
+entities, and the herculean efforts to bend expat to something that fits
+local expectations.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Browsers</h2>
+<h3><a href="/user/Dom2/">Dom2</a> on 2004-08-20T06:53:37</h3>
+Just a thought, but could you use <tt>Encode::encode('us-ascii',$xml,Encode::FB_XMLCREF)</tt>?
+
+<p>-Dom</p>
+
+
+
+<blockquote>
+
+<h2>Re:Browsers</h2>
+<h3><a href="/user/ziggy/">ziggy</a> on 2004-08-20T12:41:37</h3>
+I <i>could</i>, except this project is a mixture of Tcl and C.  [*]
+
+<p>
+
+The problem came about because the standard version of expat was munged,
+and linking in a new module with a clean expat broke one or the other of
+the dependencies.  And expat was munged in the first place explicitly to
+avoid re-escaping previously escaped entities on output once they had been
+parsed into unicode characters.  (A performance optimization to do as
+little work as possible, and work at the lowest layer possible, to enable
+high throughput and therefore scalability.)
+
+</p><p>
+
+This software is positively ancient in dotcom years.  The decision to
+munge character handling was made at least 5 years ago, and it was
+working fine until the the dueling expats raised the issue.  If it were
+up for redesign, we'd surely do things differently now.<nobr> <wbr></nobr>;-)
+
+</p><p>
+
+<small>*: How do you hire a Tcl programmer in 2004?  Put an ad out for a
+Perl programmer.<nobr> <wbr></nobr>;-)</small></p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>I would like to have this option</h2>
+<h3><a href="/user/mir/">mir</a> on 2004-08-19T13:39:47</h3>
+<p>Have you thought about sending a patch back to expat? In some cases I would love to have that option, especially from Perl where XML::Parser sometimes behaves in a <a href="http://perlmonks.org/index.pl?node_id=384139" title="perlmonks.org">really funny way</a perlmonks.org></p>
+
+
+
+<h2>Re: Reasons to hate C, #2752</h2>
+<h3><a href="/user/jdporter/">jdporter</a> on 2004-08-20T22:14:56</h3>
+I just wonder what the '752' part of your number is for...
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

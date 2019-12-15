@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Debugging In List Context</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Debugging In List Context</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-05-26T15:10:40</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><P>Today I faced a bug in this code:</p>
+
+<pre>$self->set_build_data([
+        $self->build_primary_element,
+        $self->build_identifiers,
+        @build_event_in,
+        @build_event_of,
+        [
+            offset => {},
+            ($rs->offset ? $rs->offset->in_seconds : undef)
+        ],
+        [ position => {}, $rs->position ],
+        [ title    => {}, $rs->title ],
+        $self->build_synopses,
+        $self->build_from('Taggings'),
+        $self->build_resultset_links(qw/taggings changes/),
+    ],
+);</pre>
+
+<p>I saw that the <tt>build_from('Taggings')</tt> method wasn't returning the taggings.  I put this code into the <tt>build_from</tt> method:</p>
+
+<pre>sub build_from {
+    my ( $self, $type ) = @_;
+    $DB::single = 'Taggings' eq $type;</pre>
+
+<p>The <tt>$DB::single = $some_true_value</tt> code sets a breakpoint.  When you run the code through a debugger, hitting 'c' for "continue" will run the code up to that point and then halt there, waiting for you to issue additional commands (as a fun exercise, 'ack' for <tt>DB::single</tt> in your installed CPAN modules).  That let me easily step into the code and find out that <em>something</em> prior to that method call had altered the state of the object and prevented my tags from being built.  But let's look back at that code again.  I didn't relish stepping into every one of those methods and finding out which was the offending code.  As it turns out, it's the <tt>$self-&gt;build_context</tt> data which was getting altered.  However, I can't just <tt>warn</tt> on those values because this fails:</p>
+
+<pre>use Data::Dumper;
+$self->set_build_data([
+        $self->build_primary_element,
+        warn Dumper($self->build_context),
+        $self->build_identifiers,
+        warn Dumper($self->build_context),
+        @build_event_in,
+        warn Dumper($self->build_context),
+        ...</pre>
+
+<P>It fails because <tt>warn</tt> returns a true value and thus destroys my list.  However, there's an interesting feature of lists which many people are not aware.  An empty lists collapses out of a list.  The following list has two elements, not three:</p>
+
+<pre>my @two_element_list = (1, (), 2);</pre>
+
+<p>Now you can just have a subroutine return any empty list and safely make subroutine calls in the middle of a list.  However, because of how lists work, you can't rely on line numbers via <tt>warn</tt>, so you need the <tt>__LINE__</tt> directive to get the correct line number.  That leads to the following code:</p>
+
+<pre>use Data::Dumper::Simple;
+my $warn = sub { 
+    my $line = shift;
+    warn Dumper($line, $self->build_context);
+    return (); 
+};
+$self->set_build_data([
+        $self->build_primary_element,
+        $warn->(__LINE__),
+        $self->build_identifiers,
+        $warn->(__LINE__), 
+        ...</pre>
+
+<p>And near the top of my test output, I see the following:</p>
+
+<pre>$line = '35';
+$self->build_context = {
+  'expand_junction' => bless( [
+    'promotions',
+    'segments',
+    'taggings'
+  ], 'Perl6::Junction::Any' ),
+  'uri_base' => bless( do{\(my $o = 'http://localhost/')}, 'URI::http' )
+};
+$line = '42';
+$self->build_context = {
+  'expand_junction' => bless( [
+    'promotions',
+    'segments'
+  ], 'Perl6::Junction::Any' ),
+  'uri_base' => bless( do{\(my $o = 'http://localhost/')}, 'URI::http' )
+};
+63 at /home/ovid/pips_dev/work/Pips3/branches/exploratory/lib/PIPs/API/Builder/SegmentEvent.pm line 60.
+$self->build_context = {
+  'expand_junction' => bless( [
+    'promotions',
+    'segments'
+  ], 'Perl6::Junction::Any' ),
+  'uri_base' => bless( do{\(my $o = 'http://localhost/')}, 'URI::http' )
+};</pre>
+
+<p>And now I can instantly see that I lost the 'taggings' build context right after I called <tt>build_identifiers</tt>, thus telling me quickly where the bug in my code was.</p>
+</p>
+
+
+<hr/>
+
+
+
+<h2>you could also inline it</h2>
+<h3><a href="/user/cowens/">cowens</a> on 2009-05-26T18:47:32</h3>
+<p>#!/usr/bin/perl</p><p>use strict;<br>use warnings;</p><p>my @a = (<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 1,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; @{[map {()} warn "in here\n"]},<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 2,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 3<br>);</p><p>print map { "$_\n" } @a;</p>
+
+
+
+<blockquote>
+
+<h2>Re:you could also inline it</h2>
+<h3><a href="/user/cowens/">cowens</a> on 2009-05-26T18:52:07</h3>
+<p>or the slightly less stupid (I don't know why I threw it in an arrayref to start with):</p><p>#!/usr/bin/perl</p><p>use strict;<br>use warnings;</p><p>my @a = (<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 1,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; (map {()} warn "in here\n"),<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 2,<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; 3<br>);</p><p>print map { "$_\n" } @a;</p>
+
+
+
+<blockquote>
+
+<h2>Re:you could also inline it</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-05-30T18:20:37</h3>
+<p>An even shorter way to write that is this:</p><blockquote><div><p> <tt>(map {;} warn "in here\n")</tt></p></div> </blockquote><p>However, I prefer to take a page from Javascript, by defining the following amusing function:</p><blockquote><div><p> <tt>sub void {}</tt></p></div> </blockquote><p>I can then write the code in this much nicer way:</p><blockquote><div><p> <tt>(void warn "in here\n")</tt></p></div> </blockquote><p>This is far nicer than Ovid&#8217;s approach as well, IMO.</p>
+
+
+
+<blockquote>
+
+<h2>Re:you could also inline it</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-06-01T07:52:26</h3>
+<p>Ah, that is a nicer solution, thanks.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>return();</h2>
+<h3><a href="/user/jarich/">jarich</a> on 2009-05-27T00:34:39</h3>
+<p>
+<code>return()</code> with no arguments (which is what you're doing) does the "right thing" in both scalar and list contexts.  It returns either an empty list or undefined value.
+</p><p>
+Thus you could also have written:
+</p><p>
+<code>
+return;
+</code>
+</p><p>
+for the same effect.  I'm sure you know this already, but from your commentary and style it did look like you were trying to explicitly return an empty list.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:return();</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-05-27T06:47:19</h3>
+<p>Yes, I normally just use  a bare return (and get annoyed when people use 'return 0' for false), but I honestly didn't think about that here because I originally had this:</p><blockquote><div><p> <tt>my $warn = sub { warn Dumper($self-&gt;build_context); () };</tt></p></div> </blockquote><p>That showed the annoying <tt>__LINE__</tt> problem and I decided to be explicit about the return when I added the <tt>$line</tt> variable.  Normally about the only time -- aside from this example -- I return an explicit empty list is when I do this:</p><blockquote><div><p> <tt>return $condition ? $some_value : ();</tt></p></div> </blockquote>
+
+
+
+<h2>Re:return();</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2009-05-27T06:48:21</h3>
+<p>Oh, and what I didn't say, but should have, in my first reply was "thanks".  The bare return is (IMHO) a cleaner solution.</p>
+
+
+
+<h2>Re:return();</h2>
+<h3><a href="/user/kane/">kane</a> on 2009-05-27T10:12:46</h3>
+<p>For less trickery with subs and call stacks and line numbers, remember your old friend 'do'!</p><p>$ perl -le'print join " ", (1, do { warn 2; () }, 3)'<br>2 at -e line 1.<br>1 3</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

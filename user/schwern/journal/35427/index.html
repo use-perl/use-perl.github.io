@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: Data::Dump::Streamer + $DB::single</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Data::Dump::Streamer + $DB::single</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2008-01-19T00:28:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I'm trying to track down a nasty problem involving the Class::DBI compatibility wrapper around DBIx::Class and Class::Trigger.  I've got closures being created, and then stored somewhere, and then way later in the code those closures run.  Oh, and all this is a bug that only happens near the end of a very specific, big wad of code.<br/><br/>Many, many layers, action at a long distance, lots of code to wade through until we hit the problem and those damned opaque closures.<br/><br/>I can't examine what's in the trigger queue because it's all closures, all the debugger or Data::Dumper will show me is "CODE(0x189fc3c)" and maybe line which generated it if I'm lucky.  Getting in there with the debugger is a royal pain because every time I have to restart the process, set up the breakpoints... very time consuming and I have to do it over and over again as I slowly zero in on the problem.<br/><br/>There's a little known way to hard code breakpoints into the code.  It's done by setting $DB::single.  Usually you see it as "$DB::single = 1" but it's even less widely realized that it doesn't have to be 1.  You can set it to any true value or expression!  "$DB::single = $foo == 42" is "break when $foo is 42".  Handy.  After a lot of work I finally figured out the particular closure that was misfiring, it was being passed in the wrong arguments.  I had to catch the point where that particular closure was being called to see how the arguments were being made.  There's hundreds of them, so I can't just go through by hand.  How do you identify a particular closure?<br/><br/>Enter <a href="http://search.cpan.org/dist/Data-Dump-Streamer">Data::Dump::Streamer</a>.  By Yves Orton, this is Data::Dumper on steroids.  Not satisfied with the limitations of Data::Dumper, Yves improved on it with a module that can serialize most everything you can throw at it.  The edge cases most of us consider impossible, like closures. :)<br/><br/><pre>
+use DDS;  # an alias for Data::Dump::Streamer<br/><br/>my $thing = 42;
+my $code = sub { print $thing };<br/><br/>print Dump $code;
+</pre><br/><br/><pre>
+my ($thing);
+$thing = 42;
+$CODE1 = sub {
+           print $thing;
+         };
+</pre><br/><br/>Well now, let's combine the two.  $DB::single and DDS.<br/><br/><pre>
+use DDS;
+$DB::single = grep /\Q$thing = 42\E/, Dump $code;
+</pre><br/><br/>Now the code stops right before it runs just the trigger I want.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

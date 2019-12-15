@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Matts: Finally some perl!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Finally some perl!</h1>
+<h2><a href="/user/Matts/">Matts</a> on 2006-05-31T22:01:41</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Yes it's been yonks since I posted any perl. Well today I learned that read() can take an offset to where to put data in your $buf, so I can implement what should be an efficient grep for multiple strings in binary data (i.e. where I can't do: <tt>while (&lt;$fh>)</tt> ). So given <tt>$fh</tt> and <tt>@strings</tt> and <tt>max()</tt> from <tt>List::Util</tt>, I can do this:
+<pre>
+    my $max_len = max(map{length} @strings);
+    my $regexp = "(" . join("|", map {quotemeta} @strings) . ")";
+    my $buf = '';
+    while (1) {
+        substr($buf, 0, length($buf) - $max_len) = "";
+        my $len = read($fh, $buf, 8096, length($buf));
+        last unless $len;
+        if ($buf =~ /$regexp/o) {
+            return $1;
+        }
+    }
+</pre>
+I could probably add code to show where in the file it matched, but I don't need that.</p>
+
+
+<hr/>
+
+
+
+<h2>Use array storage instead?</h2>
+<h3><a href="/user/ChrisDolan/">ChrisDolan</a> on 2006-06-01T01:23:48</h3>
+I've found something more like the following to be useful:<br><br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $max_len = max(8096,map{length} @strings);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $regexp = "(" . join("|", map {quotemeta} @strings) . ")";<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my @buf = ('');<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; while (1) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $len = read($fh, $buf[1], $max_len);<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; last unless $len;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; if ("@buf" =~<nobr> <wbr></nobr>/$regexp/o) {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; return $1;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; shift @buf;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; }<br><br>I've not benchmarked which solution is faster, but I'd speculate that the substr is slower than the concat plus shift.  Note that this implementation pulls a minimum of 8096 bytes at a time, but it might be longer is the match strings are longer.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Use array storage instead?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-06-01T01:51:30</h3>
+Think again:<blockquote> <div><tt>&nbsp; &nbsp; &nbsp; s/iter chris&nbsp; matt<br>chris&nbsp; &nbsp;4.61&nbsp; &nbsp; --&nbsp; -50%<br>matt&nbsp; &nbsp; 2.32&nbsp; &nbsp;99%&nbsp; &nbsp; --</tt></div> </blockquote>
+
+
+
+
+
+</blockquote>
+
+
+<h2>/o is *evil*</h2>
+<h3><a href="/user/duff/">duff</a> on 2006-06-01T14:46:49</h3>
+I hope you're using this code only as part of the mainline of a script and not as a subroutine or in a module.  But even still, it's often the case that scripts turn into modules at some point, so don't use<nobr> <wbr></nobr>/o if you can help it.  It doesn't really buy you anything and could actually cause problems as your program grows.  If you think you need<nobr> <wbr></nobr>/o, you really just need qr//.  When someone uses<nobr> <wbr></nobr>/o it is almost <em>always</em> a case of premature optimization (99.99999999999% of the time<nobr> <wbr></nobr>:-).
+
+
+
+<blockquote>
+
+<h2>Re:/o is *evil*</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-06-01T14:52:36</h3>
+True. Laziness was in the way. Changed to qr() now.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Use a meaningful loop termination condition</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-06-01T20:28:03</h3>
+<p>It&#8217;s easy to arrange:</p> <blockquote> <div><tt>my $max_len = max map length, @strings;<br>my $rx = qr/(@{[ join '|', map quotemeta, @strings ]})/;<br>my $buf = '';<br>while ( read $fh, $buf, 8096, length $buf ) {<br>&nbsp; &nbsp; return $1 if $buf =~ $rx;<br>&nbsp; &nbsp; substr $buf, 0, length $buf - $max_len, '';<br>}</tt></div> </blockquote> <p>As a bonus the code is shorter and clearer.</p>
+
+<p>The following is a tweak to avoid unnecessarily shrinking <code>$buf</code> when the space is needed for the <code>read</code> that immediately follows, and it may or may not be faster by a few percent. I didn&#8217;t benchmark (or even test) it.</p> <blockquote> <div><tt>my $max_len = max map length, @strings;<br>my $rx = qr/(@{[ join '|', map quotemeta, @strings ]})/;<br>my $buf = '';<br>my $offs = 0;<br>while ( my $read = read $fh, $buf, 8096, $offs ) {<br>&nbsp; &nbsp; substr( $buf, $offs + $read ) = ''; # throw away residue<br>&nbsp; &nbsp; return $1 if $buf =~ $rx;<br>&nbsp; &nbsp; substr( $buf, 0, $max_len ) = substr $buf, -$max_len;<br>&nbsp; &nbsp; $offs = $max_len;<br>}</tt></div> </blockquote>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of masak: Idiomatic Perl 6</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Idiomatic Perl 6</h1>
+<h2><a href="/user/masak/">masak</a> on 2010-08-27T00:22:03</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>So, I wrote a program to generate <a href='http://en.wikipedia.org/wiki/Pascal's_triangle'>Pascal's triangle</a>. The first ten rows of the triangle, at least. It only used simple features of Perl 6, such as scalars, nested arrays, and <code>for</code> loops.</p>
+
+<p><code>
+my $ELEMENTS = 10;<br>
+my @pascal = [1];<br>
+<br>
+for 1 .. $ELEMENTS - 1 {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my @last = @pascal[ * - 1 ].list;<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my @current;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;push @current, @last[0];<br>
+&nbsp;&nbsp;&nbsp;&nbsp;for 0 .. @last - 2 {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;push @current, @last[$_] + @last[$_ + 1];<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;push @current, @last[ * - 1 ];<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;push @pascal, [@current];<br>
+}<br>
+<br>
+say @pascal.perl;
+</code></p>
+
+<p>In fact, save for simple mechanically substitutable differences, it could have been a Perl 5 script. In fact, with a bit of manual array allocation, it could have been a C script. That's OK; there's a tolerance in the Perl community of writing code that looks like it was thunk in some other language.</p>
+
+<p>But I've heard that Perl 6 is great at doing things with operators. For example, the <code>Z</code> operator, which interleaves two lists, seems to be able to help me write my <code>push</code> statements more succinctly:</p>
+
+<p><code>
+my $ELEMENTS = 10;<br>
+my @pascal = [1];<br>
+<br>
+for 1 .. $ELEMENTS - 1 {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my @last = @pascal[ * - 1 ].list;<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my @current;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;<b>for (0, @last) Z (@last, 0) -> $left, $right {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;push @current, $left + $right;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}</b><br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;push @pascal, [@current];<br>
+}<br>
+<br>
+say @pascal.perl;
+</code></p>
+
+<p>The parentheses before and after the <code>infix:&lt;Z&gt;</code> aren't necessary, because the <code>Z</code> operator has looser precedence than comma. They're just shown here to make your eyes accustomed to reading this construct.</p>
+
+<p>In fact, now that only the addition is performed in the inner loop, I might as well use the <code>Z+</code> operator, which does this for me.</p>
+
+<p><code>
+my $ELEMENTS = 10;<br>
+my @pascal = [1];<br>
+<br>
+for 1 .. $ELEMENTS - 1 {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my @last = @pascal[ * - 1 ].list;<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my @current <b>= 0, @last Z+ @last, 0;</b><br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;push @pascal, [@current];<br>
+}<br>
+<br>
+say @pascal.perl;
+</code></p>
+
+<p>Now as the remaining loop shrinks to a size I can take in all at once, I see a bit more clearly what I'm doing: I'm building each new list from the previous one. I could feed the previous list into a named function to get the current one:</p>
+
+<p><code>
+my $ELEMENTS = 10;<br>
+my @pascal = [1];<br>
+<b><br>
+sub next-list(@p) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;[0, @p Z+ @p, 0]<br>
+}<br>
+</b><br>
+for 1 .. $ELEMENTS - 1 {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my @last = @pascal[ * - 1 ].list;<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my @current = <b>next-list(@last)</b>;<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;push @pascal, @current;<br>
+}<br>
+<br>
+say @pascal.perl;
+</code></p>
+
+<p>Or I could just feed it into a in-place anonymous sub.</p>
+
+<p><code>
+my $ELEMENTS = 10;<br>
+my @pascal = [1];<br>
+<br>
+for 1 .. $ELEMENTS - 1 {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my @last = @pascal[ * - 1 ].list;<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;push @pascal, <b>(sub (@p) { [0, @p Z+ @p, 0] }).(@last)</b>;<br>
+}<br>
+<br>
+say @pascal.perl;
+</code></p>
+
+<p>But why even a sub? Perl 6 has a lighter construct, namely a "pointy block" (also known as a "closure" or a "lambda"). It doesn't participate in the call stack, and it's slightly easier to write.</p>
+
+<p><code>
+my $ELEMENTS = 10;<br>
+my @pascal = [1];<br>
+<br>
+for 1 .. $ELEMENTS - 1 {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;my @last = @pascal[ * - 1 ].list;<br>
+<br>
+&nbsp;&nbsp;&nbsp;&nbsp;push @pascal, (<b>-&gt; @p</b> { [0, @p Z+ @p, 0] }).(@last);<br>
+}<br>
+<br>
+say @pascal.perl;
+</code></p>
+
+<p>Let's look at what the code does. Seed with one element. Calculate the next element based on the previous one. Stop at some point.</p>
+
+<p>But that's exactly what the series operator does. The one that's written with three dots. We have a starting value, a way to get from one value to the next (our code block above), and a stopping value.</p>
+
+<p>Well actually, we don't have the stopping value. But that's OK, since the series operator is <em>lazy</em>. So if we only request the first 10 values, it won't loop forever giving us the rest of the list.</p>
+
+<p><code>
+<b>my @pascal := do [1], -> @p { [0, @p Z+ @p, 0] } ... *;</b><br>
+<br>
+say <b>@pascal[^10]</b>.perl;
+</code></p>
+
+<p>(The extra <code>do</code> required because of a <a href="http://rt.perl.org/rt3/Ticket/Display.html?id=77462">shortcoming in Rakudo</a>.)</p>
+
+<p>Now. Something very much like this code was posted first <a href="http://rosettacode.org/wiki/Pascal's_triangle#Perl_6">on Rosetta code</a> and then <a href='http://perlgeek.de/blog-en/perl-6/pascal-triangle.html'>on Moritz' blog</a>. (TimToady used a sub, but said later that he'd have preferred binding.)</p>
+
+<p>A couple of Perl 5 people's reactions were &#8212; somewhat uncharacteristically &#8212; of a negative flavour, similar to how people <a href='http://use.perl.org/user/masak/journal/40339'>seem to react</a> to the periodic table of operators:</p>
+
+<p><code>
+<a href='http://twitter.com/shadowcat_mst/status/22112066276'>@shadowcat_mst</a>: an excellent example of why I consider camelia perl to be a language research project more than a production language
+</code></p>
+
+<p><code>
+<a href='http://twitter.com/pedromelo/status/22110965152'>@pedromelo</a>: I'm seriously considering this post as an example of what I don't want Perl6 to become...
+</code></p>
+
+<p>I think these reactions are mainly feature shock. Higher-order operators, pointy blocks, and the series operator... they're all good, well-established features, which find daily use in Perl 6 programs. Maybe using them all together like that flung some people off the deep end. Never mind that the resulting script is all <a href='http://en.wikipedia.org/wiki/Essential_complexity'>essential complexity</a>, with virtually no boilerplate from the original script left.</p>
+
+<p>This is the first time that's happened. I think it's important to listen to what Perl 5 people think and to try to respond to that. But I also think that this time, it's a case of them seeing some highly idiomatic Perl 6, and freaking out a bit.</p>
+
+<p>And I think that that, in some odd sense, is a good thing. Well, not freaking people out, per se. But the fact that we did shows that there's something forming which might be tentatively called "idiomatic Perl 6": people on the inside can read it quite easily, but those on the outside, even Perl 5 folks looking in, instinctively go "eeeeew!".</p>
+
+<p>That's OK. You're not meant to start with the idiomatic stuff. <em>Language acquisition takes place step by step</em>, and that goes for learning Perl 6 as well. On the way there, just don't confuse distaste with lack of familiarity.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Re: Idiomatic Perl 6</h2>
+<h3><a href="/user/daxim/">daxim</a> on 2010-08-27T08:21:02</h3>
+Wrong Rosettacode link, it should point to <a href="http://rosettacode.org/wiki/Pascal's_triangle#Perl_6" title="rosettacode.org">http://rosettacode.org/wiki/Pascal's_triangle#Perl_6</a rosettacode.org>.
+
+
+
+<blockquote>
+
+<h2>Re: Idiomatic Perl 6</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-08-27T09:37:00</h3>
+<p>Fixed, thanks.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Fugly!</h2>
+<h3><a href="/user/soulchild/">soulchild</a> on 2010-08-27T08:23:27</h3>
+You seriously consider this "idiomatic" solution more elegant? If that is what idiomatic Perl 6 looks like, it will never take off<nobr> <wbr></nobr>... Sorry, but that is as unreadable as it could possibly get and just fuels the unstoppable line-noise argument even more. Good languages _can_ be descriptive, self-documenting and to a degree self-explanatory. I always thought that one of Perl's philosophies was to be more like a human language. Guess I was wrong, it's math after all<nobr> <wbr></nobr>...
+
+
+
+<blockquote>
+
+<h2>Re:Fugly!</h2>
+<h3><a href="/user/pmichaud/">pmichaud</a> on 2010-08-27T12:24:00</h3>
+<blockquote><div><p> <em>I always thought that one of Perl's philosophies was to be more like a human language. Guess I was wrong, it's math after all<nobr> <wbr></nobr>...</em></p></div> </blockquote><p>In some sense, I think it's entirely appropriate that solving a problem from (arguably) a mathematical domain ends up with a solution that looks mathematical.  Just because this particular problem ends up with a mathematical-looking answer in Perl 6 doesn't mean that all Perl 6 programs will look like mathematics.  Answers to problems in other domains will tend to look like the languages people in those domains use to think about them.  (Quick example:  parsing problems in Perl 6 tend to be solved with things like "grammar", "rule", and "token", which look very natural in that domain but would be awkward for solving Pascal's triangle.)</p><p>There's a reason that domain-specific languages exist (and not just in the realm of programming) -- it's because communication is often better served by notations other than the "lowest common denominator".  In this sense, the symbolic language of mathematics is as much a "human language" as any other, and it exists because writing formulas in English just isn't all that efficient (unless you really like COBOL<nobr> <wbr></nobr>:-).</p><p>Pm</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Synthetic code</h2>
+<h3><a href="/user/pstuifzand/">pstuifzand</a> on 2010-08-27T11:20:02</h3>
+It's nice to see that Perl6 will be on par with Haskell for these kinds of examples. This Haskell example is from Rosseta code page (but rewritten for similarity).<blockquote><div><p> <tt>pascal = iterate (\row -&gt; zipWith (+) ([0]++row) (row++[0])) [1]</tt></p></div> </blockquote><p>The essential complexity of this example is the same. Only it contains more words than operators.</p>
+
+
+
+<h2>'do' required?</h2>
+<h3><a href="/user/pmichaud/">pmichaud</a> on 2010-08-27T21:50:05</h3>
+<blockquote><div><p> <em>my @pascal<nobr> <wbr></nobr>:= do [1], -&gt; @p { [0, @p Z+ @p, 0] }<nobr> <wbr></nobr>... *;<br><nobr> <wbr></nobr>...</em></p><p><em>(The extra do required because of a shortcoming in Rakudo.)</em></p></div> </blockquote><p>FWIW, I think parentheses will work here also.</p><p><code>    my @pascal<nobr> <wbr></nobr>:= ([1], -&gt; @p { [0, @p Z+ @p, 0] }<nobr> <wbr></nobr>... *);</code></p><p>Pm</p>
+
+
+
+<blockquote>
+
+<h2>Re:'do' required?</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-08-27T22:44:56</h3>
+<p>Aye. I considered both forms, and went with the <code>do</code> form.</p><p>When binding has list precedence, neither parentheses nor the <code>do</code> will be needed.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Nifty!</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2010-08-30T07:47:50</h3>
+<p>I really like this. I liked it even more as I worked through all of the examples to better understand them.  One thing I would change:</p><blockquote><div><p> <tt>say $_.perl for @pascal;</tt></p></div> </blockquote><p>The output is much clearer that way (at least to me).  I actually tried to get it a touch more "triangly":</p><blockquote><div><p> <tt>my @pascal<nobr> <wbr></nobr>:= do [1], -&gt; @p { [0,@p Z+ @p,0] }<nobr> <wbr></nobr>... *;<br>say ' ' x 2 * (10 - $_.elems), $_.perl for @pascal[^10];</tt></p></div> </blockquote><p>But wound up with this:</p><blockquote><div><p> <tt>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; [1]<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; [1, 1]<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; [1, 2, 1]<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; [1, 3, 3, 1]<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; [1, 4, 6, 4, 1]<br>&nbsp; &nbsp; &nbsp; &nbsp; [1, 5, 10, 10, 5, 1]<br>&nbsp; &nbsp; &nbsp; [1, 6, 15, 20, 15, 6, 1]<br>&nbsp; &nbsp; [1, 7, 21, 35, 35, 21, 7, 1]<br>&nbsp; [1, 8, 28, 56, 70, 56, 28, 8, 1]<br>[1, 9, 36, 84, 126, 126, 84, 36, 9, 1]</tt></p></div> </blockquote><p>Ah well<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:Nifty!</h2>
+<h3><a href="/user/masak/">masak</a> on 2010-08-30T13:49:59</h3>
+<p> <code>
+my $n = 10;<br>
+my @pascal<nobr> <wbr></nobr>:= do [1], -&gt; @p { [0,@p Z+ @p,0] }<nobr> <wbr></nobr>... *;<br>
+my $m = @pascal[$n - 1].perl.chars;<br>
+say (my $r = $_.perl).fmt("%{($m + $r.chars) div 2}s") for @pascal[^$n];
+</code> </p><p>Produces this:</p><p> <code>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[1]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[1, 1]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[1, 2, 1]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[1, 3, 3, 1]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[1, 4, 6, 4, 1]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[1, 5, 10, 10, 5, 1]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[1, 6, 15, 20, 15, 6, 1]<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[1, 7, 21, 35, 35, 21, 7, 1]<br>
+&nbsp;&nbsp;&nbsp;[1, 8, 28, 56, 70, 56, 28, 8, 1]<br>
+[1, 9, 36, 84, 126, 126, 84, 36, 9, 1]
+</code> </p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of nicholas: message de-duping in an exim filter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>message de-duping in an exim filter</h1>
+<h2><a href="/user/nicholas/">nicholas</a> on 2007-01-07T16:19:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Following on from <a href="http://use.perl.org/user/nicholas/journal/32059">my
+previous entry</a>, here's what I've put in place:</p>
+<dl><dt>exim filter file</dt>
+<dd><pre>if ${readsocket{$home/var/seendb.sock}{$h_Message-ID:}} is "seen\n" then
+  save $home/Mail/duplicates 0600
+  logwrite " Folder: $home/Mail/duplicates"
+  finish
+endif
+</pre></dd>
+<dt>Perl daemon</dt><dd><pre>#!/home/nick/bin/perl -w
+use strict;
+use Net::Server::Single;
+use Fcntl;
+use NDBM_File;
+
+use vars qw(@ISA $timeout %seendb $prefix $log);
+
+@ISA = 'Net::Server::Single';
+$timeout = 5;
+$prefix = "$ENV{HOME}/var/seendb";
+$log = "$prefix.log";
+
+tie %seendb, 'NDBM_File', $prefix, O_RDWR|O_CREAT, 0666
+    or die "Couldn't tie NDBM file $prefix: $!; aborting";
+
+my $self = main->new({
+    port => "$prefix.sock|unix",
+    user => $<, group => 0 + $(,
+    pid_file => "$prefix.pid",
+    @ARGV ? () : (log_file => $log, setsid => 1),
+});
+$self->run();
+exit;
+
+
+sub process_request {
+    my $self = shift;
+    local $SIG{ALRM} = sub { die "Timed Out!\n" };
+    my $id;
+    unless (eval {
+        my $previous_alarm = alarm $timeout;
+        sysread STDIN, $id, 1024 or die "Bad read: $!";
+        alarm $previous_alarm;
+        1;
+    }) {
+        $self->log(1, "Erk: $@");
+        return;
+    }
+    chomp $id;
+    if ($seendb{$id}) {
+        print "seen\n";
+    } else {
+        $seendb{$id} = pack "N", time;
+        print "new\n";
+    }
+}
+
+</pre></dd></dl>
+
+<p>At some point it will be upgraded to support a command to prune the NDBM
+file, but right now that's still only 16K, so I'm not that worried. During
+testing, it pleased me to discover that FreeBSD's <code>telnet</code> accepts
+a pathname as an address to connect to. <code>telnet /home/nick/var/seendb.sock</code> works. :-)</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

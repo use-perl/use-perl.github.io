@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of cwest: SpamAssassin Kills MovableType Comment Spam</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>SpamAssassin Kills MovableType Comment Spam</h1>
+<h2><a href="/user/cwest/">cwest</a> on 2004-03-27T05:13:45</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><p class="hft-paras">In the last month my journal has become more popular. I can declare
+that with certainty because the clear indicator is a drastic increase
+in comment spam. Dealing with more than 10 spam comments per day
+has become far too time consuming and cumbersome using the web
+interface.</p>
+
+<p class="hft-paras">MovableType plugins abound for requiring users to jump through hoops
+to comment, group based IP ban lists, FOAF whitelists, and moderated
+commenting. All of these solutions smack of similar solutions for
+dealing with email spam. So, I thought, why not just use SpamAssassin?
+Comment spam can't be much different from email spam, right?</p>
+
+<p class="hft-paras">I put together a proof of concept and, with a little score tweaking, I
+now have a fine comment spam solution that doesn't get in the
+way. SpamAssassin has a couple thousand tests it uses to scan email
+messages for spam and they work just fine for comments that are
+converted into email format.</p>
+
+<p class="hft-paras">First, I ran the following program in <strong class="hft-bold">test mode</strong> to take a look at
+how my comments lined up.</p>
+
+<blockquote class="hft-blockcode"><code> #!/usr/bin/perl<br />
+&nbsp;my $TEST_MODE = $ARGV[0] eq 'test' ? 1 : 0;<br />
+&nbsp;my %DB_CONFIG = (<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;dsn      =&gt; 'dbi:mysql:MT',<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;user     =&gt; 'XXXX',<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;password =&gt; 'XXXX',<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;);<br />
+&nbsp;my %SA_CONFIG = (<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;usercodefs_filename =&gt; &quot;$ENV{HOME}/.blog_spam_codefs&quot;,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;debug              =&gt; 0,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;);<br />
+&nbsp;my $MESSAGE   = &lt;&lt;'__MESSAGE__';<br />
+&nbsp;From: %s &lt;%s&gt;<br />
+&nbsp;Subject: Journal Comment<br />
+&nbsp;To: Casey West &lt;<a href="mailto:casey@geeknest.com" class="hft-email">casey@geeknest.com</a>&gt;<br />
+&nbsp;Date: Thu, 25 Mar 2004 13:44:26 -0500 (EST)<br />
+&nbsp;<br />
+&nbsp;%s<br />
+&nbsp;<br />
+&nbsp;%s<br />
+&nbsp;<br />
+&nbsp;%s<br />
+&nbsp;__MESSAGE__<br />
+&nbsp;<br />
+&nbsp;use Mail::SpamAssassin;<br />
+&nbsp;use Class::DBI::Loader;<br />
+&nbsp;use strict;<br />
+&nbsp;use warnings;<br />
+&nbsp;no warnings 'uninitialized'; # Class::DBI::Loader issue<br />
+&nbsp;$| = 1;<br />
+&nbsp;<br />
+&nbsp;my $spam     = Mail::SpamAssassin-&gt;new( \%SA_CONFIG );<br />
+&nbsp;my $loader   = Class::DBI::Loader-&gt;new(<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;%DB_CONFIG,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;namespace =&gt; 'MT',<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;);<br />
+&nbsp;my $comments = $loader-&gt;find_class('mt_comment')-&gt;retrieve_all;<br />
+&nbsp;<br />
+&nbsp;while (my $comment = $comments-&gt;next) {<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="mailto:my @args" class="hft-email">my @args</a>   = map $comment-&gt;$<span class="hft-underline" style="text-decoration: underline">, map &quot;comment</span>$_&quot;,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;qw[author email author url text];<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;my $email  = sprintf $MESSAGE, @args;<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;my $status = $spam-&gt;check_message_text($email);<br />
+&nbsp;<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;if ( $status-&gt;get_hits &gt; 0 ) {<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;my %attrs = (<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;id     =&gt; $comment-&gt;comment_id,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;hits   =&gt; $status-&gt;get_hits,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;is     =&gt; ( $status-&gt;is_spam ? 'YES' : 'NO' ),<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;author =&gt; $comment-&gt;comment_author,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;url    =&gt; $comment-&gt;comment_url,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;tests  =&gt; $status-&gt;get_names_of_tests_hit,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;);<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;print '-'x60, &quot;\n&quot;;<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;print map &quot;$<span class="hft-underline" style="text-decoration: underline">:\t$attrs{$</span>}\n&quot;, sort keys %attrs;<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;if ( $attrs{is} eq 'YES' ) {<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$comment-&gt;delete unless $TEST_MODE;<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;print &quot;KILLED:\t&quot; .<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;($comment-&gt;moniker eq 'deleted' ? 'YES' : 'NO') .<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&quot;\n&quot;;<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$status-&gt;finish;<br />
+&nbsp;}</code></blockquote>
+
+<p class="hft-paras">To run it in test mode.</p>
+
+<blockquote class="hft-blockcode"><code>shell&gt; mtspamkill test</code></blockquote>
+
+<p class="hft-paras">When doing this I noticed that none of my comments were tagged as
+spam. Many that I knew were spam -- namely due to sexual content --
+had been tagged as PORN_4. Since the default hit count required to be
+spam is 5.0 I realized that I just needed to alter the score
+SpamAssassin gives to the PORN_4 test. After a few more test runs I
+had a preferences file like this.</p>
+
+<blockquote class="hft-blockcode"><code> score PORN_4 5.0<br />
+&nbsp;score ADDR_FREE 5.0<br />
+&nbsp;<br />
+&nbsp;body NJHMA_COM /\d+\.njhma\.com/<br />
+&nbsp;score NJHMA_COM 5.0</code></blockquote>
+
+<p class="hft-paras">Then I ran the program in normal mode to kill the comments with
+extreme prejudice.</p>
+
+<blockquote class="hft-blockcode"><code>shell&gt; mtspamkill</code></blockquote>
+
+<p class="hft-paras">This hack is for MovableType and using a relational database. It
+should work fine with MySQL, Postgres, or SQLite. I looked into making
+it work with DBM and found that -- with a little work -- it is
+possible.</p>
+
+<p class="hft-paras">Someone needs to write Class::DBI::Loader::DBM. It would work with
+DBI::DBM. I looked into this a bit, too. The hard part is finding the
+column names for each table so the classes can be built
+appropriately. After that, YMMV. I got that far, went insane, and
+realized it didn't matter to me that much.</p>
+
+<p class="hft-paras">Once you get comfortable with this killing your comment spam, throw it
+in cron and forget about it. It should do a good job for you.</p>
+</p>
+
+<p>Posted from <a href="http://caseywest.com">caseywest.com</a>, comment <a href="http://caseywest.com/journal/archives/001727.html">here</a>.</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

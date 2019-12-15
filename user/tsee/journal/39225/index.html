@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of tsee: In defense of Perl ithreads</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>In defense of Perl ithreads</h1>
+<h2><a href="/user/tsee/">tsee</a> on 2009-07-04T11:29:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+People like to point out the problems with Perl's threading, say they're
+<a href="http://search.cpan.org/dist/Coro/Coro.pm#DESCRIPTION">simply the
+Windows fork-emulation ported to other operating systems</a> and conclude that they're
+of no use otherwise. They generally omit mentioning the cases in which Perl ithreads
+are the only viable solution for concurrency in Perl.
+</p><p>
+First, you have to understand the <i>i</i> in ithreads. Read: <i>interpreter threads</i>.
+Each ithread in your Perl program has its own copy of the whole interpreter. Nothing
+is shared between the interpreters by default*. Most other threading implementations
+work the other way around: By default they share everything and the user has to deal with
+locking of any shared resources. This has many advantages over ithreads. Most obviously,
+an ithread takes a lot more memory. Furthermore, passing data between ithreads is
+rather painful and very, very slow. But there is, unfortunately, a big downside to shared-by-default:
+</p><p>
+Real concurrency (i.e. multiple threads executing concurrently on multiple CPUs) doesn't seem to
+be feasible with the shared-by-default approach <i>in a language such as Perl</i>.
+This is because almost all operations -- including those who seem to be entirely read-only
+-- can potentially modify the data structures. Use a scalar that contains an integer
+in a string-context and the scalar will be modified to contain a char*. Marc Lehmann
+explained this in more detail in his talk "Why so-called Perl threads should die" at
+the German Perl Workshop 2009. (Couldn't find his slides online, sorry.) As far as I know,
+the typcial dynamic programming languages <i>other than Perl</i> only have
+(non-concurrent) cooperative multi-threading to start with.
+</p><p>
+Now, some will be quick to point out that ithreads are a mere fork() reimplementation with
+quite a few disadvantages. For a real fork, the kernel can do COW and
+non-thread-safe XS modules aren't a problem. But if your software has to run on Windows, the fork's a non-starter. As mentioned earlier, threads are used for the emulation of fork()
+on Windows. That means if you use fork(), you'll get multiple processes on systems which
+support it natively and multiple (i)threads on Windows with all the associated problems
+regarding memory use and thread-safety. If you're writing software predominantly on
+Linux, would you rather debug problems in your development environment or on your
+customer's (or generally user's) machine? I thought so. There is a case to be made for
+consistency.
+</p><p>
+The other big contender is the excellent <a href="http://search.cpan.org/dist/Coro">Coro</a>
+module (or an event loop). I suggest you have a look at its documentation to understand what it does exactly**.
+The downside? It's <i>cooperative</i> multi-threading. It doesn't <i>really</i> run
+concurrently. The code in each Coro has to cede control to the other coroutines
+regularly. If there is some code that's not directly under your control and takes a long time,
+your GUI or what not will be blocked. If you think about it a bit, you'll realize that
+heavy re-use of code from CPAN and cooperative multi-threading is a non-starter. In my case,
+I needed to parse Perl code using PPI. That can take seconds...
+</p><p>
+I'm all ears for suggestions on how to do concurrency right in a dynamic language. (here: Perl, but
+if another language does it better, that'd be interesting, too.)
+</p><p>
+The requirements are:
+</p>
+<ul>
+<li>Real concurrency, i.e. using multiple cores.</li>
+<li>Non-cooperative multi-threading due to code that is not under my control</li>
+<li>Portability</li>
+<li>A point I haven't touched in my rant: Ability to recover from crashes. You can recover from crashing ithreads.</li>
+</ul>
+
+<p>
+* This statement may become painfully untrue if you use a non-thread-safe XS module, unfortunately.
+</p><p>
+** I'm not restating what it does in my own words because I'd expect them to be slightly inaccurate thus provoking eternal damnation.
+</p></p>
+
+
+<hr/>
+
+
+
+<h2>Did I miss something?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-07-04T12:31:53</h3>
+<p>I&#8217;m still waiting for the point where you show why ithreads aren&#8217;t merely a bad emulation of <code>fork()</code> for Windows. Why would someone who is not personally interested in deploying to <code>fork()</code>-enabled systems ever choose ithreads over <code>fork()</code>? I don&#8217;t see any good reason, particularly since a threaded <code>perl</code> is ~20% slower (and somewhat more memory hungry) across the board &#8211; no matter whether it&#8217;s ever going to run any threaded code or not. And if you exclude Windows from the portability criterion (which is not the point of the exercise, I know), then <code>fork()</code> meets every single one of your requirements.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Did I miss something?</h2>
+<h3><a href="/user/Corion/">Corion</a> on 2009-07-04T12:42:02</h3>
+<p>If you want to pass non-trivial data around between multiple threads of execution, (i)threads are a far more convenient solution than implementing your own marshalling/serialization code and using fork().</p>
+
+
+
+<h2>Re:Did I miss something?</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2009-07-04T13:06:22</h3>
+<p>Apart from Corion's convenience argument, I don't know a good reason why ithreads are much better than fork() for non-portable code. Maybe that managing a bunch of threads seems a bit easier to me than managing a bunch of processes (no zombies).</p><p>Maybe I wasn't clear enough on some things: I don't particularly like ithreads. It's just that they're the best solution (known to me) in some cases.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>how to fix ithreads</h2>
+<h3><a href="/user/m4thieu/">m4thieu</a> on 2009-07-04T14:54:23</h3>
+<p>ithreads have two problems:</p><p>1. When you spawn a thread, it copies the whole environment from the parent thread, variables and code. This results in poor performance when a lot of libraries are loaded.</p><p>2. You can't pass a file descriptor from one thread to the other. So you can't create a network server that spawns a thread for each client.</p><p>This makes perl one of the only scripting language you can't use to build a multi-threaded network server, without using fancy stuff like Coro, AnyEvent or POE. Those are great libraries, but they are clumsy compared to just spawning a thread with a function to call.</p><p>If we could fix #2, then you could spawn a server thread that sends FD to worker threads as it gets them.</p><p>Fixing #1 could be done by allowing spawning an empty thread, giving it a module, function name and arguments to call. The new thread would only load the module once spawned, not when perl starts.</p><p>Doing this would allow for Erlang style processes, which is basically what POE tries to do, except with a lot of mucking around with NOWAIT calls, and too many callbacks.</p>
+
+
+
+<blockquote>
+
+<h2>Re:how to fix ithreads</h2>
+<h3><a href="/user/Corion/">Corion</a> on 2009-07-05T19:58:50</h3>
+<blockquote><div><p> <tt>C:\Projekte\App-CPANr&gt;perl -Mthreads -e "open my $fh, '&lt;', '/boot.ini'; for (async { print for &lt;$fh&gt;}, async{sleep 10}) { $_-&gt;join; }"<br> <br>[boot loader]<br>timeout=30<br>default=multi(0)disk(0)rdisk(0)partition(1)\WINDOWS<br>[oper<nobr>a<wbr></nobr>  ting systems]<br>multi(0)disk(0)rdisk(0)partition(1)\WINDOWS="Microsoft Windows XP Professional"<br>/fastdetect<nobr> <wbr></nobr>/NoExecute=OptIn</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:how to fix ithreads</h2>
+<h3><a href="/user/m4thieu/">m4thieu</a> on 2009-07-05T23:55:00</h3>
+<p>Works great for that. How about starting ten threads, then passing them a filehandle to work on? That's what I was talking about.</p><p>Beside, if you have a lot of stuff loaded (like POE), instead of this trivial exemple, each thread spawn is rather costly.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:how to fix ithreads</h2>
+<h3><a href="/user/salva/">salva</a> on 2009-07-06T07:11:35</h3>
+<blockquote><div><p> <i>1. When you spawn a thread, it copies the whole environment from the parent thread, variables and code. This results in poor performance when a lot of libraries are loaded.</i></p></div> </blockquote><p>The worst part of this is not just the poor performance but its unpredictability and that the effect is not local but global.
+
+</p><p>For instance, to implement a CPAN module doing something specific (as downloading a bunch of files from the Internet in parallel) that you want to be usable from any script, if the module were launching, say, 10 threads, that would mean increasing x10 the memory footprint of the whole script.
+
+</p><p>So, using threads have uncontrolled side effects that would break the module encapsulation in a big way.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Different Architecture?</h2>
+<h3><a href="/user/frew/">frew</a> on 2009-07-04T15:09:37</h3>
+You could also consider writing a backend server that your frontend talks to with TCP/IP.  I did this with IO::All so that I could have a perlcritic backend that doesn't slow down my client so much.
+
+
+
+<h2>preemptive coroutines</h2>
+<h3><a href="/user/rafl/">rafl</a> on 2009-07-05T04:45:22</h3>
+<p>Yes, currently you will have to explicitly cede control to the other coroutines regularly. However, Yuval is currently trying to get his <a href="http://github.com/nothingmuch/coro/commit/master" title="github.com">patch</a github.com> implementing preemptive coros merged into Coro. Those allow control to be automatically passed to other Coros using different strategies like opcode counting and fixed timeslices. That'd at least solve one of the problems you're describing.</p>
+
+
+
+<blockquote>
+
+<h2>Re:preemptive coroutines</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2009-07-05T07:32:20</h3>
+<p>That would totally make me reconsider things. Thanks for pointing this out!</p>
+
+
+
+<h2>Re:preemptive coroutines</h2>
+<h3><a href="/user/Corion/">Corion</a> on 2009-07-05T20:00:49</h3>
+<p>Of course, by making coroutines actually execute in parallel, you give up the one thing that Coro provides over threads - you invite back in the daemons of locking and deadlocks.</p>
+
+
+
+<blockquote>
+
+<h2>Re:preemptive coroutines</h2>
+<h3><a href="/user/rafl/">rafl</a> on 2009-07-06T00:34:29</h3>
+<p>Luckily, preemptive coros don't do that. Everything still runs in one process, one coro at a time. Just passing control from one coro to another can happen implicitly, so blocking code that isn't under your control is not a problem anymore.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:preemptive coroutines</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-09-02T14:24:39</h3>
+<p>Excuse my gross ignorance, but would this remove the one-core limit?</p><p>Could we then use even half of my four core machine?</p>
+
+
+
+<blockquote>
+
+<h2>Re:preemptive coroutines</h2>
+<h3><a href="/user/tsee/">tsee</a> on 2009-09-02T14:31:54</h3>
+<p>This would totally not remove the one-core limit. But it would fix essentially all other problems. For multi-core usage, one would have to resort to an extra process.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

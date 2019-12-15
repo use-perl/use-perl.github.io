@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: a_sub_not_likely_to_be_here</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>a_sub_not_likely_to_be_here</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2009-01-08T15:56:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>While digging around in the debugger, I came across a method on a an object that I wasn't expecting to see.  So I ack'd for it.</p>
+
+<pre> $ ack -a 'a_sub_not_likely_to_be_here' deps
+deps/lib/perl5/Set/Scalar/Base.pm
+20:     eval 'sub UNIVERSAL::a_sub_not_likely_to_be_here { ref($_[0]) }';
+24:             ? eval { $_[0]->a_sub_not_likely_to_be_here }
+
+deps/lib/perl5/JSON/PP.pm
+1285:        eval 'sub UNIVERSAL::a_sub_not_likely_to_be_here { ref($_[0]) }';
+1288:            ref($_[0]) ? eval { $_[0]->a_sub_not_likely_to_be_here } : undef;
+
+deps/lib/perl5/Mouse/Util.pm
+14:                *UNIVERSAL::a_sub_not_likely_to_be_here = sub {
+30:                        ? eval { $_[0]->a_sub_not_likely_to_be_here }
+53:                eval { $r->a_sub_not_likely_to_be_here; 1 }
+
+deps/lib/perl5/Mouse/Tiny.pm
+32:                *UNIVERSAL::a_sub_not_likely_to_be_here = sub {
+48:                        ? eval { $_[0]->a_sub_not_likely_to_be_here }
+71:                eval { $r->a_sub_not_likely_to_be_here; 1 }</pre>
+
+<p>Why do four different modules do this?</p></p>
+
+
+<hr/>
+
+
+
+<h2>Mouse and Mouse::Tiny</h2>
+<h3><a href="/user/sartak/">sartak</a> on 2009-01-08T16:38:29</h3>
+<p>Mouse (and thus Mouse::Tiny, which is a one-file concatenation of the Mouse libraries) use this because Scalar::Util's pure-perl version does, to emulate Scalar::Util::blessed without XS.</p><p>More recent versions of Mouse have removed this bit of code, deciding that (at least for now), if you want 5.6 you get a dependency on Scalar::Util.</p>
+
+
+
+<h2>I'm being evil</h2>
+<h3><a href="/user/drhyde/">drhyde</a> on 2009-01-09T12:02:21</h3>
+<p>I've got a bloody good mind to write Break::Mouse which will delete that subroutine if it ever spots that it's been created.  And load it into my CPAN-testing machines.
+
+</p><p>This shows why monkey-patching is generally a bad idea.
+
+</p><p> <code>
+package Break::Mouse;<br>
+<br>
+use Time::HiRes qw(setitimer ITIMER_VIRTUAL);<br>
+setitimer(ITIMER_VIRTUAL, 1, 1);<br>
+$SIG{VTALRM} = sub {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;eval 'sub UNIVERSAL::a_sub_not_likely_to_be_here { die("Monkey-patching is bad\n")';<br>
+}<br>
+</code></p>
+
+
+
+<blockquote>
+
+<h2>Re:I'm being evil</h2>
+<h3><a href="/user/sartak/">sartak</a> on 2009-01-09T12:31:52</h3>
+<p>Evil indeed.</p><p>So how do we implement blessed without XS? As I said in a sibling comment, Mouse doesn't do this any more, it now just depends on Scalar::Util. But since I just took the code from Scalar::Util, so your package should be named Break::Scalar::Util.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I'm being evil</h2>
+<h3><a href="/user/drhyde/">drhyde</a> on 2009-01-09T13:00:16</h3>
+<p>Check to see if it's a reference and *isn't* a reference to a scalar/array/hash/sub etc.  The list of magic values returned by <code>ref()</code> for all the built-in types is in <code>perldoc -f ref</code>.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I'm being evil</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2009-01-09T20:01:07</h3>
+Seems silly to reinvent the wheel when Scalar::Util already has a nice shiny round one in the core.
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:I'm being evil</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-01-11T22:09:38</h3>
+<p> <code>UNIVERSAL::can( $foo, 'can' )</code> </p>
+
+
+
+<blockquote>
+
+<h2>Re:I'm being evil</h2>
+<h3><a href="/user/sartak/">sartak</a> on 2009-01-11T23:17:03</h3>
+That's.. remarkably sane. You should submit a patch to Graham.
+
+
+
+<blockquote>
+
+<h2>Re:I'm being evil</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-01-11T23:31:01</h3>
+<p>Repo URL (Github preferred)? Email address?</p>
+
+
+
+<blockquote>
+
+<h2>Re:I'm being evil</h2>
+<h3><a href="/user/sartak/">sartak</a> on 2009-01-11T23:42:45</h3>
+I stole the code from Scalar::Util (hence why the patch should go to Graham); it no longer lives in Mouse because I now just have a dependency on it. Scalar::Util lives in core as of 5.8, but it'd be a useful fix for 5.6.
+
+
+
+<blockquote>
+
+<h2>Re:I'm being evil</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-01-12T00:11:08</h3>
+<p>Ah.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:I'm being evil</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2009-01-09T20:31:35</h3>
+<p>
+Wow, thats a <b>loooong</b> way to go to prove a point! (especially since the point it no longer valid (see Sartak's response below)).
+</p><p>
+Not to mention the fact that it is a generally bad idea since it will break Scalar::Util (and Mouse too) which is a core module, therefore resulting in a whole lot of false negatives from your CPAN testing machines.
+</p><p>
+While I normally agree with you that monkeypatching is an evil practice, like all evil practices there are some exceptions. In this case what Sartak was doing in Mouse was for the greater good (making it possible to use the Moose/Mouse goodness in a zero-dependency fashion) and done with full knowledge of the rules he was breaking and lines he was crossing.
+</p><p>
+Please don't just jump to conclusions about something like this, and do some research first before you threaten to f*ck up a bunch of CPAN-testers results for no good reason.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:I'm being evil</h2>
+<h3><a href="/user/drhyde/">drhyde</a> on 2009-01-09T20:42:31</h3>
+Please return your humour-detector to the shop for a repacement. It is faulty.
+
+
+
+<blockquote>
+
+<h2>Re:I'm being evil</h2>
+<h3><a href="/user/Stevan/">Stevan</a> on 2009-01-09T21:51:11</h3>
+<p>
+I don't find threats funny,<nobr> <wbr></nobr>... and neither does the Dept. of Homeland Security!!!
+</p><p>
+YOU ARE NOW ON THE WATCH LIST!!!!!!!!<nobr> <wbr></nobr>:P
+</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re:I'm being evil</h2>
+<h3><a href="/user/chromatic/">chromatic</a> on 2009-01-10T02:30:14</h3>
+<blockquote><div><p> <em>In this case what Sartak was doing in Mouse was for the greater good (making it possible to use the Moose/Mouse goodness in a zero-dependency fashion)....</em></p></div> </blockquote><p>Alternately, you could target only sane and modern versions of Perl, in the theory that anyone knowledgeable enough to use Mouse or Moose should be able to rely on a Perl version released this millennium.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

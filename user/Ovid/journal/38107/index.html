@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: How Dare You Mock Me!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>How Dare You Mock Me!</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2008-12-17T10:59:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>There's been some internal discussion at work about mocked objects in Java and now there's a hint of a suggestion of it for Perl (not quite, but it's there).  Here's the issue.  Consider the following class:</p>
+
+<pre>public class Map implements InterfaceMap {
+    // stuff
+}
+
+public class City {
+    private String name;
+    private float  longitude;
+    private float  latitude;
+
+    // Boo for manifest typing!
+    private static Map map = new Map();
+
+    public City(String name, float long, float lat) {
+        this.name = name;
+        longitude = long;
+        latitude  = lat;
+    }
+
+    public static void setMap(InterfaceMap alternateMap) {
+        map = alternateMap;
+    }
+
+    public Route routeTo(City targetCity) {
+        // stuff
+    }
+}</pre>
+
+<p>And later you discover the problem:</p>
+
+<pre>City portland = new City("Portland", 45.31, 122.41);
+Route plan = portland.routTo(london);</pre>
+
+<p>And that's when you discover that the <tt>routeTo</tt> method takes a long, long time.  So what's going on there?  If you're testing the <tt>City</tt> class, maybe you have a <tt>Map</tt> class internally and this offers so many combinations that it's not possible to get the answer in a reasonable time <em>in testing</em>, but you still have to get the "right" answer in the real world.  For many people, this screams "mock object" and "dependency injection".  That <tt>setMap</tt> map function allows you to inject a mocked version of the Map object which implements the appropriate interface, thus giving you a controlled, and faster, bit of code.</p>
+
+<p>Notice anything, um, different from how Perl would do it?</p>
+
+<P>Well, for one thing, in Java land, this technique is one hell of a lot safer in some ways and far more dangerous in others.  First of all, you are <em>guaranteed</em> a given return type (you're also guaranteed certain types of exceptions, something you may or may not like).  You're also guaranteed that if you implement the interface wrong, you get a compile time failure.  Does your constructor take a "String" and a "Coordinates" object instead of "String, float, float"?  Fail!  That's one of the nice things that Java and other languages with static type systems offer.  You get compile time failures for what might be considered contractual violations.</p>
+
+<p>Frankly, I want that compile-time benefit, but you don't get something for nothing, and here's where dynamic languages can shine (and where truly static languages <em>can't</em> compete because the philosophy is at odds with dynamic languages).  Let's say I have a class and I know all of the methods and signatures.  Can I implement it?  No, I have to know what that class is for.  There are great benefits to static typing, but the code doesn't write itself and it's still open to programmer error.</p>
+
+<p>Case in point:  how many people saw the type error in the City constructor?  Latitude and longitude <strong>are not floats</strong>.  They should never be floats.  Floating point numbers can be added, multiplied, divided, folded spindled and mutilated.  What's the longitude of 45.31 raised to the latitude of 122.41?  Nothing!  That doesn't make any sense.  Properly, I'd have to define a new type to handle those, along with allowed operations.  The float short cut is handy, but the computer cannot know I've defined my types wrong.  With proper types, you'd get a compile-time failure for such illegal operations.  Not so for the "float".  By the same token, the computer also can't know if the definition of a method is wrong.</p>
+
+<p>The upshot of this is that if the computer can't tell if a type is wrong and if the computer can't tell if a method is wrong, it also can't tell if a class is wrong.  Thus, the more of a class you change, the greater the chance of error.  So by this outlook, mocking up an entire class raises your chance of altering the semantics in an unacceptable manner, even if you an interface telling you how to implement it.</p>
+
+<p>Since I've had first-hand experience being very painfully bitten by this, I'll cut to the chase.  Don't use mocked objects if you don't have to.  In a static language, you'll frequently find that many things you and I take for granted simply aren't possible.  One of these, in this case, is identifying the precise bottleneck in a class and replacing that method <em>and only that method</em> with a mocked version.  It's mocking a single method instead of an entire class and thus allowing you to preserve most of your current semantics!  Thus, much of the "different type, different method, different class" problem <em>goes away</em>.  I've used this technique for years and it's saved me much grief.</p>
+
+<p>Now there are some problems with this approach.  First, if class A needs to talk to class B and you've only overridden B.foo(), you're probably not doing real unit testing on A.  This does mean that if there's a bug, you likely have more code to search through.  However, you're less likely to mask bugs by using a mocked B class.  If B.foo() can't handle negative numbers but A.bar() is passing them, maybe you won't see them in your larger scale integration tests (particularly since programmers tend to test against expectations rather than possibilities -- a good QA team can mitigate this issue).</p>
+
+<P>This technique also requires much more intimate knowledge of the internal workings of the code.  I'm not a purist, so I don't mind this.  I'll save black-box testing for acceptance tests, where it's mandatory.</p>
+
+<p>Another problem is whether that "expensive" method you want to override is public or private.  If it's a private method, then you've reached inside the class and you might get bitten later when this changes.  That's why I prefer to override subroutines with my <a href="http://search.cpan.org/dist/Sub-Override/">Sub::Override</a> module.  If the sub doesn't exist, it fails (helpful if a class is updated).</p>
+
+<pre>my $override = Sub::Override->new('Some::sub', sub {'new data'});</pre>
+
+<p>A static language generally isn't going to allow you to swap out an individual method like this (much less allow you to replace core functions, something we can take advantage of).  While this is dangerous to do in Perl, when done, you can reap great benefits, such as not having to sit down and spend time writing a mocked object.</p></p>
+
+
+<hr/>
+
+
+
+<h2>moose?</h2>
+<h3><a href="/user/notbenh/">notbenh</a> on 2008-12-17T22:50:59</h3>
+<p><code><br>
+&nbsp; &nbsp; &nbsp; package My::Map;<br>
+&nbsp; &nbsp; &nbsp; #stuff</code></p><p><code>
+&nbsp; &nbsp; &nbsp; package My::City;<br>
+&nbsp; &nbsp; &nbsp; use Moose;<br>
+&nbsp; &nbsp; &nbsp; has [qw{longitude latitude}] =&gt; (<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; is =&gt; 'rw',<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; #could make your own type, though for consistency<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; isa =&gt; 'Num',<br>
+&nbsp; &nbsp; &nbsp; );<br>
+&nbsp; &nbsp; &nbsp; has name =&gt; (<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; is =&gt; 'rw',<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; isa =&gt; 'Str',<br>
+&nbsp; &nbsp; &nbsp; );<br>
+&nbsp; &nbsp; &nbsp; has map =&gt; (<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; is =&gt; 'rw',<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; isa =&gt; 'My::Map',<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; default =&gt; sub {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; use My::Map;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; My::Map-&gt;new;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; },<br>
+&nbsp; &nbsp; &nbsp; );</code></p><p><code>
+&nbsp; &nbsp; &nbsp; #needless, but here for consistency<br>
+&nbsp; &nbsp; &nbsp; sub setMap { shift-&gt;map(@_) };<br>
+&nbsp; &nbsp; &nbsp; sub routeTo {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my ($self, $targetCity) = @_;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; #stuff<br>
+&nbsp; &nbsp; &nbsp; }<br></code></p><p>So the code is not that much different, Though you gain one big plus, type checking for setMap.</p>
+
+
+
+<h2>mocking!</h2>
+<h3><a href="/user/systems/">systems</a> on 2008-12-18T08:12:32</h3>
+Well, the benefit of interfaces I think it that it should save you time, collecting the list of methods you need to implement in you mock object.
+<br> <br>
+In a statically typed language, you will just read the interface. And you are sure this is only what you need to implement, else the application would not compile
+<br> <br>
+In a dynamically typed language, you will either have to filter the code that use the object you want to mock to see what is bein used, a process of trial and error. Or you will rely on documentation, which is not as strong as a compile time check.
+<br> <br>
+So the lesson I learned is, programming with interfaces helps in creating mock objects.
+<br> <br>
+And the main problem I see is figuring out what to implement or override, not how?
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

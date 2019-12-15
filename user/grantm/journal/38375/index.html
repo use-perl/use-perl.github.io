@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of grantm: Remember Your Responsibilities</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Remember Your Responsibilities</h1>
+<h2><a href="/user/grantm/">grantm</a> on 2009-01-31T07:42:10</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>A colleague encountered an odd problem the other day.  It took us a while to
+realise what was going on, you'll probably work it out much quicker ...</p>
+
+<p>Here's a simplified version of what we were dealing with:</p>
+
+<pre>    use strict;
+    use warnings;
+
+    eval {
+        my $obj = SomeClass->new();
+        die "Code Red!\n";
+    };
+
+    if($@) {
+        print "Exception caught: $@\n";
+    }
+    else {
+        print "No exception occurred\n"
+    }</pre>
+
+<p>We both expected it to output:</p>
+
+<pre>    Exception caught: Code Red!</pre>
+
+<p>but instead we got:</p>
+
+<pre>    No exception occurred</pre>
+
+<p>You probably worked it out straightaway but for the record, here's what was
+happening ...</p>
+
+<p>The die statement <i>did</i> generate an exception and the message <i>was</i> stored in $@.
+Of course the code in the eval block stopped executing immediately but when
+control flow exited the block, any lexcial variables declared in the block went
+out of scope.  In this case there was only one: $obj.  What we didn't realise is
+that $obj's class defined a destructor method ('DESTROY').  This method is
+called when the object goes out of scope and apparently in our case the method
+wrapped something in an eval.  Whatever that something was, it completed
+without generating an exception, so $@ ended up empty - indicating no error and
+overwriting the exception message that our code put there.</p>
+
+<p>So, if you write a destructor method and it needs to use eval, please remember to use
+local($@) to restore the previous value of $@ when your routine completes.</p>
+
+<p><small>Cross-posted from my <a href=http://grantmclean.vox.com/library/post/remember-your-responsibilities.html"">shiny new blog</a></small></p></p>
+
+
+<hr/>
+
+
+
+<h2>critic to the rescue</h2>
+<h3><a href="/user/daxim/">daxim</a> on 2009-01-31T11:32:34</h3>
+<p>The problem of needing to <tt>local</tt>ise special variables is discussed in <a href="http://perldoc.perl.org/perlobj.html#Destructors" title="perl.org">http://perldoc.perl.org/perlobj.html#Destructors</a perl.org>.
+
+</p><p>There is a P::C policy <a href="http://search.cpan.org/perldoc?Perl::Critic::Policy::ErrorHandling::RequireCheckingReturnValueOfEval" title="cpan.org">ErrorHandling::RequireCheckingReturnValueOfEval</a cpan.org> that catches this programming mistake. Its documentation also offers an alternative approach where you don't need to mess with other people's destructors to make it work.</p><blockquote><div><p> <tt>package SomeClass;<br>sub new {<br>&nbsp; &nbsp; return bless \my $foo =&gt; __PACKAGE__;<br>}<br> <br>sub DESTROY {<br>&nbsp; &nbsp; eval {'resetting $@'};<br>}<br> <br>package main;<br>use strict;<br>use warnings;<br> <br>if (<br>&nbsp; &nbsp; eval {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $obj = SomeClass-&gt;new();<br>&nbsp; &nbsp; &nbsp; &nbsp; die "Code Red!\n";<br>&nbsp; &nbsp; &nbsp; &nbsp; 1;<br>&nbsp; &nbsp; }<br>) {<br>&nbsp; &nbsp; print "Exception caught: $@\n";<br>} else {<br>&nbsp; &nbsp; print "No exception occurred\n";<br>}</tt></p></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:critic to the rescue</h2>
+<h3><a href="/user/davebaker/">davebaker</a> on 2009-02-03T05:36:26</h3>
+<p>Did you mean to say</p><blockquote><div><p> <tt>if (<br>&nbsp; &nbsp; eval {<br>&nbsp; &nbsp; &nbsp; &nbsp; my $obj = SomeClass-&gt;new();<br>&nbsp; &nbsp; &nbsp; &nbsp; die "Code Red!\n";<br>&nbsp; &nbsp; &nbsp; &nbsp; 1;<br>&nbsp; &nbsp; }<br>) {<br>&nbsp; &nbsp; print "No exception occurred\n";<br>} else {<br>&nbsp; &nbsp; print "Exception caught: $@\n";<br>}</tt></p></div> </blockquote>
+
+
+
+
+
+</blockquote>
+
+
+<h2>How?</h2>
+<h3><a href="/user/Downes/">Downes</a> on 2009-01-31T15:38:38</h3>
+&gt; use local($@) to restore the previous value of $@ when your routine completes.<br/><br/>How?<br/><br/>(Searched web but didn't find an answer)
+
+
+
+<blockquote>
+
+<h2>Re:How?</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2009-01-31T17:27:46</h3>
+<p>Err. How what?</p><blockquote><div><p> <tt>local $@;</tt></p></div> </blockquote><p>Just like he said.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Thanks</h2>
+<h3><a href="/user/Downes/">Downes</a> on 2009-01-31T17:42:15</h3>
+Thanks.<br/><br/>(This shows the danger of just mixing in code with plain English when you're explaining things; sometimes people don't recognize that it *is* code (even though it's obvious to others))
+
+
+
+<h2>eval {} or do_something</h2>
+<h3><a href="/user/davebaker/">davebaker</a> on 2009-01-31T20:56:59</h3>
+<p>Following the eval block with an "or" seems to be more reliable than using "<code>if ($@)</code>" to check for an exception in an eval block, because an eval block (or even an eval EXPR) returns undef if there is a syntax error or runtime error or a die statement is executed (according to perldoc -f eval).</p><p><code><br>
+&nbsp; &nbsp; &nbsp; &nbsp; eval {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; my $obj = SomeClass-&gt;new();<br>
+&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; die "Code Red!\n";<br>
+&nbsp; &nbsp; &nbsp; &nbsp; } or print "Exception caught: $@\n";<br></code></p><p>But even with this technique the $@ is reset by the destructor in your example, so while the exception at least can be caught we lose the information $@ would provide but for the destructor. The output is merely</p><p><code>"Exception caught:"<br></code></p><p>The documentation for eval says that $@ is guaranteed to be a null string if no exception occurred; I had not appreciated the precise scope of that statement until seeing your example (it doesn't go on to say that, conversely, $@ is guaranteed not to be a null string if an exception occurred).</p><p>I believe I heard schwern advocating at YAPC 2008 the use of<br><code><br>eval {<nobr> <wbr></nobr>... }<br>
+&nbsp; &nbsp; &nbsp; &nbsp; or warn_about_problem();</code></p><p>rather than<br><code><br>eval {<nobr> <wbr></nobr>... };<br>if ($@) { warn_about_problem() }</code></p><p>This might have been the kind of situation he had in mind.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

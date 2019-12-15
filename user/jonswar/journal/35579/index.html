@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jonswar: 2 problems with typical perl cache usage (and 5 solutions)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>2 problems with typical perl cache usage (and 5 solutions)</h1>
+<h2><a href="/user/jonswar/">jonswar</a> on 2008-02-05T01:43:46</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>A typical cache usage pattern looks like this:
+
+<pre>
+   # Try to get the value from the cache
+   my $result = $cache->get('key');
+
+   # If it isn't there, compute and set in the cache
+   if (!defined($result)) {
+      my $result = do_something_to_compute_result();
+      $cache->set('key', $result, $expiration_time);
+   }
+</pre>
+
+<p>This pattern is popular because it is easy to wrap around existing code, and easy to understand.</p>
+
+<p>Unfortunately, it suffers from two problems:</p>
+
+<ul>
+<li>
+
+<p><b>Miss Stampedes</b>: When a cache item expires at the specified time, any processes trying to get it will start to recompute it. If it is a popular cache item and if recomputation is expensive, you may get many recomputations for the same item, which is at best wasteful and at worst can bog down a server.</p>
+
+<p>I originally recognized this problem while working on Mason's <a href="http://www.masonhq.com/docs/manual/Devel.html#avoiding_concurrent_recomputatio">busy locking</a>, but am obviously not alone in experiencing it. The term "miss stampede" comes from this <a href="http://lists.danga.com/pipermail/memcached/2007-July/004803.html">memcached list discussion</a> - definitely worth a read.</p>
+
+</li>
+
+<li>
+
+<p><b>Recomputation Latency</b>: When a cache item is recomputed, the client (whether that be a browser, command-line, whatever) has to wait for the computation to complete. Since caching keeps average latencies down, there is a tendency to ignore the unfortunate customer that gets stuck with one or more cache misses.</p>
+
+</li>
+</ul>
+
+Here are some ways of tweaking the usage pattern above to address one or both of these problems.  I've added the initials of the problems that each one addresses, and mentioned relevant features from <a href="http://search.cpan.org/search?query=CHI&mode=all">CHI</a>, if any.
+
+<ul>
+<li><b>Probabilistic expiration (MS)</b><br><br>
+
+<p>Instead of specifying a single expiration time, specify a range of time during which expiration might occur. Then each cache <tt>get</tt> makes an independent probabilistic decision as to whether the item has expired. The probability starts out low at the beginning of the range and increases to 1.0 at the end of the range. What this means for popular cache items is that only one or a handful of <tt>get</tt>s will most likely expire at the same time.</p>
+
+<p>CHI supports this with the <a href="http://cpan.uwinnipeg.ca/htdocs/CHI/CHI.html#expires_variance_FLOAT">expires_variance</a> parameter. It may be passed to individual <tt>set</tt> commands or as a default for all <tt>set</tt>s. Personally, I plan to default it to 0.2 or so in almost all my caches.</p>
+
+<p>Drawbacks: Since this is probabilistic, you get no guarantee of how well stampedes will be avoided (if at all), and you have to try to guess the right variance to use.</p>
+
+</li>
+
+<li><b>Busy locks (MS)</b><br><br>
+
+<p>When a cache item expires, flag the item for a short time, either by upping its expiration time or by setting an associated value in the cache. Subsequent misses will see the flag and return the old value instead of duplicating the recompute effort.</p>
+
+<p>CHI supports this with the <a href="http://cpan.uwinnipeg.ca/htdocs/CHI/CHI.html#busy_lock_DURATION">busy_lock</a> parameter, stolen from Mason. It works by temporarily setting the expiration time forward by the specified amount of time.</p>
+
+<p>Drawbacks: Setting a busy lock involves a separate write. If you use this feature liberally, you'll double the number of write operations you do. Some backends will suffer from a race condition, a small window of time in which many processes may decide to recompute, before the first lock has been successfully set.</p>
+
+</li>
+
+<li><b>Background recomputation (RL)</b><br><br>
+
+<p>When a cache item expires, return the old value immediately, then kick off a recomputation in the background. This spares the client from the cost of the recompute.</p>
+
+<p>This requires a non-traditional usage pattern, since the get and set are effectively happening as part of one operation. In CHI it will look like this:</p>
+
+<pre>
+    my $result =
+      $cache->compute( 'key', sub { do_something_to_compute_result() },
+        $expiration_time );
+</pre>
+
+<p>CHI already has a working <a href="http://cpan.uwinnipeg.ca/htdocs/CHI/CHI.html#compute_key_code_set_options">compute</a> API, but doesn't yet know how to run things in the background. Coming soon.</p>
+
+<p>Drawbacks: Requires a non-traditional and somewhat ugly code pattern; background processes are harder to track and debug.</p>
+
+<li><b>External recomputation (MS + RL)</b><br><br>
+
+<p>Recompute cache items entirely from an external process, either when change events occur or when items approach their expiration time. Items never actually expire as the result of a client request. This is the most efficient and client-friendly solution, if you can manage it.</p>
+
+<p>Drawbacks: Requires extra external processes (more moving parts). Code to recompute caches must be available from the external process, which can result in some unwanted code separation, API contortions, or repetition. It is also difficult to know which items to keep repopulating, and when exactly to recompute them.</p>
+
+</li>
+
+<li><b>Externally initiated recomputation (MS + RL)</b><br><br>
+
+<p>Use a periodic external process to trigger events that will naturally utilize your caches (e.g. write a cron job that hits common pages on your website), but pass a special flag making items more likely to expire. This makes it less likely that expiration will occur during a real client request.</p>
+
+<p>This is not yet supported in CHI, but the idea would be to add some kind of easily-accessible lever to temporarily view all expiration times as reduced. e.g.</p>
+
+<pre>
+    # Reduction ends when $lex goes out of scope
+    my $lex = CHI->reduced_expirations(0.5);
+</pre>
+
+<p>Drawbacks: Requires extra external processes (more moving parts). Triggers and their run frequencies must be carefully chosen.</p>
+
+</li>
+</ul>
+
+<p>What other techniques have you used, and what success/failures have you had with them?</p>
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of autrijus: Day 178 (r5932): QuickChecking PIL.</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Day 178 (r5932): QuickChecking PIL.</h1>
+<h2><a href="/user/autrijus/">autrijus</a> on 2005-07-31T18:16:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Today I finally put the <a href="http://www.cs.chalmers.se/user/rjmh/QuickCheck/">QuickCheck</a> technology to use, having it generate a large number of PIL expressions and check that invariants hold.
+
+<p>
+For example, this property declares that <code>untie()</code> accepts any lvalue arguments:
+
+<pre>
+prop_untie :: LV -> Bool
+prop_untie x = try_ok (Untie x)
+</pre>
+
+<p>
+Based on the type signature, when I type <code>test prop_untie</code> in the ghci prompt, QuickCheck will generate 100 of random expressions that can evaluate to a lvalue, run them through <code>Untie</code>, and check that all of them succeeds.
+
+<p>
+I am gradually converting hand-crafted unit tests into this kind of invariant-based tests.  This process prompted me to see the language in a different light: not as a black box with external expectations defined by individual unit tests, but rather a well-behaved system with invariant properties.  Of course, such verifiable specification is still not as good as a proof -- but it is much more <em>cheap and cheerful</em> than other test methodologies that I know of.
+
+<p>
+During the quick checking, a question arises: what is the meaning of <code>untie(&say)</code>?  Perl 5 does not have this problem, as <code>&say</code> is a function call there -- you cannot address a function by name.  In Perl 6, it seems to me that <code>my &foo</code> is merely a constrained version of scalar variable <code>my Code $foo</code>, and <code>&foo = sub { ... }</code> should work as usual.  I have brought this to <a href="http://www.nntp.perl.org/group/perl.perl6.language/22546">p6l</code> for discussion.
+
+<p>
+iblech and I also noticed that function parameter binding and normal variable binding are symmetric:
+
+<pre>
+    sub f ($a, $b) {
+        return (c => $a, d => $b)
+    }
+    ($c, $d) := f(a => $a, b => $b);
+</pre>
+
+<p>
+Currently the <code>return</code> side is not specified to observe the same rich binding semantics as the parameter side; moreover, named return values are not expressible.  We think that it makes sense to unify both representations into the same binding form.
+
+<p>
+Finally, I have posted a <a href="http://www.nntp.perl.org/group/perl.perl6.compiler/1006">preliminary solution</a> to the dreaded <code>$x = $x + my $x if $x;</code> problem that haunted us during the hackathon.  Enjoy!
+
+</p>
+
+
+<hr/>
+
+
+
+<h2>PIL2JS passes 57.07% of the testsuite :)</h2>
+<h3><a href="/user/iblech/">iblech</a> on 2005-07-31T18:54:16</h3>
+<p>The new smoke is <a href="http://m19s28.vlinux.de/iblech/stuff/not_perm/pil2js-demo/t/smoke.html" title="vlinux.de">online</a vlinux.de> [r5930] (compare with <a href="http://m19s28.vlinux.de/iblech/stuff/not_perm/pil2js-demo/t/old-smokes/r5904.html" title="vlinux.de">r5904</a vlinux.de>), showing that PIL2JS passes 57.07% of Pugs' testsuite, with 28 unexpected successes.<nobr> <wbr></nobr>:)</p>
+
+<p>You can also <a href="http://m19s28.vlinux.de/iblech/stuff/not_perm/pil2js-demo/t/" title="vlinux.de">browse the testsuite</a vlinux.de>, compiled to JS.</p>
+
+<p>FYI, compiling the whole suite to JS took 5min 40s; compiling and running using Spidermonkey's <code>bin/js</code> took 29min (with <code>-j1</code>).</p>
+
+<p>Test failures are mainly due to</p>
+<ul>
+<li> <code>&amp;eval</code>, of course, not working,</li>
+<li>missing implementation of builtins,</li>
+<li>regexps not (yet) working, and</li>
+<li>Stevan's <a href="http://svn.openfoundry.org/pugs/perl5/Perl6.MetaModel/" title="openfoundry.org">MetaModel for JS</a openfoundry.org> not being integrated yet.</li>
+</ul>
+
+
+<p>--Ingo</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

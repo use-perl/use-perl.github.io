@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of BinGOs: CPAN Testing woes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>CPAN Testing woes</h1>
+<h2><a href="/user/BinGOs/">BinGOs</a> on 2007-03-30T15:40:58</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>So, I woke up the other morning to find that the mail exchanger for <i>cpan-testers@perl.org</i> was rejecting my lovingly generated CPAN smoke reports, with <i>552 No ID? No Mail</i>.</p>
+
+<p>I use <a href="http://search.cpan.org/dist/CPAN-YACSmoke/">CPAN::YACSmoke</a>, which uses <a href="http://search.cpan.org/dist/CPANPLUS/">CPANPLUS</a>, which is using <a href="http://search.cpan.org/dist/Test-Reporter/">Test::Reporter</a>, which by default uses <a href="http://search.cpan.org/user/gbarr/libnet-1.20/Net/SMTP.pm">Net::SMTP</a>. And Net::SMTP doesn't generate a <i>Message-ID</i> header. Oh noes.</p>
+
+<p>A quick code addition to <a href="http://search.cpan.org/user/bingos/POE-Component-Server-SimpleSMTP-1.00/">POE::Component::Server::SimpleSMTP</a> and use of the following script:</p>
+
+<pre>
+use strict;
+use warnings;
+use Data::Dumper;
+use POE qw(Component::Server::SimpleSMTP Component::Client::DNS);
+use Getopt::Long;
+
+my ($address,$hostname);
+
+GetOptions ( 'address' => \$address, 'hostname' => \$hostname );
+
+die "You must specify an address and hostname\n" unless $address and $hostname;
+
+my $named = POE::Component::Client::DNS->spawn();
+
+POE::Session->create(
+        package_states => [
+                'main' => [ qw(_start _default smtpd_send_failed) ],
+        ],
+);
+
+$poe_kernel->run();
+exit 0;
+
+sub _start {
+  $_[HEAP]->{smptd} = POE::Component::Server::SimpleSMTP->spawn(
+        address  => $address,
+        hostname => $hostname,
+        resolver => $named,
+  );
+  return;
+}
+
+sub smtpd_send_failed {
+  my ($uid,$error) = @_[ARG0..ARG1];
+  print "$uid\n";
+  print Dumper($error);
+  return;
+}
+sub _default {
+  my ($event, $args) = @_[ARG0 .. $#_];
+  return 0 unless $event =~ /^smtpd/;
+  my @output = ( "$event: " );
+
+  foreach my $arg ( @$args ) {
+      if ( ref($arg) eq 'ARRAY' ) {
+              push( @output, "[" . join(" ,", @$arg ) . "]" );
+      } else {
+              push ( @output, "'$arg'" );
+      }
+  }
+  print STDOUT join ' ', @output, "\n";
+  return 0;
+}
+</pre>
+<p>and using the CPANPLUS' <i>cpantest_mx</i> option to specify a mail exchanger to route mail through, I got CPAN test reports flowing again.</p>
+
+<p>Could have done without all the hassle mind.</p></p>
+
+
+<hr/>
+
+
+
+<h2>I noticed this too</h2>
+<h3><a href="/user/tomhukins/">tomhukins</a> on 2007-03-31T10:09:00</h3>
+See <a href="http://rt.cpan.org/Ticket/Display.html?id=25856" title="cpan.org">this ticket</a cpan.org> to track whether this issue gets resolved in Test::Reporter itself.
+
+
+
+<blockquote>
+
+<h2>Re:I noticed this too</h2>
+<h3><a href="/user/BinGOs/">BinGOs</a> on 2007-03-31T11:52:16</h3>
+<p>Nice one.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

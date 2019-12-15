@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of pemungkah: ChucK</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>ChucK</h1>
+<h2><a href="/user/pemungkah/">pemungkah</a> on 2004-10-19T16:31:27</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've started playing around with <a href="http://chuck.cs.princeton.edu/">ChucK</a>, a new language for music composition and performance.<br/><br/>ChucK has a lot of the things I've always wanted in a music language: it does not require you to link up little boxes to write programs; it does not require you to effectively program in a horrible assembly language because that was good enough in 1968; it does not require you to jump though hoops to figure out how to get multiple intependent processes working.<br/><br/>It primarily uses a single operator, <tt>=></tt> (known as "chuck"), which does all of the heavy lifting re datatype conversions, etc.
+Here's an example. Let's say you were going to pass a white noise source through an ADSR (attack-decay-sustain-release), filter it, and then output it through a digital-to-audio converter, all under MIDI control.<br/><br/>In C-like, code this would look something like
+<pre>
+/* Advance the time */
+dacOut.tick(biQuad.tick(adsr.tick() * noise.tick()));
+if( timeCount % 44 == 0 ) {
+   /* Time to look for a MIDI message */
+    if( midi.nextMessage() == __SK_NoteOn_ ) {
+        /* Byte 3 non-zero: note-on, zero: note off */
+        (midi.getByteThree() ? adsr.noteOn() : adsr.noteOff());
+        /* Set the filter from the velocity */
+        biQuad.setFreq( MD2Freq(midi.getByteTwo()) );
+    }
+}
+</pre>
+In <a href="http://csounds.com">csound</a>, you'd decide it wasn't worth the trouble. In ChucK, this is simply
+<pre>
+noise3 => ADSR => biquad1 => dac;
+midi => (ADSR, biquad1);
+</pre>
+No messing with what byte does what in the MIDI message, no having to run the idle timing loop. It just works. The ChucK operator takes care of all the conversion and the individual units use whatever they can.<br/><br/>In the spirit of reasonable languages (like Perl), ChucK lets you decide waht you want to deal with. Durations and time are native  datatypes: units run from <tt>samp</tt> (the length of a single sample, or 1/44K second) to <tt>week</tt>. Artihmetic is supported:
+<pre>
+3:second + 100:ms => dur quarter;
+</pre>
+This defines the duration of a quarter-note as 3.1 seconds. Time is dealt with by chucking a new duration into <tt>now</tt>; you can also (as shown above) allow external events, like incoming MIDI messages, to advance time for you.<br/><br/>These two aspects, dealing with time and setting up flows of data, are the things that are most problematic for me in trying to use so-called "music languages".<br/><br/>ChucK also has a built-in concurrency model called <i>shreds</I> which is possibly of interest to other programming languages. Shreds are unlike threads in that threads are not deterministic and have no timing guarantees; shreds are guaranteed to be deterministic and allow synchronization down to the sample.<br/><br/>Shreds work because the advancement of time happens when the <i>program</i> says time advances. This means that the ChucK core can always know when a shred is supposed to do whatever it is planning on doing and schedule it deterministically. <br/><br/>As if this wasn't all cool enough, the Chuck core can add and delete shreds dynamically; so you can do something like this:
+<pre>
+bash $ sudo nice -20 chuck --loop
+bash $ chuck + kick.ck
+[chuck](VM): sporking incoming shred: 1 (kick.ck)...
+bash $ chuck + hihat.ck
+[chuck](VM): sporking incoming shred: 2 (hihat.ck)...
+... (add a pile more shreds)
+bash $ chuck - 1
+[chuck](VM): removing shred: 1 (kick.ck)...
+bash $
+</pre>
+You can start and kill shreds at will; If they're all advancing time at the same rate, the beat lines up and it sounds ... pretty cool. Chuck calls this "on-the-fly" programming; very similar to the <a href="http://www.perl.com/pub/a/2004/08/31/livecode.html">Hacking Perl in Nightclubs</a> folks. It might be very interesting to try writing some Perl code that emitted ChucK code instead of MIDI directly. Heck, it sould even <tt>system</tt> the shreds randomly, letting the shreduler handle the synchronization.<br/><br/>Anyway, it's way cool. I have a little free-running ChucK program which simulates a Fender Rhodes noodling away in the background as I type this; it even runs nicely on my Powerbook G4 with a fair bit of other stuff going on. </p>
+
+
+<hr/>
+
+
+
+<h2>Chuck...I like it</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2004-10-20T05:45:30</h3>
+<blockquote><div> <em>It primarily uses a single operator, =&gt;  (known as "chuck")</em> </div></blockquote>
+<p>I realize it serves an entirely different purpose than in perl, but I like "chuck" alot better than "fat comma" (or even "arrow" which gets confused with "-&gt;"). I say let's start a movement to call it "chuck" in perl also. As long as we don't call it "Chucky"<nobr> <wbr></nobr>:-)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

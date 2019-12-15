@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of schwern: On Fixing A Broken Test Suite, Step One</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>On Fixing A Broken Test Suite, Step One</h1>
+<h2><a href="/user/schwern/">schwern</a> on 2007-03-24T00:45:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Another paste-archive.  This is something I wrote up for the developers of a company which has a large, existing project.  The situation is thus.  They have a partially written test suite.  Its inconvenient to write really useful tests properly, too much setup is required.  The test suite has bad coverage.  Trunk regularly fails its tests.  The yelps of the nightly smoke test are largely ignored.  I'm trying to do a big redesign which is stymied by having to stop and work out if I broke something or if the last merge had a failing test.<br/><br/>After fixing the failures in trunk on my own for a while, only to watch more failures creep in, I decided to sit down and analyze the situation.  Its a very common one.<br/><br/>I call this one, "On Fixing A Broken Test Suite, Step One: Break The Cycle Of Failure"<br/><br/>
+-----------<br/><br/>Executive executive summary:<br/><br/>Give the test firefighters some breathing room and run the tests before you commit to trunk.<br/><br/>
+Executive summary:<br/><br/>10 The test suite is not being run before all task submissions.
+20 Its not being run because its slow and trunk fails a lot.
+30 Trunk fails because failing tasks are being submitted.
+40 Failing tasks are being submitted because the test suite is not being run.
+50 GOTO 10<br/><br/>I'm trying to get trunk back to passing while new failures are being piled on
+top faster than I can fix them.  Please run "make test && commit_to_trunk".  If it fails compare it against a clean trunk test or the last automated tester report to see if you added anything.<br/><br/>
+Body:<br/><br/>In working to get the tests up to a usable, stable state so I can know the new XXX implementation is working I've seeing clear patterns of breakage.  The sorts of test breakage I'm seeing are mostly of these forms.<br/><br/>1) A method was removed but not all the tests were updated.
+2) The schema was changed to remove a column or add a new constraint and the
+tests were not updated.
+3) The schema was changed and the test database was not updated.
+4) The test database has dirty data in it.
+5) The test relied on random data in the production database copy that went away.<br/><br/>These can be broken up into two categories.  1, 2 and 3 are of "preventable by
+running the full test suite".  You run it before submitting, see the failure
+and fix it.  If a little time consuming to run the tests, its a simple fix at
+that point by the person making a change.  Otherwise the fix gets pushed off
+to someone else who then has to do detective work to figure out what's going
+on and lots of developer time is wasted.<br/><br/>Ideally you should be doing this when you're done with a task:<br/><br/>    make test && commit_to_trunk<br/><br/>I realize the tests are slow and the suite currently fails.  I'm working on
+the latter, for now please compare your results against the last nightly test
+run.  As to the former, just shove it off in another terminal and let it run.<br/><br/>At the very least, when you delete a method or column do a grep of lib and t
+for that method.<br/><br/>4 and 5 are of the "it worked before, now it doesn't work" variety.  #4 will
+be greatly relieved once the automated tester is rebuilding the test database from the schema files every night.  #5 is a little more involved to fix proper and I'm going to shelve that for the moment.<br/><br/>The tests aren't getting run, that much is clear.  This is usually because of
+a few things:<br/><br/>1) They're really slow.
+2) They're unreliable.
+3) They have bad coverage.<br/><br/>Again, two categories.  #1 falls into the general category of "they're a pain
+in the ass to run".  As the system gets faster the tests should get faster, but
+there's currently a lot of fat to be cut out.  Most test files call Bootstrap to load up the entire system.  That's 5 seconds each.  I count about 100 calls.  That's about 8 minutes of fat right there.  A lot of these are stub "can_ok" tests or in some cases they do nothing at all except chew up time loading Bootstrap!  Look at a good chunk of t/bin/.  These should all probably be deleted or at least all the code entirely stubbed out.  In the long run Bootstrap should be made unnecessary.<br/><br/>Task XXXX is available for cleaning out the useless tests.
+Task XXXX is available to move all the stub can_ok() tests into one file to avoid having to load Bootstrap so many times.
+Task XXXX is available to speed up the slowest test which takes about 10 minutes to run.<br/><br/>#2 and #3 are of the category "they're not worth running".  Either because
+they're not catching real bugs or because failing tests are allowed to leak
+into trunk.  Increasing coverage is more involved so I'll shelve that for the
+moment.  Unreliable tests are a pernicious but fortunately easily solved
+problem.  Unreliable tests are a vicious cycle, people don't run the full test
+suite because they don't think its useful.  Failures begin leaking into trunk
+making it even less reliable which makes programmers even less likely to run
+the full suite which means more failures leak in... and on until you have to
+hire a specialist to fix the problem.  Welcome to the bottom of the spiral
+folks. :)<br/><br/>The failing trunk -> loss of confidence -> not running the tests cycle is even
+more harmful to the test suite because while someone is trying to fix the
+trunk test suite more failing tests are being piled in.  Even if the repair
+succeeds, developer confidence in the test suite takes time to restore thus
+some devs won't run the test suite and failures will leak in again crushing
+any confidence that might have been built up and the cycle starts again.<br/><br/>The only way to wind down this cycle is 1) to have devs be right on top of the
+test suite repairing it and 2) for devs to run the tests, regardless of their
+confidence in it, and not let more failures slip into trunk.  Once people are
+no longer putting out trunk fires we can work on increasing coverage and
+making the tests easier to write.
+</p>
+
+
+<hr/>
+
+
+
+<h2>A couple other ideas</h2>
+<h3><a href="/user/Phred/">Phred</a> on 2007-03-24T18:33:02</h3>
+<p>This is a great read, as well as your last journal entry on this topic.  I'm in a similar situation, and have come up with a couple of ideas on tackling the huge codebase with failing tests monster.</p>
+<p>First is to chop off a piece of the application and roll it into it's own self contained module.  Now this is undoubtedly easier said than done, but if you can make that happen, you've downsized the overall problem a bit, plus the it's much easier to run the tests for that module when work needs to be done on it.</p><p><p>Second is to introduce a verbose (there's probably a better word for this) testing mode that is set with an environment or package variable.  Some of our tests are essentially smoke tests which can take several minutes to run.  They are a huge pain to run at checkin time, so on some of them we do skip if $ENV{TEST_LARGE}.  This allows the majority of the unit tests to be run at checkin time, and then (theoretically) the automated build runs the large tests and reports failures there.  It's far from perfect, but it takes care of a lot of cases where the small tests wouldn't be run anyway (the really slow case)</p>
+<p>I guess a lot of this goes with the "if your problem is too big, break it up into smaller problems" approach.  That paradigm stuck in my head from engineering school, and I've found it to be a very good approach to problems that are too large to solve in one pass.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

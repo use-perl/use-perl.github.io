@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of acme: Parallel foreach</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Parallel foreach</h1>
+<h2><a href="/user/acme/">acme</a> on 2006-07-06T13:59:21</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>
+Computers are getting faster, that's for sure. However, they are also getting more cores: new laptops thesedays are dual-core and servers are four-or-more-core. <a href="http://en.wikipedia.org/wiki/Multicore">Cores</a> are a fancy word for something a bit like another processor. I happen to have lots of things I want to process independently, but if I only use a single process I'll only use one core, a quarter of those available on my server. That's wasting CPU power. The solution is to do more than one thing at a time and common solutions for this are threading and forking. I've found a particularly neat solution which is a very nice idiom too: parallel foreach with <a href="http://search.cpan.org/dist/Proc-ParallelLoop/">Proc::ParallelLoop</a>  Something along the lines of the following, 
+which will parallelise the loop by forking 4 workers at a time:
+</p>
+<pre>
+pareach \@todo, \&generate, { Max_Workers => 4 };
+</pre>
+<p>
+The nice thing is that Linux balances each long-lived process on a core, and suddenly my program runs about four time faster! 
+(Okay, so cores aren't complete CPUs - they tend to have dismal floating point performance - but all I am doing are integer calculations so it is mostly the same in my case).
+</p>
+<p>
+There are many modules on the CPAN which do something similar, but I particularly like the fact that this is a cute idiom: exactly like a foreach, but slightly parallelised. Neat!
+</p>
+<p>
+See you at the <a href="http://xrl.us/social">London.pm social meeting</a> tonight!
+</p></p>
+
+
+<hr/>
+
+
+
+<h2>Multiple Cores and Floating Point Parallel-Each</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2006-07-06T22:07:42</h3>
+<i>so cores aren't complete CPUs - they tend to have dismal floating point performance </i>
+
+<p>That may depend upon brand and architecture. But really, Parallel-Each dispatch of floating point operations would be the wrong way, multi-core or single-core SMP.
+</p><ul>
+<li> <b>Sun</b> - UltraSparc T1 aka Niagra, T2000 - <b>True</b>.<br>
+<a href="http://www.sun.com/servers/coolthreads/forrester_whitepaper.pdf" title="sun.com">*</a sun.com>,
+<a href="http://www.theregister.co.uk/2005/12/06/sun_niagara_gear/" title="theregister.co.uk">**</a theregister.co.uk>.
+<br>Prior USiii dual-core models had 1 FPU per Core, but it wasn't safe to max them.
+<a href="http://www.sun.com/processors/feature/M45_UltraSPARC4_rpnt.pdf" title="sun.com">***</a sun.com>.</li>
+<li> <b>IBM/Apple</b> - PowerPC E.g., QuadCore PowerMac G5 - <b>False</b>.
+<br>2xFPU/core = 8 FPUs in the 2 socket, 4 core G5
+<a href="http://www.apple.com/powermac/dualcore.html" title="apple.com">*</a apple.com>, <a href="http://www-128.ibm.com/developerworks/power/library/pa-fpf970mp/index.html" title="ibm.com">**</a ibm.com></li>
+<li> <b>IBM</b> - Power5 - <b>False</b>.
+<br>2 FPU per Core, since Power3 at least. Always had it, always will.</li>
+<li> <b>Intel</b> - Dual-Core Xeons (IA32) - <b>Maybe</b>.<br>
+Has 4 shared FPUs for MMX/SSE SIMD (see discussion below). Serious High Performance Computing vendors are using this chip, where Floating Point counts.<a href="http://www.microway.com/press-releases/press_benseley.html" title="microway.com">*</a microway.com>, but it reportedly has fewer FPU per core than in old server-grade single-core-chip P4's, being more comparable to Pentium-M<a href="http://en.wikipedia.org/wiki/Intel_Core#Advantages_and_shortcomings" title="wikipedia.org">**</a wikipedia.org> (see below).</li>
+<li> <b>AMD</b> - similar to Intel IA32?
+<br>64bit SSE FP will be faster than 32bit default x87 FP.<a href="http://developer.amd.com/articles.aspx?id=1&amp;num=6" title="amd.com">*</a amd.com></li>
+<li> <b>Intel/HP</b> - Itanium 2 - <b>Maybe</b>, <a href="http://www.theinquirer.net/default.aspx?article=24459" title="theinquirer.net">*</a theinquirer.net></li>
+
+</ul>
+
+<p>The issue with Turion64 and Intel Duo-Core / Xeon is largely because they're based on the lower-power Mobile versions of the core. This apparently is because power-and-heat is the limiting design factor today. Heat/Power and cores sharing the FSB are why the clock speeds aren't as fast as the prior server single-core too.
+
+</p><p> <b>But</b> more to the point, if you have <b>floating-point arrays</b> to <code>parallel-each</code> over, you want to do it in native arrays and hardware dispatch, not Perl list structure and a perl-core XS module loop. This applies on any serious Fortran engine's FPU Vector mode as well as IA32 MMX SIMD. <a href="http://search.cpan.org/search?query=PDL" title="cpan.org">PDL</a cpan.org> already has native representation and parallel SMT threaded multiple dispatch, and has a TODO to use the native FP vectors. Even so, it should keep the FP pipeline much more active than a Perl-list-based parallel-each, plus it's CPAN packages interface to scientific libraries that can use vector-mode FP if acquired/built that way (e.g., pick a BLAS lib for Gnu Sci Lib).</p>
+
+
+
+<h2>Do Perl 6 Junctions do this anyway?</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2006-07-14T20:13:05</h3>
+Isn't there a Perl 6 way to do this?
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

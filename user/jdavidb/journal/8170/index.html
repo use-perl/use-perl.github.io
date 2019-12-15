@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jdavidb: Upgrading debian's kernel and filesystems</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Upgrading debian's kernel and filesystems</h1>
+<h2><a href="/user/jdavidb/">jdavidb</a> on 2002-10-04T12:47:44</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I used RedHat 7.2 just before I started using Debian.  There were three things about RedHat I liked that Debian didn't have by default:</p>
+
+<ul>
+<li>grub</li>
+<li>Linux, the kernel, version 2.4</li>
+<li>ext3fs</li>
+</ul>
+
+<p>Now, I could have gotten all of those by compiling them myself, and I'm no stranger to doing that.  But I knew the 2.4 kernel was in the available Debian packages, and I wanted to find out how to do it that way.  (Imagine being in a state where installing a precompiled package is harder for you than compiling yourself.  Happens to me all the time. :) )</p>
+
+<p>So yesterday I finally figured out how to do it.  To upgrade the kernel:</p>
+
+<ul>
+<li>Pick a kernel image from the available options; doing something like apt-cache dumpavail | grep '^Package: kernel-image'</li>
+<li>apt-get install kernel-image-2.4...</li>
+<li>You will probably be prompted to set up initrd in lilo.conf; add lines like initrd=/initrd</li>
+<li>Your old kernel will be moved to /vmlinuz.old, which you can boot by pressing TAB at lilo and selecting LinuxOLD.  Aren't you lucky?  You may need this.</li>
+<li>apt-get will prompt you to see if you want to install a new lilo loader or not.  Say yes.  (Just think; if you used grub, you wouldn't have this decision.)</li>
+<li>Reboot and feel the love.  (That sounds like an IBM commercial...)</li>
+<li>Any number of things may work differently, particularly as regards modules.  My network driver doesn't load on its own now, so I am currently starting networking by hand (I'll figure this out some day) with modprobe pcnet32; /etc/init.d/networking restart</li>
+</ul>
+
+<p>That got me a working 2.4 kernel. :)</p>
+
+<p>To turn on ext3fs:</p>
+
+<ul>
+<li>Don't plan on turning on ext3fs for the root or /boot partitions.  You won't have the driver compiled into your kernel; it has to load dynamically (which means it is unavailable when you need to mount those partitions, and you can't load it because they are unmounted).  Recompile your own kernel and include ext3fs if you want that.</li>
+<li>I used the "Beyond Linux From Scratch" <a href="http://beyond.linuxfromscratch.org/view/cvs/postlfs/ext3.html">instructions</a> (link will probably move) as a base, but changed some things, and learned some things.</li>
+<li>For each partition you would like to be ext3, change "ext2" (or whatever) on that line in /etc/fstab to "auto."  You can also say "ext3," but "auto" gives you some chance of mounting the partition as an ext2 if the kernel doesn't actually include ext3 when you thought it did.  (I still don't think you should try this for / or /boot.)</li>
+<li>Also on those lines in /etc/fstab, change the final field to a 0.  This says not to fsck that partition on boot.</li>
+<li>Unmount the appropriate partitions.  Try a straight umount command, first.  (Oh, you are in single user mode, aren't you?  I upgraded /home in multiuser mode, but this machine is on my desk and I was logged in on the text console only as root, so I knew /home wouldn't be in use.  /usr and /var weren't so lucky.)  If the umount fails, try umount -r and then umount -l.  If you have to use these switches, you will probably have to reboot when you are done rather than just going back to multiuser mode.</li>
+<li>If you did something stupid and umounted your /usr before you edited /etc/fstab, you might have to do something nasty like edit it with ed.  I am now a real sysadmin, by the way. :)</li>
+<li>For each filesystem you're upgrading, run tune2fs -j /dev/hda7 or whatever device it's on.</li>
+<li>mount -a unless you had to use umount -l, in which case you should reboot.</li>
+</ul>
+
+<p>Looks like it all works for me.  Now to figure out grub.  And to try this on my blueberry ibook.  (I tried to compile my own 2.4 kernel for this in January and it ate my filesystem.  I was frantically trying to fsck and recover while watching figure skating.  I failed.)</p></p>
+
+
+<hr/>
+
+
+
+<h2>RedHat plus apt-rpm?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-10-04T13:09:17</h3>
+Now that apt-rpm is really very stable, I can see no technological reason whatsoever for using Debian. The only reason that remains seems to be social.<br> <br>Ooh, now I bet that stirs up a hornet's nest<nobr> <wbr></nobr>;-)
+
+
+
+<blockquote>
+
+<h2>Re:RedHat plus apt-rpm?</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-10-04T14:01:52</h3>
+<p>Not with me.  I'm thinking of turning one of my boxes at home into an apt-rpm system.</p>
+
+<p>I've also been wanting to build a <a href="http://www.linuxfromscratch.org/" title="linuxfromscratch.org">Linux From Scratch</a linuxfromscratch.org> system but build rpms, maybe even host my own little mini repository and try to install from it onto another machine.</p>
+
+<p>I like RedHat.  I also like Debian.  My friends had a hard time getting me off RedHat onto Debian, but apt finally won out.  At the moment, I'd have to say I trust the apt infrastructure for Debian more than I do for rpm systems: I expect it to be more reliable and have more packages.  But I may just be ignorant, and even if I'm not, I expect the situation to change.</p>
+
+<p>Plus, on RedHat I have working sound out of the box!  (grumble, grumble)</p>
+
+<p>BTW, I'm convinced Debian is going to move to apt-rpm.  Some day.<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:RedHat plus apt-rpm?</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-10-04T15:13:08</h3>
+Actually I lied. There is one thing that the debian system has over redhat in regards to package management: suggests.<br> <br>i.e. AxKit doesn't *need* XML::LibXML or XML::Sablotron or XML::Parser of any of that crap, but it does suggest you get them otherwise it's pretty functionless without them.<br> <br>RPM can't encode that relationship as far as I can tell, but debian's package system can.
+
+
+
+<blockquote>
+
+<h2>Re:RedHat plus apt-rpm?</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2002-10-04T15:50:39</h3>
+<p>They can encode it, but in my experience it hasn't been used to its fullest potential.  I went through the other day and tried to delete a lot of things I didn't want or need.  One item I found was an ASCII art package.  Couldn't uninstall it because GIMP has it as a dependency.  I'm sure it's not used every time I run GIMP, so there's a prime example of something that would work better as a suggestion.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

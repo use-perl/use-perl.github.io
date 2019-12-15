@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of jhorwitz: DBD::SQLite alignment fix</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>DBD::SQLite alignment fix</h1>
+<h2><a href="/user/jhorwitz/">jhorwitz</a> on 2004-10-05T00:20:18</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I have a patch that fixes DBD::SQLite on Sparc so it passes all its tests and doesn't core dump.  Turns out GCC likes to inline its own "optimized" version of memcpy, which assumes 8-byte aligned structures.  SQLite does a <B>buttload</B> of casting from char * to structures and back, which wreaks havoc on this assumption.
+<P>
+The solution was to coerce GCC into not using its own inline memcpy without affecting other inlining.  Turns out all you have to do is make the size argument a variable rather than a constant.  So I changed lines like this:
+<ECODE>
+memcpy(to, from, 8);
+</ECODE>
+to this:
+<ECODE>
+int sz = 8;
+memcpy(to, from, sz); 
+</ECODE>
+<P>
+I'll send this off to <A HREF="http://use.perl.org/user/matts">Matt</A> tonight, and I should also port it to the main SQLite codebase.  This took <B>way</B> too long to figure out...</p>
+
+
+<hr/>
+
+
+
+<h2>gcc buggy?</h2>
+<h3><a href="/user/nicholas/">nicholas</a> on 2004-10-16T22:26:42</h3>
+<p>Given that <code>memcpy</code> is prototyped <code>void *memcpy(void *dst, const void *src, size_t len);</code> is sqlite actually at fault here? Or is the gcc optimisation buggy? I'm not a sufficiently good C standards guru to know this, even if I looked at precisely what the code is doing. (Which I confess, I haven't)</p>
+
+
+
+<blockquote>
+
+<h2>Re:gcc buggy?</h2>
+<h3><a href="/user/jhorwitz/">jhorwitz</a> on 2004-10-16T22:44:37</h3>
+I believe both are at fault.  GCC should not provide this optimization in *all* cases, at least without providing an option on those platforms to specifically disable it (curiously, there's an option for MIPS but not Solaris).
+<p>
+On the SQLite side, arrays of char * were being casted to structs and then memcpy'd.  With this layout, every other array element was misaligned on Solaris, but it was fine on x86.  Very, very bad.  D. Richard Hipp (author of SQLite) and I actually worked out a better solution than my patch -- using the fact that malloc() always returns 8-byte aligned addresses on Solaris, he fiddled with the allocation of the structures to guarantee 8-byte alignment.  Much cleaner!  I believe version 3.0.8 has this fix.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

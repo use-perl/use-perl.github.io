@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org story by jjohn: Redispatching Method Calls with NEXT</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Redispatching Method Calls with NEXT</h1>
+<h2><a href="/user/jjohn/">jjohn</a> on 2001-12-07T05:12:30</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a href="http://www.yetanother.org/damian/index.html">Damian Conway</a> introduces us to the latest creation of his very busy brain, the <code>NEXT</code> class. For those that lament Perl's incomplete handling of multiple inheritence, this class should be the balm for what ails you. Those that would like to get more background information on programming object oriented Perl may want to pick up a copy of <a href="http://www.amazon.com/exec/obidos/ASIN/1884777791">Object Oriented Perl</a> by Damian Conway or even take a look a the <a href="http://www.perldoc.com/perl5.6.1/pod/perltoot.html">perltoot</a> manpage.</p>
+<p><h2>The <code>NEXT</code> Big Thing</h2>
+
+
+<p>If you've used Perl's object-oriented features, you've probably come
+across the <code>SUPER</code> pseudo-class. It provides a way of calling
+an ancestral method from a derived method, without having to
+explicitly specify which ancestral method it is.
+
+</p>
+<p>Huh???
+
+</p>
+<p>Well, suppose we have a class with a <code>dump_info</code> method:
+
+</p>
+<pre>	package Person;</pre>
+
+<pre>	sub new {
+		my ($class, %args) = @_;
+		bless { name =&gt; $args{name}, age =&gt; $args{age} }, $class;
+	}</pre>
+
+<pre>	sub dump_info {
+		my ($self) = @_;
+		print &quot;Name:\t$self-&gt;{name}\n&quot;,
+		      &quot;Age:\t$self-&gt;{age}\n&quot;;
+	}</pre>
+
+<p>When we inherit from that class, our derived class might need to
+call the ancestral class's constructor (to set up the Person-al bits
+of the object) and perhaps it will dump extra information as well:
+
+</p>
+<pre>        package Soldier;
+        use base 'Person';	# Soldier class inherits from Person class</pre>
+
+<pre>        sub new {
+                my ($class, %args) = @_;
+                my $self = $class-&gt;Person::new(%args);	# Create object
+                $self-&gt;{rank}   = $args{rank};		# Add extra info
+                $self-&gt;{serial} = $args{serial};	# Add extra info
+                return $self;
+        }</pre>
+
+<pre>        sub dump_info {
+                my ($self) = @_;
+                $self-&gt;Person::dump_info();		# Dump Person-al info
+                print &quot;Rank:\t$self-&gt;{rank}\n&quot;,		# Dump military info
+                      &quot;S/Num:\t$self-&gt;{serial}\n&quot;;	# Dump military info
+        }
+</pre>
+
+<p>Why do we have to explicitly tell the program that the inherited method
+should also be called (a technique known as &quot;re-dispatch&quot;)?
+Because Perl won't automatically do it for us.
+</p>
+
+<h3>What you see (first) is what you get (only)</h3>
+
+<p>Normally, when you call a method on an object:
+
+</p>
+<pre>	$soldier-&gt;dump_info();</pre>
+
+<p>perl works out which class the object belongs to (e.g. <code>Soldier</code>) and then
+looks for a correspondingly named subroutine (i.e. <code>&amp;Soldier::dump_info</code>)
+in the object's class. Since there is such a method in this case, it
+is immediately called.
+
+</p>
+<p>However, if there had not been such a method defined, Perl would then
+have looked at the classes from which <code>Soldier</code> inherits, to see if any
+of them has a <code>dump_info</code> method that could be called instead. It
+starts with the first ancestral class (the left-most element in the
+<code>@Soldier::ISA</code> array), and checks if that class has a <code>dump_info</code>.
+If not, it tries that class's ancestors (and then <i>that</i> class's ancestors
+(and then <i>THAT</i> class's ancestors (and...you get the idea.)))
+
+</p>
+<p>So the search through the object's inheritance tree proceeds left-most,
+depth-first. That is: at any point in the search, if you don't find a
+method in the current class, try the complete left ancestral tree first,
+then the complete ancestral tree to its right, etc. etc.
+
+</p>
+<p>That process isn't as much work as it sounds because, as soon as the search
+finds a suitable method anywhere, it immediately ceases looking.
+That method is then invoked, after which (as far as perl is concerned)
+the method call is finished.
+
+</p>
+<p>And that's the problem.
+
+
+</p> <h3>Please, Sir, I want some more.</h3>
+
+<p>With a debugging method like <code>dump_info</code>, we don't just want to call
+the first <code>dump_info</code> that we encounter; we want to call <i>all</i> of them. That
+way, we get all the information dumped, not just the most-derived
+information.
+
+</p>
+<p>That's why we wrote <code>Soldier::dump_info</code> like this:
+
+</p>
+<pre>        sub dump_info {
+                my ($self) = @_;
+                $self-&gt;Person::dump_info();		# Re-dispatch
+                print &quot;Rank:\t$self-&gt;{rank}\n&quot;,
+                      &quot;S/Num:\t$self-&gt;{serial}\n&quot;;
+        }</pre>
+
+<p>Normally, once this (left-most, depth-first) method had been called,
+nothing else would happen. But we know that that we need to invoke
+another method further up the hierarchy as well. So we explicitly
+&quot;re-dispatch&quot; ourselves upwards to find it.
+
+</p>
+<p>Note that we had to hard-code the name of the ancestral class in
+<code>Soldier::dump_info</code> (and in the <code>Soldier::new</code> constructor as well).
+That's a Bad Idea, because if the name of that base class ever changed,
+or if we added an interim class between <code>Person</code> and <code>Soldier</code>, we'd
+have to remember to change that hard-coded ancestor name in every one of
+<code>Soldier</code>'s methods that used it. And there could be dozens of them.
+
+</p>
+<p>Of course, we could have taken advantage of the fact that the names of a Perl
+class's ancestors are available via its <code>@ISA</code> array. So we could
+have written:
+
+</p>
+<pre>        sub new {
+                my ($class, %args) = @_;
+                my $forebear = &quot;$ISA[0]::new&quot;;		# Work out ancestor
+                my $self = $class-&gt;$forebear(%args);	# Call it
+                $self-&gt;{rank}   = $args{rank};
+                $self-&gt;{serial} = $args{serial};
+                return $self;
+        }</pre>
+
+<pre>        sub dump_info {
+                my ($self) = @_;
+                my $forebear = &quot;$ISA[0]::dump_info&quot;;	# Work out ancestor
+                $self-&gt;$forebear();			# Call it
+                print &quot;Rank:\t$self-&gt;{rank}\n&quot;,
+                      &quot;S/Num:\t$self-&gt;{serial}\n&quot;;
+        }</pre>
+
+<p>Apart from being ugly, this technique is not very reliable. For example,
+suppose we later wanted <code>Soldier</code> to inherit from two or more classes
+at once? In that case, the <code>$ISA[0]</code> ancestor tree might not contain
+the ancestral method we want. It might be in <code>$ISA[1]</code>'s class
+hierarchy. Or <code>$ISA[2]</code>'s. And there's no way to know until we look.
+
+</p>
+<p>Perl provides a solution to these problems in the form of a &quot;pretend&quot; class
+named <code>SUPER</code>. By writing the methods as:
+
+</p>
+<pre>        sub new {
+                my ($class, %args) = @_;
+                my $self = $class-&gt;SUPER::new(%args);
+                $self-&gt;{rank}   = $args{rank};
+                $self-&gt;{serial} = $args{serial};
+                return $self;
+        }</pre>
+
+<pre>        sub dump_info {
+                my ($self) = @_;
+                $self-&gt;SUPER::dump_info();
+                print &quot;Rank:\t$self-&gt;{rank}\n&quot;,
+                      &quot;S/Num:\t$self-&gt;{serial}\n&quot;;
+        }</pre>
+
+<p>we tell perl to search through the current class's ancestor list (i.e.
+<code>$ISA[0]</code>, then <code>$ISA[1]</code>, then <code>$ISA[2]</code>, etc.), find the left-most
+ancestral class that has the appropriate method, and call that method.
+
+</p>
+<p>It's just the same as before, except we don't have to hard-code (or even
+soft-code) the names of the ancestor classes. If the <code>@ISA</code> list
+changes over time, the call through <code>SUPER</code> will simply search that new
+inheritance list. The call itself won't ever have to be rewritten.
+
+</p>
+<p>It's all very handy.
+
+</p> <h3>Not so super</h3>
+
+<p>Handy, but not perfect.
+
+</p>
+<p> <code>SUPER</code> has two fatal weaknesses (no, <i>not</i> kryptonite and Lois Lane).
+There are two serious limitations in the way it searches for and
+calls inherited methods.
+
+</p>
+<p>The first limitation is that it will only ever call a single ancestral method,
+even if two or more ancestors had (say) a <code>dump_info</code> method. Just as in a
+normal method call, it's always the method inherited from the left-most,
+depth-first ancestor that is selected. And <i>only</i> that method.
+
+</p>
+<p>That's probably appropriate when we call <code>SUPER::new</code>, since we'd prefer that
+just one constructor be called. But it may be a genuine nuisance when we
+call <code>SUPER::dump_info</code>, since <i>all</i> of a <code>Soldier</code>'s
+ancestral classes will probably have information that ought to be dumped.
+
+</p>
+<p>Perhaps you're thinking that we should just add a second call to
+<code>SUPER::dump_info</code> inside <code>Person::dump_info</code> -- to re-re-dispatch the
+method call to yet another class.
+
+</p>
+<p>That's certainly the right idea but, unfortunately, it brings us
+immediately to the second fatal flaw: <code>SUPER</code> only looks <i>up</i> the
+inheritance tree at any point. Calling it again in the <code>Person</code> class
+will restart the search for another <code>dump_info</code>, but only amongst
+<code>Person</code>'s ancestors. It will never backtrack down the inheritance tree
+to try any other ancestors of the original <code>Soldier</code> class.
+
+</p>
+<p>So all we can hope for is to call a sequence of &quot;left-most&quot;
+inherited <code>dump_info</code> methods, ignoring any other similar methods
+in any other branches of the inheritance tree.
+That's only a partial solution, at best.
+
+
+</p> <h3>Meanwhile, on Planet AUTOLOAD...</h3>
+
+<p>Curiously, that same problem can crop up in an nearly-unrelated context:
+the way an <code>AUTOLOAD</code> method handles failures.
+
+</p>
+<p>Normally, when a class has an <code>AUTOLOAD</code>, that method is invoked if the
+class (and all its ancestors) don't have a suitable method. For example:
+
+</p>
+<pre>        package Soldier;</pre>
+
+<pre>        sub AUTOLOAD {
+                if ($AUTOLOAD =~<nobr> <wbr></nobr>/::(march|salute|train)$/) {
+                        print &quot;Sir, yes, sir!\n&quot;;
+                }
+                die &quot;Unknown method called on Soldier: $AUTOLOAD&quot;;
+        }</pre>
+
+<p>This allows the class to intercept and handle calls to the
+undefined methods <code>march</code>, <code>salute</code>, and <code>train</code>, but still
+throw an exception when other undefined methods are called.
+
+</p>
+<p>That can be particularly useful for prototyping, since we can use a single
+<code>AUTOLOAD</code> to act as a &quot;stub&quot; for dozens of new methods we haven't gotten
+around to actually implementing yet.
+
+</p>
+<p>However, there's a problem here too. What if one of <code>Soldier</code>'s ancestor
+classes had an <code>AUTOLOAD</code> that could handle the (undefined and unhandled)
+<code>eat</code>, <code>sleep</code>, and <code>breathe</code> methods? It would never get the
+chance to do so, because <code>Soldier::AUTOLOAD</code> would intercept the method
+call before it reached that ancestral <code>AUTOLOAD</code>.
+
+</p>
+<p>To overcome that, people often write:
+
+</p>
+<pre>        sub AUTOLOAD {
+                if ($AUTOLOAD =~<nobr> <wbr></nobr>/::(march|salute|train)$/) {
+                        print &quot;Sir, yes, sir\b&quot;;
+                }
+                else {
+                        shift-&gt;SUPER::AUTOLOAD(@_);
+                }
+        }</pre>
+
+<p>If the <code>if</code> can't handle the requested method, we let the <code>else</code>
+shift off the object reference and call an ancestral <code>AUTOLOAD</code> on it, passing
+the remaining arguments in <code>@_</code>. That gives the left-most ancestral
+<code>AUTOLOAD</code> a chance to deal with a missing method if the current
+<code>AUTOLOAD</code> can't.
+
+</p>
+<p>But what if it's the <i>right-most</i> ancestral <code>AUTOLOAD</code> that can
+handle the missing method? It won't ever get a chance to do so, because the
+left-most <code>AUTOLOAD</code> will be invoked instead. And, even if that
+left-most <code>AUTOLOAD</code> does its own:
+
+</p>
+<pre>        shift-&gt;SUPER::AUTOLOAD(@_);</pre>
+
+<p>the chain of re-dispatches will only ever proceed upwards,
+never backtracking to give the right-most <code>AUTOLOAD</code> a chance.
+
+</p> <h3>Next train stops all stations</h3>
+
+<p>What we need is the ability to re-dispatch a method (or an <code>AUTOLOAD</code>) in
+such a way that, rather than trying again with just the current class's
+ancestors, the re-dispatch restarts the original call (i.e. the one that
+got us to the current method).
+
+</p>
+<p>By restarting the original call, we'd allow the search to backtrack down
+the inheritance tree if it needed to. And that would solve all our
+problems at once. For example, if the <code>AUTOLOAD</code> methods in
+<code>Soldier</code>'s hierarchy were:
+</p>
+<pre>
+        package Person;
+
+        sub AUTOLOAD {
+                if ($AUTOLOAD =~<nobr> <wbr></nobr>/::(eat|sleep)$/) {
+                        print &quot;Sir, yes, sir\b&quot;;
+                }
+		else {
+			# somehow restart original method search here
+		}
+        }</pre>
+
+<pre>        package Respirant;</pre>
+
+<pre>        sub AUTOLOAD {
+                if ($AUTOLOAD =~<nobr> <wbr></nobr>/::(breathe)$/) {
+                        print &quot;Sir, yes, sir\b&quot;;
+                }
+		else {
+			# somehow restart original method search here
+		}
+        }</pre>
+
+<pre>        package Soldier;
+        use base 'Person', 'Respirant';</pre>
+
+<pre>        sub AUTOLOAD {
+                if ($AUTOLOAD =~<nobr> <wbr></nobr>/::(march|salute|train)$/) {
+                        print &quot;Sir, yes, sir\b&quot;;
+                }
+		else {
+			# somehow restart original method search here
+		}
+        }</pre>
+
+<p>then a request to <code>breathe()</code> would first find <code>Soldier::AUTOLOAD</code>, which would then
+restart the original search and find <code>Person::AUTOLOAD</code>, which would restart the
+original search again and backtrack to find <code>Respirant::AUTOLOAD</code>,
+which would finally handle the <code>breathe()</code> call.
+
+</p>
+<p>Likewise if the various classes all had <code>dump_info</code> methods:
+
+</p>
+<pre>        sub Person::dump_info {
+                my ($self) = @_;
+                # somehow restart original method search here
+                print &quot;Name:\t$self-&gt;{name}\n&quot;,
+                      &quot;Age:\t$self-&gt;{age}\n&quot;;
+        }</pre>
+
+<pre>        sub Respirant::dump_info {
+                my ($self) = @_;
+                # somehow restart original method search here
+                print &quot;L/Cap:\t$self-&gt;{lung_capacity}\n&quot;;
+        }</pre>
+
+<pre>        sub Soldier::dump_info {
+                my ($self) = @_;
+                # somehow restart original method search here
+                print &quot;Rank:\t$self-&gt;{rank}\n&quot;,
+                      &quot;S/Num:\t$self-&gt;{serial}\n&quot;;
+        }</pre>
+
+<p>then calling <code>dump_info</code> on a <code>soldier</code> object would eventually invoke
+each inherited <code>dump_info</code> as well (including any others that <code>Person</code> or
+<code>Respirant</code> might have inherited themselves).
+
+</p>
+<p>The only question is: how can we restart an original method search?
+By the time we're in a method, that search is over.
+
+
+</p> <h3>Better luck next time.</h3>
+
+<p>That's where the <code>NEXT</code> pseudo-class come in. <code>NEXT</code> is used
+just like <code>SUPER</code>:
+
+</p>
+<pre>        use NEXT;</pre>
+
+<pre>        # and later (inside some method)...</pre>
+
+<pre>        shift-&gt;NEXT::method_name(@_);
+</pre>
+
+<p>But, instead of beginning a new method look-up amongst the class's ancestors,
+it resumes the original method look-up, by-passing the existing
+method to find the next most appropriate one.
+
+</p>
+<p>So, to solve the problem of finding the correct <code>AUTOLOAD</code> in a hierarchy,
+we simply ensure that each <code>AUTOLOAD</code> re-dispatches via <code>NEXT</code>
+if it can't handle the call itself:
+
+</p>
+<pre>        sub AUTOLOAD {
+                if ($AUTOLOAD =~<nobr> <wbr></nobr>/::(march|salute|train)$/) {
+                        print &quot;Sir, yes, sir\b&quot;;
+                }
+                else {
+                        shift-&gt;NEXT::AUTOLOAD(@_);
+                }
+        }
+</pre>
+
+<p>The same approach solves the problem of ensuring that every ancestral
+<code>dump_info</code> is properly invoked. If each method in each class is
+structured as:
+
+</p>
+<pre>        sub dump_info {
+                my ($self) = @_;
+                $self-&gt;NEXT::dump_info();
+                print &quot;This Class's Info:\t$self-&gt;{this_class_info}\n&quot;;
+        }</pre>
+
+<p>then the chain of restarts will ensure that every <code>dump_info</code>
+throughout the entire tree is called (with ancestors being called before
+descendants). Alternatively, we could write:
+
+</p>
+<pre>        sub dump_info {
+                my ($self) = @_;
+                print &quot;This Class's Info:\t$self-&gt;{this_class_info}\n&quot;;
+                $self-&gt;NEXT::dump_info();
+        }</pre>
+
+<p>and have descendant class information dumped before its ancestors.
+
+</p>
+<p>Probably the single most useful application for this ability is to ensure that
+<i>all</i> an object's destructors are called appropriately:
+
+</p>
+<pre>        package Person;</pre>
+
+<pre>        sub DESTROY {
+                # Clean up Personalized bits of object
+                # and then...
+                shift-&gt;NEXT::DESTROY();
+        }</pre>
+
+<pre>        package Respirant;</pre>
+
+<pre>        sub DESTROY {
+                # Clean up Respiratory bits of object
+                # and then...
+                shift-&gt;NEXT::DESTROY();
+        }</pre>
+
+<pre>        package Soldier;
+        use base 'Person', 'Respirant';</pre>
+
+<pre>        sub DESTROY {
+                # Clean up Military bits of object
+                # and then...
+                shift-&gt;NEXT::DESTROY();
+        }</pre>
+
+<p>This ensures that all three destructors available to a <code>Soldier</code> object
+will be called when the object ceases to exist.
+
+</p>
+<p>Without that re-dispatching, only <code>Soldier::DESTROY</code> would be invoked,
+leaving the ancestral bits of the object undestructed. And that could be a
+serious problem.
+
+</p>
+<p>Explicit destructors are rarely needed in Perl; garbage
+collection takes care of most things automagically. So if someone went
+to the trouble of giving a class a destructor, it's almost certainly
+very important that the destructor actually be called. That doesn't happen
+in standard Perl; destructors are regular methods, and only the left-most,
+depth-first method is ever called.
+
+</p>
+<p>But, by chaining the destructors together using <code>NEXT</code>, we ensure that
+every destructor that should be invoked <i>is</i> invoked.
+
+
+</p> <h3>Next to nothing</h3>
+
+<p>There's still one problem with having every method re-dispatch itself
+that way: eventually we'll have invoked every available method in every
+ancestral class. So when the very last method in the very last class
+also re-dispatches itself, there will be no &quot;next&quot; method to find. And
+quicker than you can say:
+
+</p>
+<pre>        Can't locate object method &quot;dump_info&quot; via package &quot;Soldier&quot;</pre>
+
+<p>we'll have thrown an exception.
+
+</p>
+<p>Except of course, we won't. Unlike the <code>SUPER</code> pseudo-class, which does die horribly in this way when we run out of ancestral methods to call, <code>NEXT</code>
+<i>doesn't</i> throw an exception if it fails to find a next method to call.
+Because it's typically used to traverse an entire hierarchy,
+once it's completed that traversal, it simply stops looking
+and quietly returns.
+
+</p>
+<p>That means we can happily add a:
+
+</p>
+<pre>        $self-&gt;NEXT::dump_info();</pre>
+
+<p>at the end of every <code>dump_info</code> method, just in case there might be another
+<code>dump_info</code> in some other class somewhere. If there is, it will be called; if
+there isn't, the re-dispatch does nothing.
+
+</p>
+<p>Which is fine...until we want to use <code>NEXT</code> to re-dispatch <code>AUTOLOAD</code>.
+
+</p> <h3>Next to impossible</h3>
+
+<p>Re-dispatching <code>AUTOLOAD</code> is a little different. We usually do so
+because the current <code>AUTOLOAD</code> can't handle the original call. In which case, rather than looking for <i>extra</i> ways of handling a
+particular call, we're looking for the One True Way to handle it.
+
+</p>
+<p>What if we don't find it?
+
+</p>
+<p>Well, because <code>NEXT</code> fails quietly, a call like:
+
+</p>
+<pre>        $soldier-&gt;entrechat();		# Army Corps de Ballet???</pre>
+
+<p>will work its way through the various ancestral <code>AUTOLOAD</code>s, fail to
+find any that can handle this particular manoeuvre, and quietly do nothing.
+Instead of throwing an exception, like it should.
+
+</p>
+<p>A fellow Aussie, Paul Fenwick (who maintains the Finance::Quote module,
+when he's not busy running
+<a href="http://www.perltraining.com.au/">Perl Training Australia</a>), first pointed this
+out to me. He also suggested a simple solution that I adopted in the most
+recent release of the NEXT module.
+
+</p>
+<p>Paul's idea was to provide a second pseudo-class (which I named
+<code>NEXT::ACTUAL</code>) that acts exactly like <code>NEXT</code>, except that it throws
+an exception on failure. So now, if we write:
+
+</p>
+<pre>        $self-&gt;NEXT::ACTUAL::AUTOLOAD();</pre>
+
+<p>and there isn't an actual next <code>AUTOLOAD</code> to call,
+we get an exception instead.
+
+</p>
+<p>This new pseudo-class is probably only useful in <code>AUTOLOAD</code>s, but it can
+be used to &quot;strictly&quot; re-dispatch <i>any</i> method.
+
+
+</p> <h3>Next time around</h3>
+
+<p>Paul also pointed out another situation in which <code>NEXT</code>'s normal behaviour
+may not be desirable. By default, a series of <code>NEXT</code> invocations walks an
+object's entire inheritance hierarchy and calls every appropriately named
+method it encounters.
+
+</p>
+<p>That can be a problem in a so-called &quot;diamond inheritance&quot;
+hierarchy, in which a derived class inherits a single ancestor class
+through two or more paths:
+
+</p>
+<pre>                 Person
+                 ^^   ^
+                /  \   \
+           Worker   \  Thinker
+              ^      \   ^
+             /        \ /
+         Soldier     Leader
+             ^        ^
+              \      /
+              Commander</pre>
+
+<p>Under this kind of arrangement, a method defined in an &quot;apex&quot; class
+(like <code>Person</code>) can be called twice or more -- once each time
+<code>NEXT</code>'s hierarchy traversal visits it.
+
+</p>
+<p>Occasionally that might be appropriate, but often it's not. For example,
+we might be <code>NEXT</code>ing through the destructors inherited by an object.
+Those methods will very probably be freeing up resources the object had
+acquired during its lifetime. If <code>Person</code> has such a destructor:
+
+</p>
+<pre>        sub Person::DESTROY {
+                my ($self) = @_;
+                seek $self-&gt;{changelog}, 0, 0;
+                truncate $self-&gt;{changelog}, $self-&gt;{maxloglen};
+                close $self-&gt;{changelog};
+                $self-&gt;NEXT::DESTROY();
+        }
+</pre>
+
+<p>then a <code>Commander</code> object would call that destructor three times (once
+through <code>Worker</code>, once though <code>Leader</code>, and once through <code>Thinker</code>).
+That would cause Very Bad Things to happen when the second call to
+<code>Person::DESTROY</code> attempted to manipulate the <code>$self-&gt;{changelog}</code>
+filehandle -- after the first call to <code>Person::DESTROY</code> had already
+closed it.
+
+</p>
+<p>So <code>NEXT</code> provides yet another pseudo-class -- <code>NEXT::UNSEEN</code> -- which
+re-dispatches to the next appropriate method that hasn't already be
+re-dispatched to. So, if the <code>Commander</code> hierarchy used:
+
+</p>
+<pre>        $self-&gt;NEXT::UNSEEN::DESTROY();</pre>
+
+<p>throughout, then each inherited destructor would be called only once.
+<code>Person::DESTROY</code> would be called the first time (through <code>Worker</code>),
+but the second and third time it's encountered (though <code>Leader</code> and then
+<code>Thinker</code>) it will be skipped, since it has already been seen.
+
+</p>
+<p>Oh, and yes, we <i>can</i> have both the &quot;one ping only&quot; behaviour of
+<code>NEXT::UNSEEN</code> and the &quot;exception-on-failure&quot; of <code>NEXT::ACTUAL</code>
+at the same time. Just use:
+
+</p>
+<pre>        $self-&gt;NEXT::UNSEEN::ACTUAL::method_name();</pre>
+
+<p>or:
+
+</p>
+<pre>        $self-&gt;NEXT::ACTUAL::UNSEEN::method_name();
+</pre>
+<h3>What's next?</h3>
+
+<p>The <code>NEXT</code> module is now very stable and quite usable in production code.
+It will ship as part of the core distribution of perl 5.8.
+
+</p>
+<p>Only two further enhancements are currently planned. The first is to provide
+a mechanism to allow an object's inheritance hierarchy to be traversed
+breadth-first (and maybe in other sequences too), rather than depth-first.
+
+</p>
+<p>Breadth-first traversal is especially important for re-dispatching
+destructors, as it ensures that base-class destructors are not invoked
+until all the derived bits of an object have been properly cleaned up.
+That's vital because the derived bits may well be relying on the state
+of the base bits in some way.
+
+</p>
+<p>Working out the correct breadth-first sequence is non-trivial in the
+general case. For example, consider the subtleties of determining the
+correct &quot;breadth-first&quot; order of the following (pathological, but legal)
+inheritance hierarchy:
+
+</p>
+<pre>                 Person
+                 ^  ^ ^
+                /   |  \
+            Worker--|-&gt;Thinker
+              ^  \  |    ^
+             /    \ |   /
+            /      v|  /
+        Soldier--&gt;Leader
+             ^       ^
+              \     /
+              Commander
+</pre>
+
+<p>The second enhancement will be to integrate the <code>NEXT</code> module with the
+<code>Class::Multimethods</code> module and its forthcoming successor,
+<code>Attributes::Multimethod</code>. This will make it possible to re-dispatch
+multiply dispatched methods as well.
+
+</p>
+<p>With those two additions Perl will then have one of the most flexible
+and powerful dispatch mechanisms of any programming language.
+
+</p>
+<p>Just as it should.
+</p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

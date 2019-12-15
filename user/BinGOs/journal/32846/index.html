@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of BinGOs: Run an ircd in your irc client?</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Run an ircd in your irc client?</h1>
+<h2><a href="/user/BinGOs/">BinGOs</a> on 2007-03-30T15:59:46</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>So, a little while back it was suggested to me that I should really try and run a <a href="http://search.cpan.org/dist/POE-Component-Server-IRC/">POE::Component::Server::IRC</a> based IRC server in <a href="http://irssi.org/">irssi</a>.</p>
+
+<p>And today I did just that.</p>
+
+<pre>
+[13:45] Irssi: Loaded script ircd
+[13:47] [localhost] Irssi: Looking up localhost
+[13:47] [localhost] Irssi: Connecting to localhost [127.0.0.1] port 6669
+[13:47] [localhost] Irssi: Connection to localhost established
+[13:47] [localhost] Welcome to the GumbyNET Internet Relay Chat network BinGOs
+[13:47] [localhost] Your host is canker.gumbynet.org.uk[canker.gumbynet.org.uk/6669], running version
+          POE::Component::Server::IRC-1.11
+[13:47] [localhost] This server was created Fri Mar 30 2007 at 13:45:53 BST
+[13:47] [localhost] canker.gumbynet.org.uk POE::Component::Server::IRC-1.11 Dilowz biklmnopstveIh bkloveIh
+[13:47] [localhost] CALLERID EXCEPTS INVEX MAXCHANNELS=15 MAXBANS MAXTARGETS=4 NICKLEN=9 TOPICLEN=80 KICKLEN=120 are supported by this server
+[13:47] [localhost] CHANTYPES=#& PREFIX=(ohv)@%+ CHANMODES=eIb,k,l,imnpst NETWORK=GumbyNET CASEMAPPING=rfc1459 DEAF=D are supported by this server
+[13:47] [localhost] There are 1 users and 4 invisible on 4 servers
+[13:47] [localhost] 4 IRC Operators online
+[13:47] [localhost] 3 channels formed
+[13:47] [localhost] I have 1 clients and 1 servers
+[13:47] [localhost] Current local  users: 1  Max: 1
+[13:47] [localhost] Current global users: 5  Max: 5
+[13:47] [localhost] Highest connection count: 2 (1 clients) (2 connections received)
+[13:47] [localhost] MOTD File is missing
+[13:47] [localhost] Mode change [+i] for user BinGOs
+[13:48] [localhost] No O-lines for your host
+[13:49] [localhost] BinGOs bitbucket@staff.gumbynet.org.uk
+[13:49] [localhost] ircname  : Kidney Bingos
+[13:49] [localhost] server   : canker.gumbynet.org.uk [Poco? POCO? POCO!]
+[13:49] [localhost]          : 127.0.0.1 :actually using host
+[13:49] [localhost] idle     : 0 days 0 hours 1 mins 31 secs [signon: Fri Mar 30 13:47:41 2007]
+[13:49] [localhost] End of WHOIS
+[13:49] [localhost] You are now an IRC operator
+[13:49] [localhost] Mode change [+o] for user BinGOs
+[13:49] [localhost] Mode change [+w] for user BinGOs
+</pre>
+<p>Shiny.</p>
+<p>And the irssi script itself <i>~/.irssi/scripts/ircd.pl</i>:</p>
+<pre>
+use strict;
+use warnings;
+use Irssi;
+use Irssi::Irc;
+use Glib;
+use POE qw(Loop::Glib Session::Irssi);
+use POE::Component::Server::IRC;
+
+my $pocosi = POE::Component::Server::IRC->spawn(
+        alias  => 'IRCD',
+        config =>
+        {
+                servername => 'canker.gumbynet.org.uk',
+                network    => 'GumbyNET',
+        },
+);
+
+POE::Session::Irssi->create(
+   inline_states => {
+                        _start    => \&_start,
+                        _unload   => \&_unload,
+                        _shutdown => \&_shutdown,
+   },
+   heap => { ircd => $pocosi },
+);
+
+sub _start {
+  my ($kernel,$heap) = @_[KERNEL,HEAP];
+  $kernel->alias_set('Irssi::Script::ircd');
+  $kernel->sig( 'unload', '_unload' );
+  $heap->{ircd}->yield( 'register' );
+  $heap->{ircd}->add_auth( mask => '*@localhost', spoof => 'staff.gumbynet.org.uk', no_tilde => 1 );
+  $heap->{ircd}->add_auth( mask => '*@127.0.0.1', spoof => 'staff.gumbynet.org.uk', no_tilde => 1 );
+  $heap->{ircd}->add_auth( mask => '*@*' );
+  $heap->{ircd}->add_listener( port => 6669 );
+  $heap->{ircd}->add_operator( { username => 'bingos', password => '********' } );
+  $heap->{ircd}->add_peer( name => 'logserv.gumbynet.org.uk', pass => '********', rpass => '*********', type => '
+r', raddress => '***********', rport => 7667, auto => 1 );
+  return;
+}
+
+sub _shutdown {
+  $POE::Kernel::poe_kernel->alias_remove($_) for $POE::Kernel::poe_kernel->alias_list();
+  $POE::Kernel::poe_kernel->alarm_remove_all();
+  $POE::Kernel::poe_kernel->call( 'IRCD', 'shutdown' );
+  print "UNLOADED: Irssi::Script::ircd";
+  return;
+}
+
+sub _unload {
+  my $package = $_[ARG1];
+  $POE::Kernel::poe_kernel->call( $package, '_shutdown' );
+  $POE::Kernel::poe_kernel->sig_handled();
+}
+</pre></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

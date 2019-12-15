@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Find the &quot;SELECT *&quot; Bug</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Find the &quot;SELECT *&quot; Bug</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-10-03T09:19:11</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I get really tired of seeing <tt>SELECT * FROM foo</tt>.  Who knows the hell you're getting?  It's <em>real fun</em> having to get into MySQL every time and figure out what's in the table.  <tt>SELECT *</tt> is for lazy programmers -- and not a good lazy.  By explicitly naming the fields we get a host of benefits.</p>
+
+<ol>
+  <li>It's immediately obvious to the maintenance programmer exactly what is being requested.</li>
+  <li>It's more efficient than selecting a bunch of columns you don't need, if you have more columns in the table than you're actually using.</li>
+  <li>If you're selecting into an array you don't have to worry about columns in the database being reordered.</li>
+  <li>If you're selecting into a hash, you'll find out at the <tt>SELECT</tt> statement that's something wrong rather than a mysterious bug which may be far removed from the cause.</li>
+</ol>
+
+<p>So why do I bring this up?  Because of the following bug caused by <tt>SELECT *</tt>.</p>
+
+<pre>my $thing = $dbh->selectrow_hashref(q[
+    SELECT    *
+    FROM      things
+    LEFT JOIN dead_things USING (thing)
+    WHERE     things.thing = ?
+], undef, $thing_num) or die "$thing_num not found\n";</pre>
+
+<p>See the bug?  Had the fields been explicitly named instead of using an asterisk, this bug would not have occurred.</p></p>
+
+
+<hr/>
+
+
+
+<h2>USING is bad anyway</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-10-03T11:13:55</h3>
+<p>I prefer to name my primary key column `id` and use `foo_id` as the name for foreign key columns. Then I use `ON` explicitly.</p> <blockquote> <div><tt>LEFT JOIN dead_things ON thing.id = dead_things.thing_id</tt></div> </blockquote> <p>Overall the query becomes more verbose, but I prefer it that way. It makes my schemata much more easily readable when columns immediately reveal themselves for what they are by their name.</p>
+
+
+
+<blockquote>
+
+<h2>Re:USING is bad anyway</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-10-03T11:18:45</h3>
+<p>That still doesn't fix the bug<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:USING is bad anyway</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2006-10-03T12:56:48</h3>
+<p>I don't actually see the bug, yet, but I'm still a little groggy this AM.  I do agree with your principle.  But you may have to help me along to see this specific bug.<nobr> <wbr></nobr>:)</p>
+
+
+
+<blockquote>
+
+<h2>Re:USING is bad anyway</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-10-03T13:12:42</h3>
+<p>Major Hint:  what are we joining on and what data structure is Perl using?</p>
+
+
+
+<h2>Re:USING is bad anyway</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-10-03T13:20:03</h3>
+<p>You know, this might be a MySQL-specific bug.  I don't have other databases handy on which to test this.  I tried it in SQLite and the problem doesn't appear:</p> <blockquote> <div><tt>~ $ sqlite3 foo<br>SQLite version 3.2.8<br>Enter ".help" for instructions<br>sqlite&gt; create table one (server, name);<br>sqlite&gt; create table two (server, value);<br>sqlite&gt; insert into one values(1,'bob');<br>sqlite&gt; insert into one values(2,'ovid');<br>sqlite&gt; insert into two values(1,'one');<br>sqlite&gt; select * from one left join two using(server);<br>1|bob|one<br>2|ovid|</tt></div> </blockquote> <p>With MySQL, that SELECT statement was returning data more like this:</p> <blockquote> <div><tt>1|bob|1|one</tt></div> </blockquote> <p>As a result, because it was a left join, the <em>duplicated</em> join value was sometimes null and when shoved into a hash, overwrote the original value.  However, <tt>USING</tt> doesn't have this problem in SQLite, but it does with <tt>ON</tt>:</p> <blockquote> <div><tt>sqlite&gt; select * from one left join two on one.server = two.server;<br>1|bob|1|one<br>2|ovid||<br>sqlite&gt;</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:USING is bad anyway</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2006-10-03T15:00:35</h3>
+<p>I think it's definitely MySQL specific<nobr> <wbr></nobr>... it sounds like MySQL doesn't actually know how to do that type of join properly?</p>
+
+<p>But I'm confused about something else<nobr> <wbr></nobr>... I thought selectrow_hashref should give you a hash where the keys are the fieldnames and the values are the values in the record.  You seem to be indicating a problem where one of the values is NULL and that gets used as a key in the hash?  But I can't see how that would happen, unless I'm misunderstanding the expected results of selectrow_hashref (I'm more used to fetchrow_hashref, which I presume does basically the same thing).</p>
+
+
+
+<blockquote>
+
+<h2>Re:USING is bad anyway</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2006-10-03T17:24:18</h3>
+<p> <i>You seem to be indicating a problem where one of the values is NULL and that gets used as a key in the hash?</i> </p>
+
+<p>No, I misunderstood.  Never mind.<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Re:USING is bad anyway</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-10-03T21:21:22</h3>
+<p>I&#8217;m saying that you got bitten this easily because you combined <em>two</em> bad ideas.</p>
+
+<p>Although now that I think of it, the naming scheme I use means that <em>any</em> join would lead to duplicate <code>id</code> columns.</p>
+
+<p>Good thing I avoid <code>SELECT *</code> like the pest, then. Hmm, looking at some of my own source code, I find I do use the star quite a lot in the older parts. However, it&#8217;s <em>always</em> qualified with a table name, which explains why I never ran into your bug.</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Bug depends on the DB (I think)</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2006-10-03T13:18:35</h3>
+Some DBs would return that as "Table.Column", unless it's DBI always turning it into just "Column".<br><br>I agree on the principle though - SELECT * should probably only be used in the SQL-Shell for testing stuff out.
+
+
+
+<blockquote>
+
+<h2>Re:Bug depends on the DB (I think)</h2>
+<h3><a href="/user/jdavidb/">jdavidb</a> on 2006-10-03T15:01:52</h3>
+<p>Ah, I can see how that would be a problem, if you wound up with two fields in different tables with the same name.  But I'm used to the syntax of NATURAL JOIN and didn't look up the syntax of LEFT JOIN to see if it removes the duplicated column from the output or not.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>&quot;SELECT *&quot; encouraged in some environments</h2>
+<h3><a href="/user/runrig/">runrig</a> on 2006-10-03T21:49:44</h3>
+<p>In the 4gl I used, when you had to explicitly declare variables, you could declare a record 'like' a table, then 'select *' into the record. This was extremely convenient on tables with many columns. Unfortunately, that meant that you had to recompile the program if the table changed.</p>
+<p>And Matt is correct in that some databases return 'table.column' as the column name (as the hash key or in <code>$sth-&gt;{NAME}</code>), which is annoying when switching between databases.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

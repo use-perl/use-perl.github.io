@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Stevan: Method Dispatch with Eigenclasses</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Method Dispatch with Eigenclasses</h1>
+<h2><a href="/user/Stevan/">Stevan</a> on 2005-10-09T02:45:21</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><P>
+This past week I have been busy with $work, however, I have been thinking quite heavily about how Eigenclasses can fit into the <A HREF="http://svn.openfoundry.org/pugs/perl5/Perl6-MetaModel/">Perl6-MetaModel</A>. Currently the implementation has limited support (actually it's pretty much broken support) for eigenclasses, and the past 3-4 attempts I have made to clean things up have resulted in a lot of <CODE>svk revert</CODE> commands. So finally I decided to sit down and draw things out.
+</P>
+<P>
+The <A HREF="http://svn.openfoundry.org/pugs/perl5/Perl6-MetaModel/docs/Method_Dispatch.jpg">first diagram</A> I made was your basic vanilla method dispatch. It shows both instance method dispatch as well as class method dispatch. This diagram illustrates the key issue with class methods, in that they do not fit cleanly into a meta-model. This can also be seen when you look at the method signature of a class method:
+<ECODE>
+class Bar {
+    method foo (Class $c:) { ... }
+}
+</ECODE>
+In any other method, the invocant (shown as <CODE>$c</CODE> here) would be of the same type as the class in which it is defined. But here the signature of the class method shows that the invocant should be of type <CODE>Class</CODE>, however that is not where the method is defined. 
+</P>
+<P>
+<BR>
+This issue is even more apparent in CLOS, where methods are represented with generic functions (which are a lot like multi-methods). In CLOS the first parameter of a method has what is called a specializer (which is basically the "type" of that expected parameter) that parameter is used by the CLOS system to associate a method with a particular class. Here is a short example of a generic function <CODE>foo</CODE> which is associated with the class <CODE>Bar</CODE>.
+<ECODE>
+(defgeneric foo (self))
+(defmethod foo ((Bar self) ( ... ))
+</ECODE> 
+The first line defines the generic function <CODE>foo</CODE> with the single parameter <CODE>self</CODE>. The second line defines a method of that generic function, specialized for the <CODE>Bar</CODE> class. Now when we create a class-method called <CODE>baz</CODE>, it will look like this:
+<ECODE>
+(defmethod baz ((standard-class c)) (...)) 
+</ECODE>
+By making the type of our parameter <CODE>standard-class</CODE> CLOS will associate this method with all instances of <CODE>standard-class</CODE>, which is <I>every</I> class in the system. 
+</P>
+<P>
+<BR>
+So you can see, it is impossible to specialize a class method to one particular class using these meta-models.
+</P>
+<P>
+<I>Eigenclasses to the rescue!!</I>
+</P>
+<P>
+My <A HREF="http://svn.openfoundry.org/pugs/perl5/Perl6-MetaModel/docs/Method_Dispatch_w_EigenClasses.jpg">second diagram</A> shows how class-methods can be implemented using ruby-style eigenclasses (or singleton-methods as they are also called). The eigenclass hierarchy (show here with the <CODE>e-</CODE> prefix) essentially mirrors the normal class hierarchy, but instead of storing instance methods, they store class methods. (This parallel hierarchy actually reminds me of the  <A HREF="http://www.smalltalkconsulting.com/papers/otherOlderPapers/Image1.gif">Smalltalk metaclass</A> hierarchy in some ways, which is why I think it "smells" right to me). 
+</P>
+<P>
+Using the eigenclasses results in a very normalized method dispatch mechanism where instance method and class method dispatch are exactly the same. What else can I say about that but ruby++.
+</P>
+<P>
+The only point at which things get messy is when we introduce an intentional subclass of Class. Like this:
+<ECODE>
+class Baz is Class { ... }
+class Foo meta Baz { ... }
+class Bar is Foo { ... }
+</ECODE>
+The result is that e-Foo inherits from Baz, and since e-Bar inherits from e-Foo, e-Bar gets methods from Baz, which is probably now what was intended. I didn't even bother to draw this out since it gets really really messy. However, it occurred to me that using Role composition to inject class methods, it might be possible to accomplish most anything you would want to accomplish through subclassing Class anyway. However, this needs more contemplation, and so I will save it for another day.
+</P>
+<P>
+<BR>
+- Stevan
+</P></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

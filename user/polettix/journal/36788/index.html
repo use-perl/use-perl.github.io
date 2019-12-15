@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of polettix: When tests unveil bugs - more or less...</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>When tests unveil bugs - more or less...</h1>
+<h2><a href="/user/polettix/">polettix</a> on 2008-06-26T15:24:39</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>This has been a nightmare... more or less.<br/><br/>It's all dakkar's fault. He wrote an <a href="http://www.perl.it/documenti/articoli/2007/09/gtk2-perl-e-dra.html">interesting article in perl.it</a> (in Italian, sorry!) about using the Gtk2 module, how easy it was to build up an application, etc. and so I was heading to my shell in no time.<br/><br/>I use debian etch, which comes with a lot of packages for Perl modules, but I like to separate system stuff from what I use, so I stick to a custom version of perl. There I was, in front of my cpan shell, but the installation process failed miserably: Glib had issues!<br/><br/>Ok, on to the build directory, then, to see the offending test. There it is! t/64bit.t chokes! There seem to be a problem invoking Glib::ParamSpec::int64, but the problem immediately seems to be somewhere in the underlying library because there are some complains from the library itself in stderr. In particular, when calling the function, it seemed that this assertion failed:<br/><br/><pre>
+   MIN_INT64 < 0 < MAX_INT64
+</pre><br/><br/>I have to admit that it took me a while to understand that the problem was in the glib library. How could this possibly be? So I wasted some time navigating through XS code (very little time), doing some hacks with fprintf/stderr in the generated C code (some more time) and finally it seemed that I could restrict the error to the underlying call to g_param_spec_int64().<br/><br/>It was time for my first false route, so I happily took it. I concocted what I thought to be a minimal example to compile, just to see that it crashed immediately. In the beginning, I was looking for the actual target to blame, so I tried to change compiler (using gcc-3.3 and gcc-3.4) and a couple of voodoo rites found in the Internet, but no luck. I finally came into another example that was sufficiently minimal for my eyes to eventually catch that g_type_init() was needed *before* calling the other function. At least I was back in the correct route!<br/><br/>In the meantime, I also tried to download the latest version of the glib library, compiled it and installed somewhere useful. I then forced a compilation/link against that library, and the test went fine! Ok, then... the library seems the one to blame.<br/><br/>So I finally had something useful to at least prove that the function wasn't working, but I had to quickly change my mind, because the following test program worked like a charm:<br/><br/><pre>
+shell$ cat prova.c
+#include <stdio.h>
+#include <glib.h>
+#include <glib-object.h><br/><br/>int main (int argc, char *argv[]) {
+   GParamSpec *pspec;<br/><br/>   g_type_init();<br/><br/>   printf("starting, first goes well\n");
+   pspec = g_param_spec_int64("int64", "Int", "Bah!",
+         G_MININT64, G_MAXINT64, 0,
+         G_PARAM_READWRITE);<br/><br/>   printf("putting min equal to max, and default outside\n");
+   pspec = g_param_spec_int64("int64", "Int", "Bah!",
+         G_MAXINT64, G_MAXINT64, 0, /* min set to G_MAXINT64 */
+         G_PARAM_READWRITE);<br/><br/>   return 0;
+}
+shell$ gcc $(pkg-config --cflags --libs gobject-2.0) prova.c -o prova
+shell$ ./prova
+starting, first goes well
+putting min equal to max, and default outside<br/><br/>(process:9229): GLib-GObject-CRITICAL **: g_param_spec_int64: assertion `default_value >= minimum && default_value <= maximum' failed
+</pre><br/><br/>I was starting to get nervous! The function seemed to work fine... so it was time to go back in the XS/C code and try to figure out what was going on. After some munging, I discovered that parameter grabbing was not working as expected; the following call in GParamSpec.c:<br/><br/><pre>
+gint64   minimum = SvGInt64 (ST(5));
+</pre><br/><br/>was generating a *positive* value even when provided a *negative* one. On to SvGInt64 in GType.c, then:<br/><br/><pre>
+gint64
+SvGInt64 (SV *sv)
+{
+#ifdef USE_64_BIT_ALL
+   return SvIV (sv);
+#else
+   return PORTABLE_STRTOLL (SvPV_nolen (sv), NULL, 10);
+#endif
+}
+</pre><br/><br/>OMG, <code>PORTABLE_STRTOLL</code>, a macro! After a bit of discussion with the Makefile I grab the (huge) command line to compile the GType.c file, and adding the <code>-E</code> switch lets me access the code *after* macro expansion. The bottom line is that <code>PORTABLE_STRTOLL</code> simply resolves to a call to g_ascii_strtoll(). Ok, another step in the (hopefully) right direction.<br/><br/>First a bit of googling to try to find out if there had been a known issue. This resolved to be a waste of time, I had better go and compare the two implementations in the original version I had in my system and the latest version. In fact, it seems that someone already discovered that there was a bug in that function, and the solution was there in the new code.<br/><br/>What to do, then? The first thing that came to mind was sending a bug report to debian, because the library in etch is broken! I used git to produce the patch (and this lead to another thread of discussion about the diff format generated by git-format-patch, but this is another story!) and sent it along to the debian maintainers, hoping not to have done any error in the process. But the answer didn't come in a handful of hours, so I had to think something more. (Yes, I'm that impatient, maybe this is why I stick to Perl).<br/><br/>I had two alternatives: either force the install (who will be using that 64 bit stuff anyway?!?), or upgrade the library by myself. I found an interesting article about <a href="http://www.ducea.com/2008/03/06/howto-recompile-debian-packages">recompiling a debian package</a>, so I immediately got to work. No, things didn't go smoothly, because the debuild program (or whatever sub-program it called) insisted in complaining that the modified tarball with my patch wasn't the same as the original (guess why?!?). After a bit of tweaking I managed to make it generate a new package, anyway.<br/><br/>Prior to installing it I made a checkpoint to the virtual machine I'm running Linux in, just to be on the safe side. Having such a facility is sooo great, you can go back at once if things go wrong. Then I installed the package and voilÃÂ ! The Glib module compiled, at last!<br/><br/>Anyway, I now ask myself: how come that the debian package for Perl's Glib didn't have the same problem?!?
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

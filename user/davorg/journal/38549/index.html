@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of davorg: MySQL Stupidity</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>MySQL Stupidity</h1>
+<h2><a href="/user/davorg/">davorg</a> on 2009-02-25T21:56:38</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>Been a while since I reported on MySQL's stupidity, but I came across a fine new example yesterday.</p>
+
+<p>Create a table with a varchar column.</p>
+
+<pre>
+create table foo (foo varchar(10));
+</pre>
+
+<p>Insert a data value which is two numbers separated by a pipe character (don't ask, just accept that this was the data format I found in my table).</p>
+
+<pre>
+insert into foo values ('111|1');
+</pre>
+
+<p>Now let's try to select some data.</p>
+
+<pre>
+mysql> select * from foo where foo = '111|1';
++-------+
+| foo   |
++-------+
+| 111|1 | 
++-------+
+1 row in set (0.00 sec)
+</pre>
+
+<p>Ok. That makes sense. That's expected behaviour.</p>
+
+<pre>
+mysql> select * from foo where foo = '111';
+Empty set (0.00 sec)
+</pre>
+
+<p>That also makes sense, of course. The string isn't '111', so it doesn't match.</p>
+
+<pre>
+mysql> select * from foo where foo = 111;
++-------+
+| foo   |
++-------+
+| 111|1 | 
++-------+
+1 row in set (0.00 sec)
+</pre>
+
+<p>Huh! I mean "What!?!".</p>
+
+<p>There are at least two fundamentally stupid things going on here.</p>
+
+<p>Firstly, MySQL is allowing me to match a string column against a number. When a user tries to match a value of one type against a column of another type, the only sensible action is to throw an error. The user is trying to do something completely wrong. Tell them that. Don't try and work something out.</p>
+
+<p>Secondly, if you insist on trying to convert datatypes in order to force a match, then convert the user's data into the database column's datatype, not the other way round. The database column is a string. Convert the number to a string and try to match that string against the database (that would have returned no data). Instead MySQL is trying to convert the database value into a number to match the user's input. It looks like it's using something like Perl's string to number conversion so the string "111|1" is converted to the number 111 and therefore matches the user's input.</p>
+
+<p>So you can actually get MySQL to match data which doesn't match at all. I wasted two hours on this yesterday.</p>
+
+<p>I found this yesterday on a MySQL 4.x server. I've just tried it on a 5.0.67 server and the same bug is still there.</p>
+
+<p>Oh, and setting the SQL mode to "traditional" doesn't seem to fix it either.</p></p>
+
+
+<hr/>
+
+
+
+<h2>MySQL is just trying to cater to us scripting folk</h2>
+<h3><a href="/user/bschoate/">bschoate</a> on 2009-02-25T22:18:36</h3>
+<p>For instance...</p><p><code>perl -wle "print '111|1' == 111"</code></p><p><code>javascript:alert(parseInt("111|1"))</code></p><p>Granted, the perl example throws a warning, but it does evaluate that statement as true.</p><p>You may consider it a bug; others might consider it a feature. And if you were to change how "111|1" gets cast to a number, or return an error for comparing a varchar to a number, who knows what that would break/fix.</p><p>Incidentally, SQLite and PostgreSQL don't have this problem/feature.</p>
+
+
+
+<blockquote>
+
+<h2>Re:MySQL is just trying to cater to us scripting f</h2>
+<h3><a href="/user/davorg/">davorg</a> on 2009-02-25T22:39:33</h3>
+<blockquote><div><p> <i> <tt>perl -wle "print '111|1' == 111"</tt> </i></p></div> </blockquote><p>Yes, and I mentioned that it was using a similar algorithm to Perl. But, of course, Perl users can choose which conversion is used by using either "eq" or "==". MySQL users don't appear to have a choice.</p><blockquote><div><p> <i>And if you were to change how "111|1" gets cast to a number, or return an error for comparing a varchar to a number, who knows what that would break/fix.</i></p></div> </blockquote><p>Of course. That's always a danger when you release buggy code - people can come to rely on the bugs. Maybe they should fix the bug, but include a "SUPPORTS_BUGGY_OLD_CODE" mode to the fixed release<nobr> <wbr></nobr>:-)</p>
+
+
+
+<h2>Re:MySQL is just trying to cater to us scripting f</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2009-02-25T23:05:09</h3>
+<p>The difference is that, in theory, MySQL is a database. Databases should be strict and cranky, because they're the authority for your important data.</p><p>I expect my scripting language to act cute and helpful, and my database to kick me in the ass whenever I get sloppy.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>No indexes</h2>
+<h3><a href="/user/bart/">bart</a> on 2009-02-26T09:07:19</h3>
+<p>Since Mysql is "helpful" and converts every column value from string to a number, there's no chance in hell it'll use indexes to do the lookup.</p><p>The way you fix it in the query is by using quotes around the literal value.</p><p>But Mysql should do the proper thing and that is, IMnsHO, to convert the user data to the column type, and then do the lookup.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

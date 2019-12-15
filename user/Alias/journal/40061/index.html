@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Devel::Eval 0.02 to now use sekrit new Perl 5.8.9+ feature!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Devel::Eval 0.02 to now use sekrit new Perl 5.8.9+ feature!</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2009-12-31T00:50:52</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I take (apparently) an unusual approach to testing.<br/><br/>Apart from regression tests for replicating and fixing reported bugs, I find that my main reason for writing test scripts is to feed the debugger, since I probably spend as much time in the debugger than I do in my editor.<br/><br/>It's just so much more convenient to see what your code is doing, rather than having it tell you (via print statements or logging/tracing etc).<br/><br/>I guess you could call it TDD of a different kind. Test Driven Debugging, rather than Test Driven Development.<br/><br/>However, one of the biggest weaknesses of this debugger-centric development process for me has been string evals and code generation.<br/><br/>Things like ORLite can generate thousands of lines of code, with half a dozen levels of methods nested inside each other. Debugging this is a pain, because unlike regular code the debugger can't show you this eval'ed code.<br/><br/>For this reason, I created <a href="http://search.cpan.org/perldoc?Devel::Eval">Devel::Eval</a>, which exports a 'dval' function that is a (temporary) drop in replacement for eval that writes the code to a temp file, and then does a 'do' of that file. You get the code visible in the debugger, AND you can take a copy of the generated code for later if you want to read through it in more depth.<br/><br/>This has worked great for ORLite, which generates at a package granularity.<br/><br/>But it ran out of steam when I tried to use it on <a href="http://search.cpan.org/perldoc?Aspect</a>.<br/><br/>After year-long successful development pushes at work on Testing in 2008 and Reliability in 2009, our 2010 development theme is Usability. And I want Aspect-Oriented Programming to play a significant role in this, providing agile hooks into our 250k line application to extract various high volume user-related information (for example, firing UDP syslog messages every single time we try to show a product to a user and it doesn't have a photo, so we can establish a priority of which of our 100,000 product lines need pictures the most).<br/><br/>After encountering some problems with the current implementation, work has given me the low-productivity 3-4 week period over the holidays to rip apart the Aspect.pm internals and rewrite them to bring them up to our required level of functionality and performance.<br/><br/>This is been quite a challenging task, because Aspect is complex in its own right, and it's also built on top of <a href="http://search.cpan.org/perldoc?Hook::LexWrap">Hook::LexWrap</a> (which does some amazingly crazy/scary things, like using DESTROY-time self-executing blessed code references that modify lexical variables as a way of altering the behaviour of anonymous closures after we've handed them off and don't know where they are any more.<br/><br/>After the first 2 weeks of work, I've managed to drop the Hook::LexWrap dependency and added some specialisation so that optimisable cases work differently (for example, the before { } advice is optimised to use goto internally, while the after { } advice uses Sub::UpLevel instead of Hook::LexWrap's private caller() clone.<br/><br/>But I digress...<br/><br/>The problem with all this, is that the internals now rely on string-eval generated closures that use variables created OUTSIDE the string eval. So the "do $filename" approach is now untenable.<br/><br/>Figuring that the temp file approach was tapped out, I headed to #p5p as my "Perl help channel of last resort" to see if there were any REALLY exotic solutions to my problem.<br/><br/>To my great relief, not only is this problem fixed, it's fixed properly and at the source (and it has been for a while). It's just that someone forgot to document a feature that has been in Perl since 5.8.9/5.10.0!<br/><br/>In the debugger, the $^P variable is a bit mask used to control behaviour and flag which Perl content the debugger should save the content of for later reference.<br/><br/>The perlvar documentation lists 11 bits this variable (0x1 through to 0x400). <br/><br/>But this not true!<br/><br/>There's actually two more undocumented control bits (and a third in 5.10.1), and the first of these (0x800, which is off by default) is exactly what I need.<br/><br/>Adding the 0x800 flag to $^P will cause the debugger to save a copy of everything that it does a string eval on, so that when you later step into the generated code, you can see it in the debugger as you would any other code.<br/><br/>The idiomatic usage of the flag looks like this.
+<code>
+do {
+    local $^P = $^P | 0x800;
+    eval $perl_string;
+};
+</code>
+The new Devel::Eval 0.02 release will continue to use the "do" approach on older Perls, but when it detects that it is on Perl 5.8.9 or later, it will automatically switch to this $^P approach.<br/><br/>Both approaches can be accessed directly via Devel::Eval::fval (for the file approach) and Devel::Eval::pval (for the $^P approach).
+</p>
+
+
+<hr/>
+
+
+
+<h2>Hooray!</h2>
+<h3><a href="/user/tgape/">tgape</a> on 2010-01-01T03:15:52</h3>
+<p>1. Thanks for the pointer on Devel::Eval.  For those of us developing under rocks, that will come in very useful (as those extra bits aren't around in 5.6.1.)</p><p>2. Thanks for the info on those extra bits, as that'll be useful for my home development.  I'm attempting to stay away from string evals, but they're so useful, I don't know how long I can hold out.</p><p>3. Thanks for the suggestion on how to sneak in a few more automated regression tests under a manager who doesn't want to "waste" time on them.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

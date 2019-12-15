@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of brian_d_foy: Think horses, not zebras</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Think horses, not zebras</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2004-01-13T06:12:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>When I was playing around with my scriptdist program, I needed to create parts of the Makefile.PL, although I wanted to fill in some of the specifics. One of the things that I put in there is my hook for test_via_harness. I already escaped some of the characters in there because they are special, but now this bit of code is going to show up inside a string, so I need to escape the special characters and the escapes that escape them.  Eventually, this thing is double interpolated.<br/><br/><pre>
+sub ExtUtils::MM_Any::test_via_harness
+	{
+    my($self, $perl, $tests) = @_;<br/><br/>    return qq|	$perl "-MTest::Manifest" | .
+           qq|"-e" "run_t_manifest(\$(TEST_VERBOSE), '\$(INST_LIB)', | .
+           qq|'\$(INST_ARCHLIB)')"\n|;
+	}
+</pre><br/><br/>The first time I ran this I got this really boggling output.<br/><br/><pre>
+sub ExtUtils::MM_Any::test_via_harness
+	{
+    my($self, $perl, $tests) = ;<br/><br/>    return qq|  $perl "-MTest::Manifest" | .
+           qq|"-e" "run_t_manifest(20 1002 1001 80 20TEST_VERBOSE), '20 1002 1001 80 20INST_LIB)', | .
+           qq|'20 1002 1001 80 20INST_ARCHLIB)')"\n|;
+	}
+</pre><br/><br/>What are all of those numbers? There is some really wierd stuff going on there, but I did not bother to stop to investigate.  I just went through the string again and ensured that I escaped all of the special characters, and ended up with the result that I wanted, thinking I could easily remember what happened later.  For a brief moment, something involving aliens from outer space flashed by my mind's eye, and after that, a relatively more realistic notion about localtime.  Still, I left all that behind and finished scriptdist.<br/><br/>Later that night I made a test script to recreate those mystical numbers. Had I stumbled onto some odd Perl behavior?  For instance, the value of a hash in a scalar context is a wierd fraction, assigning a list to a scalar ends up with the last element as the scalar's value, and if you use localtime at exactly at midnight on a Tuesday you get an interesting message from Chip Salzenberg.  Well, not really---I just made that last one up.<br/><br/>I had to try a lot of different things before I got back to the combinations of letters, digits, and punctuation that showed me the strange behavior. Remember that I am already looking for goofiness, so I am ignoring common sense, sort of like the time in a training session I completely forget what -w does.<br/><br/>I finally got my simple test script to do the goofy thing.<br/><br/><pre>
+print "$(TEST_VERBOSE)\n";
+</pre><br/><br/>The output shows me the goofy, space alien numbers.<br/><br/><pre>
+20 1002 1001 80 20TEST_VERBOSE)
+</pre><br/><br/>Then, reality starts to come back.  Ah, Perl special variables!  Okay, now I see that $( variable there.  I was looking at the (TEST_VERBOSE) as a token with a $ in front of it---a beginner's (and, well, my) error.<br/><br/>I also know the $( and $) variables have something to do with group ids, because the $< and $> are the user id special variables, and although perlvar has a mnemonic based on the convexity of the punctuation, I never remember it correctly.  Why do I get all those numbers, though?<br/><br/>I took a trip to perlvar and discovered that since my machine, a Mac OS X box, supports simultaneous membership in multiple groups, $( is a space-separated list of those groups (which is different than a list of groups, mind you). Apparently on my box I am a member of a lot of groups.<br/><br/>Now, that solution poses another problem.  What are those groups?  I could use the NetInfo Manager application to find out, but that would probably involve the use of the touchpad and some clicking.  No, I started off mucking things up in Perl, and I will finish by mucking up things in Perl, which I do with three little Perl programs (two too many).<br/><br/><pre>
+perl -le 'print $(' | perl -ane '$"=qq|\n|; print qq|@F\n|' | perl -nle 'print scalar getgrgid($_)'
+</pre><br/><br/>I found out that I am in these groups, although for some reason $( has gid 20 twice---perhaps because that is my primary group.<br/><br/><pre>
+staff
+perl
+tex
+admin
+staff
+</pre><br/><br/>I could have Perl golf-ed this down a lot of characters, but why do more damage than I have already done?<br/><br/>"brian: Making stupid mistakes so you do not have to"</p>
+
+
+<hr/>
+
+
+
+<h2>Think sh and niutil</h2>
+<h3><a href="/user/nkuitse/">nkuitse</a> on 2004-01-13T17:30:06</h3>
+<b>niutil</b> is your friend:<blockquote><div> <tt>#!/bin/sh<br>for gid in $(perl -e 'print $('); do<br>&nbsp; &nbsp; niutil -readprop .<nobr> <wbr></nobr>/groups/gid=$gid name<br>done | sort -u</tt> </div></blockquote>Violas!  (O how I love *nix and (ba)sh...)
+
+
+
+<blockquote>
+
+<h2>Re:Think sh and niutil</h2>
+<h3><a href="/user/brian_d_foy/">brian_d_foy</a> on 2004-01-16T07:43:04</h3>
+I think "groups" works well too<nobr> <wbr></nobr>:)
+
+
+
+<blockquote>
+
+<h2>Re:Think sh and niutil</h2>
+<h3><a href="/user/nkuitse/">nkuitse</a> on 2004-01-16T13:12:20</h3>
+D'oh!  There's so much still to learn...<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

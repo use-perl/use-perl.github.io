@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of ethan: Why I hate writing tests.</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Why I hate writing tests.</h1>
+<h2><a href="/user/ethan/">ethan</a> on 2003-09-21T09:14:01</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>They are by nature repetitive and tiring.<br/><br/>I'm done with all the XS and Perl code of <code>String::Ruby</code> and now need to test around 60 functions. Each test more or less has to be performed twice: for the functional interface and the autoboxed one. I decided to write one test-file for each function (resulting in around 60 <i>.t</i> files). I like each test-unit to be rather small, otherwise I quickly loose the orientation later.<br/><br/>The usual scheme is: <code>input-string ==&gt; apply function ==&gt; output-string</code>. For this module in particular, I need to always test special edge-cases. Those are: strings that contain 8-bit characters (should be left untouched for the moment) and strings containing the <code>\0</code> character. Finally, one test tormenting the memory by feeding large strings.<br/><br/>It quickly dawned on me that
+<blockquote>
+<code>
+    is(Capitalize("hello"), "Hello");
+</code>
+</blockquote>
+is not an option here. So I eventually put the needed test-data in an array over which I can repeatedly iterate. Now a test-file looks pleasantly terse and tidy:
+<blockquote>
+<code>
+use constant    TESTS =&gt; 31;
+use Test::More  tests =&gt; TESTS;
+use Storable    qw(dclone);<br/><br/>BEGIN { use_ok("String::Ruby", functions =&gt; qw(capitalize capitalizeI)) }<br/><br/>my @tests = (
+    { str =&gt; "hello",
+      res =&gt; "Hello",
+      com =&gt; '' },
+    { str =&gt; "HELLO",
+      res =&gt; "Hello",
+      com =&gt; '' },
+    { str =&gt; "123ABC",
+      res =&gt; "123abc",
+      com =&gt; '' },
+    { str =&gt; "ÃÂ¤ÃÂ¤ÃÂ¤ÃÂ¤ÃÂ¤ÃÂ¤",
+      res =&gt; 'ÃÂ¤ÃÂ¤ÃÂ¤ÃÂ¤ÃÂ¤ÃÂ¤',
+      com =&gt; "8-bit characters" },
+    { str =&gt; "a" x 1_000_000,
+      res =&gt; "A" . "a" x 999_999,
+      com =&gt; "large string" },
+    { str =&gt; "h\0Ello",
+      res =&gt; "H\0ello",
+      com =&gt; "embedded \\0 character" },
+);<br/><br/>for (@tests) {
+    is(Capitalize($_-&gt;{str}), $_-&gt;{res}, $_-&gt;{com});
+}
+    
+for (my @cpy = @{ dclone(\@tests) }) {
+    is(CapitalizeI($_-&gt;{str}), $_-&gt;{res}, $_-&gt;{com});
+    is($_-&gt;{str}, $_-&gt;{res});
+}
+    
+SKIP: {
+    skip "autobox not available", 12 if (! &String::Ruby::HAVE_AUTOBOX);
+    use String::Ruby qw(no_croak);<br/><br/>    my @cpy = @{ dclone(\@tests) };
+    
+    for (0 .. $#cpy) {
+        is($cpy[$_]-&gt;{str}-&gt;capitalize, $cpy[$_]-&gt;{res}, $cpy[$_]-&gt;{com});
+        is($cpy[$_]-&gt;{str}, $tests[$_]-&gt;{str});
+    }
+}
+</code>
+</blockquote>
+I scanned the oodle of <code>Test::</code> modules on the CPAN whether one already offers such an infrastructure. Ideally, the above <code>@tests</code> array should be a simple object so that I can access the fields by method and not by hash-subscript (because I am lazy). Also, I wonder whether I can sensibly optimize away all those for-loops. They could become methods-to-be-overriden in my fictious Test-class which <code>@tests</code> would be blessed into. Resulting only in one call to <code>$tests->run</code>.<br/><br/>And we already have so many test-modules all trying to be ultra-smart so that we clearly need yet another one.
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

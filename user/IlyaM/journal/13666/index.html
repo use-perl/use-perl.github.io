@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of IlyaM: Alzabo vs Class::DBI vs DBI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Alzabo vs Class::DBI vs DBI</h1>
+<h2><a href="/user/IlyaM/">IlyaM</a> on 2003-07-24T11:06:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I've just wrote a quite short benchmark to compare perfomance of Alzabo vs Class::DBI vs row DBI. DBI is just for reference here as it doesn't provide all functionallity which is provided by Alzabo or by Class::DBI so it is hardly can be qualified as a replacement. I'm mainly interested in speed of selects  as updates and inserts are seldom bottlneck in web applications. Versions used in tests: DBI and Class::DBI - latest from CPAN, Alzabo - current CVS (which should be way faster then last stable). Results first:
+<pre>
+Benchmark: timing 9000 iterations of simple_alzabo, simple_class_dbi, simple_dbi...
+simple_alzabo:  4 wallclock secs ( 3.61 usr +  0.05 sys =  3.66 CPU) @ 2459.02/s (n=9000)
+simple_class_dbi: 14 wallclock secs (10.28 usr +  0.41 sys = 10.69 CPU) @ 841.91/s (n=9000)
+simple_dbi:  5 wallclock secs ( 2.93 usr +  0.29 sys =  3.22 CPU) @ 2795.03/s (n=9000)<br/><br/>Benchmark: timing 1000 iterations of all_alzabo, all_class_dbi, all_dbi...
+all_alzabo: 26 wallclock secs (24.66 usr +  0.37 sys = 25.03 CPU) @ 39.95/s (n=1000)
+all_class_dbi: 21 wallclock secs (19.29 usr +  0.35 sys = 19.64 CPU) @ 50.92/s (n=1000)
+   all_dbi:  6 wallclock secs ( 5.14 usr +  0.25 sys =  5.39 CPU) @ 185.53/s (n=1000)<br/><br/>Benchmark: timing 3000 iterations of where_alzabo, where_class_dbi, where_dbi...
+where_alzabo:  9 wallclock secs ( 7.27 usr +  0.22 sys =  7.49 CPU) @ 400.53/s (n=3000)
+where_class_dbi:  9 wallclock secs ( 7.66 usr +  0.16 sys =  7.82 CPU) @ 383.63/s (n=3000)
+ where_dbi:  5 wallclock secs ( 2.77 usr +  0.17 sys =  2.94 CPU) @ 1020.41/s (n=3000)
+</pre>
+And benchmark code:
+<pre>
+use Alzabo::Config;<br/><br/>Alzabo::Config::root_dir('/tmp');<br/><br/>{
+    use Alzabo::Create::Schema;<br/><br/>    my $schema = Alzabo::Create::Schema->new(name => 'bench',
+                                             rdbms => 'MySQL');
+    $schema->drop;
+    my $table = $schema->make_table(name => 'profile');
+    $table->make_column(name        => 'id',
+                        type        => 'INT',
+                        primary_key => 1);
+    $table->make_column(name        => 'login',
+                        type        => 'VARCHAR',
+                        length      => '80');
+    $table->make_column(name        => 'password',
+                        type        => 'VARCHAR',
+                        length      => '80');
+    $table->make_column(name        => 'email',
+                        type        => 'VARCHAR',
+                        length      => '80');<br/><br/>    $schema->create;
+    $schema->save_to_file;
+}<br/><br/>use Alzabo::Runtime::UniqueRowCache;<br/><br/>my $ALZABO_SCHEMA;
+{
+    require Alzabo::MethodMaker;
+    Alzabo::MethodMaker->import(class_root => 'Test::Alzabo',
+                                schema     => 'bench',
+                                all        => 1);<br/><br/>    $ALZABO_SCHEMA = Test::Alzabo::Schema->load_from_file(name => 'bench');
+    $ALZABO_SCHEMA->set_user('ilya');
+    $ALZABO_SCHEMA->password('');
+    $ALZABO_SCHEMA->connect;
+    $ALZABO_SCHEMA->prefetch_all_but_blobs;
+}<br/><br/>{
+    package Test::ClassDBI;<br/><br/>    use base 'Class::DBI';<br/><br/>    __PACKAGE__->set_db('Main',
+                        'dbi:mysql:bench',
+                        $ALZABO_SCHEMA->user,
+                        $ALZABO_SCHEMA->password);
+}<br/><br/>{
+    package Test::ClassDBI::Profile;<br/><br/>    use base 'Test::ClassDBI';<br/><br/>    __PACKAGE__->table('profile');
+    __PACKAGE__->columns(Primary => qw/id/);
+    __PACKAGE__->columns(Essential => qw/login password email/);
+}<br/><br/>my $DBH = DBI->connect('dbi:mysql:bench',
+                       $ALZABO_SCHEMA->user,
+                       $ALZABO_SCHEMA->password,
+                       { RaiseError => 1 });<br/><br/>{
+    $DBH->do('DELETE FROM profile');
+    my $sth = $DBH->prepare('INSERT profile (id, login, password, email) ' .
+                            'VALUES (?, ?, ?, ?)');
+    for my $i (0 .. 100) {
+        $sth->execute($i, "user$i", "pass$i", "test$i\@test$i.com");
+    }
+}<br/><br/>use Benchmark;<br/><br/>timethese(9000, { simple_alzabo    => \&simple_alzabo_test,
+                  simple_class_dbi => \&simple_class_dbi_test,
+                  simple_dbi       => \&simple_dbi_test });<br/><br/>print "\n";<br/><br/>timethese(1000, { all_alzabo    => \&all_alzabo_test,
+                  all_class_dbi => \&all_class_dbi_test,
+                  all_dbi       => \&all_dbi_test });<br/><br/>print "\n";<br/><br/>timethese(3000, { where_alzabo    => \&where_alzabo_test,
+                  where_class_dbi => \&where_class_dbi_test,
+                  where_dbi       => \&where_dbi_test });<br/><br/>sub simple_alzabo_test {
+    my $profile = $ALZABO_SCHEMA->profile->row_by_pk(pk => 1);
+    my $out = join '', map $profile->$_, qw(id login password email);
+}<br/><br/>sub simple_class_dbi_test {
+    my $profile = Test::ClassDBI::Profile->retrieve(1);
+    my $out = join '', map $profile->$_, qw(id login password email);
+}<br/><br/>sub simple_dbi_test {
+    my $profile = $DBH->selectrow_hashref('SELECT * FROM profile WHERE id = ?',
+                                          undef,
+                                          1);
+    my $out = join '', map $profile->{$_}, qw(id login password email);
+}<br/><br/>sub all_alzabo_test {
+    my @profile = $ALZABO_SCHEMA->profile->all_rows->all_rows;
+    my $out;
+    for my $profile (@profiles) {
+        $out .= join '', map $profile->$_, qw(id login password email);
+    }
+}<br/><br/>sub all_class_dbi_test {
+    my @profiles = Test::ClassDBI::Profile->retrieve_all;
+    my $out;
+    for my $profile (@profiles) {
+        $out .= join '', map $profile->$_, qw(id login password email);
+    }
+}<br/><br/>sub all_dbi_test {
+    my $profiles = $DBH->selectall_arrayref('SELECT * FROM profile',
+                                            { Slice => {}});
+    my $out;
+    for my $profile (@$profiles) {
+        $out .= join '', map $profile->{$_}, qw(id login password email);
+    }
+}<br/><br/>sub where_alzabo_test {
+    my $t_profile = $ALZABO_SCHEMA->profile;
+    my $where = [ [ $t_profile->id, '<', 10 ],
+                  [ $t_profile->id, '>', 20 ] ];
+    my @profile = $t_profile->rows_where(where => $where)->all_rows;
+    my $out;
+    for my $profile (@profiles) {
+        $out .= join '', map $profile->$_, qw(id login password email);
+    }
+}<br/><br/>sub where_class_dbi_test {
+    my @profiles =
+        Test::ClassDBI::Profile->retrieve_from_sql('WHERE id > ? AND id < ?',
+                                                  10, 20);
+    my $out;
+    for my $profile (@profiles) {
+        $out .= join '', map $profile->$_, qw(id login password email);
+    }
+}<br/><br/>sub where_dbi_test {
+    my $profiles = $DBH->selectall_arrayref('SELECT * FROM profile ' .
+                                            'WHERE id > ? AND id < ?',
+                                            { Slice => {}},
+                                            10, 20);
+    my $out;
+    for my $profile (@$profiles) {
+        $out .= join '', map $profile->{$_}, qw(id login password email);
+    }
+}
+</pre>
+I'm going to verify this benchmark, maybe add more tests, draw some conclusions and repost it on perlmonks.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

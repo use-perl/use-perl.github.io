@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of grantm: Unreadable Perl Code</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Unreadable Perl Code</h1>
+<h2><a href="/user/grantm/">grantm</a> on 2006-03-20T08:52:47</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I have a replication process which applies updates.  Usually the updates are incremental 'patches' sometimes they are full copies.  The incoming queue of updates might look like this:</p>
+
+<pre>
+my @files = qw(
+    00000.diff
+    00001.diff
+    00002.diff
+    00003.copy
+    00004.diff
+    00005.diff
+    00006.copy
+    00007.diff
+);
+</pre>
+
+<p>If there are one or more full copies in the queue, there is no point processing any updates before the last full copy.  So what I needed was an algorithm to reduce the above example to just the last two files.</p>
+
+<p>My first thought was that I ought to be able to do it with some form of grep using the flip-flop operator.  Alas, my initial attempts were not successful so I wrote a loop that popped things off one array and unshifted them onto another - breaking out of the loop if a full copy file was found.  It wasn't complicated code but it took more lines than I'd have liked and it needed a one-line comment explaining what the loop was doing (perhaps, in retrospect, I should have put it into a subroutine).</p>
+
+<p>I later realised what I was doing wrong in my first attempts and came up with this version:</p>
+
+<pre>
+my $i = 0;
+@files = reverse grep !$i++../\.copy$/, reverse @files;
+</pre>
+
+<p>Having to use $i was annoying but I couldn't think of another way to code an expression that was true the first time it was evaluated and false from then on.</p>
+
+<p>Anyway, I ran this version past a couple of my colleagues and while they were intrigued, they felt it was basically unreadable and didn't want to be saddled with maintaining it.  So I 'committed' it here instead :-)</p></p>
+
+
+<hr/>
+
+
+
+<h2>My shot</h2>
+<h3><a href="/user/bart/">bart</a> on 2006-03-20T14:10:57</h3>
+The only assumption I make is that the files in the list are in sequential order.<blockquote> <div><tt>my @keep;<br>foreach (@files) {<br>&nbsp; &nbsp; @keep = () if<nobr> <wbr></nobr>/\.copy$/;<br>&nbsp; &nbsp; push @keep, $_;<br>}</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:My shot</h2>
+<h3><a href="/user/grantm/">grantm</a> on 2006-03-21T18:34:00</h3>
+Of all the suggestions, this one definitely gets my vote for clarity.  I did think along the lines of discarding accumulated filenames whenever a '.copy' was encountered but at the time I had grep blinkers on and it can't be done with grep.
+
+
+
+
+
+</blockquote>
+
+
+<h2>before_incl</h2>
+<h3><a href="/user/stvn_skuo/">stvn_skuo</a> on 2006-03-20T15:10:22</h3>
+<br> <br>
+Perhaps try the <tt>List::MoreUtils</tt> module?<blockquote> <div><tt>use List::MoreUtils qw/before_incl/;<br>my @keep =<br>&nbsp; &nbsp; &nbsp;reverse<br>&nbsp; &nbsp; &nbsp;before_incl {<nobr> <wbr></nobr>/\.copy\z/ }<br>&nbsp; &nbsp; &nbsp;reverse @files;</tt></div> </blockquote>
+
+
+
+<h2>Unreadable Perl Code</h2>
+<h3><a href="/user/Eric Wilhelm/">Eric Wilhelm</a> on 2006-03-20T23:18:37</h3>
+<p>...<em>So what I needed was an algorithm to reduce the above example to just the last two files.</em>...</p><p><p>Or, at least, you want to get the last index of a<nobr> <wbr></nobr>/\.copy$/ match from the list.</p> <blockquote> <div><tt>my $index = (<br>&nbsp; &nbsp; grep({$files[$_] =~ m/\.copy$/}<br>&nbsp; &nbsp; &nbsp; &nbsp; reverse(0..$#files)<br>&nbsp; &nbsp; )<br>)[0];<br>splice(@files, 0, $index);</tt></div> </blockquote>
+
+
+
+<blockquote>
+
+<h2>List::Util improves this</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-03-21T12:29:58</h3>
+<blockquote> <div><tt>use List::Util qw( first );<br>my $index = first { $files[ $_ ] =~ m/\.copy$/ } reverse 0<nobr> <wbr></nobr>.. $#files;<br>splice @files, 0, $index if defined $index;</tt></div> </blockquote>
+
+
+
+
+
+</blockquote>
+
+
+<h2>No need for the flip-flop</h2>
+<h3><a href="/user/Aristotle/">Aristotle</a> on 2006-03-21T12:18:11</h3>
+<blockquote> <div><tt>my $seen_full_copy;<br>@files = reverse grep { not( $seen_full_copy ||=<nobr> <wbr></nobr>/\.copy$/ ) } reverse @files;</tt></div> </blockquote> <p>The double <code>reverse</code> is still unsightly though.</p>
+
+
+
+<h2>There's no fold in List::Util or List::MoreUtils</h2>
+<h3><a href="/user/mary.poppins/">mary.poppins</a> on 2006-03-28T06:25:51</h3>
+There's a "reduce" in List::Util, but its interface is fairly horribly broken.<br><br>Anyway, here's a fold-using implementation:<br><br><code><br>use strict;<br><br>sub fold {<br>
+&nbsp; &nbsp; my $accum = shift;<br>
+&nbsp; &nbsp; my $code = shift;<br>
+&nbsp; &nbsp; return $accum unless @_;<br>
+&nbsp; &nbsp; return fold( $code-&gt;( $accum, shift ), $code, @_ );<br>}<br><br>my @files = qw(<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 00000.diff<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 00001.diff<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 00002.diff<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 00003.copy<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 00004.diff<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 00005.diff<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 00006.copy<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 00007.diff<br>
+&nbsp; &nbsp; &nbsp; &nbsp; 00008.diff<br>);<br><br>use Data::Dumper;<br>sub foldee {<br>
+&nbsp; &nbsp; &nbsp; &nbsp; my ( $accum, $item ) = @_;<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return [$item, []] if ( $item =~<nobr> <wbr></nobr>/\.copy$/ );<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return $accum unless defined $accum-&gt;[ 0 ];<br>
+&nbsp; &nbsp; &nbsp; &nbsp; return [ $accum-&gt;[ 0 ], [@{$accum-&gt;[1]}, $item]];<br>}<br>print Dumper(fold( [undef, []], \&amp;foldee, @files));<br></code>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

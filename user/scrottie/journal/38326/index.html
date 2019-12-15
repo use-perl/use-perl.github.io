@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of scrottie: What I've been coding on... Acme, paid stuff, random things</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>What I've been coding on... Acme, paid stuff, random things</h1>
+<h2><a href="/user/scrottie/">scrottie</a> on 2009-01-22T07:40:24</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>First, the fun stuff.  I've been going nuts with Acme stuff.  I had been coding my brains out on the minimunny idea which I blogged about before -- a little .pl file you can fire up and then use as the start for a Web app without having to think about setting up a database, MVC, or anything.  Kind of the VisualBasic of Web apps.  And then to deploy it or move it or give it to someone else, you'd just copy it.  Development is done from inside the thing with vi.js, self-rewriting code, persisted variables, built-in chat, package/function browser, REPL, command set for manipulating objects (taken from LPMUD).  These features got broken out into Acme::State (to persist variable state), Acme::MUDLike (MUD-like command set for manipulating objects with built in COMET/AJAX chat that runs inside of your app).  Then Acme::RPC was just something I've been meaning to do for a while.<br/><br/>Brock (Awwaiid) kept trying to show me Continuity::Monitor::CGI before and when he was out, he gave me a demo.  He started to try to do a lot of the same things, minus the stand alone, everything-built-in server idea.  I was in awe.  C::M::CGI fires up a server on a port when a CGI app asks to be debugged, and that server has a nice pretty GUI for viewing stacks and lexical data, doing REPL stuff, and so on.  So I wanted to get my work on top of his.  The direct approach was harder than expected.  The Moose blogging was kind fall-out from that.  Besides that, he put his applets in individual continuations, and they needed not to be to be injected into another context using Continuity::Monitor.  In C::M::CGI, it doesn't matter.  If something was context specific, he ran it right in C::M::CGI and then passed it it to the other coroutine.  That doesn't work in C::M hung off a Continuity app.  Nasty stuff about sending something through a queue, executing while the queue is still locked, and not being able to send something else through without deadlock.  Bleah.<br/><br/>Acme::RPC was born out of Acme::State's recurse-through-lots-of-stuff code but goes much further.  Acme::State just recursed through the symbol table looking for our variables.  Acme::RPC goes into subroutines and picks out lexical variables (which in a Continuity or Coro environment might have active, in-use data, even if it isn't a closure).  It goes into objects by their references and picks out the methods.  It finds closures and goes into closures.  And it prints a pretty graph of damn near your whole damn program, with each closure, object, and method node invokable by RPC and other things inspectable further (arrays and hashes don't get dumped to minimize spam).  I had a lot of fun with that.  It gives JSON output and accepts parameters in the GET string for the closure/method.  I need to make it accept JSON and add a GET idiom for passing object references (which you already know about from the big dump at the beginning).  It also lets you call things by path -- if there's a package foo that has a sub bar in it that has a variable baz that holds a closure, you can specify in the GET string path=foo::/bar()/$baz&action=call to call that closure.  The whole thing is infinitely simpler than other Perl RPC modules and utterly completely insecure.  v0.2 needs an optional password specified when you use the module.  As always, feedback encouraged.<br/><br/>Originally, I set out to not use the recurse thingie from Acme::State but to use Devel::Leak instead in conjunction with Devel::Pointer.  Devel::Leak gives a list of every SV allocated since you took a snapshot.  Devel::Pointer takes a numeric value (what you get when you do <code>0+$ref</code> and gives you the reference back.  The two would be perfect together.  But I couldn't figure out how to make it work.  I was parsing Devel::Leak's output trying to figure out which pointers were safe and found none.  I guess I probably had to create my own references to things and then stash them somewhere so they don't go away and use Devel::Pointer on their addresses.<br/><br/><pre>
+                # get Devel::Leak's output in a variable
+                open my $olderr, '>&', \*STDERR or die "Can't dup STDERR: $!";
+                close STDERR;
+                open STDERR, ">", \my $buf or die $!;
+                Devel::Leak::CheckSV($lt);
+                # $buf =~ tr/A-Z/a-z/; print $buf;
+                close STDERR;
+                open STDERR, '>&', $olderr;
+                close $olderr; 
+                $buf =~ s{(0x[a-f0-9]{6,})}{<a href="?oid=$1">$1</a>}g;
+</pre><br/><br/>The code for detecting subroutines that were imported or written in XS is coming in handy.  Don't remember if I've posted that already:<br/><br/><pre>
+                } elsif( *{$package.$k}{CODE} ) {
+                    # subroutine inside of a package, declared with sub foo { }, else *foo = sub { }, exported, or XS.
+                    # save coderefs but only if they aren't XS (can't serialize those) and weren't exported from elsewhere.
+                    my $ob = B::svref_2object(*{$package . $k}{CODE});
+                    my $rootop = $ob->ROOT;
+                    my $stashname = $$rootop ? $ob->STASH->NAME . '::' : '(none)';
+                    if($$rootop and ($stashname eq $package or 'main::'.$stashname eq $package or $stashname eq 'main::' )) {
+                        # when we eval something in code in main::, it comes up as being exported from main::.  *sigh*
+                        reg( $node->{$k.'()'}{chr(0)} = *{$package . $k}{CODE} );
+                    }
+</pre><br/><br/>It would be pretty easy to redo the Continuity standard chat example to use this thing.  It would need just one little event hub that waited for activity on the queue and returned with a JSON version of the queue, and posted to the queue, and all of the work could be done in JavaScript.  Hmm =)<br/><br/>I've been having a lot of fun with Acme::State too.  I'm finding myself using it for various things.  Previously I had been cutting and pasting around quite a bit of code that originated in the zombie game.  It just used Storable, a Coro::Event timer, etc and unserialized a datastructure at startup and saved it now and then while the thing was running.  But you still had to add all of the variables you wanted saved to a hash.  Acme::State saves on exit, at END { } time, and restores state when you use it.  There's a function to explicitly save state.  Any our variables it can find in packages not in %INC, it saves.  I need to adjust that a bit.<br/><br/>This is probably redundant with something out there already to the point that it's retarded, but I've been meaning for ages to make a little SDL app that let me watch the metro buses move around according to their schedule.  Google Transit hasn't come to Phoenix yet.  It'll probably open right after I finish this.  Which is why I keep putting it off.  Anyway.  Just starting on it this evening, I got a nice window panning around a gif of the PDF of the route map, and I was able to parse the route data from the site with shocking no effort.  Seriously, first try, in minutes.<br/><br/><pre>
+    # at shell, to get a gif of the pdf of the route map
+    pdftoppm Local.pdf bus.ppm
+    ppmtogif <  ppmquant 32 bus.ppm-000001.ppm > bus.gif<br/><br/>use Web::Scraper;<br/><br/>scraper(sub { process( 
+  'table', 'tables[]' => scraper(sub { 
+   process(
+    'tr', 'tr[]' => scraper(sub { 
+      process 'td,th', 'td[]' => 'TEXT';
+      result 'td';
+    })
+  );
+  result 'tr'; 
+})); })->scrape($html);<br/><br/></pre><br/><br/>... that returns a 2D array of table cells.<br/><br/>There are a pile of modules on CPAN that all have the same idea about parsing tables -- give you three callbacks, one for tables, one for trs, one for tds.  Lame.  A few lines on top of HTML::Parser and you'd have that already.  Those are modules that, imo, should not exist.<br/><br/>Web::Scraper has almost no documentation.  It's author (the author of Scrapi, from Ruby, where it came from, actually) did a clever thing and reused what you probably already know.  The API is based on CSS.  It adds a couple of idioms, such as arrays of things marked by [].  If you start plugging your own sub { }s in there in place of the DSL-ish names, you'll find that it uses perfectly standard HTML::Parser and URI etc objects internally.  You can say <code>sub { my $node = shift; print $node->as_HTML; }</code> to debug, and it'll work.  Not only it is extremely powerful and extremely expressive, the source code is pretty damn small too.  I rail on bad designs a lot... well everyone, he's a good one.<br/><br/>I started fake geolocating the bus stops for the route on the street I'm on and I realized that since Phoenix is a grid, I only need one number for each road.  Scottsdale Road is the north/south column at about about 1246 on the rasterized map.  Thomas is the row at 726.  Central is the column at 936.  I thought I was going to have to build a list of stops and then bounce them off of some geolocating service somewhere but I think I can easily hobble my own together here.<br/><br/>So, now I need to add controls to inc/dec the time (already have the time logic with identifiers that match the values in the HTML... 924a, etc) and logic to place the various buses at various stops and redraw.  Then some logic to extrapolate bus position between two stops would be nice.<br/><br/>http://slowass.net/user/scott/code/unssl-proxy.pl.txt<br/><br/>... the text in there tells the story.  Short version, I was hired to scrape a site that was on SSL.  I was using Mechanize and some Firefox tool but still failed.  Feeling very shitty.  Some other Perl programmer who puts ampersands in front of his function calls did it in no flat with no problem.  Besides dropping down to raw LWP, I also wrote a proxy that makes SSL sites look to the browser like non-SSL sites and records the requests.  That was all in one frantic evening.  PeopleSoft.  Bleah.  The site went down for maintenance for the night right as I was finishing the proxy and I said I'd report back that evening so I was stuck at that point.<br/><br/>A previous frantic evening I succeeded but I had only been asked to put together a quote, so I was trying to get in to figure out how long it would take me to get in.  This one was chunked transfer encoding but not SSL.  I futzed with proxies for far too long, spending two hours waiting for deps and fixing deps (I swear...) only to discover that some of these things like HTTP::Proxy have wretched interfaces anyway.  So, to plug in something into the middle of the proxy, you have to use their own objects.  It does an isa on it.  And those objects have an API where they dump the fields out of the HTTP::Request/Response objects that they think you will want, hide the actual objects, and give you the fields all flattened out in an array.  And this is the interface that not only is foisted upon you, but you have to read a bunch of documentation to learn.  If you already know your way around HTTP::Response/Request, too bad.  Forget it.  Relearn.  Bleah.  So, turned off images in the browser and ran tcpdump and then get my code to jive against that.  Some JavaScript was rewriting URLs, and there were a few minor snags, but I got in.  But by then, someone else already came back with a qoute and did the work.  I'm not feeling so keen on myself right now.<br/><br/>I keep getting but reports from work on the same bit of code that's a big mess of heuristic logic.  There's really no way to do it right.  I've run validations against it with every possible input with aggregated, tallied results, but no one wants to look at it and tell me if it's right.  My poor 800mhz Via with 64k+64k L2 cache spent three days running that.  They just want to report bugs when it screws up.  So I get a constant trickle of easy bugs rather than a nice batch and confidence that it's all working.  Other work projects are held up so I've been in terrible limbo.  Trying to pick up a few other projects to work on to tide me over... not going so well.<br/><br/>I guess I'm feeling pent up from projects where I haven't been productive.  I had a huge reverse engineer project that's now wedged up.  I don't have protocol data I need beyond a certain point so I can't try to emulate the device.  I was trying to learn too many new things at once to become effective on a different fun project and just flailing about.  I'll have to get back to both of those eventually but it feels really good to actually succeed at writing code.  And I was trying to work on Continuity::Monitor and C::M::CGI plugins stuff for a while and hit a dead end.  And of course, there are a million things I want to do...<br/><br/>On my short list, my Illuminati server running on Facebook.  I need to figure out how to make some money here.  Steve Jackson Games is extremely cool.  They were involved in the formation of the EFF when the CIA decided Cyperpunk glorified hackers... and then after SJG won the case, they immediately turned around and created Hacker.  So I'm thinking they might accept a fair use argument if I require people to buy a copy of Illuminati (through my proxy, or otherwise somehow verify that they own a copy of the game) before they can play my online version of it.  And then I can charge a dollar transaction fee on each sale ;)<br/><br/>-scott
+</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

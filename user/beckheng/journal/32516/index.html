@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of beckheng: Be careful of using array reference under mod_perl</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Be careful of using array reference under mod_perl</h1>
+<h2><a href="/user/beckheng/">beckheng</a> on 2007-02-27T08:13:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I store some value with an array reference like : <br />
+$self->{stash}->{css_files} = ['a.css', 'b.css'];<br />
+I append another css file after with <i>push</i> function, so the array expand  more and more.
+<br /><br />
+So I must be avoid to using array reference in config variables.
+</p>
+
+
+<hr/>
+
+
+
+<h2>what's the trouble?</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-02-27T22:27:52</h3>
+I don't know of any problem with using array references in mod_perl.  Can you explain what's giving you trouble?  Maybe we can help.
+
+
+
+<blockquote>
+
+<h2>Re:what's the trouble?</h2>
+<h3><a href="/user/beckheng/">beckheng</a> on 2007-02-28T15:55:49</h3>
+Any help is luck for me.<br>
+These three script show what happens.<br>
+
+-------configuration file(MyConfigTest.pm)--<p><blockquote> <div><tt>package PBB::Packages::MyConfigTest;<br> <br>use strict;<br> <br>@PBB::Packages::MyConfigTest::ISA = qw(Exporter);<br>%PBB::Packages::MyConfigTest::stash = (<br> <br>&nbsp; &nbsp; "p_type" =&gt; "text/html",<br>&nbsp; &nbsp; "p_charset" =&gt; "UTF-8",<br>&nbsp; &nbsp; "p_theme" =&gt; "gnome-default",<br>&nbsp; &nbsp; "css_files" =&gt; ["aa.js", "bb.js"],<br>);<br> <br>1;</tt></div> </blockquote> -------startup file(mystartup.pl)-------<p><blockquote> <div><tt>#!/usr/bin/perl<br> <br>use lib qw(/path/myprj);<br>use strict;<br> <br>1;</tt></div> </blockquote> -------my module file(ControllerTest.pm)--<p><blockquote> <div><tt>package PBB::ControllerTest;<br> <br>use vars qw($q $t);<br>use vars qw(%stash);<br>use Apache2::RequestIO ();<br>use Apache2::Const -compile =&gt; ':common';<br>use CGI qw();<br>use CGI::Carp qw(fatalsToBrowser);<br>use PBB::Packages::MyConfigTest;<br>use Data::Dumper;<br>use strict;<br> <br>*stash = \%PBB::Packages::MyConfigTest::stash;<br> <br>sub handler{<br>&nbsp; &nbsp; my $r = shift;<br>&nbsp; &nbsp; $q = new CGI;<br>&nbsp; &nbsp; print $q-&gt;header();<br>&nbsp; &nbsp; $t = {};<br>&nbsp; &nbsp; @{$t-&gt;{stash}}{keys %stash} = values %stash;<br>&nbsp; &nbsp; print Dumper($t-&gt;{stash});<br>&nbsp; &nbsp; push @{$t-&gt;{stash}-&gt;{css_files}}, "a.js", "b.js";<br>&nbsp; &nbsp; print "&lt;br<nobr> <wbr></nobr>/&gt;&lt;br<nobr> <wbr></nobr>/&gt;";<br>&nbsp; &nbsp; print Dumper($t-&gt;{stash});<br>&nbsp; &nbsp; return Apache2::Const::OK;<br>}<br> <br>1;</tt></div> </blockquote> and the follow is the apache config section<br> <p><blockquote> <div><tt>&lt;IfModule mod_perl.c&gt;<br>&nbsp; &nbsp; PerlRequire "/path/myprj/mystartup.pl"<br>&nbsp; &nbsp; &lt;Location<nobr> <wbr></nobr>/ptest&gt;<br>&nbsp; &nbsp; &nbsp; &nbsp; SetHandler perl-script<br>&nbsp; &nbsp; &nbsp; &nbsp; PerlResponseHandler PBB::ControllerTest<br>&nbsp; &nbsp; &nbsp; &nbsp; PerlOptions +ParseHeaders<br>&nbsp; &nbsp; &nbsp; &nbsp; Order allow,deny<br>&nbsp; &nbsp; &nbsp; &nbsp; Allow from all<br>&nbsp; &nbsp; &lt;/Location&gt;<br>&lt;/IfModule&gt;</tt></div> </blockquote> while browse with <a href="http://127.0.0.1/ptest" title="127.0.0.1">http://127.0.0.1/ptest</a 127.0.0.1><nobr> <wbr></nobr>,I see the result:<br> <p><div class="quote">$VAR1 = { 'p_type' =&gt; 'text/html', 'css_files' =&gt; [ 'aa.js', 'bb.js', 'a.js', 'b.js', 'c.js', 'a.js', 'b.js', 'c.js', 'a.js', 'b.js', 'c.js' ], 'p_theme' =&gt; 'gnome-default', 'p_charset' =&gt; 'UTF-8' };<br>
+<br>
+$VAR1 = { 'p_type' =&gt; 'text/html', 'css_files' =&gt; [ 'aa.js', 'bb.js', 'a.js', 'b.js', 'c.js', 'a.js', 'b.js', 'c.js', 'a.js', 'b.js', 'c.js', 'a.js', 'b.js', 'c.js' ], 'p_theme' =&gt; 'gnome-default', 'p_charset' =&gt; 'UTF-8' };</div>  <br>
+What's wrong with me?<br>
+<br>
+Regards.
+<br>
+
+
+
+<blockquote>
+
+<h2>Re:what's the trouble?</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2007-02-28T18:40:34</h3>
+<p>I don't understand.  Didn't you want the array to expand?  If you were trying to replace it, just set it directly instead of using push:</p>
+<code>$t-&gt;{stash}-&gt;{css_files} = ['a.js', 'b.js'];</code>
+<p>
+There are several other things in this code that I would suggest changing, but this forum isn't the best place to do a code review.  If you'd like more advice on your code, please post it on the mod_perl mailing list, or on <a href="http://perlmonks.org/" title="perlmonks.org">http://perlmonks.org/</a perlmonks.org>.
+</p>
+
+
+
+<blockquote>
+
+<h2>Re:what's the trouble?</h2>
+<h3><a href="/user/beckheng/">beckheng</a> on 2007-03-01T02:55:16</h3>
+I make mistake.<br>
+Direct assign value works good.<br>
+I never think it before.I always use <i>push</i>.<br>
+For more advice, I post it on<br>
+<a href="http://perlmonks.org/?node_id=602639" title="perlmonks.org">http://perlmonks.org/?node_id=602639</a perlmonks.org> <br><br/><br/>thx.<br>
+Regards.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

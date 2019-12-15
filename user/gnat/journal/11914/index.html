@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of gnat: Spot the Bug</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Spot the Bug</h1>
+<h2><a href="/user/gnat/">gnat</a> on 2003-04-30T00:38:56</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>I pasted my screenscraping code in <a href="http://use.perl.org/comments.pl?sid=12524&cid=19490">a comment</a>.  There's a subtle bug in the way it deals with HTML, though.  It's nothing to do with LWP, fetching the pages, or the use of HTML::TableContentParser.  The bug leads to invalid XML.  Can you find the bug?<p>
+
+<i>--Nat</i></p>
+
+
+<hr/>
+
+
+
+<h2>Guessing</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2003-04-30T01:00:51</h3>
+<p>Well, in <tt>clean()</tt>, we see this:</p>
+
+<tt>$text =~ s{&lt;.*?&gt;}{}g;</tt>
+
+<p>Not being familiar with <tt>HTML::TableContentParser</tt>, I can only guess, but you appear to be expecting tags, but if you have a tag with attributes and one of them has a value with a greater than "&gt;", then this breaks.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Guessing</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2003-04-30T01:23:28</h3>
+You're right, this isn't perfect.  However, this wasn't the bug that was giving me invalid output.  I had no HTML where <tt>&lt;.*?&gt;</tt> was insufficient.<p>
+
+The problem was that I had a certain character unescaped in the HTML, and my solution to this was naive to say the least...</p><p>
+
+<i>--Nat</i></p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Re: Spot the Bug</h2>
+<h3><a href="/user/kingubu/">kingubu</a> on 2003-04-30T06:37:26</h3>
+<blockquote><div>
+ Can you find the bug?
+</div></blockquote>
+<p>
+Er... which one?<nobr> <wbr></nobr>:-)
+</p>
+<p>
+The one that fails to encode the left angle bracket
+in what is (presumably) character data, or the one that assumes that &amp;nbsp; is the only built-in character entity that will be found in an HTML document?
+</p>
+<p>
+See <a href="http://www.w3.org/TR/REC-xml#syntax" title="w3.org">here</a w3.org>
+ for the real rules.
+</p><p>
+If you intimately know and control the documents being processed, your scraper is naive but workable. I can only hope, however, that you aren't going offer this as a generic solution. It is not.
+</p>
+<p>
+Given that there are mature tools available that would convert the dirtiest of HTML into XML and let you operate on *that* to do your extraction, I have to wonder why you'd go after a solution like this in the first place. "Oh, I'll just whack the string" solutions may be fun exercises, but they can only lead markup-n00bs astray and should *not* be used as examples.
+</p>
+<p>
+BAD GNAT, NO COOKIE!!!<nobr> <wbr></nobr>;-&gt;
+</p>
+<p>-kip
+</p>
+
+
+
+<blockquote>
+
+<h2>Re: Spot the Bug</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2003-04-30T10:12:54</h3>
+Blah blah<nobr> <wbr></nobr>:-)  Yes, I could be more rigorous with entities.  It works for the specific documents I was scraping.  The bug I was referring to is a Perl bug, not a design bug.<p>
+
+If I had to convert the HTML to XML and work on that, I'd slit my wrists.  For all the haughty condescension about "naive but workable", the key part is "workable".  It was easy to write and worked.  This isn't a generic solution to extracting information, but it's a very nice specific solution.</p><p>
+
+<i>--Nat</i></p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>Solution</h2>
+<h3><a href="/user/gnat/">gnat</a> on 2003-04-30T10:29:38</h3>
+The bug is in the <tt>clean</tt> subroutine.  I say<blockquote><div> <tt>s{\b&amp;\b}{&amp;amp;}g;</tt> </div></blockquote>The expectation was that <tt>\b</tt> matches at word boundaries, so that <tt>HTML &amp; CSS</tt> would become <tt>HTML &amp;amp; CSS</tt>.  Foolish me.  There is no word boundary between a space and an ampersand.  I gave up trying to be smart and took out the <tt>\b</tt>'s to make it work.  I could have tried capturing and replacing the spaces, but until it breaks and I need to be smart again, I'll continue with my dumb approach.<p>
+
+I need to pay more attention to my own advice that <tt>\b</tt> is nearly useless in the real world (a word boundary occurs between a word (alpha and _) and non-word character, which is useful for Perl identifiers and not much more).  Unless someone <i>else</i> would like to prove me wrong<nobr> <wbr></nobr>:-)  Anyone found a use for <tt>\b</tt>?</p><p>
+
+<i>--Nat</i></p>
+
+
+
+<blockquote>
+
+<h2>Re:Solution</h2>
+<h3><a href="/user/vsergu/">vsergu</a> on 2003-05-04T14:13:46</h3>
+<p>In real-world text, <code>\b</code> normally works fine for me for matching word boundaries.  Of course, I don't think of "&amp;" as a word when I'm doing text searches. I really can't remember having much trouble with it -- it's the same as using most search engines.</p>
+
+<p>Also, I've occasionally used <code>\b</code> in one-off (or even one-liner) HTML manipulations with things like <code>s{&lt;/?(font|b|i)\b[^&gt;]*&gt;}{}gi</code>. The <code>\b</code> ensures that I'm getting the whole HTML element name (not matching <code>&lt;br&gt;</code> when looking for <code>&lt;b&gt;</code>, for example), and it matches whether the next character is whitespace or the closing <code>&gt;</code>.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

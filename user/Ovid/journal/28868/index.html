@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Ovid: Find the bug!</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Find the bug!</h1>
+<h2><a href="/user/Ovid/">Ovid</a> on 2006-03-03T23:06:40</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p>I had to add a new feature to my <a href="http://search.cpan.org/dist/Array-AsHash/">Array::AsHash</a> module.  Basically, you might need to get keys and values at particular array indices (think "a list of pairs"), so I needed to allow this:</p>
+
+<pre>my $key  = $array->key_at(2);
+my @keys = $array->key_at(0, 3, -1);
+my $keys = $array->key_at(0, 3, -1); # aref</pre>
+
+<p>So I wrote code like this (I did something similar for values):</p>
+
+<pre>sub key_at {
+    my $self  = CORE::shift;
+    my $ident = ident $self;
+    my @keys;
+    foreach my $index (@_) {
+        $index *= 2;
+        CORE::push @keys => $array_for{$ident}[$index];
+    }
+    return wantarray ? @keys
+        : 1 == @_    ? $keys[0]
+        :              \@keys;
+}</pre>
+
+<p>See the bug?  There are a couple of subtle issues here, but one of them is a real whopper.  When you see it, you'll know.</p>
+
+<p>FYI:  The <tt>CORE::</tt> stuff is there because I have methods named <tt>shift</tt> and <tt>push</tt>.  <tt>ident</tt> is from <tt>Class::Std</tt>.</p></p>
+
+
+<hr/>
+
+
+
+<h2>Hmmm...</h2>
+<h3><a href="/user/rjray/">rjray</a> on 2006-03-04T00:06:19</h3>
+Well, this is a stab in the dark, but when I see -1 being used in a fetch-from-array context, I tend to assume it's counting from the end of the array, not being treated directly as an index. Other than that, you aren't checking whether you're called on a reference or statically, which leads me to think that "ident $self" might not always return what you expect it to return.
+
+
+
+<blockquote>
+
+<h2>Re:Hmmm...</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-03-04T01:43:12</h3>
+<p>Trust me.  Once you see the bug, it's a forehead slapper -- if you've encountered this behavior before.  It's something that folks often miss because it occurs so rarely, but it's a natural consequence of how Perl behaves.</p>
+
+
+
+<blockquote>
+
+<h2>D'oh!</h2>
+<h3><a href="/user/rjray/">rjray</a> on 2006-03-10T20:14:36</h3>
+*sound of forehead-slapping*
+
+
+
+<blockquote>
+
+<h2>Re:D'oh!</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-03-10T20:19:34</h3>
+<p>Yeah, I know.  It bit me, too<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Yeah</h2>
+<h3><a href="/user/joel h/">joel h</a> on 2006-03-04T00:14:33</h3>
+(Rot-13'ed)<br>Lbh'er zbqvslvat gur inyhrf bs gur cnenzrgre yvfg juvpu ner nyvnfrq gb gur inyhrf bs gur inevnoyrf va gur pnyyre'f fpbcr, gurersber zbqvslvat gur pnyyre'f fpbcr, be va guvf pnfr, "ernq-bayl inyhrf".<br><br>Of course, your tests should have found this instantly, if you used something like the examples you have there, as it throws up an immediate error.<br><br>Why does Perl do this? It's bitten me in the ass a few times, and I can't seriously imagine using it deliberately in code to be maintained.<br>
+
+
+
+<blockquote>
+
+<h2>Re:Yeah</h2>
+<h3><a href="/user/Ovid/">Ovid</a> on 2006-03-04T01:44:12</h3>
+<p>Right in one!  Fortunately, the fix is trivial, but it's strange to see if folks don't know what's going on, so I document it.</p>
+
+
+
+<h2>Re:Yeah</h2>
+<h3><a href="/user/Smylers/">Smylers</a> on 2006-03-04T07:51:54</h3>
+<blockquote><div>Why does Perl do this? It's bitten me in the ass a few times, and I can't seriously imagine using it deliberately in code to be maintained.</div></blockquote>
+
+<p>I believe Larry also considers this to be a mistaken &lsquo;feature&rsquo;: in Perl 6
+<i> <code>sbe</code> nyvnfrf ner ernq-bayl ol qrsnhyg</i>, which would've avoided this bug.</p>
+
+<p> <small>(The bit in italics is a spoiler for the original question, so I've put it in Welsh<nobr> <wbr></nobr>... erm, I mean rot-13.)</small> </p>
+
+<p>Smylers</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

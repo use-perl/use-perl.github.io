@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of lachoy: More OI2 design fun: ActionResolvers and REST URLs</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>More OI2 design fun: ActionResolvers and REST URLs</h1>
+<h2><a href="/user/lachoy/">lachoy</a> on 2005-03-02T18:07:25</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><p><a href="http://jira.openinteract.org/browse/OIN-135">OIN-135</a>
+says: "Allow REST-style URLs" and for what you'd think is a relatively
+core change (how the application server gets data from the outside
+world) it was a fairly simple change to make. I'll talk about the
+first part today (pulling the data out); tomorrow we'll cover how
+those data get assigned to actions.</p>
+
+<p>First, an update on my <a
+href="http://www.cwinters.com/news/display/?news_id=3333">earlier
+post</a> about resolving URLs to actions. Fortunately these changes worked out
+exactly like I'd planned. Previously the controller instantiated the
+action from the URL itself. Now it delegates the job to an
+ActionResolver class which itself just asks each of a set of objects
+collected at runtime if they can resolve the URL to an Action
+object. First one to resolve wins. Classic 
+<a href="http://c2.com/cgi/wiki?ChainOfResponsibilityPattern">chain of
+responsibility</a>. So the controller now just does this:</p>
+<pre>
+my $action = OpenInteract2::ActionResolver->get_action( $request );
+</pre>
+<p>And in that method (condensed):</p>
+<pre>
+sub get_action {
+    my ( $class, $request ) = @_;
+    my $url = $request->url_relative;
+    my ( $action );
+    foreach my $r ( $class->get_all_resolvers ) {
+        $action = eval { $r->resolve( $request, $url ) };
+        if ( $@ ) {
+            $log->warn( "Resolver ", ref( $r ), " threw an ",
+                        "exception ($@); continuing with others..." );
+        }
+        last if ( $action );
+    }
+    return $action;
+}
+</pre>
+<p>So that call to <tt>resolve()</tt> in the foreach is where all the
+work is getting done. Here's the initial version of the 'resolve()'
+function for the workhorse link in the chain -- we grab the action
+from the URL see if an action by that name exists. If so we assign the
+task from the URL to it and return the object (condensed):</p>
+<pre>
+sub resolve {
+    my ( $self, $request, $url ) = @_;
+    my ( $action_name, $task_name ) = OpenInteract2::URL->parse( $url );
+    return unless ( $action_name );
+    my $action = eval {
+        CTX->lookup_action( $action_name )
+    };
+    if ( $@ ) {
+        $log->warn( "Caught exception from context trying to lookup ",
+                    "action '$action_name': $@" );
+        return;
+    }
+    if ( $task_name ) {
+        $action->task( $task_name );
+    }
+    return $action
+}
+</pre>
+<p>Pretty simple. Getting back to our original point: we now want to
+add REST parameters. Since we've already done the work of decoupling
+URL parsing and URL resolution, and URL resolution to action, the job
+was actually pretty easy.</p>
+
+<p>First, modify the code in <tt>OpenInteract2::URL-&gt;parse()</tt>
+to return not only an 'action' and 'task' given a URL, but everything
+else as parameters. (I won't show that here.) So given a URL
+'http://foo/news/archive/2005/12' the URL parsing will break that down
+into an action ('news'), task ('archive') and two parameters ('2005' and 
+'12').</p>
+
+<p>So now modify our return values from <tt>parse()</tt> to
+accommodate these parameters:</p>
+<pre>
+    my ( $self, $request, $url ) = @_;
+    my ( $action_name, $task_name, @params ) = OpenInteract2::URL->parse( $url );
+    return undef unless ( $action_name );
+</pre>
+<p>Next, add a request property so that any component from the app
+server can get these additional parameters -- we'll call it
+<tt>param_url_additional()</tt>.</p>
+
+<p>Finally, in the <tt>OpenInteract2::ActionResolver</tt> parent class
+implement a common method for assigning these:</p>
+<pre>
+sub assign_additional_params_from_url {
+    my ( $self, $request, @params ) = @_;
+    if ( scalar @params ) {
+        $log ||= get_logger( LOG_ACTION );
+        $log->info( "Assigning additional URL parameters: ",
+                    join( ', ', @params ) );
+        $request->param_url_additional( @params );
+    }
+}
+</pre>
+<p>And finally add a call to this parent method from our
+<tt>resolve()</tt>: just before we return</p>
+<pre>
+    $self->assign_additional_params_from_url( $request, @params );
+    return $action;
+</pre>
+
+<p>Here's another example of a resolver with the same functionality implemented. 
+<tt>OpenInteract2::ActionResolver::UserDir</tt> resolves URLs
+like '/user/cwinters/' so we don't have to use the uglier '/user/display/?user_id=5':</p>
+<pre>
+sub resolve {
+    my ( $self, $request, $url ) = @_;
+    return unless ( $url =~ m|^/?~| );
+ 
+    # cleanup url to known state
+    $url =~ s|^/||; $url =~ s/\?.*$//; $url =~ s|/$||;
+    my ( $username, $task, @params ) = split /\//, $url;
+ 
+    # /user/user same as /user/user/display
+    $task ||= 'display';
+ 
+    my $action = CTX->lookup_action( 'user' );
+    $action->task( $task );
+    $action->param( login_name => $username );
+    $self->assign_additional_params_from_url( $request, @params );
+    return $action;
+}
+</pre>
+<p>Tomorrow: fine, now we've pulled the REST parameters out. What else
+can we do with them?</p>
+
+
+<p>Posted from <a href="http://www.cwinters.com/">cwinters.com</a>; <a href="http://www.cwinters.com/news/display/?news_id=3342">read original</a></p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

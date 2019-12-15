@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of djberg96: Forgive me Father, for I have used &quot;goto&quot;</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Forgive me Father, for I have used &quot;goto&quot;</h1>
+<h2><a href="/user/djberg96/">djberg96</a> on 2004-10-29T04:49:54</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Well, it took 7 years, but I finally found a use for "goto" outside of BASIC.  In my particular case, it was within a Ruby C extension.  I wanted to create 'tail -f' functionality for monitoring the Windows event log.  It makes sense when you take blocks into consideration.  To wit:
+<pre>
+e = EventLog.open("Application")<br/><br/>e.tail{ |rec|
+   puts "Record added to log"
+   p rec
+}
+</pre>
+The tail method sits in an infinite loop (which is accomplished with the 'goto'), yielding a (custom) struct every time a record is written to the event log.
+<P>
+On a stranger note, the Windows function NotifyChangeEventLog() can only detect a maximum of one change every five seconds.  That means, even if 20 records were written to the event log in under 5 seconds, that block would only pick up the first one.  No, there's no way around it.</p>
+
+
+<hr/>
+
+
+
+<h2>I don't see the goto</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2004-10-29T20:31:45</h3>
+You aren't showing the code where you felt it necessary to use a goto, so I cannot judge its validity.  I suspect that it isn't needed though.<p>
+
+For the record, I know of exactly two necessary uses of goto in Perl.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I don't see the goto</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2004-10-29T22:57:22</h3>
+<blockquote><div> <tt>static VALUE eventlog_tail(VALUE self){<br>&nbsp; &nbsp;ELS* ptr;<br>&nbsp; &nbsp;VALUE rbBlock, rbSource, rbServer;<br>&nbsp; &nbsp;HANDLE hEvent;<br>&nbsp; &nbsp;DWORD dwWaitResult;<br>&nbsp; &nbsp;int rv;<br> <br>&nbsp; &nbsp;Data_Get_Struct(self,ELS,ptr);<br> <br>&nbsp; &nbsp;eventblock:<br>&nbsp; &nbsp;hEvent = CreateEvent(<br>&nbsp; &nbsp; &nbsp; NULL,&nbsp; &nbsp;<nobr> <wbr></nobr>// default security attributes<br>&nbsp; &nbsp; &nbsp; FALSE,&nbsp; &nbsp;// no manual reset<br>&nbsp; &nbsp; &nbsp; FALSE,&nbsp; &nbsp;// create as not signaled<br>&nbsp; &nbsp; &nbsp; NULL&nbsp; &nbsp; &nbsp;// no event name<br>&nbsp; &nbsp;);<br> <br>&nbsp; &nbsp;rv = NotifyChangeEventLog(ptr-&gt;hEventLog, hEvent);<br>&nbsp; &nbsp;if(0 == rv){<br>&nbsp; &nbsp; &nbsp; rb_raise(cEventLogError,ErrorDescription(GetLastError()));<br>&nbsp; &nbsp;}<br> <br>&nbsp; &nbsp;dwWaitResult = WaitForSingleObject(hEvent, INFINITE);<br> <br>&nbsp; &nbsp;if(dwWaitResult == WAIT_FAILED){<br>&nbsp; &nbsp; &nbsp; CloseHandle(hEvent);<br>&nbsp; &nbsp; &nbsp; rb_raise(cEventLogError,<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"WaitForSingleObject() failed in notify() method");<br>&nbsp; &nbsp;}<br>&nbsp; &nbsp;else{<br>&nbsp; &nbsp; &nbsp; VALUE rbLast;<br>&nbsp; &nbsp; &nbsp; rbSource = rb_iv_get(self,"@source");<br>&nbsp; &nbsp; &nbsp; rbServer = rb_iv_get(self,"@server");<br> <br>&nbsp; &nbsp; &nbsp; rbLast = read_last_event(ptr-&gt;hEventLog,rbSource,rbServer);<br> <br>&nbsp; &nbsp; &nbsp; if(rb_block_given_p()){<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;rbBlock = rb_block_proc();<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; else{<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;rb_raise(cEventLogError,"block missing for notify_change()");<br>&nbsp; &nbsp; &nbsp; }<br>&nbsp; &nbsp; &nbsp; rb_funcall(rbBlock,rb_intern("call"),1,rbLast);<br>&nbsp; &nbsp;}<br> <br>&nbsp; &nbsp;CloseHandle(hEvent);<br>&nbsp; &nbsp;goto eventblock;<br>&nbsp; &nbsp;return self;<br>}</tt> </div></blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:I don't see the goto</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2004-10-30T00:59:48</h3>
+First of all that is written in C, not Ruby.  There are a number of situations where you need a goto in C that you wouldn't in Perl or Ruby because of the availability of named loop control.<br> <br>Secondly I don't see why you aren't using while to get the infinite loop rather than goto.<br> <br>Thirdly you can save some lines by not always using braces.  For instance:<blockquote><div> <tt>&nbsp; &nbsp; &nbsp; if(rb_block_given_p())<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;rbBlock = rb_block_proc();<br>&nbsp; &nbsp; &nbsp; else<br>&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;rb_raise(cEventLogError,"block missing for notify_change()");</tt> </div></blockquote>
+
+
+
+<blockquote>
+
+<h2>Re:I don't see the goto</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2004-10-30T02:27:32</h3>
+<i>First of all that is written in C, not Ruby.</i>
+<p>
+I said is was a C extension for Ruby.  I showed you the frontend.  The C code above is the backend.
+</p><p>
+<i>Secondly I don't see why you aren't using while to get the infinite loop rather than goto.</i>
+</p><p>
+I suppose I could have done while(1) or something.  It just didn't feel right.
+</p><p>
+<i>Thirdly you can save some lines by not always using braces.</i>
+</p><p>
+I hate that, sorry.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I don't see the goto</h2>
+<h3><a href="/user/btilly/">btilly</a> on 2004-10-30T02:54:41</h3>
+1, 3.  Fair points.<p>
+
+About the second.  I'd suggest re-reading <a href="http://www.acm.org/classics/oct95/" title="acm.org">Go To Statement Considered Harmful</a acm.org>.  The fact that your indentation and control structures are in conflict makes your program's flow of control harder to understand upon first reading.  Even if you aesthetically prefer a goto to an infinite while loop, I'd suggest that you indent from the label to the goto so that that section jumps out at the maintainer.</p>
+
+
+
+<blockquote>
+
+<h2>Re:I don't see the goto</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2004-10-30T03:26:11</h3>
+<i>I'd suggest that you indent from the label to the goto so that that section jumps out at the maintainer. </i>
+<p>
+Roger that.<nobr> <wbr></nobr>:)</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

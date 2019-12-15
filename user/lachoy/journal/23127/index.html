@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of lachoy: Using a lot lately: Factory + implementation autodiscovery</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Using a lot lately: Factory + implementation autodiscovery</h1>
+<h2><a href="/user/lachoy/">lachoy</a> on 2005-02-10T18:40:43</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>If you're not using <a
+href="http://www.martinfowler.com/articles/injection.html">IoC</a> and
+you want decoupled code while still figuring out at runtime how to
+perform a particular action you've probably got a number of factories
+in your application. But how to let your factory know about all the
+implementations it can create?
+
+<p>Using <a
+href="http://search.cpan.org/dist/Class-Factory/">Class::Factory</a>
+you can add classes to the factory dynamically like this:
+<pre>
+# declare the factory:
+package My::Factory:
+use base qw( Class::Factory );
+ 
+# and add classes to it from elsewhere:
+My::Factory->register_factory_type( hat   => 'My::Factory::Hat' );
+My::Factory->register_factory_type( ascot => 'My::Factory::Ascot' );
+</pre>
+
+<p>And using <a href="http://search.cpan.org/dist/Module-Find/">Module::Find</a>
+you can find all the classes to add to the factory at runtime with
+something like this:</p>
+<pre>
+use Module::Find;
+useall( 'My::Factory' );
+</pre>
+
+<p>(NB: I haven't used M::F but have my own implementation of
+something that appears to do exactly the same thing.)</p>
+
+<p>So why not have all the subclasses register <b>themselves</b> with
+the factory?</p>
+<pre>
+package My::Factory::Hat;
+use base qw( My::Factory );
+My::Factory->register_factory_class( hat => __PACKAGE__ );
+</pre>
+
+<p>And then have the factory find all its implementations?</p>
+<pre>
+package My::Factory:
+use base qw( Class::Factory );
+use Module::Find;
+ 
+useall( __PACKAGE__ );
+</pre>
+
+<p>Those two simple steps create a system where a user can just drop a
+class in the right place and have it found by your framework. This is
+particularly useful if your set of objects gets collected and run
+together (using some additional metadata for ordering if necessary) as
+in my <a href="http://www.cwinters.com/news/display/?news_id=3326">discussion
+of OpenInteract2::Setup</a> a few weeks ago. There, a user can just
+add a class with the right name and dependencies (the metadata) and
+when the website starts up it gets found, imported, and executed in
+the right order. </p>
+
+<p>Or in another example that I'm not quite done with: how do we
+associate an incoming URL (or some other identifier) with the <a
+href="http://search.cpan.org/user/cwinters/OpenInteract-1.99_05/lib/OpenInteract2/Action.pm">action
+object</a> responsible for generating its content?</p>
+
+<p>Currently this is touched in a couple of places, always a bad
+smell. The <a href="http://search.cpan.org/user/cwinters/OpenInteract-1.99_05/lib/OpenInteract2/Request.pm">request</a>
+is responsible for parsing the URL into action and task names and then
+the <a href="http://search.cpan.org/user/cwinters/OpenInteract-1.99_05/lib/OpenInteract2/Controller.pm">controller</a> (underdocumented in last release) uses this name to create the action. But the request doesn't
+know anything about actions -- it got put there just because we were
+already parsing URLs and it seemed appropriate to extract a little more data there.</p>
+
+<p>So why not let a separate object figure this out? This whole thing
+got started because I wondered how hard it would be to create userdirs
+like the CPAN urls in the last paragraph -- that could just be one of
+the objects in a chain of responsibility that looks at the URL (or
+whatever else it wants) and decides what action to create.</p>
+
+<p>Like I said, I'm not done with it yet. But the factory plus
+autodiscovery pattern makes this a snap to implement and test
+out. Even better, it will be extremely easy for other people using
+OpenInteract2 to add their own behaviors that are indistinguishable from
+the internal ones to perform this core job.</p>
+
+
+<p>Posted from <a href="http://www.cwinters.com/">cwinters.com</a>; <a href="http://www.cwinters.com/news/display/?news_id=3333">read original</a></p></p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

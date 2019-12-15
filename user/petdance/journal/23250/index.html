@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of petdance: fluff: A Perlish sort of lint</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>fluff: A Perlish sort of lint</h1>
+<h2><a href="/user/petdance/">petdance</a> on 2005-02-18T19:58:31</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Long ago, when I started on this code base that my department now watches over, I wrote a utility called <I>fluff</I>, akin to <I>lint</I>, which would look for naughty constructs in code.  I think it originally would look for things like single-character variable names that weren't $i or $n.
+<P>
+It's grown and evolved over time.  Now we add things like using modules that we've out grown (CGI.pm, Array::Iterator), or using a no_plan in our tests.  Plus, last night I made it so that you  can select what you want to fluff on from the command line.
+<ECODE>
+fluff [options] [files]
+    --array-iterator  using Array::Iterator
+    --commented       Commented-out code
+    --croak           Croak, should probably be an assertion
+    --data            Variables called "data"
+    --dumper          Data dumper diagnostics
+    --else-one-line   else and result on one line
+    --if-one-line     if and result on one line
+    --mech-ok         Using ok() for mech content instead of $mech->content_like
+    --no_plan         no_plan
+    --oci             OCI calls
+    --pathing         Up-n-over pathing
+    --ref-proto       ref proto || proto
+    --return-undef    Returning undef
+    --review          REVIEWed things to be addressed later
+    --sqldo           sqldo using vars, not binds
+    --todo            TODOed things to be addressed later
+    --ttml            Calling TT process on a .tt file (not .ttml)
+    --using           using CGI.pm
+    --xxx             XXXed things to be addressed later<br/><br/></ECODE><br/><br/>Here's the code if anyone wants to steal, or have any suggestions.
+<ECODE>
+#!/usr/bin/perl -w<br/><br/>use strict;
+use File::Find;
+use Data::Hash::Totals;
+use List::Util qw( max );
+use Getopt::Long;<br/><br/>=head1 TODO<br/><br/>All .ttml files should be twcollapsed<br/><br/>=cut<br/><br/>my %getopt_options = ( help => sub{ help(); exit; } );
+my %checks;<br/><br/>for my $opt ( possible_errors() ) {
+    my $tag  = $opt->[0];
+    $getopt_options{$tag} = eval qq/ sub { \$checks{"$tag"} = 1 } /;
+}<br/><br/>GetOptions( %getopt_options ) or exit 1;<br/><br/># Set all options on if none are explicitly set
+if ( !%checks ) {
+    %checks = map {($_->[0],1)} possible_errors();
+}<br/><br/>
+my %errors;
+if ( @ARGV ) {
+    process_file($_) for @ARGV;
+} else {
+    find( \&handler, "." );
+}<br/><br/>my %totals;
+my $nerrors = 0;
+for my $pe ( possible_errors() ) {
+    $totals{$pe->[1]} = 0 if $checks{ $pe->[0] };
+}<br/><br/>for my $errstr ( sort keys %errors ) {
+    print "$errstr\n";
+    my @errors = @{$errors{$errstr}};
+    print "    $_\n" for @errors;
+    print "\n";
+    $totals{$errstr} = @errors;
+    $nerrors += @errors;
+}<br/><br/>print as_table( \%totals );
+printf( "%4d Total\n", $nerrors );<br/><br/>sub handler {
+    if ( -d ) {
+        $File::Find::prune = 1 if /\b(\.svn|CVS)\b/;
+        return;
+    }
+    return unless /\.(css|tt|ttml|t|pm|php|phpt|html)$/;<br/><br/>    process_file( $_, $File::Find::name );
+}<br/><br/>sub process_file {
+    my $filename = shift;
+    my $displayname = shift || $filename;<br/><br/>    open( my $fh, $filename ) or die "Can't open $filename: $!";
+    my @checks = grep { $checks{$_->[0]} } possible_errors();
+    while ( my $line = <$fh> ) {
+        for ( @checks ) {
+            my ($tag,$desc,$finder) = @$_;
+            if ( $line =~ $finder ) {
+                chomp $line;
+                push( @{$errors{$desc}}, "$displayname($.): $line" );
+            }
+        } # for
+    } # while
+    close $fh;
+} # process_file()<br/><br/>sub help {
+    print "fluff [options] [files]\n";<br/><br/>    my @pe = possible_errors();
+    @pe = sort { $a->[0] cmp $b->[0] } @pe;
+    my $max = max map { length $_->[0] } @pe;<br/><br/>    for my $opt ( @pe ) {
+        my ($tag,$desc) = @$opt;
+        printf( "    --%-*s  %s\n", $max, $tag, $desc );
+    }
+}<br/><br/>sub possible_errors {
+return (
+[
+xxx =>
+    "XXXed things to be addressed later" =>
+    qr/\bXXX\b/
+],
+[
+todo =>
+    "TODOed things to be addressed later" =>
+    qr/TODO/
+],
+[
+review =>
+    "REVIEWed things to be addressed later" =>
+    qr/\bREVIEW\b/
+],
+[
+no_plan =>
+    "no_plan" =>
+    qr/\bno_plan\b/
+],
+[
+commented =>
+    "Commented-out code" =>
+    qr/^\s*#.*\$.*=/
+],
+[
+'return-undef' =>
+    "Returning undef" =>
+    qr/return\s+undef/
+],
+[
+data =>
+    'Variables called "data"' =>
+    qr/[\$\%\@]data\d*\b/
+],
+[
+pathing =>
+    'Up-n-over pathing' =>
+    qr/\.\.\//
+],
+[
+'ref-proto' =>
+    'ref proto || proto' =>
+    qr/ref\b.+\$\w+.*\|\|.*\$\w+/
+],
+[
+'mech-ok' =>
+    'Using ok() for mech content instead of $mech->content_like' =>
+    qr/^\s*ok.*>content/
+],
+[
+croak =>
+    'Croak, should probably be an assertion' =>
+    qr/croak\(/
+],
+[
+dumper =>
+    'Data dumper diagnostics' =>
+    qr/warn\s+Dumper/
+],
+[
+ttml =>
+    'Calling TT process on a .tt file (not .ttml)' =>
+    qr/process\(.*\.tt[^m]/
+],
+[
+'array-iterator' =>
+    'using Array::Iterator' =>
+    qr/Array::Iterator/
+],
+[
+oci =>
+    'OCI calls' =>
+    qr/OCI\w+\(/
+],
+[
+'if-one-line' =>
+    'if and result on one line' =>
+    qr/\b(if|elsif|elseif)\b\s*\(.+\)\s*{.+}/
+],
+[
+'else-one-line' =>
+    'else and result on one line' =>
+    qr/\belse\b\s*{.+}/
+],
+[
+using =>
+    'using CGI.pm' =>
+    qr/use CGI[^:]/
+],
+[
+sqldo =>
+    'sqldo using vars, not binds' =>
+    qr/sqldo.+=\s*'?\$\w+/
+],
+);
+}
+</ECODE></p>
+
+
+<hr/>
+
+
+
+<h2>that could prove useful</h2>
+<h3><a href="/user/n1vux/">n1vux</a> on 2005-02-18T21:41:05</h3>
+I'll have to hack it to have it check what I want checked, but I'm sure I can find a use for this -- Thanks!
+
+
+
+<h2>admirable discipline</h2>
+<h3><a href="/user/lachoy/">lachoy</a> on 2005-02-18T21:46:08</h3>
+wow -- there's <b>NO WAY</b> I could name anything 'fluff' with the gutterminds (myself included) at my last job...
+
+
+
+<blockquote>
+
+<h2>Re:admirable discipline</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2005-02-18T22:15:16</h3>
+Yeah, I thought about that before posting here.<nobr> <wbr></nobr>:-)
+
+
+
+
+
+</blockquote>
+
+
+<h2>Outgrowing CGI.pm</h2>
+<h3><a href="/user/bart/">bart</a> on 2005-02-19T11:45:31</h3>
+You've "outgrown CGI.pm"? What does that mean? What's bad about it, what do you recommend to use instead?
+<p>Not that I disagree with you, it's just that this apparently is a very controversial stand, in the Perl world. It's considered close to herecy to dis it, apparently.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Outgrowing CGI.pm</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2005-02-19T15:52:02</h3>
+We're using Template Toolkit now, not building tags on the fly like we used to.
+
+
+
+<h2>Re:Outgrowing CGI.pm</h2>
+<h3><a href="/user/perrin/">perrin</a> on 2005-02-22T18:33:16</h3>
+Controversial?  People diss CGI.pm all the time.  It's so slow and bloated that even the author thinks it should be replaced.  There are plenty of good alternatives on CPAN, like CGI::Minimal, and mod_perl people typically use Apache::Request instead.
+
+
+
+<blockquote>
+
+<h2>Re:Outgrowing CGI.pm</h2>
+<h3><a href="/user/petdance/">petdance</a> on 2005-02-22T18:56:03</h3>
+We're using it mostly for tag building, anyway.  For us "using CGI.pm" really means "not using templating."
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>asdfsdf</h2>
+<h3><a href="/user/statico/">statico</a> on 2005-02-21T16:41:48</h3>
+I <a href="http://use.perl.org/user/statico/journal/23287" title="perl.org">just tried it out</a perl.org>, neat!<br> <br>It caught a "<tt>return undef</tt>" in a comment.<br> <br>I'd like it to strip whitespace from lines it matches, so we don't see <tt>File.pm(123):    [lots of indentation]      # foo</tt>.<br> <br>VERY handy, since we were doing a lot of these checks by hand. Why didn't it occur to <em>us</em> to write a script?<nobr> <wbr></nobr>:)
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

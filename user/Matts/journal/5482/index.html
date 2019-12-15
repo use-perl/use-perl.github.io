@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Matts: Net::Server nightmares</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Net::Server nightmares</h1>
+<h2><a href="/user/Matts/">Matts</a> on 2002-06-07T15:40:14</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>Writing network daemon's is hard.<br/><br/>That's why I prefer not to do it. So for PPerl, I decided to have a go with Net::Server (after having originally written the daemon code using the stuff in the perl cookbook, and failed miserably). It worked really well, and despite being a little slower than my own custom daemon, it seemed really reliable and stable.<br/><br/>That was until I tried it on a real live system. I ended up with defunct processes left right and center, and finally the whole system just locked right up. Bah.<br/><br/>So what could I do? Well, I decided to bite the bullet and re-write it. So I grabbed code from Lincoln Stein's Network Programming with Perl book - the pre-fork web server in there, and adapted it to my needs. After much grappling it seems to be mostly working, though there are some extremely wierd things going on:<br/><br/>- My changing of STDERR to go to a file isn't working right for warn()'s unless I add in a $SIG{__WARN__} handler to print directly to STDERR.
+- Occasionally it'll die with a "Connection reset by peer".
+- Sometimes the &lt;ARGV> magic fails for unusual reasons.<br/><br/>I guess I need to copy a bit more of the code from Net::Server to see where I'm going wrong (because now I don't have defunct processes any more).<br/><br/>Anyone got good experience with this kind of thing, or an alternate framework to Net::Server?</p>
+
+
+<hr/>
+
+
+
+<h2>Stem</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2002-06-07T16:06:21</h3>
+You could check out <a href="http://www.stemsystems.com/" title="stemsystems.com">Stem, which once you get used to its paradigm (asynchronous, event-based programming) is pretty neat.  Uri is eager to get it used at places so he'd probably be willing to answer questions and such (and I can answer some of your questions as well).</a stemsystems.com>
+
+
+
+<blockquote>
+
+<h2>Note to self</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2002-06-07T16:07:34</h3>
+Always hit preview<nobr> <wbr></nobr>;)
+
+
+
+<h2>Re:Stem</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-06-07T16:14:25</h3>
+Asynchronous is inappropriate for PPerl - otherwise I would have used POE, and saved myself all these headaches.<br> <br>Plus much as Stem looks neat, it's not CPAN installable.
+
+
+
+<blockquote>
+
+<h2>Re:Stem</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2002-06-07T16:45:22</h3>
+you can install it by running "perl install.pl" as root.<br> <br>Asynchronous isn't an issue.  You can have a synchronous server with asynchronous code internally.  Stem comes with a module, Stem::SockMsg that implements a socket-based listener.  You use that and it feeds a message into your real server, which then replies.  All the synchronous bits are managed by the Stem::SockMsg module.<br> <br>Having written such a thing (to interface to a client that is _not_ Stem-based) I can tell you its pretty darn easy to do.
+
+
+
+<blockquote>
+
+<h2>Re:Stem</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-06-07T18:54:46</h3>
+PPerl needs to fork. It just can't work any other way - yes I guess the socket itself could be select based and fork after the connection and multiplex in the results, but that would be slower than a prefork model.
+
+
+
+<blockquote>
+
+<h2>Re:Stem</h2>
+<h3><a href="/user/autarch/">autarch</a> on 2002-06-07T19:58:10</h3>
+You can do prefork with Stem too.<br> <br>But you still need a single process listening on the socket that hands off the connection to the preforked processes, right?
+
+
+
+<blockquote>
+
+<h2>Re:Stem</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-06-07T20:02:58</h3>
+No, you create your socket (binding it to the port), fork as many children as you hope to need, then call accept in each of the children. The OS decides which process to hand the connection to.
+
+
+
+<blockquote>
+
+<h2>Re:Stem</h2>
+<h3><a href="/user/uri/">uri</a> on 2002-06-08T00:17:13</h3>
+stem has a neat module Stem::WorkQueue that makes a prefork server easier. you can prefork a bunch of
+processes and send all the incoming requests to the queue which first-come/first-serves them to the
+process farm. or you can look at the existing inetd demo which is pretty much what you want and it requires no new coding. it forks on demand but unless you need to fork massively often it should be fine. if you must have a preforking server, it should be easy to code up with the process and SockMsg modules and a manager module (that would be similar to thw queue module).
+
+
+
+<blockquote>
+
+<h2>Re:Stem</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-06-08T09:05:01</h3>
+My major concern with using either Stem or POE with PPerl is that for PPerl I need access to the raw socket so that I can bind STDIN/ARGV and STDOUT directly to the socket. While I know I can do that with POE, it kind of circumvents the way POE is supposed to work. I'm not sure about Stem.
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Net::Server woes</h2>
+<h3><a href="/user/djberg96/">djberg96</a> on 2002-06-07T18:27:38</h3>
+You must have skipped <a href="http://use.perl.org/user/djberg96/journal/4059" title="perl.org">my journal entry</a perl.org> about <i>Net::Server</i>.  I never had any luck with it either.<nobr> <wbr></nobr>:(
+
+
+
+<blockquote>
+
+<h2>Re:Net::Server woes</h2>
+<h3><a href="/user/rjray/">rjray</a> on 2002-06-08T01:03:25</h3>
+<p>I use <b>Net::Server</b> as an option in my <b>RPC::XML</b> package, an alternative to using the accept-loop in <b>HTTP::Daemon</b>. I also have a set of tests in the <tt>t/</tt> directory for it, in which I manipulate the settings at run-time to control the log file and such. I haven't had any problems, but to be fair I probably have run anything yet that's on the scale of PPerl.</p>
+
+
+
+
+
+</blockquote>
+
+
+<h2>non-forking</h2>
+<h3><a href="/user/ask/">ask</a> on 2002-06-07T18:28:56</h3>
+At ValueClick we wrote a daemon that started out as "nonforker" from the Perl Cookbook.  It has been used for many many billion messages since then without any problems.  If your protocol is reasonably linebased and the system can work as a non forking daemon, then maybe I can release the code. (It's from my pre-ValueClick time and we just extended and optimized it (heavily) there).<br>
+
+
+
+<blockquote>
+
+<h2>Re:non-forking</h2>
+<h3><a href="/user/Matts/">Matts</a> on 2002-06-07T18:57:43</h3>
+PPerl isn't line based - it passed the STDIN/STDOUT over the socket byte by byte. And it needs to fork (otherwise there's very little point - I would do it in POE if I didn't need it to work like this).<br> <br>On the other hand, I've just "solved" or hacked around the ARGV magic stuff. Not sure why what I did worked, but that's what you get with wierd stuff like I'm trying to pull off.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

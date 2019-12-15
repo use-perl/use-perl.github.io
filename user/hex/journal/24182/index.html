@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of hex: Problem with numeric scalars in an SQLite DB</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Problem with numeric scalars in an SQLite DB</h1>
+<h2><a href="/user/hex/">hex</a> on 2005-04-14T12:04:15</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>My module <a href="http://search.cpan.org/dist/Locale-Object/">Locale::Object</a> comes with an accompanying SQLite database that contains a bunch of locale information. Since I released it, SQLite has had a <a href="http://www.sqlite.org/version3.html">major upgrade from v2.8 to v3.0</a> and the database format has completely changed. So, I'm in the process of making a new release with a db file in the new format. (I should have done this earlier, actually, since I've had a couple of emails about it. My apologies to anyone I've inconvenienced.)
+<p>
+Thing is, I've hit a problem. The process of dumping the old database and reading it into the new format by doing <tt>sqlite OLD.DB .dump | sqlite3 NEW.DB</tt> worked just fine. However, some of my data changed.
+<p>
+Some of the tables in the db contain a bunch of three-digit ISO codes used to identify countries and so on. Quite a few of these codes start with a zero. On checking the newly created database with sqlite, though, I discovered that all the leading zeroes had vanished.
+<p>
+Talking to DrForr on <tt>#perl</tt>, I discovered that SQLite now has <a href="http://www.sqlite.org/datatype3.html">a concept of column types</a>, and so I recreated the tables in question, changing the columns to be <tt>TEXT char(3)</tt>, thinking that this restriction would force it not to consider the values as numbers. But that didn't work:
+<p>
+<code>
+foreach (@rows)<br>
+{<br>
+&nbsp;&nbsp;my ($code_alpha2, $code_alpha3, $code_numeric, $name, $dialling_code) = @{$_};<br>
+&nbsp;<br>
+&nbsp;&nbsp;# Yes, this is crap, but I don't care right now:<br>
+&nbsp;<br>
+&nbsp;&nbsp;$code_numeric = '0'  . $code_numeric if length($code_numeric) == 2;<br>
+&nbsp;&nbsp;$code_numeric = '00' . $code_numeric if length($code_numeric) == 1;<br>
+&nbsp;<br>
+&nbsp;&nbsp;print "country: $code_alpha2 / $code_numeric\n" if $code_numeric =~ /^0/;<br>
+&nbsp;<br>
+&nbsp;&nbsp;my $sth_update = $dbh_new->prepare("INSERT INTO country VALUES (?,?,?,?,?)");<br>
+&nbsp;<br>
+&nbsp;&nbsp;$sth_update->execute($code_alpha2, $code_alpha3, $code_numeric, $name, $dialling_code);<br>
+}<br>
+</code>
+<p>
+The kind of stuff that gets printed to STDOUT is <tt>country: bm / 060</tt>, but when I check the database in sqlite, it says <tt>bm|bmu|60|Bermuda|1441</tt>. Still stripping the zeroes!
+<p>
+I've tried a few different approaches, but none have worked. Leon suggested overloading "" to force stringification(?), but I'm finding it extremely hard to understand either what <tt>perldoc overload</tt> or the Camel have to say about overloading.
+<p>
+Can any of you help?
+</p>
+
+
+<hr/>
+
+
+
+<h2>Maybe</h2>
+<h3><a href="/user/phillup/">phillup</a> on 2005-04-14T12:59:52</h3>
+Warning: I know nothing about SQLite!<br> <br>However, sometimes I've had something similar happen when using DBI and trying to convince MySQL to store data a specific way. (For example, when you have an enum column type with a value of '1' as a possible entry. You can also deal with enum columns by position and sometimes MySQL thinks you want the first enum value.)<br> <br>How I overcome it is by "forcing" the datatype like so:<blockquote> <div> <tt>&nbsp; $string . ''</tt> </div> </blockquote>Use this instead of $string where you want it to specifically be considered text.<br> <br>Likewise, something like this:<blockquote> <div> <tt>&nbsp; $number + 0</tt> </div> </blockquote>Seems to force the value of $number to be treated as a number.<br> <br>HTH
+
+
+
+<blockquote>
+
+<h2>Re:Maybe</h2>
+<h3><a href="/user/hex/">hex</a> on 2005-04-14T16:11:23</h3>
+No dice. Thanks for the idea though.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

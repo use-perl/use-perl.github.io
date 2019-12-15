@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of Alias: Reducing your State when you aren't as smart as Yuval</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Reducing your State when you aren't as smart as Yuval</h1>
+<h2><a href="/user/Alias/">Alias</a> on 2009-06-16T06:47:59</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p><a href="http://blog.woobling.org/">Yuval Kogman</a> is one of those people who are not just smart, but smart in the crazy math way that I simple don't connect with very easily.
+Like Audrey Tang and the other math-smart lambacamels, when they speak on a topic they inevitably end up using language that non-math people like me have trouble relating to (my skills lie more in pattern recognition and iterative/emergence stuff).<br/><br/>So when he <a href="http://blog.woobling.org/2009/05/immutable-data-structures.html">talks</a> <a href="http://blog.woobling.org/2009/05/immutable-data-structures-cont.html">about</a> <a href="http://blog.woobling.org/2009/06/immutability-part-3.html">immutability</a> I certainly agree in principle. It's just that when the wisdom is laden with "functional purity", "monad", "zipper", "Functor" and "STM" (that's Software Transactional Memory for the non-lambdas) understanding the issue generally (and how to apply it to your CURRENT practices) can be challenging.<br/><br/>Hopefully Yuval will forgive me if I try to summarise his three posts in one sentence for the ordinary humans among us :)<br/><br/><strong><i>State Is The Enemy</i></strong><br/><br/>State is any data that persists in place over time, is referenced from outside the context it was created, and can change in the future.<br/><br/>That summarised description was stolen from one of the creators of Erlang, who realised very early in the language design process that State is what kills reliability, and that State is what kills concurrency. In creating Erlang, they specifically set out to kill off State in a way that was practical for long-running (years without shutdown) real-world applications (something Haskell seems to struggle to achieve, being written almost entirely by mathematicians).<br/><br/>Erlang and Haskell take the fight against State to the extreme, but if you compromise productivity for purity you will fail. You simply cannot fight economics and win in the long term, so the fight against State needs to be tempered by your ability to actually get things done. For most people, compromise is a necessity and true immutability is a luxury.<br/><br/>That said, there are a number of cheap and easy ways you can alter your existing practices.<br/><br/><b>1. All accessors should be readonly by default</b><br/><br/>One of the things that <a href="http://search.cpan.org/perldoc?DBI">DBI</a> got right was that the default way to use variables was the safe way (placeholders). Everything was documented that way, and everyone was expected to follow those rules. PHP defaulted in the opposite direction (you had to do extra work to be safe). The difference in default behaviour creates a massive difference in the safety of typical Perl SQL code and typical PHP code.<br/><br/>In contrast, the thing that <a href="http://search.cpan.org/perldoc?Class::Accessor">Class::Accessor</a> (and all it's derivatives) got wrong was to make all your accessors readwrite by default, regardless of whether or not that was actually safe. You had to do extra work (discover, learn about and then apply mk_ro_accessors instead) to go with the low-state option.<br/><br/>If you took a Class::Accessor object as a parameter to some function, you not only had to check it WAS an object of the type you wanted, but to be safe you also had validate that the individual properties were safe values.<br/><br/>Being hard work, most people don't do it properly, resulting in buggy code (or bloaty code if you actually do it properly).<br/><br/>By making ALL the accessors for your objects readonly by default, you are forced to do all your consistency checks at construction time. If any accessor is writable, you have to take an additional extra step to make it writable and then write the extra code to ensure that the change to the attribute does not send the object into an illegal state.<br/><br/>By forcing yourself to take an extra step to allow an attribute to change, you automatically gain a very powerful guarantee.<br/><br/><b>2. Every object is a legal object.</b><br/><br/>Anything sub-classing your code, or taking your objects as parameters, has only to validate that it IS an object of that type. They can have complete trust that the object will do what it is supposed to, and even if they don't understand the need to trust (or just forget to check) their inputs, they are safe anyway.<br/><br/>And because objects are ALWAYS correct, you can stuff them into a Storable, send them over the network, hand them off to secondary processes, and nowhere in any of this do you have to do validity checking (unless State rears it's head and the code is a different version).<br/><br/>The simplicity and safety you gain by making these simple changes also means that your code is smaller and run faster, which is why <a href="http://search.cpan.org/perldoc?Object::Tiny">Object::Tiny</a>was able to be smaller in size and significantly faster than all other object builders (and why <a href="http://search.cpan.org/perldoc?Object::Tiny::XS">Object::Tiny::XS</a> continues to be faster). Everything is readonly and all objects are correct, and so all the extra work needed to deal with state just falls away.<br/><br/><b>3. Reduce your global variables to a minimum</b><br/><br/>Every global is State, and since State is the enemy it's important to try and find ways to remove them.<br/><br/>This does NOT mean you convert them to package variables and put setter methods around it. That's just a global variable with validated content.<br/><br/>Instead you either need to.<br/><br/>a) Move the State into your instance objects (or even your singleton/default object) so that the State is localised inside the encapsulation and State accessible from outside the encapsulation is reduced by one.<br/><br/>b) If the global is only for test script usage, leave it undocumented so that the impact of the State is reduced and largely contained to the test scripts.<br/><br/>c) Lock in the value and make it immutable at compile time.<br/><br/>This latter option is my favourite trick for debugging and hacks that exist specifically to support the test scripts.<br/><br/>You use code that looks something like this.
+<pre>
+package Foo;<br/><br/>use vars qw{$DEBUG};
+BEGIN {
+    $DEBUG = 0 unless defined $DEBUG;
+}
+use constant DEBUG => !! $DEBUG;<br/><br/>sub foo {
+    debug('In sub foo') if DEBUG;<br/><br/>    ...
+}
+</pre>
+If nobody else has a better name for this trick, I'll happily take the name "Compiled Global" to describe it.<br/><br/>Now you can have full debugging support in your module for privileged consumers (the author or test scripts) but ONLY if you set $Foo::DEBUG <b>before</b> the module is loaded.<br/><br/>For everyone else, the state is removed (because after compile time $DEBUG is not State, just a meaningless junk variable with no impact) and as a bonus all the debugging code is compiled out, making the run-time speed and memory cost of your debugging code zero.<br/><br/>The use of the Readonly module I consider evil, because while it does prevent the variable being written to, it doesn't (as far as I'm aware) give information to the compiler so it can take advantage of the immutability (I could be wrong here).
+</p>
+
+
+<hr/>
+
+
+
+<h2>Thank you, thank you, thank you</h2>
+<h3><a href="/user/xsawyerx/">xsawyerx</a> on 2009-06-16T08:14:51</h3>
+<p>I have to say, I really enjoy Yuval's posts, as they are.. incredibly informative. Seriously, anything the guy has to say is pure gold.</p><p>However, much of it I have a hard time following. I would definitely fit the non-math crowd.</p><p>Thanks for taking the time to translate Yuval's stuff, and give some insight into this. It was fun to read, really interesting and surely made an impact on the way I'll code regarding this.</p><p>So, thanks<nobr> <wbr></nobr>:)</p>
+
+
+
+<h2>Now I know what's been bothering me...</h2>
+<h3><a href="/user/jjn1056/">jjn1056</a> on 2009-06-16T10:46:39</h3>
+Whenever I see gratuitous use of "has attr =&gt; (is=&gt;'rw',...) in some Moose classes.  People often just fall to rw when they hit a problem not easily solvable, and instead of questioning fundamental design choices, they just loosen up the API.
+
+
+
+<h2>This is unforgivable!</h2>
+<h3><a href="/user/nothingmuch/">nothingmuch</a> on 2009-06-16T11:12:23</h3>
+<p>I think the problem is that a significant part of the process of understanding a difficult concept involves finding the right names for the right concepts. Once you know them it's tempting to take them for granted, because this is a powerful tool for describing what you mean.</p><p>I think your three compact rules really hit the nail on the head. While my third post addresses what you can do when the hierarchy gets complicated, it has nothing on how to get strated developing good habits.</p><p>Anyways, thanks for posting on this important topic from another POV, I think that's the type of dialogue that really helps to build a community (not to mention my ego).</p><p>Hopefully we (the Perl community) willl be writing more robust and reusable code as a result =)</p>
+
+
+
+<blockquote>
+
+<h2>Re:This is unforgivable!</h2>
+<h3><a href="/user/zby/">zby</a> on 2009-06-17T08:51:15</h3>
+OK - so I have a Moose question here.  Let's say I have a function to compute an attribute - and I want to call it at the creation time - how can I do that (coercions would not work here - because the type of the parameters is the same as the real value of the attribute and I do want to set that value sometimes).
+<p>
+To be more concrete, and to tie that with the original subject: in FormHandler we have attributes called 'params' and 'input', input is computed from 'params'.  I think we could get rid of 'params' and reduce the saved state - but in the 'new' call we still need 'params =&gt; {<nobr> <wbr></nobr>... }'.</p>
+
+
+
+<blockquote>
+
+<h2>Re:This is unforgivable!</h2>
+<h3><a href="/user/nothingmuch/">nothingmuch</a> on 2009-06-17T20:34:15</h3>
+You can make 'params' be a private attribute with a public init arg, and input a lazy readonly attributed whose builder method uses the private params.
+
+
+
+<blockquote>
+
+<h2>Re:This is unforgivable!</h2>
+<h3><a href="/user/zby/">zby</a> on 2009-06-20T21:11:03</h3>
+Thanks - I'll keep that in mind.  It does not buy too much though - still two pieces of state to keep (even though one private).
+
+
+
+
+
+</blockquote>
+
+</blockquote>
+
+</blockquote>
+
+
+<h2>Readonly &quot;evil&quot;</h2>
+<h3><a href="/user/Sue D. Nymme/">Sue D. Nymme</a> on 2009-06-16T12:29:52</h3>
+<p>Oh come now.  Readonly may be sub-optimal for some cases, but does it really rise to the level of "evil"?</p><p>Readonly works at run-time.  That's a feature.  While there are many places where it would be better if it worked at compile-time, it (currently) doesn't have that capability.</p><p>The compiler cannot take advantage of Readonly variables' immutability, as you point out -- but does that really make all use of the Readonly module evil?  Tone down the rhetoric a notch, please.</p>
+
+
+
+<blockquote>
+
+<h2>Re:Readonly &quot;evil&quot;</h2>
+<h3><a href="/user/Alias/">Alias</a> on 2009-06-16T16:56:42</h3>
+<p>When used for package-level scalars Readonly has only one real advantage. It interpolates.</p><p>In exchange for interpolation, your code is larger, slower and adds a non-core dependency.</p><p>It's exactly this sort of module that we've seem time and time again, it adds a small convenience for a disproportional expense. People are lured into making their code worse for shiny beads.</p><p>Overuse of version.pm, inside-out objects, bundled non-optional coverage tests, the list goes on and on. People are encouraged to use something which will hurt them much more later, for a small benefit today.</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

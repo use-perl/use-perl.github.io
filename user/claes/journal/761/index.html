@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org journal of claes: Perl - Java - Perl and stuff like that</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl - Java - Perl and stuff like that</h1>
+<h2><a href="/user/claes/">claes</a> on 2001-09-05T15:23:06</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>During the last few days, i've been doing some heavy programming incorporating execution of Java code inside our Content Management System. Except the possiblity to run Perl and JavaScript in the webpages the system creates, the marketing people also wanted native Java support. At first, this sounded like an "almost" impossible task (since i had  3.5 working days to fix it). But nothing is impossible =)<br/><br/>Inline::Java fixes the problem to run java inside perl, but once you want java code to call perl subrutines (or methods) things get harder. So i realised it was time to dig into JNI (Java Native Interface) and mix that with perl API calls. Inline::Java is really really nice, but didn't really do what i wanted so i ended up using Jvm.pm which is just an interface to JNI Invokation Interface. We wanted to wrap our perl classes inside Java and that was the problem. This is basiclly what i ended up with:<br/><br/>----------------------------------------<br/><br/># Wrapper Java class
+public class FooWrapper {
+  int _SVaddr = 0;<br/><br/>  static { System.loadLibrary("FooWrapper") }<br/><br/>  public FooWrapper(int ptr) {
+    _SVaddr = ptr;
+  }<br/><br/>  public native void printID();
+}<br/><br/># Some JNI code, compiles to libFooWrapper.so needed for System.loadLibrary<br/><br/>SV *get_sv_reflect(JNIEnv *env, jobject obj) {
+  SV *reflect_sv;
+  jclass class_ref;
+  jfieldID addr_field_ref;
+  jint addr;<br/><br/>  class_ref = (*env)->GetObjectClass(env, obj);
+  if(!class_ref) return NULL;<br/><br/>  addr_field_ref = (*env)->GetFieldID(env, class_ref, "_SVaddr", "I");
+  if(!addr_field_ref) return NULL;
+  addr = (*env)->GetIntField(env, obj, addr_field_ref);
+  if(!addr) return NULL;<br/><br/>  reflect_sv = (SV *) addr;
+  return reflect_sv;
+}<br/><br/>JNIEXPORT void JNICALL Java_FooWrapper_printID(JNIEnv *env, jobject obj) {
+  dSP;
+  SV *ref;
+  ref = get_sv_reflect(env, obj);<br/><br/>  if(ref) {
+    ENTER; SAVETMPS; PUSHMARK(SP);
+    XPUSHs(ref);
+    PUTBACK;<br/><br/>    call_pv("Foo::printID", G_VOID);
+     
+    FREETMPS;
+    LEAVE;
+  }
+}<br/><br/># Our java code
+public class Party {
+  public Party {
+  }<br/><br/>  public void run(FooWrapper foo) {
+    foo.printID();
+  }
+}<br/><br/># Some perl code
+package Foo;<br/><br/>sub new {
+  my $class = shift;
+  my $id = shift;<br/><br/>  return bless { id => $id }, $class;
+}<br/><br/>sub printID {
+  my $self = shift;
+  print "ID is: $self->{id}\n"
+}<br/><br/>package main;<br/><br/>use Inline ( C => "int get_sv_addr (SV *var) { return (int) var; }" );<br/><br/>use Jvm;<br/><br/>my $party = new Jvm("Party", "()V");
+my $foo = new Foo(10);<br/><br/>my $foow = new Jvm("FooWrapper", "(I)V", get_sv_addr($foo));<br/><br/>$party->run("(LFooWrapper;)V", $foow);<br/><br/>----------------------------------------<br/><br/>The real code i wrote throws Java Exceptions if the perl subrutine/method dies =)<br/><br/>Magic =)<br/><br/>/claes</p>
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+

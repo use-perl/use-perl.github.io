@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>use.perl.org story by brian_d_foy: Perl is now Y2038 safe</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+
+    <!-- Le styles -->
+    <link href="/static/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the
+bottom of the topbar */
+      }
+    </style>
+    <link href="/static/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- Le HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script
+src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+
+    <!-- Le fav and touch icons -->
+    <link rel="shortcut icon" href="/static/ico/favicon.ico">
+  </head>
+
+  <body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="btn btn-navbar" data-toggle="collapse"
+data-target=".nav-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </a>
+          <a class="brand" href="/"><img src="/static/img/slashhead.png"/></a>
+          <div class="nav-collapse">
+            <ul class="nav">
+              <li><a href="/">Home</a></li>
+              <li><a href="/about/">About</a></li>
+              <li><a href="/authors/">Authors</a></li>
+              <li><a href="/journals/">Journals</a></li>
+              <li><a href="/stories/">Stories</a></li>
+            </ul>
+            <p class="navbar-text">All the Perl that's Practical to Extract and Report</p>
+          </div><!--/.nav-collapse -->
+        </div>
+      </div>
+    </div>
+
+
+
+<div class="container">
+
+<div class="row">
+
+<div class="span4">
+<h1>Perl is now Y2038 safe</h1>
+<h2><a href="/user/brian_d_foy/">brian_d_foy</a> on 2008-02-07T17:21:00</h2>
+</div> <!-- /span4 -->
+
+
+<div class="span8">
+<p>They said it couldn't be done.  They said it SHOULDN'T be done!  But I have here a working 64 bit localtime_r() on a machine with just 32 bits of time_t.  Time zones, daylight savings time... it all works.<p><blockquote> <div> <tt>$ ./miniperl -wle 'print scalar localtime(2**35)'<br>Mon Oct 25 20:46:08 3058</tt> </div> </blockquote> Perl will be Y2038 safe.  And yes, I'm going to get it backported to 5.10.<br> <br>The underlying C functions are solid, but I just sort of rammed them down perl's throat because it's 5am.  Here's <a href="http://www.pobox.com/user/schwern/src/perl_Y2038.patch">the patch</a> for the intrepid.<br> <br>The underlying <a href="http://svn.schwern.org/svn/y2038">C implementation</a> is a heavily modified version of the code from <a href="http://www.2038bug.com/">2038bug.com</a> written by Paul Sheer.  He came up with the same basic algorithm I did:<br> <br>1)  Write a 64 bit clean gmtime(), that's a SMOP and Paul did that.<br>2)  Run your time through this new gmtime_64().<br>3)  Change the year to a year between 2012 and 2037.<br>4)  Run it through the 32 bit system localtime() to get time zone stuff.<br>5)  Move the year back to the original.<br> <br>The trick is using a 32 bit safe year that has the same properties as the real year.  This means same leap year status and same calendar layout.  Had to do some tricky Gregorian calendar math aided by Graham, Nick and Abigail who realized there's a 28 year cycle within the larger 400 year Gregorian cycle and Mark Mielke who provided a big table of 64 bit localtime() results to test against.  There's also some edge cases around New Year's, but they're all taken care of.<br> <br>This approach will break when daylight savings time changes, but I'd rather be off by an hour than 137 years.  The full Perl patch will always prefer the system's 64 bit localtime() if one is available.  As more machines upgrade time_t this hack will be used less.<br> <br>The nice part is this code isn't specific to Perl and can be used to fix up any other C-based Unix program.</p>
+<p></p>
+
+
+<hr/>
+
+
+
+<h2>Another free 64 bit time library</h2>
+<h3><a href="/user/charlieb/">charlieb</a> on 2008-02-08T15:26:26</h3>
+&gt; The underlying C implementation is a heavily<br>&gt; modified version of the code from 2038bug.com<br>&gt; written by Paul Sheer.<br><br>Did you perchance look at Dan Bernstein's libtai?<br><br><a href="http://cr.yp.to/libtai.html" title="cr.yp.to">http://cr.yp.to/libtai.html</a cr.yp.to><br><br>I notice that 2038bug.com's code comes with license which appears to include an advertising clause. OTOH djb's code is public domain, and therefore unambiguously compatible with the GPL. Its use is also recommended by Paul Sheer:<br><br><a href="http://2038bug.com/developers.html" title="2038bug.com">http://2038bug.com/developers.html</a 2038bug.com><br>
+
+
+
+<blockquote>
+
+<h2>Re:Another free 64 bit time library</h2>
+<h3><a href="/user/schwern/">schwern</a> on 2008-02-09T00:02:36</h3>
+I glanced at libtai but on its TODO list is "support time zones" which puts it right out for localtime().  Supporting time zones and DST is a non-trivial task and I wish very much for Perl to have to ship time zone tables.  Also libtai lacks a gmtime() and localtime() implementation and, as I'm not a very good C programmer, would probably require quite a bit more adaptation than I can handle.<br><br>The 2038bug.com implementation attracted me because it is a 64 bit drop in replacement for 32 bit gmtime() and localtime() which is exactly what I need and requires the least adaptation.  The licensing issue is a worry.  Since he's obviously interested in educating people and fixing the problem, I hope that the author will be amenable to dropping the advertising clause and smoothing out any licensing issues.  However, I have not heard back and it's possible the mail isn't getting through.  Hmm, maybe I'll just call him.<br><br>I came up with the algorithm before seeing Paul's implementation, and significantly improved on it.  In the worst case I will just have to reimplement the code myself.  Either way, it'll get done.
+
+
+
+
+
+</div> <!-- /span8 -->
+
+</div> <!-- row -->
+</div> <!-- /container -->
+
+
+
+    <!-- Le javascript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+
+  </body>
+</html>
+
